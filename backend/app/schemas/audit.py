@@ -28,6 +28,7 @@ class SystemStatusOut(BaseModel):
 
     application: str
     version: str
+    release_version: str = "unknown"
     environment: str
     api_status: str
     database_status: str

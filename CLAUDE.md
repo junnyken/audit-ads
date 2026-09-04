@@ -1,7 +1,8 @@
 # AdsOps Control Center — agent instructions
 
 Governing process: `MINI_SPEC_PLAYBOOK.md`. Read it, plus `FEATURES.md`, `ARCH.md`, `API.md` and
-`TEST_LOG.md`, before changing code. Current release: MINI-SPEC A3 (alerts + Telegram), on A2 (health) and A1 (registry).
+`TEST_LOG.md`, before changing code. Current release: MINI-SPEC A4 Stage A (deployment readiness), on A3 (alerts + Telegram),
+A2 (health) and A1 (registry). Nothing is deployed; no real Telegram message has been sent.
 
 ## Hard rules (these are product requirements, not preferences)
 
@@ -38,6 +39,23 @@ Governing process: `MINI_SPEC_PLAYBOOK.md`. Read it, plus `FEATURES.md`, `ARCH.m
     the user's explicit approval of a named chat.
 21. Alert derivation runs in a nested SAVEPOINT inside the health evaluation. An alerting failure
     must degrade alerting only.
+22. Never deploy, run `docker compose up` against a target, change DNS/firewall/proxy, or send a
+    real Telegram message without the user's explicit, separate approval for that specific
+    action. Deployment approval never implies send approval.
+23. Migrations are an explicit release step with a backup in front of them. The API image must
+    never migrate on container start.
+24. Never use a `latest` or otherwise mutable image tag. `IMAGE_TAG` is the release commit.
+25. `pilot-local-password` and every placeholder secret are refused by production configuration
+    validation. Do not weaken that guard to make an environment start.
+26. A configuration finding names a code and a sentence, never the offending value. The same
+    applies to logs, audit rows and every API response.
+27. Never mount the Docker socket into an application container.
+28. "Never run" is a distinct state from "stale" everywhere it is reported. Do not collapse them,
+    and never report an unavailable metric as healthy.
+29. A controlled test send creates no Alert, writes no NotificationDelivery, and accepts no
+    recipient or message body from the caller.
+30. Do not automatically downgrade a schema or overwrite a production database during an
+    incident; both are deliberate decisions with a person present.
 
 ## Working style
 

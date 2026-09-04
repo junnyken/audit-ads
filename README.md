@@ -4,8 +4,12 @@ Single-operator-first operations platform for managing 30+ advertising accounts 
 dashboard instead of a wall of Chrome windows: an account registry, ownership and asset
 mapping, an evidence-first readiness checklist, account events and an immutable audit trail.
 
-**Release: MINI-SPEC A3 — Alert Center & Telegram Notification Delivery**, on top of
+**Release: MINI-SPEC A4 Stage A — Deployment Readiness, Controlled Telegram Test Send & VPS
+Observability**, on top of **A3 — Alert Center & Telegram Notification Delivery**,
 **A2 — Evidence-Based Account Health** and **A1 — Account Registry & Stability Readiness.**
+
+> Nothing has been deployed, and no real Telegram message has ever been sent. A4 Stage A builds
+> the artifacts, checks and runbooks for both; each needs its own explicit approval.
 
 Separate questions, answered separately and shown side by side:
 
@@ -82,6 +86,9 @@ export JWT_SECRET="dev-secret" BOOTSTRAP_OWNER_EMAIL="you@matbao.com" BOOTSTRAP_
 # set it to "fake" to see rendered messages without a network call.
 NOTIFICATION_TRANSPORT=fake .venv/bin/python -m app.commands.dispatch_notifications --batch 10
 
+# A4: the same work on a schedule, as a bounded loop (this is what the dispatcher container runs)
+NOTIFICATION_TRANSPORT=fake .venv/bin/python -m app.commands.run_dispatcher --once
+
 # frontend
 cd ../frontend && npm install
 VITE_API_BASE_URL=http://localhost:8000 npm run dev     # http://localhost:5173
@@ -95,11 +102,11 @@ idempotent — once a workspace exists, restarting changes nothing.
 ```bash
 cd backend
 createdb adsops_test   # or: docker exec adsops-db psql -U adsops -d adsops -c "CREATE DATABASE adsops_test"
-.venv/bin/python -m pytest              # 283 tests against a real PostgreSQL database
+.venv/bin/python -m pytest              # 344 tests against a real PostgreSQL database
 .venv/bin/ruff check .
 
 cd ../frontend
-npx vitest run                          # 52 hermetic tests
+npx vitest run                          # 60 hermetic tests
 npm run build                           # tsc + production bundle
 npx eslint .
 
@@ -140,3 +147,11 @@ target VPS (4 vCPU / 8 GB, already loaded).
 | [`docs/AUDIT_BEFORE_BUILD_A3.md`](docs/AUDIT_BEFORE_BUILD_A3.md) | The A3 audit, including the re-verified A1/A2 baseline |
 | [`docs/ALERT_POLICY_V1.md`](docs/ALERT_POLICY_V1.md) | Alert derivation, dedupe, quiet hours, retry and the message template |
 | [`docs/MINI_SPEC_A3_REPORT.md`](docs/MINI_SPEC_A3_REPORT.md) | The A3 completion report |
+| [`docs/AUDIT_BEFORE_BUILD_A4.md`](docs/AUDIT_BEFORE_BUILD_A4.md) | The A4 audit, including the target-environment gaps that block deployment |
+| [`docs/PRODUCTION_ENVIRONMENT.md`](docs/PRODUCTION_ENVIRONMENT.md) | Every configuration value, the topology, and the resource budget |
+| [`docs/RUNBOOK_DEPLOY.md`](docs/RUNBOOK_DEPLOY.md) | Deploy a release, with verification checkpoints |
+| [`docs/RUNBOOK_ROLLBACK.md`](docs/RUNBOOK_ROLLBACK.md) | Roll back without destroying data |
+| [`docs/RUNBOOK_BACKUP_RESTORE.md`](docs/RUNBOOK_BACKUP_RESTORE.md) | Back up, and prove the backup restores |
+| [`docs/RUNBOOK_TELEGRAM_TEST_SEND.md`](docs/RUNBOOK_TELEGRAM_TEST_SEND.md) | The controlled first real message |
+| [`docs/RUNBOOK_INCIDENT_RESPONSE.md`](docs/RUNBOOK_INCIDENT_RESPONSE.md) | A first hour that does not make things worse |
+| [`docs/MINI_SPEC_A4_REPORT.md`](docs/MINI_SPEC_A4_REPORT.md) | The A4 Stage A completion report |

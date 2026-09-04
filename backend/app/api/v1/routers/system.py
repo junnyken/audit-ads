@@ -7,6 +7,7 @@ from fastapi import APIRouter
 
 from app.api.deps import Ctx
 from app.core.config import get_settings
+from app.core.enums import OperationalRunKind
 from app.models.alerts import Alert, NotificationDelivery
 from app.models.entities import AdAccount
 from app.schemas.audit import SystemStatusOut
@@ -87,14 +88,33 @@ def system_status(ctx: Ctx) -> SystemStatusOut:
         )
     ).scalar()
 
+    # A4: the dispatcher is a real process now, so reporting a flat "not_configured" would be a
+    # lie the operator could act on. Derived from its recorded runs, because this API cannot see
+    # the container — and "never_run" stays distinct from "stale".
+    from datetime import timedelta
+
+    from app.services.operations import OperationalRunService, staleness
+
+    last_dispatch = OperationalRunService(ctx.session).latest(OperationalRunKind.DISPATCH)
+    dispatcher_state = staleness(
+        last_dispatch.started_at if last_dispatch else None,
+        limit=timedelta(minutes=settings.dispatcher_stale_after_minutes),
+    )
+    worker_status = {
+        "current": "running",
+        "stale": "stale",
+        "never": "not_configured",
+    }[dispatcher_state]
+
     return SystemStatusOut(
         application=settings.app_name,
         version=settings.app_version,
+        release_version=settings.release_version,
         environment=settings.environment,
         api_status="healthy",
         database_status=database_status,
         database_migration_revision=revision,
-        worker_status="not_configured",
+        worker_status=worker_status,
         redis_status="not_configured",
         last_readiness_recalculation_at=last_recalculation,
         account_count=int(account_count),

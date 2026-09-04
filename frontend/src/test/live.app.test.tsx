@@ -106,7 +106,7 @@ suite('live application', () => {
   it('renders system status without exposing infrastructure values', async () => {
     renderApp('/system')
     expect(await screen.findByRole('heading', { name: 'System status' })).toBeInTheDocument()
-    expect(await screen.findByText('0003_a3_alerts')).toBeInTheDocument()
+    expect((await screen.findAllByText('0004_a4_operational_runs')).length).toBeGreaterThan(0)
     const body = document.body.textContent ?? ''
     for (const leak of ['postgresql', 'adsops:adsops', 'JWT_SECRET']) {
       expect(body.toLowerCase()).not.toContain(leak.toLowerCase())
@@ -241,5 +241,55 @@ suite('live application', () => {
     // The page explains that the token is server-side; what must be absent is a token *value*.
     expect(body).not.toMatch(/\d{6,}:[A-Za-z0-9_-]{20,}/)
     expect(await screen.findByText(/never displayed here/i)).toBeInTheDocument()
+  })
+
+  it('renders System Status with release, dispatcher, backup and host bands', async () => {
+    renderApp('/system')
+    expect(await screen.findByRole('heading', { name: 'System status' })).toBeInTheDocument()
+    for (const tile of ['Release', 'Database', 'Dispatcher', 'Backup']) {
+      expect((await screen.findAllByText(tile)).length).toBeGreaterThan(0)
+    }
+    expect(await screen.findByText('a4-stage-a')).toBeInTheDocument()
+    expect((await screen.findAllByText(/0004_a4_operational_runs/)).length).toBeGreaterThan(0)
+    expect(await screen.findByRole('heading', { name: 'Host resources' })).toBeInTheDocument()
+    for (const metric of ['CPU load', 'Memory', 'Disk']) {
+      expect((await screen.findAllByText(metric)).length).toBeGreaterThan(0)
+    }
+  })
+
+  it('shows configuration findings and run history without any secret value', async () => {
+    renderApp('/system')
+    expect(await screen.findByRole('heading', { name: 'Configuration' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Operational run history' })).toBeInTheDocument()
+    // The local pilot credential is flagged by code, and its value never appears.
+    expect(await screen.findByText(/bootstrap_password_is_pilot_credential/)).toBeInTheDocument()
+    const body = document.body.textContent ?? ''
+    expect(body).not.toContain('pilot-local-password')
+    expect(body).not.toMatch(/\d{6,}:[A-Za-z0-9_-]{20,}/)
+    expect(body).not.toContain('postgresql')
+    expect(await screen.findByText(/never contain the offending value/i)).toBeInTheDocument()
+  })
+
+  it('renders the delivery verification without arming or sending anything', async () => {
+    const user = userEvent.setup()
+    renderApp('/system')
+    expect(
+      await screen.findByRole('heading', { name: 'Controlled delivery verification' }),
+    ).toBeInTheDocument()
+    expect(await screen.findByText('Test send is switched off')).toBeInTheDocument()
+
+    await user.click(await screen.findByRole('button', { name: 'Render preview' }))
+    expect(await screen.findByText(/\[AdsOps\] TEST NOTIFICATION/)).toBeInTheDocument()
+    expect(await screen.findByText(/Pre-send checks/)).toBeInTheDocument()
+    // Blocked, so no confirmation control is offered at all.
+    expect(
+      await screen.findByText(/This preview cannot be sent yet/),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Send one test message' })).toBeNull()
+
+    const message = (await screen.findByText(/\[AdsOps\] TEST NOTIFICATION/)).textContent ?? ''
+    for (const banned of ['account', 'token', 'password', '127.0.0.1', 'readiness']) {
+      expect(message.toLowerCase()).not.toContain(banned)
+    }
   })
 })

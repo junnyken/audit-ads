@@ -7,6 +7,7 @@ from app.api.v1.routers import (
     auth,
     events,
     health,
+    operations,
     readiness,
     references,
     system,
@@ -22,3 +23,4 @@ api_router.include_router(health.router)
 api_router.include_router(alerts.router)
 api_router.include_router(audit.router)
 api_router.include_router(system.router)
+api_router.include_router(operations.router)

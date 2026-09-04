@@ -1,0 +1,194 @@
+# AdsOps Control Center — production overlay.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.production.yml up -d
+#
+# What this overlay changes versus the base file:
+#   * explicit, immutable image tags — never `latest`, so a rollback has something to roll back to;
+#   * no implicit migration on container start (that is `scripts/release_migrate.sh`);
+#   * a dedicated bounded dispatcher so the A3 outbox actually drains;
+#   * CPU limits, log rotation, read-only root filesystems and dropped capabilities;
+#   * the web port bound to loopback by default, because TLS belongs to the edge, not here.
+#
+# Two supported topologies, chosen at deploy time:
+#   (1) A managed platform (Coolify / Vibe Host) terminates TLS and routes to `web`.
+#       Leave WEB_BIND at 127.0.0.1 and let the platform's proxy reach the container.
+#   (2) A self-managed VPS: add the `edge` profile for an nginx TLS terminator —
+#       `--profile edge`, with certificates mounted read-only.
+#
+# Secrets come from an env file that lives OUTSIDE this repository:
+#   docker compose --env-file /etc/adsops/production.env -f ... up -d
+
+services:
+  db:
+    image: postgres:16.4-alpine
+    command:
+      # Memory-conscious for a shared 4 vCPU / 8 GB host. Raise only after observing the host.
+      - postgres
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - effective_cache_size=768MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - maintenance_work_mem=64MB
+      - -c
+      - max_connections=50
+      - -c
+      - log_min_duration_statement=1000
+    restart: unless-stopped
+    # No ports: the database is reachable only on the private compose network.
+    ports: !override []
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks: [internal]
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+        reservations:
+          memory: 256m
+    mem_limit: 1g
+    cpus: 1.0
+
+  api:
+    image: ${IMAGE_REGISTRY:-adsops}/api:${IMAGE_TAG:?set IMAGE_TAG to the release commit}
+    build:
+      context: ./backend
+      args:
+        RELEASE_VERSION: ${IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      RELEASE_VERSION: ${IMAGE_TAG}
+      ENVIRONMENT_LABEL: ${ENVIRONMENT_LABEL:-production}
+      # The API surface map is not published to the internet in production.
+      ENABLE_API_DOCS: ${ENABLE_API_DOCS:-false}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:?set PUBLIC_APP_URL to the public HTTPS origin}
+      # Off unless one approved verification is in progress.
+      ALLOW_TEST_SEND: ${ALLOW_TEST_SEND:-false}
+    expose: ["8000"]
+    ports: !override []
+    networks: [internal]
+    logging: *logging
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512m
+        reservations:
+          memory: 128m
+    mem_limit: 512m
+    cpus: 1.0
+
+  # The A3 outbox has always been durable; this is what finally drains it on a schedule.
+  # One process, one pass at a time, a bounded batch and a sleep between passes. It sends
+  # only what the policy already decided to send, and with NOTIFICATION_TRANSPORT unset it
+  # runs, records its passes and delivers nothing.
+  dispatcher:
+    image: ${IMAGE_REGISTRY:-adsops}/api:${IMAGE_TAG:?set IMAGE_TAG to the release commit}
+    build:
+      context: ./backend
+      args:
+        RELEASE_VERSION: ${IMAGE_TAG}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    command:
+      - python
+      - -m
+      - app.commands.run_dispatcher
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-adsops}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-adsops}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      RELEASE_VERSION: ${IMAGE_TAG}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      NOTIFICATION_TRANSPORT: ${NOTIFICATION_TRANSPORT:-disabled}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_API_BASE_URL: ${TELEGRAM_API_BASE_URL:-https://api.telegram.org}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
+      NOTIFICATION_DISPATCH_BATCH_SIZE: ${NOTIFICATION_DISPATCH_BATCH_SIZE:-10}
+      DISPATCHER_INTERVAL_SECONDS: ${DISPATCHER_INTERVAL_SECONDS:-60}
+      DISPATCHER_RECOVERY_EVERY_N_PASSES: ${DISPATCHER_RECOVERY_EVERY_N_PASSES:-10}
+    networks: [internal]
+    logging: *logging
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+    mem_limit: 256m
+    cpus: 0.5
+
+  web:
+    image: ${IMAGE_REGISTRY:-adsops}/web:${IMAGE_TAG:?set IMAGE_TAG to the release commit}
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ""
+    restart: unless-stopped
+    ports: !override
+      # Loopback by default: whatever terminates TLS reaches it, the internet does not.
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8080}:80"
+    networks: [internal]
+    logging: *logging
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128m
+    mem_limit: 128m
+    cpus: 0.25
+
+  # Optional: only for a self-managed VPS with no platform proxy in front.
+  #   docker compose ... --profile edge up -d
+  edge:
+    profiles: ["edge"]
+    image: nginx:1.27.2-alpine
+    restart: unless-stopped
+    depends_on: [web]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/edge.conf:/etc/nginx/conf.d/default.conf:ro
+      # A default, not a `:?` requirement: Compose interpolates a profiled service's variables
+      # even when the profile is off, so demanding TLS_CERT_DIR here broke every deploy that
+      # does not use this edge at all. Set it for real when running `--profile edge`.
+      - ${TLS_CERT_DIR:-./deploy/nginx/certs}:/etc/nginx/tls:ro
+    networks: [internal]
+    logging: *logging
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128m
+    mem_limit: 128m
+    cpus: 0.5
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  db_data:

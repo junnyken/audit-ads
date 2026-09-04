@@ -1,8 +1,88 @@
 # FEATURES
 
-Current release: **MINI-SPEC A3 — Alert Center & Telegram Notification Delivery** (2026-09-04),
-built on **A2 — Evidence-Based Account Health** and **A1 — Account Registry & Stability
+Current release: **MINI-SPEC A4 Stage A — Deployment Readiness, Controlled Telegram Test Send &
+VPS Observability** (2026-09-05), built on **A3 — Alert Center & Telegram Notification
+Delivery**, **A2 — Evidence-Based Account Health** and **A1 — Account Registry & Stability
 Readiness**.
+
+**Nothing has been deployed, and no real Telegram message has ever been sent.** A4 Stage A
+produces the artifacts, checks and runbooks for both; each needs its own explicit approval.
+
+## Shipped in A4 Stage A — deployment readiness and observability
+
+### Production packaging
+- A versioned production Compose overlay supporting two topologies: a managed platform
+  (Coolify / Vibe Host) terminating TLS, or a self-managed VPS with an optional `edge` nginx
+  profile. The audit could not confirm which target will be used, so neither is assumed.
+- Explicit immutable image tags. Compose refuses to start without `IMAGE_TAG`, and `latest` is
+  refused by the rollback script.
+- **The API image no longer migrates on start.** A schema change is a release step with a
+  backup in front of it, not something a crash-looping container replays unattended.
+- CPU and memory limits, log rotation, read-only root filesystems, dropped capabilities and
+  `no-new-privileges` on every service.
+- Database, API and dispatcher have no host port at all; `web` binds to loopback by default.
+- Images build with a non-root user and carry no secret in any layer or environment variable.
+
+### Production configuration validation
+- Startup validation that **refuses to boot a production process** configured unsafely, and
+  warns everywhere else: missing database or auth settings, placeholder or short secrets, a
+  wildcard CORS origin, `telegram` transport with no token, a non-HTTPS public URL, published
+  API docs, an unstamped release.
+- The documented local pilot password is refused in **every** environment.
+- Findings name a code and a sentence. They never contain the offending value, and neither does
+  any log line or API response.
+- Interactive API docs are off in production: the schema is a map of the whole API.
+
+### Backup, restore and rollback
+- A backup script that refuses to run below 512 MB free, verifies gzip integrity, and checks
+  the dump's **content** — at least 20 `CREATE TABLE` statements and an `alembic_version`
+  marker — rather than guessing from its size. It writes a SHA-256 and a JSON metadata file,
+  records the run, and renames a failed dump `.suspect` instead of accepting it.
+- A restore drill that verifies the checksum, restores into an **isolated** throwaway database,
+  checks table count and migration revision, records the result and drops the database again.
+  It refuses any name matching the production database.
+- An explicit migration release step: back up, record the revision, migrate, verify, and abort
+  the release before the version switch if anything fails.
+- Application-only rollback to a previous immutable tag. **No automatic schema downgrade and no
+  scripted production restore** — both are incident decisions a person makes deliberately.
+
+### Dispatcher scheduling
+- A dedicated bounded dispatcher container finally drains the A3 outbox on a schedule: one pass
+  at a time, batch 10, a sleep between passes, a stop signal honoured within a second, and
+  periodic recovery sweeps.
+- Chosen over a systemd timer or cron because neither is available in this workspace or on the
+  managed platforms this project deploys to.
+- Every pass is recorded, so "the dispatcher stopped" is a visible state rather than silence.
+- It runs, records and delivers nothing when the transport is disabled.
+
+### Observability
+- A System Status page showing release, database and migration revision, dispatcher state,
+  backup age, due and failed deliveries, oldest pending delivery, host CPU/memory/disk with
+  warning and critical bands, configuration findings and operational run history.
+- **"Never run" stays distinct from "stale"** everywhere: one has never started, the other
+  stopped, and collapsing them into a green tick is how an outbox quietly stops delivering.
+- Host metrics come from `/proc` and `shutil`, never the Docker socket.
+- `worker_status` stopped reporting a constant `not_configured` and is now derived from
+  recorded runs.
+
+### Controlled Telegram test send
+- A preview endpoint that renders the exact fixed message, the masked recipient and eight
+  pre-send checks — and sends nothing.
+- Execution behind four independent gates: workspace owner, a server-side switch that is off by
+  default, an explicit confirmation, and an approval code proving the preview was seen.
+- **The caller supplies no recipient and no message body.** The request schema has no field for
+  either, so it is a structural guarantee rather than a check that could be skipped.
+- The message carries only an environment label, a timestamp and an optional public link.
+- Keyed separately from the alert outbox: a test send creates no alert, writes no delivery row,
+  and cannot collide with, suppress or duplicate a real notification.
+- Exactly one message per approved preview; a second attempt is refused.
+
+### Runbooks
+`docs/RUNBOOK_DEPLOY.md`, `RUNBOOK_ROLLBACK.md`, `RUNBOOK_BACKUP_RESTORE.md`,
+`RUNBOOK_TELEGRAM_TEST_SEND.md`, `RUNBOOK_INCIDENT_RESPONSE.md` and
+`docs/PRODUCTION_ENVIRONMENT.md` — each with prerequisites, redacted commands, expected output,
+verification checkpoints, failure handling and escalation conditions. No real secret appears in
+any of them.
 
 ## Shipped in A3 — Alert Center and notification delivery
 
@@ -178,6 +258,21 @@ Readiness**.
 - `unknown` and `not_ready` are never rendered with success styling — enforced by a single
   colour map and covered by a test.
 
+## Deliberately excluded from A4
+
+| Excluded | Why |
+|---|---|
+| Deploying anything | Stage B. It needs a resolved target and the owner's explicit approval |
+| Sending a real Telegram message | Stage B, and a *separate* approval from the deployment one |
+| Enabling real dispatch automatically after a deployment | The default outcome of A4 is deployment-ready with delivery opt-in |
+| A scripted production restore | A one-command overwrite of a production database is a foot-gun that eventually gets run by accident |
+| Automatic schema downgrade on incident | The release being rolled back has already written rows; a downgrade drops the columns holding them |
+| Mounting the Docker socket into the API container | It would hand whoever compromises the API full control of the host, for a container restart count |
+| A monitoring stack (Prometheus, Grafana, agents) | The target host has no headroom. Lightweight status signals first |
+| CI/CD | Out of scope by A4 §3; still a documented follow-up |
+| Infrastructure alerts over Telegram | Operational signals are not account health. They stay on the status page unless a MINI-SPEC extends the alert model deliberately |
+| Broad auth/RBAC redesign or role UI | Unrelated to deployment |
+
 ## Deliberately excluded from A3
 
 | Excluded | Why |
@@ -220,9 +315,21 @@ Readiness**.
 
 ## Known limits (follow-ups)
 
-- **No scheduled dispatch.** Deliveries wait until the dispatch command or the owner-only
-  endpoint runs. A deferred warning is scheduled correctly but only leaves when something works
-  the outbox. Wiring `app.commands.dispatch_notifications` to a scheduler is the next infra step.
+- **Nothing has been deployed.** Every deployment command is written, and every one was
+  exercised against a local staging-equivalent stack, but none has run against a real target.
+- **No real Telegram message has ever been sent.** The transport code path is covered by
+  structural and unit-level tests through a fake; a first real send needs a bot token and the
+  owner's approval of a named chat.
+- **The deployment target is unresolved**: no git remote, no domain, no confirmed host, no
+  backup destination. `docs/AUDIT_BEFORE_BUILD_A4.md` §6 lists exactly what is missing.
+- **Resource limits are unproven at runtime.** This workspace's Docker-in-Docker cgroup is
+  `domain threaded` and cannot apply any limit; they are validated by `compose config` only.
+- **Off-host backup transfer is manual.** Nothing ships credentials to an object store.
+- **No real-browser UAT.** Verification is jsdom rendering against the live API plus a
+  production build. A person has still never clicked through the app.
+- **Still no CI, and no rate limiting.**
+- **Scheduled dispatch is now solved** by the A4 dispatcher container, but it has only ever run
+  locally. On a real deployment it is unproven until Stage B.
 - **Reminders are implemented but off**, and have no dedicated UI beyond the toggle.
 - **No real Telegram delivery has been exercised.** The transport code path is tested through a
   fake; a first real send needs a bot token and the user's explicit approval of a target chat.

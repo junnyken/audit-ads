@@ -13,6 +13,7 @@ from app.bootstrap import bootstrap_owner
 from app.core.config import get_settings
 from app.core.errors import install_exception_handlers
 from app.core.logging import configure_logging
+from app.core.production_checks import enforce, is_production
 from app.db.session import SessionLocal, engine
 
 
@@ -20,6 +21,17 @@ from app.db.session import SessionLocal, engine
 async def lifespan(app: FastAPI):
     settings = get_settings()
     configure_logging(settings.log_level)
+
+    # Validate before anything else. A production process that boots with a placeholder secret
+    # or the pilot password still active looks healthy from outside, which is worse than a
+    # refusal: `enforce` raises in production and only warns elsewhere.
+    import logging as _logging
+
+    for finding in enforce(settings):
+        _logging.getLogger(__name__).warning(
+            "configuration finding", extra={"code": finding.code, "severity": finding.severity}
+        )
+
     with SessionLocal() as session:
         try:
             bootstrap_owner(session)
@@ -36,6 +48,11 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
+        # The OpenAPI schema is a map of the whole API. Publishing it to the internet is a
+        # gift to anyone probing the deployment, so production serves no docs by default.
+        docs_url="/docs" if settings.enable_api_docs else None,
+        redoc_url="/redoc" if settings.enable_api_docs else None,
+        openapi_url="/openapi.json" if settings.enable_api_docs else None,
         description=(
             "AdsOps Control Center — account registry and evidence-based operational readiness. "
             "Readiness states are internal operational states; they are not platform approvals "
@@ -57,6 +74,11 @@ def create_app() -> FastAPI:
 
     install_exception_handlers(app)
     app.include_router(api_router, prefix=settings.api_prefix)
+
+    if is_production(settings) and settings.enable_api_docs:
+        import logging as _log
+
+        _log.getLogger(__name__).warning("api docs are enabled in a production environment")
 
     @app.get("/health/live", tags=["health"])
     def health_live() -> dict[str, str]:

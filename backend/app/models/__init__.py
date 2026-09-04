@@ -28,12 +28,14 @@ from app.models.health import (
     HealthEvaluationRun,
     HealthRuleDefinition,
 )
+from app.models.operations import OperationalRun
 
 __all__ = [
     "Alert",
     "AlertPolicy",
     "NotificationDelivery",
     "NotificationDeliveryAttempt",
+    "OperationalRun",
     "AccountHealthSignal",
     "AccountHealthSnapshot",
     "HealthEvaluationRun",

@@ -60,12 +60,37 @@ class Settings(BaseSettings):
     #: rather than sending a recipient somewhere unreachable.
     public_app_url: str = ""
 
+    #: Set by the release process to the deployed commit. "unknown" means nobody stamped it,
+    #: which is itself worth seeing on the status page.
+    release_version: str = "unknown"
+    #: Human-safe label for the running environment, shown in status and the test message.
+    environment_label: str = ""
+    #: Serve /docs, /redoc and /openapi.json. Off in production: the schema is a map of the
+    #: whole API and there is no reason to publish it to the internet.
+    enable_api_docs: bool = True
+
     notification_dispatch_batch_size: int = 10
     notification_max_attempts: int = 3
     #: Backoff between transient retries, in minutes, one entry per retry.
     notification_retry_backoff_minutes: str = "1,5,15"
     #: How long a dispatcher may hold a claimed delivery before another may reclaim it.
     notification_lease_seconds: int = 120
+
+    # ---- A4 dispatcher runner --------------------------------------------------------
+    #: Seconds the standalone dispatcher sleeps between passes. Bounded loop, never a busy one.
+    dispatcher_interval_seconds: int = 60
+    #: Passes between recovery sweeps. A sweep reclaims stranded rows; it sends nothing.
+    dispatcher_recovery_every_n_passes: int = 10
+    #: A dispatcher with no recorded run for longer than this is reported stale.
+    dispatcher_stale_after_minutes: int = 15
+    #: A backup older than this is reported stale (daily backup + 2h grace).
+    backup_stale_after_hours: int = 26
+
+    # ---- A4 controlled test send -----------------------------------------------------
+    #: Master switch for the controlled Telegram test send. Off by default: the endpoint
+    #: exists so the flow is reviewable, and it refuses to do anything until an operator
+    #: turns it on for one approved verification.
+    allow_test_send: bool = False
 
     @property
     def retry_backoff_minutes(self) -> list[int]:

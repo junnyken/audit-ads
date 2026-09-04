@@ -352,6 +352,59 @@ Delivery statuses: `pending`, `queued`, `sending`, `sent`, `failed_transient`, `
 Both exist because A3 ships no scheduler. Neither can force a message out: policy, dedupe and
 quiet-hours decisions are already recorded on the delivery rows.
 
+## Operations (A4)
+
+Authenticated like everything else. The routes that reveal deployment detail or can cause an
+external side effect are **owner-only**. Nothing here returns a secret, a hostname, a connection
+string, a filesystem path or a raw chat id.
+
+### Status and history
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/operations/overview` | Release, database and migration revision, dispatcher state, backup age, delivery counters, host CPU/memory/disk with bands and thresholds |
+| `GET` | `/operations/runs` | Owner-only. Recorded runs, newest first. Filters: `kind`, `limit` |
+| `GET` | `/operations/configuration` | Owner-only. Configuration **findings** and capability booleans |
+
+`dispatcher_state` and `backup_state` are `current`, `stale` or `never` — "never run" is not
+folded into "stale", because one has never started and the other stopped.
+
+Host bands are `ok`, `warning`, `critical` or `unknown`. A metric that cannot be read reports
+`unknown`; it never defaults to healthy.
+
+`configuration` returns `{code, severity, message}` per finding and nothing else. It reports
+that a secret is missing, a placeholder or too short — never its value.
+
+### Controlled Telegram test send
+
+| Method | Path | Notes |
+|---|---|---|
+| `POST` | `/operations/test-send/preview` | Owner-only. Renders the message, the masked recipient and eight pre-send checks. **Sends nothing** |
+| `POST` | `/operations/test-send/execute` | Owner-only. `{approval_code, confirm}`. Sends exactly one message when all four gates are open |
+| `POST` | `/operations/test-send/reset` | Owner-only. Records that the verification is closed. It cannot delete the send history |
+
+`execute` accepts **only** `approval_code` and `confirm`. There is no recipient field and no
+message body field: both come from server-side configuration and a fixed template, and any extra
+field is rejected as a strict-payload violation. The field is named `approval_code` rather than
+`preview_token` because A1's credential guard refuses any request field named like a secret —
+correctly, and this value is an approval reference, not a credential.
+
+Refusals are explicit and safe: `preview_token_mismatch`, `already_sent_for_this_preview`,
+`pre_send_checks_failed:<codes>`, `transport_failed`. HTTP 422 covers a missing confirmation and
+a disabled server switch.
+
+The test send writes an `OperationalRun`, never a `NotificationDelivery`, so it is keyed
+entirely outside the alert outbox and can neither collide with nor duplicate a real alert.
+
+### Changed in A4
+
+`GET /system/status` gains `release_version`, and `worker_status` is now derived from recorded
+dispatcher runs (`running` / `stale` / `not_configured`) instead of the constant
+`not_configured` it returned in A1–A3.
+
+Route count rose from 111 to **117**, still with **no `DELETE` anywhere**, and the operations
+surface uses only `GET` and `POST`.
+
 ## Health and system
 
 | Method | Path | Notes |

@@ -317,3 +317,20 @@ class NotificationTransportMode(StrEnum):
     DISABLED = "disabled"
     FAKE = "fake"
     TELEGRAM = "telegram"
+
+
+class OperationalRunKind(StrEnum):
+    """A4. Infrastructure processes whose last run an operator needs to be able to see."""
+
+    DISPATCH = "dispatch"
+    RECOVERY_SWEEP = "recovery_sweep"
+    BACKUP = "backup"
+    RESTORE_DRILL = "restore_drill"
+    MIGRATION_RELEASE = "migration_release"
+    TEST_SEND = "test_send"
+
+
+class OperationalRunStatus(StrEnum):
+    SUCCEEDED = "succeeded"
+    PARTIAL = "partial"
+    FAILED = "failed"

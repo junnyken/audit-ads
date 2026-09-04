@@ -143,3 +143,26 @@ def api(client, auth):
             return client.patch(url, headers=auth, **kwargs)
 
     return Api()
+
+
+@pytest.fixture()
+def session(db_session):
+    """A4 service-level tests work on the same session the API fixtures use."""
+    return db_session
+
+
+@pytest.fixture()
+def workspace(owner):
+    return owner["workspace"]
+
+
+@pytest.fixture()
+def alert_policy(db_session, workspace):
+    """The workspace's notification policy, created the same way the API creates it."""
+    from app.services.alert_service import AlertPolicyService
+    from app.services.audit import AuditLogService
+
+    audit = AuditLogService(db_session, workspace.id, None)
+    policy = AlertPolicyService(db_session, workspace.id, audit).get_or_create()
+    db_session.flush()
+    return policy

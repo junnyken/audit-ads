@@ -12,3 +12,9 @@ node_modules/
 dist/
 *.tsbuildinfo
 *.log
+
+# A4: database dumps. Never in git — they hold operational data and are unencrypted.
+backups/
+*.sql
+*.sql.gz
+*.sql.gz.*

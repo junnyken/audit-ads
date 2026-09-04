@@ -531,3 +531,99 @@ export interface NotificationPolicy {
   telegram_chat_id_masked: string | null
   updated_at: string
 }
+
+// ---- A4: operations and deployment observability ------------------------------------
+
+export interface OperationalRun {
+  id: string
+  kind: string
+  status: 'succeeded' | 'partial' | 'failed'
+  started_at: string
+  finished_at: string | null
+  duration_ms: number | null
+  summary: Record<string, string | number>
+  error_code: string | null
+  release_version: string | null
+}
+
+export interface HostMetrics {
+  cpu_count: number | null
+  load_average_1m: number | null
+  load_percent: number | null
+  memory_total_mb: number | null
+  memory_available_mb: number | null
+  memory_used_percent: number | null
+  disk_total_gb: number | null
+  disk_free_gb: number | null
+  disk_used_percent: number | null
+  swap_total_mb: number | null
+}
+
+export interface OperationsOverview {
+  release_version: string
+  application_version: string
+  environment: string
+  server_time: string
+  database_status: string
+  migration_revision: string | null
+  api_status: string
+  notification_transport: string
+  telegram_transport_configured: boolean
+  test_send_enabled: boolean
+  dispatcher_state: 'current' | 'stale' | 'never'
+  dispatcher_last_run: OperationalRun | null
+  dispatcher_last_success_at: string | null
+  due_delivery_count: number
+  failed_final_delivery_count: number
+  oldest_due_delivery_at: string | null
+  oldest_due_delivery_minutes: number | null
+  backup_state: 'current' | 'stale' | 'never'
+  backup_last_success_at: string | null
+  backup_last_run: OperationalRun | null
+  restore_drill_last_run: OperationalRun | null
+  migration_last_run: OperationalRun | null
+  host: HostMetrics
+  host_bands: { cpu: string; memory: string; disk: string }
+  thresholds: Record<string, number>
+}
+
+export interface ConfigurationFinding {
+  code: string
+  severity: 'error' | 'warning'
+  message: string
+}
+
+export interface ConfigurationReport {
+  environment: string
+  production_mode: boolean
+  release_version: string
+  api_docs_enabled: boolean
+  cors_origin_count: number
+  public_app_url_configured: boolean
+  public_app_url_is_https: boolean
+  notification_transport: string
+  telegram_transport_configured: boolean
+  test_send_enabled: boolean
+  error_count: number
+  warning_count: number
+  findings: ConfigurationFinding[]
+}
+
+export interface PreSendCheck {
+  code: string
+  passed: boolean
+  detail: string
+}
+
+export interface TestSendPreview {
+  message: string
+  recipient_masked: string | null
+  environment: string
+  timezone: string
+  template_version: string
+  approval_code: string
+  transport_mode: string
+  already_sent: boolean
+  ready_to_send: boolean
+  checks: PreSendCheck[]
+}

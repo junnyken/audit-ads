@@ -37,6 +37,10 @@ Governing process document for AdsOps Control Center. Every MINI-SPEC follows it
 - Acknowledging an issue is not resolving it, at any layer.
 - No outbound message may carry a secret, a raw provider response, a stack trace or an unusable
   link, and no credential may live anywhere but server configuration.
+- Deployment and a first outbound message are irreversible external actions. They are separate
+  stages with separate approvals, and neither happens because a spec was accepted.
+- Report what was measured, not what the previous report claimed. When the environment cannot
+  prove something, say exactly what is missing instead of narrowing the claim quietly.
 
 ## MINI-SPEC Report format
 

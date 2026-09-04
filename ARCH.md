@@ -1,6 +1,6 @@
 # ARCH
 
-Architecture of the AdsOps Control Center as of MINI-SPEC A3.
+Architecture of the AdsOps Control Center as of MINI-SPEC A4 Stage A.
 
 ## 1. Shape of the system
 
@@ -24,7 +24,7 @@ FastAPI
   └─ SQLAlchemy 2.0 (sync) → PostgreSQL 16
 ```
 
-There is still no Redis and no worker after A3: the notification outbox is database-backed and
+A4 adds one long-running process — the dispatcher — and still no broker: the notification outbox is database-backed and
 its dispatcher is a bounded, short-lived batch invoked by a command or an owner-only endpoint.
 There is still no Redis and no worker after A2. Health evaluation is the second background-shaped
 job, and it is handled the same way readiness is — synchronously, inside the transaction of the
@@ -318,6 +318,79 @@ There is no path from an alert to an advertising platform. Telegram is one-way: 
 no callbacks that change state, no recipient chosen per alert, no message body accepted from a
 caller. The dispatch endpoint takes a batch size and nothing else.
 
+## 4d. Deployment topology and operational observability (A4)
+
+```
+Internet ──HTTPS 443──► platform proxy (Coolify / Vibe Host)   ── or ──►  edge  (nginx, TLS)
+                                        │                                   │  [profile: edge]
+                                        └───────────────┬───────────────────┘
+                                                        ▼
+                                            web   (nginx, static React build)
+                                                        │ /api, /health
+                                                        ▼
+                                            api   (FastAPI, uvicorn, 1 worker)
+                                                        │
+                              dispatcher ───────────────┼──────────────►  db  (PostgreSQL 16)
+                              (bounded loop)            │                  private network only
+                                                        ▼
+                                                persistent volume
+```
+
+Two supported shapes, chosen at deploy time rather than assumed: a managed platform terminates
+TLS, or the optional `edge` profile does it for a self-managed VPS. The audit could not confirm
+which target will be used, and artifacts that only work on one would have been guesswork.
+
+### Why the API image stopped migrating on start
+
+A1–A3 ran `alembic upgrade head` in the container command. That is convenient and wrong: a
+crash-looping container replays migrations with nobody watching, and there is no backup in
+front of it. A4 makes the migration an explicit release step
+(`scripts/release_migrate.sh`) that backs up first, records the revision, and **aborts the
+release before the version switch** if anything fails.
+
+### Why the dispatcher is a container, not a timer
+
+A3 left the outbox durable but undrained. A4 §E offers a systemd timer, a cron entry or a
+dedicated process. The audit found systemd not running in this workspace and no crontab, and
+neither Coolify nor Vibe Host gives host-unit access — so a container is the only mechanism
+that works on every target this project can actually deploy to. It is bounded by construction:
+one pass at a time, batch 10, a sleep between passes, and a stop signal honoured within a
+second.
+
+### Operational runs
+
+One additive table, `operational_runs`, records dispatch passes, recovery sweeps, backups,
+restore drills, migration releases and test sends. It is deliberately **not** workspace-scoped:
+a dispatch pass covers every workspace and a backup covers the whole database, so pretending
+either belongs to one tenant would make the "stale dispatcher" signal wrong the moment a second
+workspace exists.
+
+Its `summary_json` passes through an allowlist. A path, a connection string, a recipient or a
+provider body is dropped rather than trusted, because this table is what the status page reads.
+
+**"Never run" is a distinct state from "stale"** throughout: one has never started, the other
+stopped. Collapsing them into a healthy/unhealthy flag is precisely how an outbox stops
+delivering without anyone noticing.
+
+### Host metrics without the Docker socket
+
+CPU, memory and disk come from `/proc` and `shutil.disk_usage` inside the API container.
+Mounting the Docker socket would give whoever compromises the API full control of the host — a
+far larger risk than the container restart counts it would buy. Container-level detail therefore
+comes from the host or the platform, not from the application.
+
+### The controlled test send
+
+A delivery verification, not a product notification. It creates no Alert and writes no
+`NotificationDelivery`: it sends through the transport directly and records an
+`OperationalRun`. That keeps its dedupe key entirely outside the alert outbox, so a test message
+can never collide with, suppress or duplicate a real one.
+
+Four independent gates: workspace owner, a server-side switch that is off by default, an
+explicit confirmation, and an approval code proving the exact destination and message were
+previewed. The request schema carries **no recipient and no message body** — a structural
+guarantee rather than a check that could be skipped.
+
 ## 5. Security model
 
 | Control | Implementation |
@@ -337,6 +410,11 @@ caller. The dispatch endpoint takes a batch size and nothing else.
 | Recipient | An owner-managed chat reference on the policy row, validated to be a chat id or `@name`; a token-shaped value is refused. It is masked in every response |
 | Outbound surface | Exactly one module may make a request, to the configured Telegram API base only. No per-alert recipient, no caller-supplied message body, no arbitrary URL |
 | Deep links | Only a configured public HTTPS URL is emitted; localhost, private ranges and bare hostnames are dropped |
+| Production configuration | Validated at startup. A production process **refuses to boot** with a missing or placeholder secret, a wildcard CORS origin, `telegram` transport without a token, a non-HTTPS public URL, or the documented pilot credential. Findings carry a code and a sentence, never the value (A4) |
+| API surface | `/docs`, `/redoc` and `/openapi.json` are off in production: the schema is a map of the whole API (A4) |
+| Network exposure | Database, API and dispatcher have no host port; `web` binds to loopback by default; TLS lives at the edge (A4) |
+| Container hardening | Non-root user, read-only root filesystem, `cap_drop: ALL`, `no-new-privileges`, explicit immutable image tags, no secret in any image layer (A4) |
+| Docker socket | Never mounted into an application container (A4) |
 
 The backend is the final enforcement point. Client-side omission is never trusted: the tests
 prove the API refuses a secret field even when the UI has no input for it.
@@ -381,6 +459,22 @@ Rejected again in A2:
   account, and collecting it would cross the product's boundary.
 - **User-authored dynamic rule code** — a security, correctness and auditability risk; the typed
   registry gives the same expressiveness with none of it.
+
+Rejected in A4:
+
+- **Migrating on container start** — convenient, but it replays schema changes unattended
+  during a crash loop, with no backup in front of them.
+- **A systemd timer or cron for the dispatcher** — unavailable on the targets this project can
+  actually deploy to.
+- **Mounting the Docker socket for container metrics** — host compromise in exchange for a
+  restart count.
+- **A monitoring stack by default** — the target host has no headroom.
+- **A scripted production restore** — a one-command database overwrite is a foot-gun that
+  eventually gets run by accident.
+- **Automatic schema downgrade during an incident** — it deletes rows the running release
+  already wrote.
+- **Enabling real Telegram dispatch automatically after deployment** — the first real send
+  requires a controlled test and separate explicit approval.
 
 Rejected again in A3:
 
