@@ -1,0 +1,71 @@
+# AdsOps Control Center — VPS deployment.
+#
+# Sized for the target host in A1 §4.3 (4 vCPU / 8 GB, already loaded): one API container,
+# one database, no browser workload and no queue. Every service declares a memory limit and a
+# health check so a single runaway container cannot take the host down.
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-adsops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-adsops}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-adsops} -d ${POSTGRES_DB:-adsops}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+    mem_limit: 1g
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-adsops}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-adsops}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+      BOOTSTRAP_OWNER_EMAIL: ${BOOTSTRAP_OWNER_EMAIL:-}
+      BOOTSTRAP_OWNER_PASSWORD: ${BOOTSTRAP_OWNER_PASSWORD:-}
+      BOOTSTRAP_WORKSPACE_NAME: ${BOOTSTRAP_WORKSPACE_NAME:-AdsOps}
+      READINESS_MANUAL_REVIEW_INTERVAL_DAYS: ${READINESS_MANUAL_REVIEW_INTERVAL_DAYS:-30}
+      DATA_FRESHNESS_STALE_AFTER_DAYS: ${DATA_FRESHNESS_STALE_AFTER_DAYS:-7}
+    expose:
+      - "8000"
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    mem_limit: 512m
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        # Same origin: nginx proxies /api to the API container, so no secret and no
+        # cross-origin base URL is baked into the bundle.
+        VITE_API_BASE_URL: ""
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+    mem_limit: 128m
+
+volumes:
+  db_data:
