@@ -4,12 +4,12 @@ Single-operator-first operations platform for managing 30+ advertising accounts 
 dashboard instead of a wall of Chrome windows: an account registry, ownership and asset
 mapping, an evidence-first readiness checklist, account events and an immutable audit trail.
 
-**Release: MINI-SPEC A4 Stage A — Deployment Readiness, Controlled Telegram Test Send & VPS
-Observability**, on top of **A3 — Alert Center & Telegram Notification Delivery**,
+**Release: MINI-SPEC A5 — Chrome Context Extension & Account Workspace Guard**, on top of
+**A4 Stage A — Deployment Readiness**, **A3 — Alert Center & Telegram Notification Delivery**,
 **A2 — Evidence-Based Account Health** and **A1 — Account Registry & Stability Readiness.**
 
-> Nothing has been deployed, and no real Telegram message has ever been sent. A4 Stage A builds
-> the artifacts, checks and runbooks for both; each needs its own explicit approval.
+> Nothing has been deployed, no real Telegram message has ever been sent, and the extension has
+> never been published or loaded in a browser. Each of those needs its own explicit approval.
 
 Separate questions, answered separately and shown side by side:
 
@@ -19,6 +19,7 @@ Separate questions, answered separately and shown side by side:
 | **Health** (A2) | What needs attention right now, and why? | `unknown` · `attention_needed` · `warning` · `critical` · `clear_signals` |
 | **Alert** (A3) | What is waiting for you, in what workflow state? | `open` · `acknowledged` · `suppressed` · `resolved` · `expired` · `archived` |
 | **Notification** (A3) | What was actually sent, and what happened to it? | `pending` · `sent` · `failed_transient` · `failed_final` · `skipped` · `cancelled` |
+| **Context** (A5) | Which account is this browser tab actually showing? | `confirmed` · `ambiguous` · `unknown` · `unsupported_page` |
 
 None implies the others. `clear_signals` means *no current issues found by configured checks* —
 nothing more.
@@ -37,7 +38,10 @@ It is an operations, compliance-readiness and evidence-management system. It del
 - produce a ban-risk, safety or trust score, or predict platform enforcement;
 - act on a health signal automatically — every action is manual and recorded;
 - offer any Telegram command that changes anything: delivery is one-way, informational only;
-- store the Telegram bot token anywhere but server configuration.
+- store the Telegram bot token anywhere but server configuration;
+- read a cookie, a session, page storage or network traffic from any website;
+- perform, automate or block any action in Ads Manager — the browser extension only reads the
+  page and shows what this product already knows.
 
 Readiness is an internal operational state derived from what the operator recorded. Missing
 evidence never counts as positive evidence.
@@ -97,12 +101,30 @@ VITE_API_BASE_URL=http://localhost:8000 npm run dev     # http://localhost:5173
 The first API start creates the workspace and the owner from `BOOTSTRAP_OWNER_*`. It is
 idempotent — once a workspace exists, restarting changes nothing.
 
+## Chrome extension (A5)
+
+```bash
+cd extension
+npm install
+npm run build          # writes dist/, loadable as an unpacked extension
+npm test               # 50 tests
+```
+
+In Chrome: **Extensions → Developer mode → Load unpacked → `extension/dist`**, then set the
+dashboard URL in the extension's Options page and connect. A deployed API must also list
+`chrome-extension://<id>` in `CORS_ORIGINS` — the id is only known once the extension is packed.
+
+The extension reads the account id in the Ads Manager URL, the route path and the tab title.
+It reads no cookies, no page storage and no network traffic, writes nothing to the page, and
+performs no action on any advertising platform. See
+[`extension/PERMISSIONS.md`](extension/PERMISSIONS.md).
+
 ## Tests
 
 ```bash
 cd backend
 createdb adsops_test   # or: docker exec adsops-db psql -U adsops -d adsops -c "CREATE DATABASE adsops_test"
-.venv/bin/python -m pytest              # 344 tests against a real PostgreSQL database
+.venv/bin/python -m pytest              # 388 tests against a real PostgreSQL database
 .venv/bin/ruff check .
 
 cd ../frontend
@@ -155,3 +177,6 @@ target VPS (4 vCPU / 8 GB, already loaded).
 | [`docs/RUNBOOK_TELEGRAM_TEST_SEND.md`](docs/RUNBOOK_TELEGRAM_TEST_SEND.md) | The controlled first real message |
 | [`docs/RUNBOOK_INCIDENT_RESPONSE.md`](docs/RUNBOOK_INCIDENT_RESPONSE.md) | A first hour that does not make things worse |
 | [`docs/MINI_SPEC_A4_REPORT.md`](docs/MINI_SPEC_A4_REPORT.md) | The A4 Stage A completion report |
+| [`docs/AUDIT_BEFORE_BUILD_A5.md`](docs/AUDIT_BEFORE_BUILD_A5.md) | The A5 audit and its design choices |
+| [`extension/PERMISSIONS.md`](extension/PERMISSIONS.md) | Why the extension asks for what it asks for |
+| [`docs/MINI_SPEC_A5_REPORT.md`](docs/MINI_SPEC_A5_REPORT.md) | The A5 completion report |

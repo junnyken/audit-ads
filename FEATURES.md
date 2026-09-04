@@ -1,12 +1,77 @@
 # FEATURES
 
-Current release: **MINI-SPEC A4 Stage A — Deployment Readiness, Controlled Telegram Test Send &
-VPS Observability** (2026-09-05), built on **A3 — Alert Center & Telegram Notification
-Delivery**, **A2 — Evidence-Based Account Health** and **A1 — Account Registry & Stability
-Readiness**.
+Current release: **MINI-SPEC A5 — Chrome Context Extension & Account Workspace Guard**
+(2026-09-05), built on **A4 Stage A — Deployment Readiness**, **A3 — Alert Center & Telegram
+Notification Delivery**, **A2 — Evidence-Based Account Health** and **A1 — Account Registry &
+Stability Readiness**.
 
-**Nothing has been deployed, and no real Telegram message has ever been sent.** A4 Stage A
-produces the artifacts, checks and runbooks for both; each needs its own explicit approval.
+**Nothing has been deployed, no real Telegram message has ever been sent, and the extension has
+never been published.** A4 Stage B and a Chrome Web Store listing each need their own explicit
+approval.
+
+## Shipped in A5 — Chrome context extension
+
+### What it is
+A Manifest V3 extension that tells you **which account you are looking at** while you work in
+Meta Ads Manager, and shows the readiness, health and open alerts this product already holds for
+it. It reads the page and writes events through the API. It changes nothing on any advertising
+platform, and it has no capability to.
+
+### Context detection
+- The account is identified by **exact account id only**. `act_123456789`, `ACT-123456789` and
+  `123456789` are canonicalised to the same value — a format equivalence, stated in the code —
+  and then compared for equality.
+- **Names are never matched.** They are display-only, and there is no similarity code path for a
+  later change to reach.
+- Four honest outcomes: `confirmed`, `ambiguous`, `unknown`, `unsupported_page`. Two registry
+  rows carrying the same id is `ambiguous`, not a coin flip. An archived account says archived,
+  not "not registered".
+- The account id is read from the query string; **the query string never leaves the browser**.
+  Routes are reduced to an allowlist in the extension and again on the server.
+
+### Popup and side panel
+- Popup: account identity, readiness, health, alerts and deep links, or a plain statement that
+  the context is not confirmed with a link to pick the account by hand.
+- Side panel: the same context plus the **Account Workspace Guard** — a four-item checklist and a
+  required reason before a change intent is recorded. It says explicitly that it *records* and
+  does not block, because the extension cannot block anything in Ads Manager.
+- Quick actions record manual review start/complete, change completed, notes, and policy or
+  payment issues. Every one becomes an ordinary A1 account event with an audit row.
+- No action anywhere in the extension can pause, publish, duplicate or alter anything on Meta.
+
+### Scope-limited extension session
+- The extension exchanges a dashboard login for a **separate, shorter-lived token** and forgets
+  the password immediately. The dashboard token is used for one call and never stored.
+- That token is **refused by every dashboard route**: it cannot create accounts, change
+  readiness, resolve alerts, edit notification policy, trigger a test send, or mint another
+  extension session. A token stolen from browser storage is a much smaller problem than a
+  dashboard token would be.
+- Revocation is a stored fact, not a token expiry: revoking a browser from Settings or from the
+  extension stops it on its next request.
+- The session lives in `chrome.storage.session`, which is in-memory and cleared when the browser
+  closes.
+
+### Event ingestion
+- Event types are an **allowlist**, not a free string, so a compromised extension cannot write
+  something that reads like a system event.
+- The **server** decides severity. A client that could mark its own note "critical" would make
+  the timeline worthless.
+- Events that record an operator decision require a reason; automatic breadcrumbs do not.
+- An event cannot be dated into the future or backdated more than a day.
+- Stored context passes an allowlist: page type, context status, sanitised path, client version
+  and account id. A raw URL, a query string or a credential cannot land there even if sent.
+
+### Permissions, deliberately narrow
+- `storage`, `sidePanel`, `activeTab` — and nothing else. No `cookies`, `webRequest`, `tabs`,
+  `scripting`, `debugger`, `proxy` or `<all_urls>`.
+- Three host patterns, with `www.facebook.com` scoped to `/adsmanager/*` so the content script
+  never loads on the feed, Messenger or a profile.
+- The dashboard API is **not** a host permission: requests follow ordinary CORS and the API's
+  exact-origin allowlist decides. `extension/PERMISSIONS.md` explains every entry.
+
+### Dashboard side
+Settings lists connected browsers with their version and last-seen time, and can revoke any of
+them — so a lost laptop can be cut off from another machine.
 
 ## Shipped in A4 Stage A — deployment readiness and observability
 
@@ -258,6 +323,20 @@ any of them.
 - `unknown` and `not_ready` are never rendered with success styling — enforced by a single
   colour map and covered by a test.
 
+## Deliberately excluded from A5
+
+| Excluded | Why |
+|---|---|
+| Any action that changes something in Ads Manager | The extension has no such capability, and adding one would make it a remote control for advertising assets |
+| Reading cookies, `localStorage`, `sessionStorage`, IndexedDB or network traffic | Session material is exactly what this product refuses to touch. A lint rule and a bundle test enforce it |
+| Fingerprint collection or spoofing, antidetect behaviour, proxy configuration | Platform-enforcement evasion, forbidden since A1 |
+| Auto-login, auto-appeal, checkpoint bypass | Same |
+| Fuzzy or name-based account matching | A wrong match on a 30-account workflow is worse than no match. Exact id or nothing |
+| A second health, readiness or alert engine | A5 is a viewport onto existing state; a second engine could disagree with the dashboard |
+| Writing anything into the Ads Manager page | A detector failure must leave the page exactly as it was |
+| `<all_urls>` or a bare `facebook.com` host permission | The content script has no business on the feed |
+| Chrome Web Store publishing, or any deployment | Out of scope, and each needs its own approval |
+
 ## Deliberately excluded from A4
 
 | Excluded | Why |
@@ -315,6 +394,17 @@ any of them.
 
 ## Known limits (follow-ups)
 
+- **The extension has never run in a real browser.** It is verified by unit tests, a manifest and
+  bundle audit, and live API calls that send exactly what the content script would send. Loading
+  it unpacked in Chrome against real Ads Manager pages is still outstanding.
+- **Meta's URL shapes are an assumption.** The route allowlist matches today's Ads Manager; when
+  it changes, the extension degrades to `unsupported_page` rather than guessing, but the
+  allowlist will need updating.
+- **A deployment must add `chrome-extension://<id>` to `CORS_ORIGINS`**, and the id is only known
+  once the extension is packed.
+- **Still no rate limiting.** The extension caches per tab for 30 seconds and only re-resolves
+  when the account or route actually changes, but a compromised client could still poll.
+- **No Chrome Web Store listing**, no signing, no update channel.
 - **Nothing has been deployed.** Every deployment command is written, and every one was
   exercised against a local staging-equivalent stack, but none has run against a real target.
 - **No real Telegram message has ever been sent.** The transport code path is covered by

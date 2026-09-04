@@ -352,6 +352,66 @@ Delivery statuses: `pending`, `queued`, `sending`, `sent`, `failed_transient`, `
 Both exist because A3 ships no scheduler. Neither can force a message out: policy, dedupe and
 quiet-hours decisions are already recorded on the delivery rows.
 
+## Chrome extension (A5)
+
+Authenticated like everything else, and split by token type: **`Ctx`** routes need a dashboard
+session, **`ExtCtx`** routes need an extension session, and the two are mutually exclusive.
+No route here accepts a workspace id, a credential-like field or a raw URL.
+
+### Session
+
+| Method | Path | Token | Notes |
+|---|---|---|---|
+| `POST` | `/extension/connect` | dashboard | Exchanges a dashboard session for a scope-limited extension session. Body: `extension_instance_id`, `extension_version`, `label` |
+| `GET` | `/extension/session/current` | extension | Cheap liveness check; writes no audit row |
+| `GET` | `/extension/installations` | dashboard | Connected browsers for the signed-in operator. Never returns a token |
+| `POST` | `/extension/installations/revoke` | dashboard | `{installation_id?, reason}`. Takes effect on the browser's next request |
+
+The response's `token_use` is `extension`. That token is **refused with 401 by every dashboard
+route**, cannot create an account, and cannot mint another extension session.
+
+### Context
+
+| Method | Path | Token | Notes |
+|---|---|---|---|
+| `POST` | `/extension/context/resolve` | extension | `{external_account_id?, page_type?, safe_path?, extension_version}` |
+| `GET` | `/extension/accounts/{id}/summary` | extension | The same summary for an account picked by hand |
+| `GET` | `/ad-accounts/{id}/extension-summary` | either | What the extension sees, readable from the dashboard |
+
+`context_status` is `confirmed`, `ambiguous`, `unknown` or `unsupported_page`. Only `confirmed`
+carries `account`, `readiness`, `health`, `alerts` and `dashboard_paths`; the others carry a
+`reason_code` (`account_not_registered`, `multiple_registered_matches`, `no_account_id_on_page`,
+`account_archived`, `unsupported_page`) and nothing else.
+
+Readiness, health and alerts are three separate values, as everywhere else. Resolving is
+read-only: it evaluates readiness with `persist=False` and cannot rewrite stored state.
+
+`safe_path` is sanitised server-side regardless of what was sent — a full URL is reduced to its
+allowlisted route or discarded, and never echoed back.
+
+### Events
+
+| Method | Path | Token | Notes |
+|---|---|---|---|
+| `POST` | `/extension/events` | extension | `{ad_account_id, event_type, note, occurred_at?, page_type?, context_status?, safe_path?, extension_version}` → `201` |
+
+`event_type` is an allowlist: `extension_context_confirmed`, `extension_context_ambiguous`,
+`extension_context_unknown`, `manual_review_started`, `manual_review_completed`,
+`campaign_change_intent`, `campaign_change_completed`, `account_note_added`,
+`policy_issue_reported`, `payment_issue_reported`.
+
+There is **no `severity` field**: the server decides it from the event type. Events that record
+an operator decision require a non-empty `note`. An `occurred_at` in the future, or more than a
+day old, is replaced with now.
+
+The event is created through the A1 `AccountEventService`, so it lands in the account timeline,
+writes an audit row and recalculates readiness exactly like a dashboard-entered event.
+
+### Changed in A5
+
+Route count rose from 117 to **125**, still with **no `DELETE` anywhere**, and the extension
+surface uses only `GET` and `POST`. `account_events` gained a nullable `source_context_json`.
+
 ## Operations (A4)
 
 Authenticated like everything else. The routes that reveal deployment detail or can cause an

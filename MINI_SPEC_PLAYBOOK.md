@@ -41,6 +41,10 @@ Governing process document for AdsOps Control Center. Every MINI-SPEC follows it
   stages with separate approvals, and neither happens because a spec was accepted.
 - Report what was measured, not what the previous report claimed. When the environment cannot
   prove something, say exactly what is missing instead of narrowing the claim quietly.
+- Identity is matched exactly or not at all. A confident wrong answer is worse than "I don't
+  know", and "ambiguous" is a correct answer.
+- A client that runs on someone else's page is the least trusted thing in the system. Give it
+  its own credential, its own allowlist and its own expiry, and check every claim it makes.
 
 ## MINI-SPEC Report format
 

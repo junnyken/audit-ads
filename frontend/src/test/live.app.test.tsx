@@ -106,7 +106,9 @@ suite('live application', () => {
   it('renders system status without exposing infrastructure values', async () => {
     renderApp('/system')
     expect(await screen.findByRole('heading', { name: 'System status' })).toBeInTheDocument()
-    expect((await screen.findAllByText('0004_a4_operational_runs')).length).toBeGreaterThan(0)
+    // Assert the shape, not the literal: pinning the revision makes this test fail on every
+    // release rather than when something is actually wrong.
+    expect((await screen.findAllByText(/^\d{4}_[a-z0-9_]+$/)).length).toBeGreaterThan(0)
     const body = document.body.textContent ?? ''
     for (const leak of ['postgresql', 'adsops:adsops', 'JWT_SECRET']) {
       expect(body.toLowerCase()).not.toContain(leak.toLowerCase())
@@ -249,8 +251,11 @@ suite('live application', () => {
     for (const tile of ['Release', 'Database', 'Dispatcher', 'Backup']) {
       expect((await screen.findAllByText(tile)).length).toBeGreaterThan(0)
     }
-    expect(await screen.findByText('a4-stage-a')).toBeInTheDocument()
-    expect((await screen.findAllByText(/0004_a4_operational_runs/)).length).toBeGreaterThan(0)
+    // Same reasoning: the release identifier changes every deploy, its absence does not.
+    const releaseTile = (await screen.findAllByText('Release'))[0].closest('.card')
+    expect(releaseTile?.textContent).toMatch(/[a-z0-9]/i)
+    expect(releaseTile?.textContent).not.toContain('unknown')
+    expect((await screen.findAllByText(/^\d{4}_[a-z0-9_]+$/)).length).toBeGreaterThan(0)
     expect(await screen.findByRole('heading', { name: 'Host resources' })).toBeInTheDocument()
     for (const metric of ['CPU load', 'Memory', 'Disk']) {
       expect((await screen.findAllByText(metric)).length).toBeGreaterThan(0)
@@ -291,5 +296,16 @@ suite('live application', () => {
     for (const banned of ['account', 'token', 'password', '127.0.0.1', 'readiness']) {
       expect(message.toLowerCase()).not.toContain(banned)
     }
+  })
+
+  it('lists connected browsers in settings and offers revocation', async () => {
+    renderApp('/settings')
+    expect(await screen.findByRole('heading', { name: 'Connected browsers' })).toBeInTheDocument()
+    expect(
+      await screen.findByText(/cannot create accounts, change\s+readiness or resolve alerts/i),
+    ).toBeInTheDocument()
+    const body = document.body.textContent ?? ''
+    // A session token must never be rendered anywhere on this page.
+    expect(body).not.toMatch(/eyJ[A-Za-z0-9_-]{10,}/)
   })
 })

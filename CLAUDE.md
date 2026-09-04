@@ -1,8 +1,9 @@
 # AdsOps Control Center — agent instructions
 
 Governing process: `MINI_SPEC_PLAYBOOK.md`. Read it, plus `FEATURES.md`, `ARCH.md`, `API.md` and
-`TEST_LOG.md`, before changing code. Current release: MINI-SPEC A4 Stage A (deployment readiness), on A3 (alerts + Telegram),
-A2 (health) and A1 (registry). Nothing is deployed; no real Telegram message has been sent.
+`TEST_LOG.md`, before changing code. Current release: MINI-SPEC A5 (Chrome context extension), on A4 Stage A (deployment
+readiness), A3 (alerts + Telegram), A2 (health) and A1 (registry). Nothing is deployed, no real
+Telegram message has been sent, and the extension has never been published or run in a browser.
 
 ## Hard rules (these are product requirements, not preferences)
 
@@ -56,6 +57,19 @@ A2 (health) and A1 (registry). Nothing is deployed; no real Telegram message has
     recipient or message body from the caller.
 30. Do not automatically downgrade a schema or overwrite a production database during an
     incident; both are deliberate decisions with a person present.
+31. The extension matches an account by **exact** external id only, after the stated `act_`
+    canonicalisation. Never add name, fuzzy or partial matching. `ambiguous` and `unknown` are
+    correct answers.
+32. The extension never reads cookies, `localStorage`, `sessionStorage`, IndexedDB or network
+    traffic, and never writes to a page it did not create. Lint rules enforce this — do not
+    disable them.
+33. The extension never performs, automates or blocks an action in Ads Manager. The Workspace
+    Guard records that someone checked; the UI must keep saying so.
+34. An extension token is refused by every dashboard route. Do not widen `Ctx` to accept one.
+35. Extension event types are an allowlist and the severity is decided server-side. Never accept
+    a severity, a workspace id or a raw URL from a client.
+36. Host permissions stay minimal and path-scoped. Never add `<all_urls>`, a bare
+    `facebook.com` host, or a host permission for the API origin.
 
 ## Working style
 

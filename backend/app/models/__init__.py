@@ -22,6 +22,7 @@ from app.models.entities import (
     Workspace,
     WorkspaceMember,
 )
+from app.models.extension import ExtensionInstallation
 from app.models.health import (
     AccountHealthSignal,
     AccountHealthSnapshot,
@@ -35,6 +36,7 @@ __all__ = [
     "AlertPolicy",
     "NotificationDelivery",
     "NotificationDeliveryAttempt",
+    "ExtensionInstallation",
     "OperationalRun",
     "AccountHealthSignal",
     "AccountHealthSnapshot",

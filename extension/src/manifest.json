@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "AdsOps Control Center",
+  "version": "0.1.0",
+  "description": "Shows the readiness, health and open alerts of the ad account you are looking at. Read-only: it changes nothing on any advertising platform.",
+  "minimum_chrome_version": "114",
+  "permissions": [
+    "storage",
+    "sidePanel",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://adsmanager.facebook.com/*",
+    "https://business.facebook.com/*",
+    "https://www.facebook.com/adsmanager/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://adsmanager.facebook.com/*",
+        "https://business.facebook.com/*",
+        "https://www.facebook.com/adsmanager/*"
+      ],
+      "js": [
+        "content/content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "action": {
+    "default_title": "AdsOps Control Center",
+    "default_popup": "popup/popup.html"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/sidepanel.html"
+  },
+  "options_page": "options/options.html",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'"
+  }
+}

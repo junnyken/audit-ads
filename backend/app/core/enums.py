@@ -334,3 +334,73 @@ class OperationalRunStatus(StrEnum):
     SUCCEEDED = "succeeded"
     PARTIAL = "partial"
     FAILED = "failed"
+
+
+class EventSource(StrEnum):
+    """Where an AccountEvent came from. A1 stored this as a free string; A5 names the values
+    it actually uses so the extension cannot invent a source that looks official."""
+
+    MANUAL = "manual"
+    CHROME_EXTENSION = "chrome_extension"
+    SYSTEM = "system"
+
+
+class ExtensionContextStatus(StrEnum):
+    """How confident the extension is about which account a page belongs to.
+
+    `confirmed` requires an exact registered account id. Everything else stays honest about
+    not knowing — there is deliberately no "probably" state.
+    """
+
+    CONFIRMED = "confirmed"
+    AMBIGUOUS = "ambiguous"
+    UNKNOWN = "unknown"
+    UNSUPPORTED_PAGE = "unsupported_page"
+
+
+class ExtensionPageType(StrEnum):
+    """Coarse page shape, from an allowlisted route. Never a raw URL."""
+
+    UNKNOWN = "unknown"
+    ACCOUNT = "account"
+    CAMPAIGN = "campaign"
+    ADSET = "adset"
+    AD = "ad"
+    BILLING = "billing"
+    SETTINGS = "settings"
+
+
+class ExtensionEventType(StrEnum):
+    """The only event types an extension session may write.
+
+    An allowlist rather than a free string: the extension is the least trusted client in the
+    system, and an operator reading the timeline must be able to trust what `chrome_extension`
+    means.
+    """
+
+    CONTEXT_CONFIRMED = "extension_context_confirmed"
+    CONTEXT_AMBIGUOUS = "extension_context_ambiguous"
+    CONTEXT_UNKNOWN = "extension_context_unknown"
+    MANUAL_REVIEW_STARTED = "manual_review_started"
+    MANUAL_REVIEW_COMPLETED = "manual_review_completed"
+    CAMPAIGN_CHANGE_INTENT = "campaign_change_intent"
+    CAMPAIGN_CHANGE_COMPLETED = "campaign_change_completed"
+    ACCOUNT_NOTE_ADDED = "account_note_added"
+    POLICY_ISSUE_REPORTED = "policy_issue_reported"
+    PAYMENT_ISSUE_REPORTED = "payment_issue_reported"
+
+
+#: Severity each extension event is recorded with. The extension does not choose its own
+#: severity: a client that could mark its own note "critical" would make the timeline useless.
+EXTENSION_EVENT_SEVERITY: dict[str, str] = {
+    ExtensionEventType.CONTEXT_CONFIRMED: "info",
+    ExtensionEventType.CONTEXT_AMBIGUOUS: "info",
+    ExtensionEventType.CONTEXT_UNKNOWN: "info",
+    ExtensionEventType.MANUAL_REVIEW_STARTED: "info",
+    ExtensionEventType.MANUAL_REVIEW_COMPLETED: "info",
+    ExtensionEventType.CAMPAIGN_CHANGE_INTENT: "info",
+    ExtensionEventType.CAMPAIGN_CHANGE_COMPLETED: "info",
+    ExtensionEventType.ACCOUNT_NOTE_ADDED: "info",
+    ExtensionEventType.POLICY_ISSUE_REPORTED: "warning",
+    ExtensionEventType.PAYMENT_ISSUE_REPORTED: "warning",
+}

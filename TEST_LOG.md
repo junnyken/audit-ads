@@ -673,3 +673,137 @@ control at all** while blocked.
   checklist for that is in `docs/RUNBOOK_DEPLOY.md` §9 and A4 §10.8.
 - **Resource limits unproven at runtime** — see §2.
 - **No CI**, and still no rate limiting.
+
+---
+
+## Session 2026-09-05 — MINI-SPEC A5
+
+**Environment** — unchanged, plus Node 22 for a second npm package (`extension/`, 153 MB,
+293 packages). Migration head is now `0005_a5_extension`.
+
+**Nothing was deployed, no real Telegram message was sent, and the extension was never loaded
+in a browser or published anywhere.**
+
+### 1. Baseline re-verified before any A5 code — PASS
+
+```
+$ .venv/bin/python -m pytest tests/     344 passed in 460.23s
+$ .venv/bin/ruff check .                All checks passed
+$ npx vitest run                        60 passed | 19 skipped
+$ live-API frontend suite               19 passed
+$ npx eslint . && npx tsc --noEmit      clean
+$ npm run build                         dist 359.85 kB (100.88 kB gzip)
+```
+
+Measured: **117 routes**, methods `{GET, PATCH, POST}`, **zero DELETE**, **25 ORM tables**, head
+`0004_a4_operational_runs`. Required scans clean: no browser-automation dependency in either
+manifest, one outbound HTTP module, and no `<all_urls>` anywhere (no extension existed yet).
+**No deviation from the A4 report was found.**
+
+### 2. Full backend suite — PASS (388)
+
+```
+$ .venv/bin/python -m pytest tests/     388 passed
+$ .venv/bin/ruff check .                All checks passed
+```
+
+| File | Tests | Covers |
+|---|---|---|
+| A1–A4 files | 344 | unchanged, all still passing |
+| **`test_a5_extension_context.py`** | **19** | Canonicalisation, URL sanitisation, the four context states, cross-workspace isolation, the stored-context allowlist |
+| **`test_a5_extension_api.py`** | **25** | Session exchange, token scoping, revocation, context resolution, event ingestion, payload refusals, surface shape |
+
+Notable assertions: an extension token is refused by **every** dashboard route and cannot mint
+another session; a pre-A5 token with no `token_use` claim still works, so adding the claim signs
+nobody out; an account with an **identical name but a different id is not matched**; two registry
+rows carrying the same id resolve to `ambiguous`, never a coin flip; resolving a context does not
+persist readiness; an event type outside the allowlist, a decision without a reason, a
+self-chosen severity, a workspace id and every credential-like field are all rejected; and a
+stored event context contains no URL, query string or secret.
+
+### 3. Extension suite — PASS (50)
+
+```
+$ npx vitest run     50 passed (5 files)
+$ npx eslint .       clean
+$ npx tsc --noEmit   clean
+$ npm run build      dist built, content script 3.76 kB
+```
+
+| File | Tests | Covers |
+|---|---|---|
+| `validation.test.ts` | 15 | Canonicalisation, `act` extraction, path allowlisting, dashboard-URL rules |
+| `detector.test.ts` | 6 | What the content script reads, what it refuses, and the URL watcher |
+| `storage.test.ts` | 7 | Session in `storage.session` not `local`, expiry, per-tab cache isolation, no password anywhere |
+| `manifest.test.ts` | 11 | MV3, permission set, path-scoped hosts, CSP, and a bundle audit |
+| `ui.test.tsx` | 11 | Popup, side panel guard, options page |
+
+The bundle audit is the one worth naming: it asserts the shipped files contain no token-shaped
+value, no `document.cookie`, no `localStorage`, no `indexedDB`, no `graph.facebook.com`, and no
+`chrome.cookies` / `chrome.webRequest` / `chrome.debugger` / `chrome.proxy` reference — and that
+the content script contains **no `import`**, because an isolated-world script has no module
+loader and a split bundle would fail silently on the page.
+
+### 4. Migration verification — PASS
+
+- Clean database: five revisions, **27 tables**.
+- Upgrade path applied to the live pilot database holding A1–A4 data: 14 accounts and 4 account
+  events intact afterwards.
+- Downgrade to `0004_a4_operational_runs` returned the schema to 26 tables, dropping only
+  `extension_installations` and the new nullable column.
+
+### 5. Frontend — PASS
+
+```
+$ npx vitest run     60 hermetic passed | 20 skipped (live suite, opt-in)
+$ live-API suite     20 passed  (7 A1 + 5 A2 + 4 A3 + 3 A4 + 1 A5)
+$ npx eslint .       clean
+$ npm run build      dist 362.04 kB (101.29 kB gzip)
+```
+
+Bundle impact versus A4 (359.85 kB / 100.88 kB gzip): **+2.2 kB raw, +0.4 kB gzip** for the
+connected-browsers section in Settings.
+
+### 6. Live verification — PASS (30/30)
+
+Against the running API, sending exactly what the content script would produce from a real Ads
+Manager URL (`…/adsmanager/manage/campaigns?act=123456789&business_id=999&access_token=…`).
+
+| Area | Result |
+|---|---|
+| Session | Connect issued a separate `token_use: extension` token, distinct from the dashboard token |
+| Scope | That token was refused **401** by `/ad-accounts`, `/alerts`, `/operations/overview` and `/audit-logs`; it could not create an account and could not mint another session; the dashboard token was refused on extension-only routes |
+| Confirmed context | `act_123456789` resolved to the right account, returning readiness, health and alerts as three separate values, with no numeric score and the honest disclaimer |
+| Unknown | An unregistered id returned `unknown` with `account: null` and no readiness block |
+| Ambiguous | A page with no visible id returned `no_account_id_on_page` |
+| Unsupported | `/messages/t/1` returned `unsupported_page` and resolved nothing |
+| URL safety | A full URL sent by mistake came back as `/adsmanager/manage/campaigns` — no `access_token`, no `business_id`, no query |
+| **Name never matches** | A second account with an *identical display name* and a different id was **not** matched |
+| Events | A change intent landed as an ordinary account event (`source: chrome_extension`, severity decided server-side), appeared in the A1 timeline and wrote an audit row |
+| Refusals | Event type outside the allowlist **422**; decision without a reason **422**; `workspace_id`, `cookie`, `access_token`, `password` and a self-chosen `severity` all **422** |
+| Stored context | Contained no URL, query string or secret |
+| Revocation | Worked before; after revoking from the dashboard the session returned **401 immediately** and could not write events; the installation list showed it revoked with no token in the payload |
+| Regression | A1–A4 endpoints unchanged; `DELETE` on the extension surface returns 405 |
+
+### 7. Defects found and fixed during A5
+
+| Issue | Fix |
+|---|---|
+| **The content script was built as an ES module importing a shared chunk.** An isolated-world script has no module loader, so it would have failed silently on every Ads Manager page — the worst way for the detector to break | A second Vite config builds it alone as a single IIFE, and a bundle test asserts it contains no `import` |
+| **Extension pages referenced `/popup.js` absolutely**, which depends on the extension root resolving the way a web server would | `base: './'`, so the HTML references `../popup.js` |
+| **`optional_host_permissions: ["https://*/*"]`** would have let the extension request any origin at runtime | Removed entirely. The API is reached through ordinary CORS and the server's exact-origin allowlist instead |
+| The brief proposed `https://www.facebook.com/*`, which would run the content script on the feed, Messenger and profiles | Narrowed to `https://www.facebook.com/adsmanager/*`, asserted by a manifest test |
+| `_exact_matches` loaded every account in the workspace and filtered in Python — fine at 30 accounts, wasteful on every page navigation | Exact set membership resolved in SQL against a closed candidate list |
+| Two live UI tests pinned the literal migration revision and release identifier, so they would fail on every release rather than when something broke | Rewritten to assert the shape, scoped to the tile under test |
+| Test assumptions, not product defects: the account timeline returns a list rather than a page envelope; an unused import | Fixed in the tests |
+
+### 8. Explicitly NOT done
+
+- **The extension has never run in a real browser.** No unpacked load, no real Ads Manager page,
+  no Chrome Web Store listing, no signing. Verification is unit tests, a manifest and bundle
+  audit, and live API calls sending exactly what the content script produces.
+- **Meta's URL shapes are an assumption** taken from the current Ads Manager routes. The
+  extension degrades to `unsupported_page` when they change rather than guessing, but the
+  allowlist will need maintenance.
+- **No deployment, and no real Telegram message** — unchanged from A4.
+- **Still no rate limiting**, and no CI.

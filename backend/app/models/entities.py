@@ -397,6 +397,10 @@ class AccountEvent(UUIDPrimaryKey, Timestamped, Archivable, Base):
     resolved_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
     resolved_by: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid(), nullable=True)
     resolution_note: Mapped[str] = mapped_column(sa.Text(), nullable=False, default="")
+    #: A5: where the event was recorded from, as an allowlisted dictionary — page type, context
+    #: status, sanitised route path, client version. Written through an allowlist so a raw URL,
+    #: a query string or a credential cannot land here even if a client sends one.
+    source_context_json: Mapped[dict | None] = mapped_column(sa.JSON(), nullable=True)
 
     @property
     def is_unresolved(self) -> bool:

@@ -39,15 +39,37 @@ def verify_password(password: str, stored: str) -> bool:
     return hmac.compare_digest(computed, digest)
 
 
-def create_access_token(*, subject: str, workspace_id: str, role: str) -> tuple[str, datetime]:
+#: A dashboard session. Tokens issued before A5 carry no `token_use` claim and are treated as
+#: this, so adding the claim signs nobody out.
+TOKEN_USE_DASHBOARD = "dashboard"
+#: A browser-extension session: scope-limited, shorter-lived, revocable by installation.
+TOKEN_USE_EXTENSION = "extension"
+
+
+def create_access_token(
+    *,
+    subject: str,
+    workspace_id: str,
+    role: str,
+    token_use: str = TOKEN_USE_DASHBOARD,
+    expires_in_minutes: int | None = None,
+    extra_claims: dict[str, Any] | None = None,
+) -> tuple[str, datetime]:
     settings = get_settings()
-    expires_at = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
+    minutes = (
+        expires_in_minutes
+        if expires_in_minutes is not None
+        else settings.access_token_expire_minutes
+    )
+    expires_at = datetime.now(UTC) + timedelta(minutes=minutes)
     payload: dict[str, Any] = {
         "sub": subject,
         "workspace_id": workspace_id,
         "role": role,
+        "token_use": token_use,
         "exp": expires_at,
         "iat": datetime.now(UTC),
+        **(extra_claims or {}),
     }
     token = jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
     return token, expires_at

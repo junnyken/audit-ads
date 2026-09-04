@@ -1,6 +1,6 @@
 # ARCH
 
-Architecture of the AdsOps Control Center as of MINI-SPEC A4 Stage A.
+Architecture of the AdsOps Control Center as of MINI-SPEC A5.
 
 ## 1. Shape of the system
 
@@ -391,6 +391,83 @@ explicit confirmation, and an approval code proving the exact destination and me
 previewed. The request schema carries **no recipient and no message body** — a structural
 guarantee rather than a check that could be skipped.
 
+## 4e. Chrome context extension (A5)
+
+```
+ Meta Ads Manager tab
+   │  content script  (isolated world, read-only)
+   │    reads: the `act` id in the URL, the route path, the tab title
+   │    writes: nothing to the page, ever
+   ▼
+ service worker  ── the only holder of the session, the only network caller
+   │                POST /api/v1/extension/context/resolve
+   │                POST /api/v1/extension/events
+   ▼
+ AdsOps API
+   ├─ ExtensionContextResolver  → exact id match, or an honest "I don't know"
+   ├─ ExtensionSummaryService   → composes A1 readiness + A2 health + A3 alerts
+   └─ ExtensionEventIngestService → A1 AccountEventService (audit row, readiness recalc)
+
+ popup / side panel / options  — extension pages, no network access of their own
+```
+
+### Two tokens, not one
+
+The extension exchanges a dashboard login for a **separate** token carrying `token_use:
+"extension"` and an `installation_id`. Three dependencies keep them apart:
+
+| Dependency | Accepts | Used by |
+|---|---|---|
+| `Ctx` | dashboard only | every existing route |
+| `ExtCtx` | extension only, and only while the installation is live | the extension routes |
+| `AnyCtx` | either | the one read-only account summary |
+
+A token lives in browser storage, which is a weaker place than a dashboard tab. So the one that
+lives there cannot create an account, change readiness, resolve an alert, edit notification
+policy, trigger a test send, or mint another session. That is the whole point of issuing a
+second token instead of reusing the first.
+
+Revocation is a **row**, re-checked on every request, so cutting off a browser takes effect
+immediately rather than whenever its token would have expired.
+
+Tokens minted before A5 carry no `token_use` claim and are treated as dashboard sessions, so
+adding the claim signed nobody out.
+
+### Exact matching, and why canonicalisation is not fuzzy matching
+
+Ads Manager writes the account as `act=123456789` in a query string; the registry may hold
+`act_123456789`. A5 canonicalises both — trim, lowercase, drop an `act_` prefix — and then
+requires **equality** against a small closed candidate set resolved in SQL. It is a *format*
+equivalence, and it never makes two different ids equal.
+
+Names are display-only. There is no similarity function anywhere in A5, so a future change
+cannot accidentally reach one, and a test asserts that an account with an identical name but a
+different id is not matched.
+
+### Nothing leaves the browser that we would not want stored
+
+The account id is extracted from the query string; the query string itself is discarded before
+the request is built. Routes are reduced to an allowlist in the extension **and again on the
+server** — the browser side is a convenience, the server side is the guarantee. What is stored
+on an event passes a third allowlist: page type, context status, sanitised path, client version,
+account id.
+
+### Why the extension is its own package
+
+MV3 needs three HTML entry points, an ES-module service worker and an IIFE content script — an
+isolated-world script has no module loader, so a split bundle would fail silently on the page.
+The extension therefore has its own build, and a test asserts the shipped content script
+contains no `import`.
+
+### What the extension cannot do
+
+There is no code path from the extension to any advertising platform, and none to the operator's
+session material: no `cookies`, `webRequest`, `tabs`, `scripting`, `debugger` or `proxy`
+permission, no `<all_urls>`, and lint rules that make `document.cookie`, `localStorage`,
+`sessionStorage` and `indexedDB` errors rather than choices. The Account Workspace Guard records
+that a person checked; it does not block, and the UI says so — claiming otherwise would be a
+safety promise the product cannot keep.
+
 ## 5. Security model
 
 | Control | Implementation |
@@ -415,6 +492,9 @@ guarantee rather than a check that could be skipped.
 | Network exposure | Database, API and dispatcher have no host port; `web` binds to loopback by default; TLS lives at the edge (A4) |
 | Container hardening | Non-root user, read-only root filesystem, `cap_drop: ALL`, `no-new-privileges`, explicit immutable image tags, no secret in any image layer (A4) |
 | Docker socket | Never mounted into an application container (A4) |
+| Extension session | A separate `token_use: "extension"` token, shorter-lived, refused by every dashboard route, and revocable by row rather than by expiry (A5) |
+| Extension payloads | No workspace id, no credential-like field, no raw URL. The event type is an allowlist and the severity is decided server-side (A5) |
+| Extension permissions | `storage`, `sidePanel`, `activeTab` and three path-scoped hosts. No cookies, request interception, tab enumeration, scripting or `<all_urls>` (A5) |
 
 The backend is the final enforcement point. Client-side omission is never trusted: the tests
 prove the API refuses a secret field even when the UI has no input for it.
@@ -459,6 +539,23 @@ Rejected again in A2:
   account, and collecting it would cross the product's boundary.
 - **User-authored dynamic rule code** — a security, correctness and auditability risk; the typed
   registry gives the same expressiveness with none of it.
+
+Rejected in A5:
+
+- **Reusing the dashboard token in the extension** — it would put a token that can change
+  readiness into browser storage.
+- **Name or fuzzy account matching** — on a 30-account workflow a wrong match is worse than no
+  match, and the whole point of the extension is to stop acting on the wrong account.
+- **Sending the full page URL** — the account id is worth having; the query string it arrives in
+  is not, and it can carry session parameters.
+- **Any control that acts on Ads Manager** — that would make this a remote control for
+  advertising assets rather than a context viewer.
+- **A bare `https://www.facebook.com/*` host permission** — it would put the content script on
+  the operator's feed and Messenger for no benefit.
+- **A host permission for the API origin** — it would let the extension bypass CORS. Ordinary
+  CORS plus the API's exact-origin allowlist is the smaller privilege.
+- **Blocking the operator** — the guard records a decision; a checklist that claimed to prevent a
+  mistake it cannot see would be a false promise.
 
 Rejected in A4:
 

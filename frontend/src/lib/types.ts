@@ -627,3 +627,16 @@ export interface TestSendPreview {
   ready_to_send: boolean
   checks: PreSendCheck[]
 }
+
+// ---- A5: connected browser extensions --------------------------------------------------
+
+export interface ExtensionInstallation {
+  id: string
+  label: string
+  extension_version: string
+  last_seen_at: string | null
+  revoked_at: string | null
+  revoked_reason: string | null
+  created_at: string
+  is_active: boolean
+}

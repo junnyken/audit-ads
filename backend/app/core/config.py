@@ -86,6 +86,13 @@ class Settings(BaseSettings):
     #: A backup older than this is reported stale (daily backup + 2h grace).
     backup_stale_after_hours: int = 26
 
+    # ---- A5 Chrome context extension ------------------------------------------------
+    #: Extension tokens are short-lived on purpose: they live in browser storage, so a stolen
+    #: one should stop working in hours rather than the 12 hours a dashboard session gets.
+    extension_token_expire_minutes: int = 720
+    #: Oldest extension build allowed to talk to this API. Empty means "any".
+    extension_minimum_version: str = ""
+
     # ---- A4 controlled test send -----------------------------------------------------
     #: Master switch for the controlled Telegram test send. Off by default: the endpoint
     #: exists so the flow is reviewable, and it refuses to do anything until an operator

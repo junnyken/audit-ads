@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import type { CurrentUser, NotificationPolicy } from '../lib/types'
+import type { CurrentUser, ExtensionInstallation, NotificationPolicy } from '../lib/types'
 import { Badge, Card, ErrorState, Field, InlineNote, Skeleton } from '../components/ui'
+import { formatRelative } from '../lib/format'
 import { useAuth } from '../hooks/useAuth'
 import { TRANSPORT_NOT_CONFIGURED } from '../lib/alerts'
 
@@ -41,6 +42,8 @@ export default function Settings() {
 
       <NotificationPolicySection isOwner={me.data.role === 'owner'} />
 
+      <ConnectedBrowsersSection />
+
       <Card title="What this release does not do">
         <ul className="list-disc space-y-1 pl-5 text-[12.5px] text-ink-muted">
           <li>It never stores passwords, cookies, session data, tokens or proxy credentials.</li>
@@ -57,6 +60,96 @@ export default function Settings() {
         </InlineNote>
       </Card>
     </div>
+  )
+}
+
+/**
+ * Browsers connected through the Chrome extension (A5).
+ *
+ * Revoking here matters: it works from any machine, so a lost laptop can be cut off without
+ * touching it. Revocation is a stored fact, not a token expiry, so it takes effect at once.
+ */
+function ConnectedBrowsersSection() {
+  const installations = useQuery({
+    queryKey: ['extension-installations'],
+    queryFn: () => api.get<ExtensionInstallation[]>('/api/v1/extension/installations'),
+  })
+  const revoke = useMutation({
+    mutationFn: (id: string) =>
+      api.post('/api/v1/extension/installations/revoke', {
+        installation_id: id,
+        reason: 'Revoked from the dashboard settings page.',
+      }),
+    onSuccess: () => void installations.refetch(),
+  })
+
+  if (installations.isLoading) return <Skeleton rows={3} />
+  if (installations.isError)
+    return <ErrorState error={installations.error} onRetry={() => installations.refetch()} />
+
+  const rows = installations.data!
+
+  return (
+    <Card title="Connected browsers">
+      {rows.length === 0 ? (
+        <p className="text-[12.5px] text-ink-muted">
+          No browser has connected the Chrome extension to this account yet.
+        </p>
+      ) : (
+        <div className="table-scroll">
+          <table className="w-full min-w-[560px] border-collapse">
+            <thead className="bg-surface-muted">
+              <tr>
+                <th className="th">Browser</th>
+                <th className="th">Version</th>
+                <th className="th">Last seen</th>
+                <th className="th">Status</th>
+                <th className="th">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.id} className="hover:bg-surface-muted">
+                  <td className="td">{row.label || 'Unnamed browser'}</td>
+                  <td className="td font-mono text-[11.5px]">{row.extension_version || '—'}</td>
+                  <td className="td text-[12px] text-ink-muted">
+                    {row.last_seen_at ? formatRelative(row.last_seen_at) : 'never'}
+                  </td>
+                  <td className="td">
+                    <Badge tone={row.is_active ? 'positive' : 'neutral'}>
+                      {row.is_active ? 'Connected' : 'Revoked'}
+                    </Badge>
+                    {row.revoked_reason && (
+                      <p className="mt-0.5 text-[11px] text-ink-faint">{row.revoked_reason}</p>
+                    )}
+                  </td>
+                  <td className="td">
+                    {row.is_active ? (
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        disabled={revoke.isPending}
+                        onClick={() => revoke.mutate(row.id)}
+                      >
+                        Revoke
+                      </button>
+                    ) : (
+                      <span className="text-ink-faint">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {revoke.isError && <ErrorState error={revoke.error} />}
+      <InlineNote>
+        The extension holds a separate, shorter-lived session that cannot create accounts, change
+        readiness or resolve alerts. Revoking takes effect on that browser&apos;s next request,
+        not whenever its session would have expired.
+      </InlineNote>
+    </Card>
   )
 }
 
