@@ -106,10 +106,81 @@ suite('live application', () => {
   it('renders system status without exposing infrastructure values', async () => {
     renderApp('/system')
     expect(await screen.findByRole('heading', { name: 'System status' })).toBeInTheDocument()
-    expect(await screen.findByText('0001_a1_registry')).toBeInTheDocument()
+    expect(await screen.findByText('0002_a2_account_health')).toBeInTheDocument()
     const body = document.body.textContent ?? ''
     for (const leak of ['postgresql', 'adsops:adsops', 'JWT_SECRET']) {
       expect(body.toLowerCase()).not.toContain(leak.toLowerCase())
     }
+  })
+
+  it('renders the Account Health section on the overview with all six cards', async () => {
+    renderApp('/')
+    expect(await screen.findByRole('heading', { name: 'Account health' })).toBeInTheDocument()
+    for (const card of [
+      'Critical',
+      'Warnings',
+      'Attention needed',
+      'Unknown health',
+      'Clear signals',
+      'Stale data',
+    ]) {
+      expect((await screen.findAllByText(card)).length).toBeGreaterThan(0)
+    }
+    expect(await screen.findByText(/Last health evaluation/i)).toBeInTheDocument()
+    // The cards must never be labelled as safety.
+    expect(screen.queryByText(/safe accounts/i)).toBeNull()
+    expect(screen.queryByText(/no ban risk/i)).toBeNull()
+  })
+
+  it('renders the account health list with health, readiness and freshness as separate columns', async () => {
+    renderApp('/account-health')
+    expect(await screen.findByRole('heading', { name: 'Account health' })).toBeInTheDocument()
+    expect(await screen.findByText('A2 Pilot A - clear signals')).toBeInTheDocument()
+    expect(await screen.findByText('A2 Pilot B - missing evidence')).toBeInTheDocument()
+
+    const header = (await screen.findByRole('table')).querySelectorAll('th')
+    const labels = Array.from(header).map((cell) => cell.textContent)
+    expect(labels).toContain('Readiness')
+    expect(labels).toContain('Health')
+    expect(labels).toContain('Data freshness')
+    expect(labels).toContain('Top reason')
+
+    expect((await screen.findAllByText('Clear signals')).length).toBeGreaterThan(0)
+    expect((await screen.findAllByText('Operationally ready')).length).toBeGreaterThan(0)
+  })
+
+  it('shows the health tab with its signals, rule versions and the readiness state beside it', async () => {
+    const user = userEvent.setup()
+    renderApp('/account-health')
+    await user.click(await screen.findByRole('link', { name: 'A2 Pilot B - missing evidence' }))
+
+    expect(await screen.findByRole('heading', { name: /A2 Pilot B/ })).toBeInTheDocument()
+    expect(await screen.findByText('Readiness (separate state)')).toBeInTheDocument()
+    expect((await screen.findAllByText(/Required readiness evidence is missing/)).length).toBeGreaterThan(0)
+    expect((await screen.findAllByText(/mandatory_readiness_evidence_missing v1/)).length).toBeGreaterThan(0)
+    expect(await screen.findByText(/does not contact any advertising platform/i)).toBeInTheDocument()
+  })
+
+  it('opens a signal and shows its evidence, guidance and both operator actions', async () => {
+    const user = userEvent.setup()
+    renderApp('/accounts?search=A2%20Pilot%20B')
+    await user.click(await screen.findByRole('link', { name: 'A2 Pilot B - missing evidence' }))
+    await user.click(await screen.findByRole('tab', { name: 'Health' }))
+    const [details] = await screen.findAllByRole('button', { name: 'Details' })
+    await user.click(details)
+
+    expect(await screen.findByText('Why it matters')).toBeInTheDocument()
+    expect(await screen.findByText('Recommended next step')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Acknowledge' })).toBeDisabled()
+    expect(await screen.findByRole('button', { name: 'Resolve signal' })).toBeDisabled()
+    expect(await screen.findByText(/does not assert that any platform/i)).toBeInTheDocument()
+  })
+
+  it('never presents unknown health as a clear result', async () => {
+    renderApp('/account-health?health_status=unknown')
+    expect(await screen.findByRole('heading', { name: 'Account health' })).toBeInTheDocument()
+    const body = document.body.textContent ?? ''
+    expect(body.toLowerCase()).not.toContain('no ban risk')
+    expect(body.toLowerCase()).not.toContain('safe account')
   })
 })

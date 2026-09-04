@@ -153,19 +153,38 @@ export function Field({
   children: ReactNode
   htmlFor?: string
 }) {
+  const caption = (
+    <>
+      {label}
+      {required ? (
+        <span className="ml-1 text-rose-600">*</span>
+      ) : (
+        <span className="ml-1 font-normal text-ink-faint">(optional)</span>
+      )}
+    </>
+  )
+  const note = hint ? <p className="mt-1 text-[11.5px] text-ink-faint">{hint}</p> : null
+
+  if (htmlFor) {
+    return (
+      <div>
+        <label className="label" htmlFor={htmlFor}>
+          {caption}
+        </label>
+        {children}
+        {note}
+      </div>
+    )
+  }
+
+  // Without an explicit id, wrap the control in the label so the association is implicit rather
+  // than absent — an unwrapped <label> with no `for` announces nothing to a screen reader.
   return (
-    <div>
-      <label className="label" htmlFor={htmlFor}>
-        {label}
-        {required ? (
-          <span className="ml-1 text-rose-600">*</span>
-        ) : (
-          <span className="ml-1 font-normal text-ink-faint">(optional)</span>
-        )}
-      </label>
+    <label className="block">
+      <span className="label">{caption}</span>
       {children}
-      {hint && <p className="mt-1 text-[11.5px] text-ink-faint">{hint}</p>}
-    </div>
+      {note}
+    </label>
   )
 }
 

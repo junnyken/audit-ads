@@ -30,7 +30,11 @@ Governing process document for AdsOps Control Center. Every MINI-SPEC follows it
 - Every mutation writes a redacted, immutable audit record in the same transaction.
 - Enforce workspace authorization server-side on every endpoint.
 - No Chromium / Playwright / Selenium / fingerprinting / cookie handling / proxy rotation.
-- `unknown` and `not_ready` are never rendered with success styling.
+- `unknown` and `not_ready` are never rendered with success styling, and neither is `unknown`
+  health.
+- Readiness and health stay separate concepts in the model, the API and the UI. Neither may be
+  reduced to a numeric score, and neither may be worded as safety, approval or immunity.
+- Acknowledging an issue is not resolving it.
 
 ## MINI-SPEC Report format
 

@@ -113,3 +113,90 @@ class ReasonSeverity(StrEnum):
     INFO = "info"
     WARNING = "warning"
     CRITICAL = "critical"
+
+
+# ---------------------------------------------------------------------------------------
+# MINI-SPEC A2 — Account health vocabulary.
+#
+# Additive only. No A1 value above is renamed, removed or given a new meaning: readiness and
+# health answer different questions and keep separate vocabularies (A2 §4.1).
+# ---------------------------------------------------------------------------------------
+
+
+class HealthStatus(StrEnum):
+    """What currently needs the operator's attention on an account, and how urgently."""
+
+    UNKNOWN = "unknown"
+    ATTENTION_NEEDED = "attention_needed"
+    WARNING = "warning"
+    CRITICAL = "critical"
+    #: Rendered as "No current issues found by configured checks" — never as "safe".
+    CLEAR_SIGNALS = "clear_signals"
+
+
+class SignalSeverity(StrEnum):
+    """`unknown` is used only when the engine could not assess, never as a mild severity."""
+
+    UNKNOWN = "unknown"
+    ATTENTION = "attention"
+    WARNING = "warning"
+    CRITICAL = "critical"
+
+
+class SignalStatus(StrEnum):
+    OPEN = "open"
+    ACKNOWLEDGED = "acknowledged"
+    RESOLVED = "resolved"
+    EXPIRED = "expired"
+    SUPERSEDED = "superseded"
+
+
+#: Statuses that still count towards the health rollup. Acknowledgement is not resolution
+#: (A2 Guardrail 11), so an acknowledged signal stays here.
+ACTIVE_SIGNAL_STATUSES = frozenset({SignalStatus.OPEN, SignalStatus.ACKNOWLEDGED})
+
+
+class HealthCategory(StrEnum):
+    ACCOUNT_STATUS = "account_status"
+    OPERATIONS = "operations"
+    READINESS = "readiness"
+    DATA_QUALITY = "data_quality"
+
+
+class HealthSourceType(StrEnum):
+    """Where a signal's fact came from. A manual observation must never look like platform data."""
+
+    ACCOUNT_STATUS = "account_status"
+    MANUAL_EVENT = "manual_event"
+    READINESS_ENGINE = "readiness_engine"
+    CHECKLIST_ITEM = "checklist_item"
+    EVALUATION_ENGINE = "evaluation_engine"
+
+
+class HealthFreshness(StrEnum):
+    """Separate from A1's DataFreshness: health adds `not_applicable` for sources that do not
+    exist yet (there is no platform integration), and A1 enums must not be altered."""
+
+    CURRENT = "current"
+    STALE = "stale"
+    UNKNOWN = "unknown"
+    NOT_APPLICABLE = "not_applicable"
+
+
+class EvaluationTrigger(StrEnum):
+    ACCOUNT_MUTATION = "account_mutation"
+    CHECKLIST_MUTATION = "checklist_mutation"
+    EVIDENCE_MUTATION = "evidence_mutation"
+    ACCOUNT_EVENT_MUTATION = "account_event_mutation"
+    MANUAL_RECALCULATE = "manual_recalculate"
+    SCHEDULED_RECALCULATE = "scheduled_recalculate"
+    RULE_CHANGE = "rule_change"
+    BACKFILL = "backfill"
+
+
+class EvaluationRunStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    SKIPPED = "skipped"

@@ -38,6 +38,15 @@ class Settings(BaseSettings):
     #: last_synced_at older than this reports data_freshness = stale (A1 §D).
     data_freshness_stale_after_days: int = 7
 
+    # ---- A2 health policy ------------------------------------------------------------
+    #: A health evaluation older than this is reported stale, and a stale evaluation can never
+    #: present as clear_signals (A2 §C). The manual-review interval deliberately reuses the A1
+    #: setting above rather than introducing a second, divergable policy value.
+    health_evaluation_stale_after_hours: int = 24
+    #: Backfill runs synchronously because there is no worker; the bound is what keeps it safe.
+    health_backfill_default_batch: int = 5
+    health_backfill_max_batch: int = 50
+
     @property
     def cors_origins(self) -> list[str]:
         """Comma-separated allowlist. Never a wildcard."""

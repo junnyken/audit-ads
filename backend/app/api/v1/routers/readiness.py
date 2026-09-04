@@ -7,12 +7,13 @@ import sqlalchemy as sa
 from fastapi import APIRouter, Query
 
 from app.api.deps import Ctx, WriteCtx
-from app.core.enums import ReadinessStatus
+from app.core.enums import EvaluationTrigger, ReadinessStatus
 from app.models.entities import AdAccount, ReadinessChecklistItem, ReadinessEvidence
 from app.schemas import readiness as s
 from app.schemas.registry import ManualReviewRequest
 from app.services.base import get_or_404
 from app.services.checklist import ReadinessChecklistService, ReadinessEvidenceService
+from app.services.health_triggers import trigger_health
 from app.services.registry import AdAccountRegistryService
 from app.services.rollup import ReadinessRollupService
 
@@ -107,6 +108,7 @@ def recalculate_readiness(ctx: WriteCtx, ad_account_id: uuid.UUID) -> dict[str, 
     account = registry.get(ad_account_id)
     registry.checklists.initialise(account)
     result = registry.rollup.evaluate(account)
+    trigger_health(ctx, account, EvaluationTrigger.ACCOUNT_MUTATION)
     ctx.commit()
     return _readiness_payload(result)
 
@@ -120,6 +122,7 @@ def record_manual_review(
     registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
     account = registry.record_manual_review(registry.get(ad_account_id), note=payload.note)
     result = registry.rollup.evaluate(account, persist=False)
+    trigger_health(ctx, account, EvaluationTrigger.ACCOUNT_MUTATION)
     ctx.commit()
     return _readiness_payload(result)
 
@@ -165,6 +168,7 @@ def update_checklist_item(
         actor_id=ctx.actor_id,
     )
     result = registry.rollup.evaluate(account)
+    trigger_health(ctx, account, EvaluationTrigger.CHECKLIST_MUTATION, reference_id=str(item.id))
     ctx.commit()
     return {
         "item": s.ChecklistItemOut.model_validate(item).model_dump(),
@@ -192,6 +196,7 @@ def add_evidence(
     )
     checklists.recompute_evidence_status(item)
     result = registry.rollup.evaluate(account)
+    trigger_health(ctx, account, EvaluationTrigger.EVIDENCE_MUTATION, reference_id=str(evidence.id))
     ctx.commit()
     return {
         "evidence": s.EvidenceOut.model_validate(evidence).model_dump(),
@@ -227,6 +232,7 @@ def update_evidence(ctx: WriteCtx, evidence_id: uuid.UUID, payload: s.EvidenceUp
     registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
     registry.checklists.recompute_evidence_status(item)
     result = registry.rollup.evaluate(account)
+    trigger_health(ctx, account, EvaluationTrigger.EVIDENCE_MUTATION, reference_id=str(evidence.id))
     ctx.commit()
     return {
         "evidence": s.EvidenceOut.model_validate(evidence).model_dump(),
@@ -242,6 +248,7 @@ def archive_evidence(ctx: WriteCtx, evidence_id: uuid.UUID) -> dict[str, Any]:
     registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
     registry.checklists.recompute_evidence_status(item)
     result = registry.rollup.evaluate(account)
+    trigger_health(ctx, account, EvaluationTrigger.EVIDENCE_MUTATION, reference_id=str(evidence.id))
     ctx.commit()
     return {
         "evidence": s.EvidenceOut.model_validate(evidence).model_dump(),

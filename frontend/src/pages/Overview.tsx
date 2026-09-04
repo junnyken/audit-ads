@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
 import { api, query } from '../lib/api'
-import type { AdAccount, AuditEntry, Paged, ReadinessSummary } from '../lib/types'
+import type { AdAccount, AuditEntry, HealthSummary, Paged, ReadinessSummary } from '../lib/types'
 import { Badge, Card, ErrorState, InlineNote, Progress, Skeleton, StatTile } from '../components/ui'
 import { READINESS_META, accountStatusTone } from '../lib/readiness'
+import { FRESHNESS_META, HEALTH_META } from '../lib/health'
 import { formatRelative, humanise } from '../lib/format'
 
 function useOverview() {
@@ -29,16 +30,20 @@ function useOverview() {
     queryKey: ['accounts', 'distribution'],
     queryFn: () => api.get<Paged<AdAccount>>(`/api/v1/ad-accounts${query({ page_size: 200 })}`),
   })
+  const healthSummary = useQuery({
+    queryKey: ['health-summary'],
+    queryFn: () => api.get<HealthSummary>('/api/v1/account-health/summary'),
+  })
   const audit = useQuery({
     queryKey: ['audit', 'latest'],
     queryFn: () => api.get<Paged<AuditEntry>>(`/api/v1/audit-logs${query({ page_size: 8 })}`),
   })
-  return { summary, attention, recent, all, audit }
+  return { summary, attention, recent, all, audit, healthSummary }
 }
 
 export default function Overview() {
   const navigate = useNavigate()
-  const { summary, attention, recent, all, audit } = useOverview()
+  const { summary, attention, recent, all, audit, healthSummary } = useOverview()
 
   if (summary.isLoading) return <Skeleton rows={6} />
   if (summary.isError) return <ErrorState error={summary.error} onRetry={() => summary.refetch()} />
@@ -94,6 +99,87 @@ export default function Overview() {
         />
         <StatTile label="Archived" value={counts.archived} tone="muted" onClick={() => navigate('/accounts?archived=true')} />
       </div>
+
+      <section className="space-y-3">
+        <header className="flex flex-wrap items-baseline justify-between gap-2">
+          <div>
+            <h2 className="text-[15px] font-semibold">Account health</h2>
+            <p className="text-[12.5px] text-ink-muted">
+              What needs attention right now. This is a separate question from readiness above:
+              an account can be operationally ready and still have an open signal, and vice versa.
+            </p>
+          </div>
+          <Link to="/account-health" className="text-[12px] font-medium text-brand hover:underline">
+            Open account health
+          </Link>
+        </header>
+
+        {healthSummary.isLoading ? (
+          <Skeleton rows={2} />
+        ) : healthSummary.isError ? (
+          <ErrorState error={healthSummary.error} onRetry={() => healthSummary.refetch()} />
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+              <StatTile
+                label={HEALTH_META.critical.label}
+                value={healthSummary.data!.critical}
+                tone={HEALTH_META.critical.tone}
+                hint={HEALTH_META.critical.description}
+                onClick={() => navigate('/account-health?health_status=critical')}
+              />
+              <StatTile
+                label="Warnings"
+                value={healthSummary.data!.warning}
+                tone={HEALTH_META.warning.tone}
+                hint={HEALTH_META.warning.description}
+                onClick={() => navigate('/account-health?health_status=warning')}
+              />
+              <StatTile
+                label={HEALTH_META.attention_needed.label}
+                value={healthSummary.data!.attention_needed}
+                tone={HEALTH_META.attention_needed.tone}
+                hint={HEALTH_META.attention_needed.description}
+                onClick={() => navigate('/account-health?health_status=attention_needed')}
+              />
+              <StatTile
+                label={HEALTH_META.unknown.label}
+                value={healthSummary.data!.unknown}
+                tone={HEALTH_META.unknown.tone}
+                hint={HEALTH_META.unknown.description}
+                onClick={() => navigate('/account-health?health_status=unknown')}
+              />
+              <StatTile
+                label={HEALTH_META.clear_signals.label}
+                value={healthSummary.data!.clear_signals}
+                tone={HEALTH_META.clear_signals.tone}
+                hint={HEALTH_META.clear_signals.description}
+                onClick={() => navigate('/account-health?health_status=clear_signals')}
+              />
+              <StatTile
+                label="Stale data"
+                value={healthSummary.data!.stale_data}
+                tone={FRESHNESS_META.stale.tone}
+                hint={FRESHNESS_META.stale.description}
+                onClick={() => navigate('/account-health?freshness_status=stale')}
+              />
+            </div>
+
+            <InlineNote>
+              <strong>Last health evaluation:</strong>{' '}
+              {healthSummary.data!.last_evaluation_at
+                ? formatRelative(healthSummary.data!.last_evaluation_at)
+                : 'never'}
+              {healthSummary.data!.never_evaluated > 0 &&
+                ` · ${healthSummary.data!.never_evaluated} account(s) have never been evaluated`}
+              {healthSummary.data!.failed_runs_recent > 0 &&
+                ` · ${healthSummary.data!.failed_runs_recent} evaluation(s) failed in the last 24 hours`}
+              . Health is recalculated when an account changes and when you ask for it; nothing is
+              fetched from an advertising platform.
+            </InlineNote>
+          </>
+        )}
+      </section>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Card

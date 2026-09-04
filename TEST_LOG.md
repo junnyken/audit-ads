@@ -159,3 +159,156 @@ not through the nginx container. Deploying to the target VPS is a separate, unpe
 - No manual click-through in a real browser. UI verification was done by rendering the real
   components against the live API in jsdom, plus a production build; that is not the same as a
   human driving Chrome, and the difference is recorded here deliberately.
+
+---
+
+## Session 2026-09-04 (later) — MINI-SPEC A2
+
+**Environment** — unchanged from the A1 session (Python 3.12.3, Node 22.22.3, PostgreSQL 16 in
+Docker on `localhost:5434`, API on `127.0.0.1:8009`). Migration head is now
+`0002_a2_account_health`.
+
+### 1. A1 baseline re-verified before any A2 code — PASS
+
+Run first, per A2 §7:
+
+```
+$ .venv/bin/python -m pytest tests/       111 passed in 79.68s
+$ .venv/bin/ruff check .                  All checks passed
+$ npx vitest run src/test/readiness.test.ts   6 passed
+```
+
+The seven A1 invariants named in A2 §7.2 were each re-run individually and all pass:
+missing mandatory evidence cannot yield `operationally_ready`; manual completion of a derived
+checklist item is rejected (409); a waiver does not satisfy a mandatory item; sensitive fields are
+rejected (422 `forbidden_field`); cross-workspace access returns 404 rather than 403; archive
+preserves audit and evidence history; `unknown`/`not_ready` are never styled green.
+
+Measured facts versus the A2 brief: **16** ORM tables (17 including `alembic_version`), **77**
+routes, methods present are only `GET`/`PATCH`/`POST`, single revision `0001_a1_registry`, and no
+Celery/Redis anywhere. **No A1 regression was found, so A2 proceeded on an intact baseline.**
+
+### 2. A1 regression after A2 was wired in — PASS
+
+```
+$ .venv/bin/python -m pytest tests/test_readiness_engine.py tests/test_readiness_api.py \
+    tests/test_registry_api.py tests/test_security_api.py tests/test_audit_api.py tests/test_redaction.py
+111 passed
+```
+
+The A1 suite runtime rose from ~80s to ~120s because health now evaluates on every A1 mutation in
+tests. That is the real cost of synchronous evaluation and it is recorded rather than hidden.
+
+### 3. Full backend suite — PASS (192)
+
+```
+$ .venv/bin/python -m pytest tests/       192 passed
+$ .venv/bin/ruff check .                  All checks passed
+```
+
+| File | Tests | Covers |
+|---|---|---|
+| `test_readiness_engine.py` | 25 | A1 rollup rules (unchanged) |
+| `test_redaction.py` | 28 | A1 redaction (unchanged) |
+| `test_registry_api.py` | 19 | A1 registry (unchanged) |
+| `test_readiness_api.py` | 18 | A1 readiness lifecycle (unchanged) |
+| `test_security_api.py` | 13 | A1 secret rejection (unchanged) |
+| `test_audit_api.py` | 8 | A1 audit (unchanged) |
+| **`test_health_engine.py`** | **37** | Rule evaluation, rollup precedence, freshness, determinism, vocabulary |
+| **`test_health_api.py`** | **25** | Evaluation, lifecycle, dedup, actions, archive, runs, backfill, filters, failure, staleness |
+| **`test_health_security.py`** | **18** | Secret rejection, cross-workspace non-disclosure, role checks, A2 regressions |
+| **`test_health_performance.py`** | **1** | 30-account bounded resource check |
+
+Notable A2 assertions: acknowledging keeps health at `warning`; resolving a signal leaves the
+source `AccountEvent` at `open`; re-evaluating unchanged facts creates no duplicate active signal;
+a materially changed event supersedes its signal and links to the successor; a signal resolved
+while its condition still holds is legitimately raised again on the next evaluation; a disabled
+rule stops generating but keeps history; archiving expires active signals and reports
+`unknown`/`not_applicable`; the backend contains no import of `requests`, `httpx`, `selenium`,
+`playwright` or any browser driver.
+
+### 4. Migration verification — PASS
+
+- Clean database: both revisions applied in order, 21 tables (17 + 4 new). Every pytest session
+  repeats this.
+- Upgrade path: `0001_a1_registry → 0002_a2_account_health` applied to the existing A1 database
+  with data in place; no A1 table altered, no A1 column changed.
+- Rollback: `alembic downgrade 0001_a1_registry` drops only the four new tables.
+
+### 5. Frontend — PASS
+
+```
+$ npx vitest run     35 passed | 12 skipped (live suite, opt-in)
+$ npm run build      dist 316.78 kB (91.61 kB gzip)
+$ npx eslint .       clean
+```
+
+Bundle impact versus the A1 baseline (292.34 kB / 86.40 kB gzip): **+24.4 kB raw, +5.2 kB gzip**
+for the health list page, Health tab, signal drawer and Overview section.
+
+New hermetic tests (19): the health colour map (only `clear_signals` may be green; `unknown` never
+is; freshness is never green or red); `clear_signals` copy always carries the configured-check
+caveat; no safety or approval language in any health string; acknowledge requires a note and
+resolve requires a reason before their buttons enable; an engine-closed signal is labelled
+automatic; no credential input and no score wording in the drawer; health and readiness
+vocabularies stay separate.
+
+### 6. Live pilot — PASS
+
+Both pilots were run against the running API on a **freshly created database**, A1 first so its
+scenarios are re-proved with A2 in place.
+
+**A1 pilot re-run: 28/28** — including `system status` now reporting revision
+`0002_a2_account_health`, and the three A1 scenarios landing on `operationally_ready`, `unknown`
+and `not_ready` exactly as in the A1 session. A2 changed nothing about them.
+
+**A2 pilot: 37/37.**
+
+| Scenario | Expected | Actual |
+|---|---|---|
+| A — complete evidence, no events, active status | A1 `operationally_ready` · A2 `clear_signals` · "no current issues found by configured checks" | exactly that, 0 open signals, freshness `current` |
+| B — missing required evidence, stale review | A1 `unknown`/`not_ready`/`ready_with_warnings` · A2 `warning`/`attention_needed` with reason, source, timestamp and next step | A1 `unknown` · A2 `warning`, reasons `mandatory_readiness_evidence_missing`, `manual_review_due_or_stale`, `readiness_unknown`, each with a recommended manual step |
+| C — restricted status + unresolved critical event | A1 `not_ready` · A2 `critical` with source facts, timestamps, rule version, no remediation | exactly that; both `account_restricted_status` and `critical_account_event_open` raised, `readiness_not_ready` correctly suppressed, account status untouched |
+| D — staleness | A2 `unknown`/stale; UI keeps no misleading clear result; run records context | snapshot aged 5 days → `unknown` + `stale` + `health_evaluation_stale`, filterable, and recalculation restored `clear_signals` |
+
+Also verified live: acknowledging a critical signal kept health `critical`; resolving the source
+event and clearing the status closed both signals while keeping them as history; ten versioned
+rules registered; evaluation runs recorded for all five trigger types exercised; bounded backfill
+evaluated a batch of 4 with 0 failures and refused without `confirm`; secret fields and
+credential-shaped evidence references refused; no secret-like or score-like key in any health
+payload; archived account reported `unknown`/`not_applicable` with no active signals;
+`DELETE` on a signal returns 405.
+
+**Live UI verification: 12/12** (7 A1 + 5 A2) — real React pages rendered against the live API in
+jsdom: the Overview Account Health section with all six cards and no safety wording; the Account
+Health list with Readiness, Health, Data freshness and Top reason as separate columns; the Health
+tab showing signals with rule versions and the readiness state beside it; the signal drawer with
+evidence, guidance and both actions disabled until their required text is entered.
+
+### 7. Performance and resource check — PASS
+
+```
+[A2 resource check] 30 accounts | total 1.33s | avg 44ms | 930 queries (31.0/account) | peak RSS 141 MB (+0 MB)
+```
+
+Bounded loop, no browser process started, no external call, no worker. The check runs as part of
+the suite so the cost is measured on every run rather than once on the day it shipped.
+
+## Issues found and fixed during the A2 session
+
+| Issue | Fix |
+|---|---|
+| Index names generated from the project naming convention exceeded PostgreSQL's 63-character identifier limit, so `alembic revision --autogenerate` crashed | Explicit short names for the six composite health indexes and for the `rule_definition_id` foreign key |
+| Health filters returned zero rows. SQLAlchemy's `Enum(native_enum=False)` persists the enum **name** (`CLEAR_SIGNALS`), so the hand-written lowercase string literals in the CASE expression matched nothing | Every branch is now bound with the column's own Enum type. Recorded in `ARCH.md` §6b so the next person filtering these columns does not repeat it |
+| `GROUP BY status` in the summary query resolved to `ad_accounts.status` instead of the output alias, so PostgreSQL rejected the query | Group by the expressions themselves, with a comment explaining the ambiguity |
+| Health rules crashed on an ORM object whose `updated_at` was not yet flushed | Rules format timestamps defensively; a missing timestamp falls back to the evaluation time |
+| **A1 defect found by an A2 test:** `Field` rendered a `<label>` with no `for` attribute unless a caller passed `htmlFor`, so most form controls had no accessible name | `Field` now wraps the control in the label when no explicit id is given, giving implicit association. Verified by `getByLabelText` in the A2 drawer tests |
+
+## Explicitly not tested in the A2 session
+
+- Docker Compose was still not built or started (A2 §7.1 forbids deploying unless asked).
+- No scheduler was configured, so scheduled evaluation is exercised only through the command
+  (`python -m app.commands.evaluate_health`) and through synchronous triggers.
+- Still no manual click-through in a real browser; UI verification remains jsdom rendering against
+  the live API plus a production build.
+- No advertising platform was contacted, and no browser process was started, by design.

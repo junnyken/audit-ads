@@ -214,3 +214,146 @@ export interface CurrentUser {
   role: string
   workspace: { id: string; name: string; slug: string }
 }
+
+// ---------------------------------------------------------------------------------------
+// MINI-SPEC A2 — account health. Separate vocabulary from readiness, on purpose.
+// ---------------------------------------------------------------------------------------
+
+export type HealthStatus =
+  | 'unknown'
+  | 'attention_needed'
+  | 'warning'
+  | 'critical'
+  | 'clear_signals'
+
+export type FreshnessStatus = 'current' | 'stale' | 'unknown' | 'not_applicable'
+export type SignalSeverity = 'unknown' | 'attention' | 'warning' | 'critical'
+export type SignalStatus = 'open' | 'acknowledged' | 'resolved' | 'expired' | 'superseded'
+export type HealthCategory = 'account_status' | 'operations' | 'readiness' | 'data_quality'
+
+export interface HealthReason {
+  code: string
+  severity: string
+  signal_id: string | null
+  message: string
+  observed_at: string
+  rule_key: string
+  rule_version: number
+  status: string
+}
+
+export interface HealthCounts {
+  critical: number
+  warning: number
+  attention: number
+  unknown: number
+}
+
+export interface AccountHealth {
+  ad_account_id: string
+  health_status: HealthStatus
+  status_description: string
+  freshness_status: FreshnessStatus
+  evaluated_at: string | null
+  engine_version: string
+  counts: HealthCounts
+  summary_reasons: HealthReason[]
+  readiness: { status: string; evaluated_at: string | null }
+  disclaimer: string
+  last_run_status?: string
+}
+
+export interface HealthSignal {
+  id: string
+  ad_account_id: string
+  rule_key: string
+  rule_version: number
+  signal_key: string
+  category: HealthCategory
+  severity: SignalSeverity
+  status: SignalStatus
+  source_type: string
+  source_entity_type: string | null
+  source_entity_id: string | null
+  evidence_json: Record<string, unknown>
+  observed_at: string
+  last_evaluated_at: string
+  expires_at: string | null
+  acknowledged_at: string | null
+  acknowledgement_note: string | null
+  resolved_at: string | null
+  resolved_by: string | null
+  resolution_reason: string | null
+  resolution_evidence_reference: string | null
+  superseded_at: string | null
+  superseded_by_signal_id: string | null
+  created_at: string
+  rule_name: string | null
+  why_it_matters: string | null
+  recommended_next_step: string | null
+  resolution_guidance: string | null
+}
+
+export interface AccountHealthRow {
+  ad_account_id: string
+  display_name: string
+  external_account_id: string | null
+  business_manager_name: string | null
+  personal_account_reference_label: string | null
+  owner_label: string
+  account_status: string
+  account_type: string
+  readiness_status: ReadinessStatus
+  health_status: HealthStatus
+  freshness_status: FreshnessStatus
+  open_critical_count: number
+  open_warning_count: number
+  open_attention_count: number
+  open_unknown_count: number
+  last_evaluated_at: string | null
+  top_reason: HealthReason | null
+  archived: boolean
+}
+
+export interface HealthSummary {
+  total_active: number
+  critical: number
+  warning: number
+  attention_needed: number
+  unknown: number
+  clear_signals: number
+  stale_data: number
+  never_evaluated: number
+  last_evaluation_at: string | null
+  failed_runs_recent: number
+  disclaimer: string
+}
+
+export interface HealthRule {
+  id: string
+  rule_key: string
+  version: number
+  name: string
+  description: string
+  category: HealthCategory
+  enabled: boolean
+  severity: SignalSeverity
+  resolution_guidance: string
+  why_it_matters: string | null
+  recommended_next_step: string | null
+  applicability: string | null
+}
+
+export interface EvaluationRun {
+  id: string
+  ad_account_id: string | null
+  trigger_type: string
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'skipped'
+  engine_version: string
+  started_at: string
+  completed_at: string | null
+  error_code: string | null
+  error_summary: string | null
+  result_summary_json: Record<string, unknown> | null
+  request_id: string | null
+}

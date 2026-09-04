@@ -7,7 +7,7 @@ import sqlalchemy as sa
 from fastapi import APIRouter, Query
 
 from app.api.deps import Ctx, WriteCtx
-from app.core.enums import AssetType
+from app.core.enums import AssetType, EvaluationTrigger
 from app.models.entities import (
     AccountAssetLink,
     BrowserProfileReference,
@@ -19,6 +19,7 @@ from app.models.entities import (
 from app.schemas import registry as s
 from app.schemas.common import page_response
 from app.services.base import get_or_404
+from app.services.health_triggers import trigger_health
 from app.services.links import AssetLinkService
 from app.services.registry import AccountFilters, AdAccountRegistryService
 
@@ -110,6 +111,7 @@ def list_accounts(
 def create_account(ctx: WriteCtx, payload: s.AdAccountCreate) -> dict[str, Any]:
     service = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
     account = service.create(payload.model_dump())
+    trigger_health(ctx, account, EvaluationTrigger.ACCOUNT_MUTATION)
     ctx.commit()
     return _serialize_account(account)
 
@@ -124,6 +126,7 @@ def get_account(ctx: Ctx, ad_account_id: uuid.UUID) -> dict[str, Any]:
 def update_account(ctx: WriteCtx, ad_account_id: uuid.UUID, payload: s.AdAccountUpdate) -> dict[str, Any]:
     service = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
     account = service.update(service.get(ad_account_id), payload.model_dump(exclude_unset=True))
+    trigger_health(ctx, account, EvaluationTrigger.ACCOUNT_MUTATION)
     ctx.commit()
     return _serialize_account(account)
 
@@ -132,6 +135,7 @@ def update_account(ctx: WriteCtx, ad_account_id: uuid.UUID, payload: s.AdAccount
 def archive_account(ctx: WriteCtx, ad_account_id: uuid.UUID) -> dict[str, Any]:
     service = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
     account = service.archive(service.get(ad_account_id))
+    trigger_health(ctx, account, EvaluationTrigger.ACCOUNT_MUTATION)
     ctx.commit()
     return _serialize_account(account)
 
@@ -140,6 +144,7 @@ def archive_account(ctx: WriteCtx, ad_account_id: uuid.UUID) -> dict[str, Any]:
 def restore_account(ctx: WriteCtx, ad_account_id: uuid.UUID) -> dict[str, Any]:
     service = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
     account = service.restore(service.get(ad_account_id))
+    trigger_health(ctx, account, EvaluationTrigger.ACCOUNT_MUTATION)
     ctx.commit()
     return _serialize_account(account)
 
@@ -180,6 +185,7 @@ def create_asset_link(ctx: WriteCtx, ad_account_id: uuid.UUID, payload: s.AssetL
         note=payload.note,
     )
     registry.rollup.evaluate(account)
+    trigger_health(ctx, account, EvaluationTrigger.ACCOUNT_MUTATION, reference_id=str(link.id))
     ctx.commit()
     return _serialize_link(ctx, link)
 
@@ -203,5 +209,6 @@ def unlink_asset(ctx: WriteCtx, ad_account_id: uuid.UUID, link_id: uuid.UUID) ->
     link = get_or_404(ctx.session, AccountAssetLink, link_id, ctx.workspace_id, label="Asset link")
     updated = AssetLinkService(ctx.session, ctx.workspace_id, ctx.audit).unlink(link, actor_id=ctx.actor_id)
     registry.rollup.evaluate(account)
+    trigger_health(ctx, account, EvaluationTrigger.ACCOUNT_MUTATION, reference_id=str(updated.id))
     ctx.commit()
     return _serialize_link(ctx, updated)

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import type { AdAccount, Readiness } from '../lib/types'
 import { Badge, ErrorState, Progress, Skeleton, Tabs } from '../components/ui'
@@ -9,6 +9,7 @@ import AccountFormDrawer from '../components/AccountFormDrawer'
 import OverviewTab from './account/OverviewTab'
 import AssetsTab from './account/AssetsTab'
 import ReadinessTab from './account/ReadinessTab'
+import HealthTab from './account/HealthTab'
 import EventsTab from './account/EventsTab'
 import AuditTab from './account/AuditTab'
 
@@ -16,6 +17,7 @@ const TABS = [
   { key: 'overview', label: 'Overview' },
   { key: 'assets', label: 'Assets & References' },
   { key: 'readiness', label: 'Readiness' },
+  { key: 'health', label: 'Health' },
   { key: 'events', label: 'Events' },
   { key: 'audit', label: 'Audit History' },
 ]
@@ -23,7 +25,15 @@ const TABS = [
 export default function AccountDetail() {
   const { accountId = '' } = useParams()
   const queryClient = useQueryClient()
-  const [tab, setTab] = useState('overview')
+  const [searchParams, setSearchParams] = useSearchParams()
+  // Deep-linkable so the health list can send the operator straight to the Health tab.
+  const tab = searchParams.get('tab') ?? 'overview'
+  const setTab = (key: string) => {
+    const next = new URLSearchParams(searchParams)
+    if (key === 'overview') next.delete('tab')
+    else next.set('tab', key)
+    setSearchParams(next, { replace: true })
+  }
   const [editing, setEditing] = useState(false)
 
   const account = useQuery({
@@ -44,6 +54,11 @@ export default function AccountDetail() {
     void queryClient.invalidateQueries({ queryKey: ['account-audit', accountId] })
     void queryClient.invalidateQueries({ queryKey: ['accounts'] })
     void queryClient.invalidateQueries({ queryKey: ['readiness-summary'] })
+    void queryClient.invalidateQueries({ queryKey: ['health', accountId] })
+    void queryClient.invalidateQueries({ queryKey: ['health-signals', accountId] })
+    void queryClient.invalidateQueries({ queryKey: ['health-runs', accountId] })
+    void queryClient.invalidateQueries({ queryKey: ['account-health'] })
+    void queryClient.invalidateQueries({ queryKey: ['health-summary'] })
   }
 
   const archive = useMutation({
@@ -151,6 +166,7 @@ export default function AccountDetail() {
       {tab === 'overview' && <OverviewTab account={record} readiness={readiness} onChanged={refresh} />}
       {tab === 'assets' && <AssetsTab account={record} onChanged={refresh} />}
       {tab === 'readiness' && <ReadinessTab account={record} onChanged={refresh} />}
+      {tab === 'health' && <HealthTab account={record} onChanged={refresh} />}
       {tab === 'events' && <EventsTab account={record} onChanged={refresh} />}
       {tab === 'audit' && <AuditTab account={record} />}
 

@@ -176,6 +176,102 @@ Create, update and resolve all return the recomputed `readiness_status`.
 
 There is no write endpoint for audit logs.
 
+## Account health (A2)
+
+All health endpoints follow the A1 conventions above: bearer auth, workspace scope from the
+membership, the same error envelope, the same pagination shape, `404` for anything outside the
+workspace.
+
+Every health payload carries a `disclaimer`, and `clear_signals` is described only as
+"No current issues found by configured checks". Health never claims platform approval or safety.
+
+### Summary and list
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/account-health/summary` | Counts per health state plus `stale_data`, `never_evaluated`, `last_evaluation_at`, `failed_runs_recent` |
+| `GET` | `/account-health` | Paginated account rows with health, readiness and freshness as separate values |
+
+`GET /account-health` filters: `search`, `health_status`, `freshness_status`, `severity`,
+`signal_status`, `rule_key`, `business_manager_id`, `account_type`, `readiness_status`,
+`archived`, `page`, `page_size`, `sort`, `sort_direction`.
+Sortable: `health_severity` (default, worst first), `last_evaluated_at`, `freshness`,
+`display_name`, `updated_at`.
+
+Filtering on `health_status` and `freshness_status` applies the same read-time staleness rule the
+UI shows, so a stale `clear_signals` account is matched by `health_status=unknown` — the filter
+and the badge can never disagree.
+
+### Per account
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/ad-accounts/{id}/health` | Rollup, counts, ordered reasons, freshness, engine version, and the A1 readiness state alongside |
+| `GET` | `/ad-accounts/{id}/health/signals` | All signals; `status=` or `include_historical=false` to narrow |
+| `POST` | `/ad-accounts/{id}/health/recalculate` | Re-reads stored records. Contacts no platform |
+
+Rollup response:
+
+```json
+{
+  "ad_account_id": "uuid",
+  "health_status": "warning",
+  "status_description": "At least one unresolved warning signal is open, and no critical signal is open.",
+  "freshness_status": "current",
+  "evaluated_at": "2026-09-04T22:14:35+00:00",
+  "engine_version": "a2-v1",
+  "counts": {"critical": 0, "warning": 2, "attention": 1, "unknown": 0},
+  "summary_reasons": [
+    {
+      "code": "manual_review_due_or_stale",
+      "severity": "warning",
+      "signal_id": "uuid",
+      "message": "The last manual review is older than the configured 30-day interval.",
+      "observed_at": "2026-09-04T22:14:35+00:00",
+      "rule_key": "manual_review_due_or_stale",
+      "rule_version": 1,
+      "status": "open"
+    }
+  ],
+  "readiness": {"status": "ready_with_warnings", "evaluated_at": "2026-09-04T22:14:35+00:00"},
+  "disclaimer": "Account health is an internal operational state ..."
+}
+```
+
+### Signal detail and actions
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/account-health/signals/{signal_id}` | Signal, rule guidance, account context |
+| `POST` | `/account-health/signals/{signal_id}/acknowledge` | `{note}` required. Does **not** resolve; the signal keeps counting towards health |
+| `POST` | `/account-health/signals/{signal_id}/resolve` | `{reason}` required, `evidence_reference` optional and validated |
+| `POST` | `/account-health/signals/{signal_id}/reopen` | `{reason}` required. `409` if an active signal already holds the same `signal_key`, or if the signal was superseded |
+| `GET` | `/account-health/signals/{signal_id}/audit-logs` | Append-only trail for that signal |
+
+Signal actions never touch the underlying A1 event, checklist item or evidence record. To change
+those, use their own A1 endpoints. Actions on an archived account are refused.
+
+Signal statuses: `open`, `acknowledged`, `resolved`, `expired`, `superseded`.
+Severities: `critical`, `warning`, `attention`, `unknown`.
+Health states: `critical`, `warning`, `attention_needed`, `unknown`, `clear_signals`.
+Freshness: `current`, `stale`, `unknown`, `not_applicable`.
+
+### Rules, runs and backfill
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/account-health/rules` | The versioned typed registry. Read-only in A2 |
+| `GET` | `/account-health/evaluation-runs` | Filters: `ad_account_id`, `status`, `page`, `page_size` |
+| `GET` | `/account-health/evaluation-runs/{run_id}` | One run, including `error_code` and `error_summary` |
+| `POST` | `/account-health/backfill` | Owner-only. `{confirm: true, batch_size?}`. Bounded (max 50) and synchronous — this release has no worker |
+
+Run triggers: `account_mutation`, `checklist_mutation`, `evidence_mutation`,
+`account_event_mutation`, `manual_recalculate`, `scheduled_recalculate`, `rule_change`,
+`backfill`. Run statuses: `queued`, `running`, `succeeded`, `failed`, `skipped`.
+
+A failed evaluation never blocks the A1 mutation that triggered it; it is recorded as a failed run
+and the account's health is reported as `unknown`.
+
 ## Health and system
 
 | Method | Path | Notes |

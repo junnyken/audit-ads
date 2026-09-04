@@ -8,6 +8,7 @@ import AccountDetail from './pages/AccountDetail'
 import BusinessManagers from './pages/BusinessManagers'
 import Assets from './pages/Assets'
 import ReadinessPage from './pages/Readiness'
+import AccountHealth from './pages/AccountHealth'
 import AuditLog from './pages/AuditLog'
 import SystemStatus from './pages/SystemStatus'
 import Settings from './pages/Settings'
@@ -34,6 +35,7 @@ export default function App() {
         <Route path="business-managers" element={<BusinessManagers />} />
         <Route path="assets" element={<Assets />} />
         <Route path="readiness" element={<ReadinessPage />} />
+        <Route path="account-health" element={<AccountHealth />} />
         <Route path="audit-log" element={<AuditLog />} />
         <Route path="system" element={<SystemStatus />} />
         <Route path="settings" element={<Settings />} />

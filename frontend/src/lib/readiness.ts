@@ -1,6 +1,6 @@
 import type { EvidenceStatus, ReadinessStatus, ReviewStatus } from './types'
 
-export type Tone = 'positive' | 'caution' | 'attention' | 'neutral' | 'muted'
+export type Tone = 'positive' | 'caution' | 'attention' | 'info' | 'neutral' | 'muted'
 
 /**
  * The single mapping from a readiness state to how it looks.
@@ -42,6 +42,7 @@ export const TONE_CLASS: Record<Tone, string> = {
   positive: 'bg-emerald-50 text-emerald-800 border-emerald-200',
   caution: 'bg-amber-50 text-amber-900 border-amber-200',
   attention: 'bg-rose-50 text-rose-800 border-rose-200',
+  info: 'bg-sky-50 text-sky-900 border-sky-200',
   neutral: 'bg-slate-100 text-slate-700 border-slate-300',
   muted: 'bg-surface-sunken text-ink-faint border-line',
 }
@@ -50,6 +51,7 @@ export const TONE_DOT: Record<Tone, string> = {
   positive: 'bg-emerald-500',
   caution: 'bg-amber-500',
   attention: 'bg-rose-500',
+  info: 'bg-sky-500',
   neutral: 'bg-slate-400',
   muted: 'bg-line-strong',
 }

@@ -1,6 +1,55 @@
 # FEATURES
 
-Current release: **MINI-SPEC A1 — Account Registry & Stability Readiness** (2026-09-04).
+Current release: **MINI-SPEC A2 — Evidence-Based Account Health & Alert Foundation** (2026-09-04),
+built on **MINI-SPEC A1 — Account Registry & Stability Readiness**.
+
+## Shipped in A2 — Account health
+
+### Health signals
+- Ten typed, versioned rules in a fixed registry (`a2-v1`). No user-authored rule code, no
+  expression parser, nothing evaluated from a string. See [`docs/HEALTH_RULES_V1.md`](docs/HEALTH_RULES_V1.md).
+- Every signal carries rule key and version, severity, status, source type and source entity,
+  an allowlisted evidence payload, observed and last-evaluated timestamps, and the operator
+  guidance for what it means and what to do next.
+- Deterministic `signal_key` per rule and source fact; a unique index on `(ad_account_id,
+  active_key)` makes a duplicate active signal impossible at the database level.
+- Lifecycle: `open` → `acknowledged` → `resolved`, plus `expired` (rule disabled, or account
+  archived) and `superseded` (evidence materially changed, so a successor signal was created and
+  the previous one kept). Nothing is ever deleted or overwritten in place.
+- Signals close automatically when their source fact ends, recorded as resolved by the engine
+  rather than by a person. Resolving a signal whose condition still holds legitimately reopens it
+  on the next evaluation.
+
+### Health rollup
+- Five states: `unknown`, `attention_needed`, `warning`, `critical`, `clear_signals`. No numeric
+  score of any kind.
+- Acknowledgement is not resolution: an acknowledged signal still counts towards the rollup.
+- Freshness is derived on every read, so a `clear_signals` snapshot that has aged past the
+  configured interval is presented as `unknown` instead of quietly staying green.
+- A failed evaluation records the failure and reports `unknown`; it never leaves a previous clear
+  result standing.
+- Readiness and health are separate everywhere — database, API and UI. `operationally_ready` does
+  not imply `clear_signals`, and `clear_signals` does not imply `operationally_ready`.
+
+### Evaluation
+- Triggered synchronously after every relevant A1 mutation (account, checklist, evidence, event,
+  manual review, asset link), inside a SAVEPOINT so a health failure can never roll back the
+  operator's actual change.
+- `HealthEvaluationRun` records every evaluation — trigger, status, engine version, duration,
+  result summary, error code and request id.
+- Manual per-account recalculation, and an owner-only bounded backfill that requires explicit
+  confirmation.
+- `python -m app.commands.evaluate_health --batch N` is the scheduler seam for A3.
+
+### Surfaces
+- Account Health section on the Overview with the six required cards, each linking to a filtered
+  list, plus last-evaluation and freshness caveats.
+- Account Health page: URL-synchronised filters, sorting by severity/last evaluated/name, and the
+  required columns including readiness, health, freshness and top reason as separate values.
+- Health tab on account detail with open, acknowledged and historical signals, the readiness state
+  beside it, recent evaluation runs, and manual recalculation.
+- Signal drawer with evidence, rule metadata and version, timeline, and the acknowledge/resolve
+  flows — each stating plainly that it records an internal outcome, not a platform decision.
 
 ## Shipped in A1
 
@@ -68,6 +117,19 @@ Current release: **MINI-SPEC A1 — Account Registry & Stability Readiness** (20
 - `unknown` and `not_ready` are never rendered with success styling — enforced by a single
   colour map and covered by a test.
 
+## Deliberately excluded from A2
+
+| Excluded | Why |
+|---|---|
+| Numeric ban-risk, safety or trust score | Rejected design: a number hides cause and implies a claim the product must never make |
+| ML restriction prediction | No authorised basis for it; it would be a misleading claim |
+| Auto-remediation from a signal | A2 mutates no platform asset; every action stays manual and recorded |
+| Telegram or any delivery transport | Belongs to MINI-SPEC A3, which reuses these signals |
+| Suppression / snooze | A2 §24 allows deferring it; deferred to A3 rather than half-built |
+| Rule configuration UI | A1 shipped no settings architecture to extend; rules are read-only and versioned |
+| Celery, Redis, periodic scheduler | A1 has none and the target VPS has no headroom; A2 ships a command seam instead |
+| Browser/proxy telemetry as a health input | Rejected: environment metadata is not evidence about an account |
+
 ## Deliberately excluded from A1
 
 | Excluded | Why |
@@ -83,6 +145,13 @@ Current release: **MINI-SPEC A1 — Account Registry & Stability Readiness** (20
 
 ## Known limits (follow-ups)
 
+- **No scheduled evaluation.** Health is recalculated on mutation and on request. Without a worker
+  nothing sweeps idle accounts, so an untouched account's evaluation ages and is then reported as
+  `unknown`/stale — correct, but it means staleness is surfaced rather than prevented. Wiring
+  `app.commands.evaluate_health` to a scheduler belongs to A3.
+- **Backfill is synchronous and bounded** (default 5, maximum 50 accounts) rather than
+  asynchronous, for the same reason.
+- Rule enable/disable is supported by the schema and engine but has no UI.
 - No rate-limiting middleware yet (no existing middleware to extend in A1).
 - No CI pipeline configured for this repository.
 - Evidence is metadata plus an optional external link; there is no file upload/storage layer.

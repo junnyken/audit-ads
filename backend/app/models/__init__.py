@@ -16,8 +16,18 @@ from app.models.entities import (
     Workspace,
     WorkspaceMember,
 )
+from app.models.health import (
+    AccountHealthSignal,
+    AccountHealthSnapshot,
+    HealthEvaluationRun,
+    HealthRuleDefinition,
+)
 
 __all__ = [
+    "AccountHealthSignal",
+    "AccountHealthSnapshot",
+    "HealthEvaluationRun",
+    "HealthRuleDefinition",
     "AccountAssetLink",
     "AccountEvent",
     "AdAccount",

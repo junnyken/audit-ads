@@ -6,10 +6,12 @@ from typing import Any
 from fastapi import APIRouter
 
 from app.api.deps import Ctx, WriteCtx
+from app.core.enums import EvaluationTrigger
 from app.models.entities import AccountEvent, AdAccount
 from app.schemas import events as s
 from app.services.base import get_or_404
 from app.services.events import AccountEventService
+from app.services.health_triggers import trigger_health
 from app.services.registry import AdAccountRegistryService
 
 router = APIRouter(tags=["events"])
@@ -38,6 +40,7 @@ def create_event(ctx: WriteCtx, ad_account_id: uuid.UUID, payload: s.AccountEven
         evidence_reference=payload.evidence_reference,
     )
     result = registry.rollup.evaluate(account)
+    trigger_health(ctx, account, EvaluationTrigger.ACCOUNT_EVENT_MUTATION, reference_id=str(event.id))
     ctx.commit()
     return {
         "event": s.AccountEventOut.model_validate(event).model_dump(),
@@ -63,6 +66,7 @@ def update_event(ctx: WriteCtx, event_id: uuid.UUID, payload: s.AccountEventUpda
     )
     registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
     result = registry.rollup.evaluate(account)
+    trigger_health(ctx, account, EvaluationTrigger.ACCOUNT_EVENT_MUTATION, reference_id=str(event.id))
     ctx.commit()
     return {
         "event": s.AccountEventOut.model_validate(event).model_dump(),
@@ -78,6 +82,7 @@ def resolve_event(ctx: WriteCtx, event_id: uuid.UUID, payload: s.AccountEventRes
     )
     registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
     result = registry.rollup.evaluate(account)
+    trigger_health(ctx, account, EvaluationTrigger.ACCOUNT_EVENT_MUTATION, reference_id=str(event.id))
     ctx.commit()
     return {
         "event": s.AccountEventOut.model_validate(event).model_dump(),
