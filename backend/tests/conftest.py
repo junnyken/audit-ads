@@ -11,6 +11,11 @@ os.environ.setdefault("JWT_SECRET", "test-secret-not-used-in-production")
 os.environ.setdefault("BOOTSTRAP_OWNER_EMAIL", "")
 os.environ.setdefault("BOOTSTRAP_OWNER_PASSWORD", "")
 os.environ.setdefault("ENVIRONMENT", "test")
+# A3: automated tests never touch the network. The fake transport records what would have been
+# sent; no bot token is set anywhere, so even a misconfiguration cannot reach Telegram.
+os.environ.setdefault("NOTIFICATION_TRANSPORT", "fake")
+os.environ.setdefault("TELEGRAM_BOT_TOKEN", "")
+os.environ.setdefault("PUBLIC_APP_URL", "https://adsops.example.com")
 
 import pytest  # noqa: E402
 import sqlalchemy as sa  # noqa: E402
@@ -23,6 +28,7 @@ from app.core.security import hash_password  # noqa: E402
 from app.db.session import SessionLocal, engine  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.models.entities import User, Workspace, WorkspaceMember  # noqa: E402
+from app.services.notification_transport import reset_fake_transport  # noqa: E402
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -74,7 +80,13 @@ def _create_workspace(session, *, name: str, email: str, password: str = "correc
 
 
 @pytest.fixture()
-def app(db_session):
+def transport():
+    """The shared fake transport, cleared for each test."""
+    return reset_fake_transport()
+
+
+@pytest.fixture()
+def app(db_session, transport):
     return create_app()
 
 

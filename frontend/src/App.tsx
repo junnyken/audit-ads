@@ -9,6 +9,7 @@ import BusinessManagers from './pages/BusinessManagers'
 import Assets from './pages/Assets'
 import ReadinessPage from './pages/Readiness'
 import AccountHealth from './pages/AccountHealth'
+import Alerts from './pages/Alerts'
 import AuditLog from './pages/AuditLog'
 import SystemStatus from './pages/SystemStatus'
 import Settings from './pages/Settings'
@@ -36,6 +37,7 @@ export default function App() {
         <Route path="assets" element={<Assets />} />
         <Route path="readiness" element={<ReadinessPage />} />
         <Route path="account-health" element={<AccountHealth />} />
+        <Route path="alerts" element={<Alerts />} />
         <Route path="audit-log" element={<AuditLog />} />
         <Route path="system" element={<SystemStatus />} />
         <Route path="settings" element={<Settings />} />

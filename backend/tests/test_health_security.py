@@ -226,11 +226,17 @@ def test_a2_adds_no_delete_endpoint(app):
     assert "DELETE" not in methods
 
 
-def test_backend_contains_no_outbound_http_or_browser_dependency():
-    """A2 must not contact a platform or start a browser. This is structural, not a promise."""
+def test_backend_starts_no_browser_and_contacts_no_advertising_platform():
+    """A2's original form of this test forbade *every* outbound HTTP import.
+
+    A3 introduced exactly one legitimate outbound call, to Telegram, so the rule moved rather
+    than relaxed: the stricter, named version lives in `test_alert_security.py`
+    (`test_only_the_telegram_transport_module_may_make_an_outbound_request`), which still bans
+    every browser driver and every general HTTP client and permits precisely one module. What
+    remains here is the part A2 owns — no browser, ever.
+    """
     forbidden = re.compile(
-        r"^\s*(import|from)\s+(requests|httpx|aiohttp|urllib\.request|selenium|playwright"
-        r"|pyppeteer|undetected_chromedriver)\b",
+        r"^\s*(import|from)\s+(selenium|playwright|pyppeteer|undetected_chromedriver|splinter)\b",
         re.MULTILINE,
     )
     offenders = [

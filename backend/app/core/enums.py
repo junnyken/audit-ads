@@ -200,3 +200,120 @@ class EvaluationRunStatus(StrEnum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     SKIPPED = "skipped"
+
+
+# ---------------------------------------------------------------------------------------
+# MINI-SPEC A3 — Alert Center and notification delivery.
+#
+# Additive only. Alerts are an attention/notification layer over A2 health: they never
+# recompute health, and neither A1 readiness nor A2 health vocabulary changes here.
+# ---------------------------------------------------------------------------------------
+
+
+class AlertStatus(StrEnum):
+    OPEN = "open"
+    ACKNOWLEDGED = "acknowledged"
+    SUPPRESSED = "suppressed"
+    RESOLVED = "resolved"
+    EXPIRED = "expired"
+    ARCHIVED = "archived"
+
+
+#: Statuses that keep an alert in the Alert Center's active view and in its counts.
+#: `suppressed` is deliberately included: suppression mutes delivery, never visibility.
+ACTIVE_ALERT_STATUSES = frozenset(
+    {AlertStatus.OPEN, AlertStatus.ACKNOWLEDGED, AlertStatus.SUPPRESSED}
+)
+
+
+class AlertSeverity(StrEnum):
+    """Reuses the A1 event severity words. A3 adds no "safe" state and no score."""
+
+    INFO = "info"
+    WARNING = "warning"
+    CRITICAL = "critical"
+
+
+class AlertSourceType(StrEnum):
+    HEALTH_SIGNAL = "health_signal"
+    HEALTH_EVALUATION_RUN = "health_evaluation_run"
+
+
+class DeliveryChannel(StrEnum):
+    TELEGRAM = "telegram"
+
+
+class DeliveryStatus(StrEnum):
+    PENDING = "pending"
+    QUEUED = "queued"
+    SENDING = "sending"
+    SENT = "sent"
+    FAILED_TRANSIENT = "failed_transient"
+    FAILED_FINAL = "failed_final"
+    SKIPPED = "skipped"
+    CANCELLED = "cancelled"
+
+
+#: Statuses a dispatcher may still act on.
+DUE_DELIVERY_STATUSES = frozenset({DeliveryStatus.PENDING, DeliveryStatus.FAILED_TRANSIENT})
+#: Statuses that are terminal — nothing reopens them.
+TERMINAL_DELIVERY_STATUSES = frozenset(
+    {
+        DeliveryStatus.SENT,
+        DeliveryStatus.FAILED_FINAL,
+        DeliveryStatus.SKIPPED,
+        DeliveryStatus.CANCELLED,
+    }
+)
+
+
+class DeliveryReason(StrEnum):
+    """Why a delivery exists. Part of the idempotency key, so it decides what may be re-sent."""
+
+    INITIAL = "initial"
+    ESCALATION = "escalation"
+    REMINDER = "reminder"
+
+
+class DeliverySkipReason(StrEnum):
+    """Every non-send is explained by one of these; a delivery is never silently dropped."""
+
+    NO_RECIPIENT_CONFIGURED = "no_recipient_configured"
+    POLICY_DISABLED = "policy_disabled"
+    SEVERITY_DELIVERY_DISABLED = "severity_delivery_disabled"
+    ALERT_SUPPRESSED = "alert_suppressed"
+    ALERT_NOT_ACTIVE = "alert_not_active"
+    TIMEZONE_NOT_CONFIGURED = "timezone_not_configured"
+    DUPLICATE_SUPPRESSED_BY_DEDUPE = "duplicate_suppressed_by_dedupe"
+    REMINDERS_DISABLED = "reminders_disabled"
+
+
+class DeliveryFailureCode(StrEnum):
+    """Allowlisted, safe failure codes. A raw provider body never becomes a stored value."""
+
+    TRANSPORT_NOT_CONFIGURED = "transport_not_configured"
+    NETWORK_ERROR = "network_error"
+    RATE_LIMITED = "rate_limited"
+    PROVIDER_SERVER_ERROR = "provider_server_error"
+    INVALID_RECIPIENT = "invalid_recipient"
+    UNAUTHORIZED = "unauthorized"
+    MESSAGE_REJECTED = "message_rejected"
+    UNKNOWN_ERROR = "unknown_error"
+
+
+#: Failure codes that are worth retrying. Everything else is final by default.
+TRANSIENT_FAILURE_CODES = frozenset(
+    {
+        DeliveryFailureCode.NETWORK_ERROR,
+        DeliveryFailureCode.RATE_LIMITED,
+        DeliveryFailureCode.PROVIDER_SERVER_ERROR,
+    }
+)
+
+
+class NotificationTransportMode(StrEnum):
+    """`disabled` is the default: a fresh deployment cannot message anyone by accident."""
+
+    DISABLED = "disabled"
+    FAKE = "fake"
+    TELEGRAM = "telegram"

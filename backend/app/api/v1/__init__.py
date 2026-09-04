@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.v1.routers import (
     ad_accounts,
+    alerts,
     audit,
     auth,
     events,
@@ -18,5 +19,6 @@ api_router.include_router(references.router)
 api_router.include_router(readiness.router)
 api_router.include_router(events.router)
 api_router.include_router(health.router)
+api_router.include_router(alerts.router)
 api_router.include_router(audit.router)
 api_router.include_router(system.router)

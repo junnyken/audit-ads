@@ -312,3 +312,179 @@ the suite so the cost is measured on every run rather than once on the day it sh
 - Still no manual click-through in a real browser; UI verification remains jsdom rendering against
   the live API plus a production build.
 - No advertising platform was contacted, and no browser process was started, by design.
+
+---
+
+## Session 2026-09-04/05 — MINI-SPEC A3
+
+**Environment** — unchanged (Python 3.12.3, Node 22.22.3, PostgreSQL 16 in Docker on
+`localhost:5434`, API on `127.0.0.1:8009`). Migration head is now `0003_a3_alerts`.
+`NOTIFICATION_TRANSPORT=fake`, `TELEGRAM_BOT_TOKEN` empty, `PUBLIC_APP_URL=https://adsops.example.com`.
+
+**No real Telegram message was sent at any point.** No bot token exists in this repository or its
+environment, the default transport is `disabled`, and every test and pilot used
+`FakeNotificationTransport`.
+
+### 1. A1/A2 baseline re-verified before any A3 code — PASS
+
+```
+$ .venv/bin/python -m pytest tests/     192 passed in 207.93s
+$ .venv/bin/ruff check .                All checks passed
+$ npx vitest run                        35 passed | 12 skipped
+$ npx eslint .                          clean
+$ npm run build                         dist 316.78 kB (91.61 kB gzip)
+```
+
+Measured: **91** routes, **20** ORM tables, methods only `GET`/`PATCH`/`POST`, two migrations,
+**no Celery, Redis, APScheduler, BackgroundTasks or any queue**. Every figure the A3 brief quotes
+is accurate; **no deviation from the A2 report was found**. All ten invariants named in A3 §7.2
+were confirmed by their existing tests.
+
+**Harness limitation found (not a product defect):** running two pytest processes at once against
+the same `adsops_test` database makes them truncate each other's fixtures, which failed one health
+test spuriously. Re-run alone the suite is green. The harness assumes a single runner; recorded as
+a follow-up.
+
+### 2. Full backend suite — PASS (283)
+
+```
+$ .venv/bin/python -m pytest tests/     283 passed in 433.62s
+$ .venv/bin/ruff check .                All checks passed
+```
+
+| File | Tests | Covers |
+|---|---|---|
+| A1 files (`readiness_engine`, `redaction`, `registry_api`, `readiness_api`, `security_api`, `audit_api`) | 111 | unchanged |
+| A2 files (`health_engine`, `health_api`, `health_security`, `health_performance`) | 81 | unchanged apart from the declared structural-test change below |
+| **`test_alert_engine.py`** | **30** | Quiet hours (incl. cross-midnight and timezone), severity mapping, idempotency keys, message rendering, injection, truncation, unsafe URLs |
+| **`test_alert_api.py`** | **39** | Derivation, dedupe, escalation, lifecycle, actions, policy, quiet-hours planning, dispatch, retry, final failure, cancellation, recovery, concurrency, filters, history |
+| **`test_alert_security.py`** | **21** | Token handling, cross-workspace non-disclosure, owner-only gates, structural network limits, A1/A2 regressions |
+| **`test_alert_performance.py`** | **1** | 30-account derivation, planning and bounded dispatch |
+
+Notable A3 assertions: a claimed delivery cannot be claimed twice by a second dispatcher
+(`FOR UPDATE SKIP LOCKED`, verified with two live sessions); a transient failure retries with the
+expected backoff and then succeeds, appending attempts rather than deliveries; a final failure is
+never retried; an alert resolved before send cancels its delivery; a stranded `sending` row is
+reclaimed and processed exactly once; acknowledging an alert leaves the A2 signal `open`;
+resolving an alert leaves the A2 signal `open`; and an exception inside alert derivation leaves
+the A1 mutation committed, health unchanged and `alert_derivation_error` recorded on the run.
+
+### 3. Declared test change
+
+`test_backend_contains_no_outbound_http_or_browser_dependency` (written in A2) forbade importing
+any HTTP client anywhere in the backend. A3 needs exactly one outbound call, to Telegram. The rule
+was **narrowed, not dropped**, and split in two:
+
+- `test_health_security.py::test_backend_starts_no_browser_and_contacts_no_advertising_platform`
+  keeps the browser ban.
+- `test_alert_security.py::test_only_the_telegram_transport_module_may_make_an_outbound_request`
+  bans every browser driver and every general HTTP client, and permits exactly one named module.
+- `test_alert_security.py::test_the_telegram_transport_only_ever_targets_the_configured_api_base`
+  additionally asserts the URL is built from configuration, never from caller input.
+
+This was declared in `docs/AUDIT_BEFORE_BUILD_A3.md` §10 before any code was written.
+
+### 4. Migration verification — PASS
+
+- Clean database: three revisions applied in order, **25 tables** (21 + 4 new).
+- Upgrade path: `0002_a2_account_health → 0003_a3_alerts` applied to a database with A1/A2 data
+  in place. No A1 or A2 table was altered.
+- Rollback: `alembic downgrade 0002_a2_account_health` returned the schema to 21 tables, dropping
+  only the four new ones.
+
+### 5. Frontend — PASS
+
+```
+$ npx vitest run     52 passed | 16 skipped (live suite, opt-in)
+$ npm run build      dist 347.82 kB (97.84 kB gzip)
+$ npx eslint .       clean
+```
+
+Bundle impact versus the A2 baseline (316.78 kB / 91.61 kB gzip): **+31.0 kB raw, +6.2 kB gzip**
+for the Alert Center page, alert drawer, Overview section and notification settings.
+
+New hermetic tests (17): alert severity/status/delivery colour maps (nothing critical or open is
+green); no safety, approval or score wording in any alert string; the approved wording for a
+failed delivery and an unconfigured transport; acknowledgement is described as not-resolution;
+suppression is described as time-bounded and non-hiding; every skip reason has a plain-language
+label; the drawer requires a note before acknowledging, a reason before resolving, and a reason
+plus a future expiry before suppressing; it warns explicitly when suppressing a critical alert;
+it shows a failed delivery's safe summary and no raw provider response; and it offers **no**
+send-now control, no recipient field and no token field.
+
+### 6. Live pilots — PASS
+
+All three pilots were run in sequence against the running API on **one freshly created database**,
+with the fake transport.
+
+| Pilot | Result |
+|---|---|
+| **A1 re-run** | **28/28** — the three A1 scenarios still land on `operationally_ready`, `unknown`, `not_ready` |
+| **A2 re-run** | **37/37** — health states, staleness and failure behaviour unchanged |
+| **A3** | **37/37** |
+| **A3 Pilot E** (in-process, same live database) | **16/16** |
+
+**A3 scenario outcomes:**
+
+| Scenario | Expected | Actual |
+|---|---|---|
+| Precondition — no recipient | Alert exists, delivery skipped with a reason | `open` alert, delivery `skipped` / `no_recipient_configured` |
+| A — critical immediate | One open critical alert, one immediate delivery, one safe fake message, `sent` with a message id, no source change | exactly that; message id `fake-1`, one attempt, health and readiness unchanged |
+| B — warning in quiet hours | Deferred to the window end, no immediate send, policy decision visible | deferred to `2026-09-04T23:59:00Z` with timezone and decision recorded; dispatch sent 0 |
+| B2 — critical in quiet hours | Bypasses by policy | `critical_bypass: true`, `deferred: false`, delivered immediately |
+| C — attention | Alert Center item, no Telegram by default | 2 info alerts, both deliveries `skipped` / `severity_delivery_disabled` |
+| D — dedupe and escalation | No duplicate; escalation creates exactly one new candidate | 3 recalculations changed nothing; raising an event's severity resolved the warning alert and opened one critical alert with exactly one new pending delivery |
+| F — acknowledge / suppress / resolve | All audited; acknowledgement does not resolve the signal; suppression timed and visible; resolution does not mutate source | signal stayed `OPEN` throughout; indefinite suppression refused (422); `alert.created`, `alert.acknowledged`, `alert.suppressed`, `alert.resolved` all audited |
+
+**Pilot E (retry and failure safety), run in-process** because staging a transport failure needs a
+handle on the fake transport: a transient failure scheduled a retry ~1.00 min out with no message
+leaving the process, the retry then succeeded, both attempts were recorded append-only and **no
+second delivery row** was created; a configuration failure became `failed_final` with a safe
+summary and was never retried, while its alert stayed visible; a delivery stranded in `sending`
+was reclaimed by the recovery sweep and then processed **exactly once**, and a later sweep sent
+nothing again.
+
+**Safety sweeps in the pilot:** zero audit rows containing `bot_token`; zero delivery attempts
+containing a URL; no secret-like or score-like key in any alert payload; no safety or approval
+wording in any output; `DELETE` on an alert returns 405; the notification status endpoint exposed
+no raw chat id.
+
+**Live UI verification: 16/16** (7 A1 + 5 A2 + 4 A3) — real React pages rendered against the live
+API in jsdom: the Overview Alert Center section with all six cards and no safety wording; the
+Alert Center table with Severity, Alert, Account, Health, Readiness, Source, Status and Delivery
+as separate columns; the alert drawer with its policy decision, notification history, disabled
+actions until their required text is entered, and no send-now control; and the notification
+settings showing a masked recipient (`…7890`) with no token value anywhere in the DOM.
+
+### 7. Performance and resource check — PASS
+
+```
+[A3 resource check] 30 accounts | derive+plan 1.75s (avg 58ms) | 1263 queries (42.1/account)
+                    | alerts 90 | deliveries 90 | due 36
+                    | dispatch batch 10 in 0.10s -> sent 10 | peak RSS 152 MB (+0 MB)
+[A2 resource check] 30 accounts | total 1.70s | avg 57ms | 1200 queries (40.0/account)
+```
+
+The A2 check now measures A2 **plus** A3 derivation, which is why its per-account query count rose
+from 31 to 40. Dispatcher concurrency is 1 and the batch is bounded at 10. No browser process is
+started, and RSS did not grow.
+
+## Issues found and fixed during the A3 session
+
+| Issue | Fix |
+|---|---|
+| **A failure alert could never appear.** Derivation ran only inside the A2 savepoint that a failed evaluation rolls back, and the next successful evaluation made the failure no longer "latest" — so `health_evaluation_run` alerts were unreachable | Derive again in the failure branch, *after* the run is marked failed |
+| **A recovered account never cleared its failure alert.** Derivation ran while the current run was still `running`, so a previous failure still looked like the latest word | Finish the evaluation run *before* deriving, then merge the alert counters into the run summary |
+| An archived account kept a failure-derived alert alive | The failure candidate is skipped for archived accounts, which leave active assessment entirely |
+| `time` values in an audit snapshot were not JSON-serialisable, so the first policy write 500'd | `to_jsonable` now handles `time` (an A1 helper gap the first `Time` column exposed) |
+| Test assumption: severity escalation on one alert key does not occur with A2 v1 rules, because warning and critical events are separate rules | Test rewritten to assert the real behaviour (warning alert resolves, one critical alert opens, exactly one new delivery), plus a direct test of the escalation path for the day a rule changes |
+| Pilot assumptions, not product defects: a dispatch call works the whole workspace backlog; the dispatcher claims the oldest scheduled row first; reminder keys collide across pilot re-runs; and an enum's `.value` is lowercase while the column stores the name | Pilot assertions scoped to the alert under test, backlog drained first, run-scoped sequence numbers, correct casing |
+
+## Explicitly not tested in the A3 session
+
+- **No real Telegram message was sent**, and no real transport call was made. The `TelegramTransport`
+  HTTP path is exercised only by unit-level reasoning and structural tests; its first real send
+  needs a bot token and the user's explicit approval of a target chat.
+- Docker Compose was still not built or started.
+- No scheduler was configured; dispatch ran through the owner-only endpoint and the CLI path.
+- Still no manual click-through in a real browser.

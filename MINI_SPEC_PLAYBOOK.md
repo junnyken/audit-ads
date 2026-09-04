@@ -34,7 +34,9 @@ Governing process document for AdsOps Control Center. Every MINI-SPEC follows it
   health.
 - Readiness and health stay separate concepts in the model, the API and the UI. Neither may be
   reduced to a numeric score, and neither may be worded as safety, approval or immunity.
-- Acknowledging an issue is not resolving it.
+- Acknowledging an issue is not resolving it, at any layer.
+- No outbound message may carry a secret, a raw provider response, a stack trace or an unusable
+  link, and no credential may live anywhere but server configuration.
 
 ## MINI-SPEC Report format
 

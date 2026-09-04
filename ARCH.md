@@ -1,6 +1,6 @@
 # ARCH
 
-Architecture of the AdsOps Control Center as of MINI-SPEC A2.
+Architecture of the AdsOps Control Center as of MINI-SPEC A3.
 
 ## 1. Shape of the system
 
@@ -15,13 +15,17 @@ FastAPI
   ├─ middleware: request/correlation id → structured JSON log → security headers → CORS
   ├─ deps: ApiContext (session, user, membership, workspace, audit writer)
   ├─ routers: auth · ad-accounts · references · readiness · events · audit · system
-  │           · account-health
+  │           · account-health · alerts · notification policy · notifications
   ├─ services: registry · references · links · checklist · evidence · rollup · events
   │            · audit · workspace access · redaction
   │            · health rules · health engine · health signals · snapshots · runs · backfill
+  │            · alert derivation · alert lifecycle · notification planner · outbox dispatcher
+  │            · quiet hours · message template · transport adapter (Telegram / fake)
   └─ SQLAlchemy 2.0 (sync) → PostgreSQL 16
 ```
 
+There is still no Redis and no worker after A3: the notification outbox is database-backed and
+its dispatcher is a bounded, short-lived batch invoked by a command or an owner-only endpoint.
 There is still no Redis and no worker after A2. Health evaluation is the second background-shaped
 job, and it is handled the same way readiness is — synchronously, inside the transaction of the
 mutation that caused it, wrapped in a SAVEPOINT. A1's only background-shaped work is readiness
@@ -237,6 +241,83 @@ backfill. Each records its `trigger_type` on the run.
 Measured on 30 accounts (see `TEST_LOG.md`): ~44 ms and 31 queries per account, no measurable RSS
 growth. No browser, no external call, no new runtime dependency.
 
+## 4c. Alert Center and notification outbox (A3)
+
+A third concept, kept as separate from health as health is from readiness:
+
+| Concept | Owner | Question it answers |
+|---|---|---|
+| Readiness | A1 | Are the required operational records complete and current? |
+| Health | A2 | What needs attention on this account, and why? |
+| **Alert** | **A3** | **What is waiting for the operator, in what workflow state?** |
+| **Notification** | **A3** | **What was actually sent, when, and what happened to it?** |
+
+```
+A2 evaluation (inside its own SAVEPOINT)
+  └─ signals reconciled, snapshot written, run finished
+       └─ A3 derivation (nested SAVEPOINT of its own)
+            ├─ alerts reconciled against current A2 facts
+            └─ NotificationDelivery rows written in the same transaction   ← the outbox
+                                    │
+Dispatcher (command, or owner-only endpoint)
+  └─ claim due rows: SELECT … FOR UPDATE SKIP LOCKED, batch 10, concurrency 1
+       └─ render server-side from an allowlist
+            └─ TelegramTransport | FakeNotificationTransport
+                 └─ append NotificationDeliveryAttempt, update delivery status
+```
+
+### Why an outbox rather than a queue
+
+A2 deliberately shipped no broker. Adding Redis and Celery for notification delivery would add a
+container, a process and a failure mode to a VPS that has room for none of them. A database
+outbox gives the same guarantees that matter here — durability, idempotency, retry history and
+restart recovery — using tables that are already backed up with everything else. A later infra
+phase can move the dispatcher behind Celery without changing a single alert or delivery contract.
+
+### Why derivation is nested inside the health savepoint
+
+A2 wraps evaluation in a SAVEPOINT so a health failure cannot roll back the operator's mutation.
+A3 opens a **second, nested** savepoint around alert derivation, so an alerting bug degrades
+alerting and nothing else: the A1 change commits, the health snapshot stands, and the evaluation
+run records `alert_derivation_error`. A test proves exactly that.
+
+The evaluation run is also marked finished *before* derivation runs. Derivation asks "what is the
+latest word on this account?", and a run still marked `running` would leave a previous failure
+looking current — a recovered account would then never clear its failure alert.
+
+### Deduplication and uniqueness
+
+Two keys, both persisted, neither in memory:
+
+- `alerts.alert_key` identifies a source condition; `active_key` mirrors it while the alert is
+  open, acknowledged or suppressed, with `unique(workspace_id, active_key)`.
+- `notification_deliveries.idempotency_key` is `alert + reason + severity + recipient`, unique per
+  workspace. Planning upserts against it, so re-evaluation cannot produce a second message.
+
+Retries never create a delivery row — they append an attempt.
+
+### Quiet hours
+
+Evaluated with `zoneinfo` in the policy's timezone, never the server's, with cross-midnight
+windows handled directly. A warning raised inside the window is **scheduled** for the end of it,
+not dropped. Critical bypasses when the policy says so. An unresolvable timezone produces a
+`skipped` delivery with `timezone_not_configured` — A3 never guesses an hour to message someone.
+
+### The transport boundary
+
+One interface, two implementations, and a structural test that keeps it that way:
+`services/telegram_transport.py` is the only backend module permitted to import an HTTP client,
+and browser drivers stay banned everywhere. The token is read from server configuration, is
+interpolated into the request URL (which is therefore never logged), and appears in no database
+column, no API response, no audit row and no attempt record. `FakeNotificationTransport` records
+what would have been sent, which is what every test and the live pilot use.
+
+### What A3 cannot do
+
+There is no path from an alert to an advertising platform. Telegram is one-way: no bot commands,
+no callbacks that change state, no recipient chosen per alert, no message body accepted from a
+caller. The dispatch endpoint takes a batch size and nothing else.
+
 ## 5. Security model
 
 | Control | Implementation |
@@ -252,6 +333,10 @@ growth. No browser, no external call, no new runtime dependency.
 | Frontend | Only `VITE_API_BASE_URL` reaches the bundle; the compose build uses same-origin (`""`) |
 | Health evidence | Built from allowlisted fields per rule and passed through the same recursive redactor before persistence; signal action payloads go through `StrictPayload`, and `evidence_reference` refuses credential-shaped values |
 | Health authorization | Every health route resolves the workspace from the membership; a foreign signal or account is reported as `404`. Backfill is owner-only and requires explicit confirmation |
+| Bot token | `TELEGRAM_BOT_TOKEN` is server-side only. It is never persisted, never returned, and the redactor masks any key containing "token" before a log or audit row is written. The API exposes a boolean capability instead |
+| Recipient | An owner-managed chat reference on the policy row, validated to be a chat id or `@name`; a token-shaped value is refused. It is masked in every response |
+| Outbound surface | Exactly one module may make a request, to the configured Telegram API base only. No per-alert recipient, no caller-supplied message body, no arbitrary URL |
+| Deep links | Only a configured public HTTPS URL is emitted; localhost, private ranges and bare hostnames are dropped |
 
 The backend is the final enforcement point. Client-side omission is never trusted: the tests
 prove the API refuses a secret field even when the UI has no input for it.
@@ -296,3 +381,16 @@ Rejected again in A2:
   account, and collecting it would cross the product's boundary.
 - **User-authored dynamic rule code** — a security, correctness and auditability risk; the typed
   registry gives the same expressiveness with none of it.
+
+Rejected again in A3:
+
+- **Sending Telegram inside the health-evaluation transaction** — a network call would slow or
+  fail the source transaction and make duplicate sends possible when its outcome is uncertain.
+- **Celery/Redis solely for notifications** — a broker for a handful of messages a day, on a VPS
+  with no headroom.
+- **Client-side Telegram calls** — would expose the bot token and let a browser choose the
+  recipient and the message.
+- **Telegram bot commands for operations** — a remote-control path into advertising assets, which
+  is the opposite of what this product is for.
+- **A message per evaluation** — alert fatigue, and operationally harmful. A3 sends only new or
+  escalated conditions, plus bounded retries.

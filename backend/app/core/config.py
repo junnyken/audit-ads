@@ -47,6 +47,39 @@ class Settings(BaseSettings):
     health_backfill_default_batch: int = 5
     health_backfill_max_batch: int = 50
 
+    # ---- A3 alerting and notification delivery ---------------------------------------
+    #: "disabled" | "fake" | "telegram". Disabled by default so a fresh deployment cannot
+    #: message anyone by accident; a real send needs this AND a bot token.
+    notification_transport: str = "disabled"
+    #: Server-side only. Never stored in the database, never returned by an endpoint, never
+    #: logged — the redactor masks any key containing "token" before anything is written.
+    telegram_bot_token: str = ""
+    telegram_api_base_url: str = "https://api.telegram.org"
+    telegram_timeout_seconds: int = 10
+    #: Public dashboard URL for deep links. A missing or unsafe value omits the link entirely
+    #: rather than sending a recipient somewhere unreachable.
+    public_app_url: str = ""
+
+    notification_dispatch_batch_size: int = 10
+    notification_max_attempts: int = 3
+    #: Backoff between transient retries, in minutes, one entry per retry.
+    notification_retry_backoff_minutes: str = "1,5,15"
+    #: How long a dispatcher may hold a claimed delivery before another may reclaim it.
+    notification_lease_seconds: int = 120
+
+    @property
+    def retry_backoff_minutes(self) -> list[int]:
+        return [
+            int(part.strip())
+            for part in self.notification_retry_backoff_minutes.split(",")
+            if part.strip().isdigit()
+        ] or [1, 5, 15]
+
+    @property
+    def telegram_transport_configured(self) -> bool:
+        """A boolean capability only. The token itself never leaves the server process."""
+        return bool(self.telegram_bot_token) and self.notification_transport == "telegram"
+
     @property
     def cors_origins(self) -> list[str]:
         """Comma-separated allowlist. Never a wildcard."""

@@ -37,3 +37,9 @@ class SystemStatusOut(BaseModel):
     last_readiness_recalculation_at: datetime | None
     account_count: int
     server_time: datetime
+    notification_transport: str = "disabled"
+    telegram_transport_configured: bool = False
+    open_alert_count: int = 0
+    due_delivery_count: int = 0
+    failed_final_delivery_count: int = 0
+    last_successful_notification_at: datetime | None = None

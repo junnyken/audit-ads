@@ -37,6 +37,7 @@ from app.models.health import (
     HealthEvaluationRun,
     HealthRuleDefinition,
 )
+from app.services.alert_triggers import derive_alerts_safe
 from app.services.audit import AuditLogService
 from app.services.base import snapshot as orm_snapshot
 from app.services.health_engine import HealthRollup, build_candidates, derive_freshness, roll_up
@@ -505,11 +506,22 @@ class AccountHealthEvaluationService:
                 [], now=now, freshness=HealthFreshness.NOT_APPLICABLE, archived=True
             )
             self.snapshots.upsert(account, rollup)
+            # Derivation still runs so alerts for an archived account close instead of lingering.
             self.runs.finish(
                 run,
                 status=EvaluationRunStatus.SKIPPED,
                 result={"reason": "account_archived", "expired_signals": expired},
             )
+            alerts = derive_alerts_safe(
+                self.session,
+                self.workspace_id,
+                self.audit,
+                account,
+                health_status=rollup.health_status,
+                actor_id=self.actor_id,
+            )
+            run.result_summary_json = {**(run.result_summary_json or {}), **alerts}
+            self.session.flush()
             return run, rollup
 
         definitions = self.rules.ensure_seeded() and self.rules.enabled_definitions()
@@ -525,6 +537,11 @@ class AccountHealthEvaluationService:
         )
         rollup = roll_up(active, now=now, freshness=freshness)
         self.snapshots.upsert(account, rollup)
+        # A3 alert derivation. Nested savepoint inside this one: an alerting bug degrades
+        # alerting only, never health and never the source mutation.
+        # The run is finished *before* alert derivation on purpose: derivation asks "what is the
+        # latest word on this account?", and a run still marked running would leave a previous
+        # failure looking current, so a recovered account would never clear its failure alert.
         self.runs.finish(
             run,
             status=EvaluationRunStatus.SUCCEEDED,
@@ -539,6 +556,16 @@ class AccountHealthEvaluationService:
                 "rules_evaluated": len(enabled_keys),
             },
         )
+        alerts = derive_alerts_safe(
+            self.session,
+            self.workspace_id,
+            self.audit,
+            account,
+            health_status=rollup.health_status,
+            actor_id=self.actor_id,
+        )
+        run.result_summary_json = {**(run.result_summary_json or {}), **alerts}
+        self.session.flush()
         return run, rollup
 
     def evaluate_account_safe(
@@ -569,12 +596,24 @@ class AccountHealthEvaluationService:
                 extra={"ad_account_id": str(account.id), "trigger": trigger.value},
             )
             self._mark_unknown_after_failure(account, exc)
-            return self.runs.finish(
+            finished = self.runs.finish(
                 run,
                 status=EvaluationRunStatus.FAILED,
                 error_code=type(exc).__name__,
                 error_summary=str(exc),
             )
+            # Derive *after* the run is marked failed, so the failure is the latest word on this
+            # account and the derivation can raise a warning alert about it. Doing this inside
+            # the rolled-back savepoint above would lose it.
+            derive_alerts_safe(
+                self.session,
+                self.workspace_id,
+                self.audit,
+                account,
+                health_status="unknown",
+                actor_id=self.actor_id,
+            )
+            return finished
 
     def _mark_unknown_after_failure(self, account: AdAccount, exc: Exception) -> None:
         now = datetime.now(UTC)

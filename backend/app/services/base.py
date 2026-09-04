@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import date, datetime
+from datetime import date, datetime, time
 from enum import Enum
 from typing import Any
 
@@ -17,7 +17,7 @@ from app.core.redaction import redact
 def to_jsonable(value: Any) -> Any:
     if isinstance(value, Enum):
         return value.value
-    if isinstance(value, datetime | date):
+    if isinstance(value, datetime | date | time):
         return value.isoformat()
     if isinstance(value, uuid.UUID):
         return str(value)

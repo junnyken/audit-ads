@@ -1,7 +1,7 @@
 # AdsOps Control Center — agent instructions
 
 Governing process: `MINI_SPEC_PLAYBOOK.md`. Read it, plus `FEATURES.md`, `ARCH.md`, `API.md` and
-`TEST_LOG.md`, before changing code. Current release: MINI-SPEC A2 (health), on A1 (registry).
+`TEST_LOG.md`, before changing code. Current release: MINI-SPEC A3 (alerts + Telegram), on A2 (health) and A1 (registry).
 
 ## Hard rules (these are product requirements, not preferences)
 
@@ -26,6 +26,18 @@ Governing process: `MINI_SPEC_PLAYBOOK.md`. Read it, plus `FEATURES.md`, `ARCH.m
 14. A health signal action must never mutate the A1 event, checklist item or evidence behind it.
 15. Health evaluation runs inside a SAVEPOINT. An A1 mutation must still commit when it fails,
     and the account's health must then read `unknown` — never a stale clear result.
+16. Alerts are a notification/attention layer. They never recompute health, and an alert action
+    never mutates the A2 signal, the A1 event, the checklist item or the evidence behind it.
+17. Acknowledging an alert is not resolving it. Suppression needs a reason and a finite expiry,
+    mutes delivery only, and never hides an alert or its history.
+18. The Telegram bot token lives only in server configuration. It never reaches the database, an
+    API response, an audit row, a log line or the frontend bundle.
+19. Telegram is one-way. No bot command, callback or endpoint may change anything.
+20. Only `services/telegram_transport.py` may make an outbound request, and only to the
+    configured API base. Tests use `FakeNotificationTransport`; never send a real message without
+    the user's explicit approval of a named chat.
+21. Alert derivation runs in a nested SAVEPOINT inside the health evaluation. An alerting failure
+    must degrade alerting only.
 
 ## Working style
 

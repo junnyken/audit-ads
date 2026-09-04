@@ -106,7 +106,7 @@ suite('live application', () => {
   it('renders system status without exposing infrastructure values', async () => {
     renderApp('/system')
     expect(await screen.findByRole('heading', { name: 'System status' })).toBeInTheDocument()
-    expect(await screen.findByText('0002_a2_account_health')).toBeInTheDocument()
+    expect(await screen.findByText('0003_a3_alerts')).toBeInTheDocument()
     const body = document.body.textContent ?? ''
     for (const leak of ['postgresql', 'adsops:adsops', 'JWT_SECRET']) {
       expect(body.toLowerCase()).not.toContain(leak.toLowerCase())
@@ -182,5 +182,64 @@ suite('live application', () => {
     const body = document.body.textContent ?? ''
     expect(body.toLowerCase()).not.toContain('no ban risk')
     expect(body.toLowerCase()).not.toContain('safe account')
+  })
+
+  it('renders the Alert Center section on the overview with all six cards', async () => {
+    renderApp('/')
+    expect(await screen.findByRole('heading', { name: 'Alert Center' })).toBeInTheDocument()
+    for (const card of [
+      'Open critical alerts',
+      'Open warnings',
+      'Acknowledged alerts',
+      'Suppressed alerts',
+      'Failed final notifications',
+      'Deferred by quiet hours',
+    ]) {
+      expect((await screen.findAllByText(card)).length).toBeGreaterThan(0)
+    }
+    expect(await screen.findByText(/Last successful notification/i)).toBeInTheDocument()
+    const body = (document.body.textContent ?? '').toLowerCase()
+    for (const banned of ['safe account', 'no ban risk', 'account protected', 'bot_token']) {
+      expect(body).not.toContain(banned)
+    }
+  })
+
+  it('renders the Alert Center with severity, status, source, health, readiness and delivery apart', async () => {
+    renderApp('/alerts')
+    expect(await screen.findByRole('heading', { name: 'Alerts' })).toBeInTheDocument()
+    const header = (await screen.findByRole('table')).querySelectorAll('th')
+    const labels = Array.from(header).map((cell) => cell.textContent)
+    for (const column of ['Severity', 'Alert', 'Account', 'Health', 'Readiness', 'Source', 'Status', 'Delivery']) {
+      expect(labels).toContain(column)
+    }
+    expect((await screen.findAllByText('Critical')).length).toBeGreaterThan(0)
+    expect(await screen.findByText(/not a platform decision/i)).toBeInTheDocument()
+  })
+
+  it('opens an alert and shows its source rule, delivery history and both required inputs', async () => {
+    const user = userEvent.setup()
+    renderApp('/alerts?severity=critical')
+    const [openButton] = await screen.findAllByRole('button', { name: 'Open' })
+    await user.click(openButton)
+
+    expect(await screen.findByText('Current policy decision')).toBeInTheDocument()
+    expect((await screen.findAllByText(/Notification history/)).length).toBeGreaterThan(0)
+    expect(await screen.findByRole('button', { name: 'Resolve alert' })).toBeDisabled()
+    expect((await screen.findAllByText(/does not change the health signal/i)).length).toBeGreaterThan(0)
+    // No way to force a message out from the UI.
+    const buttons = (await screen.findAllByRole('button')).map((b) => (b.textContent ?? '').toLowerCase())
+    expect(buttons.some((label) => label.includes('send now'))).toBe(false)
+  })
+
+  it('shows the notification policy in settings without a bot token and with a masked recipient', async () => {
+    renderApp('/settings')
+    expect(await screen.findByRole('heading', { name: 'Notification policy' })).toBeInTheDocument()
+    expect(await screen.findByText(/Recipient chat: Configured/)).toBeInTheDocument()
+    const body = document.body.textContent ?? ''
+    expect(body).toContain('…7890')
+    expect(body).not.toContain('1001234567890')
+    // The page explains that the token is server-side; what must be absent is a token *value*.
+    expect(body).not.toMatch(/\d{6,}:[A-Za-z0-9_-]{20,}/)
+    expect(await screen.findByText(/never displayed here/i)).toBeInTheDocument()
   })
 })

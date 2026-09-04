@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
 import { api, query } from '../lib/api'
-import type { AdAccount, AuditEntry, HealthSummary, Paged, ReadinessSummary } from '../lib/types'
+import type { AdAccount, AlertSummary, AuditEntry, HealthSummary, Paged, ReadinessSummary } from '../lib/types'
 import { Badge, Card, ErrorState, InlineNote, Progress, Skeleton, StatTile } from '../components/ui'
 import { READINESS_META, accountStatusTone } from '../lib/readiness'
 import { FRESHNESS_META, HEALTH_META } from '../lib/health'
+import { ALERT_SEVERITY_META, ALERT_STATUS_META, DELIVERY_STATUS_META, TRANSPORT_NOT_CONFIGURED } from '../lib/alerts'
 import { formatRelative, humanise } from '../lib/format'
 
 function useOverview() {
@@ -34,16 +35,20 @@ function useOverview() {
     queryKey: ['health-summary'],
     queryFn: () => api.get<HealthSummary>('/api/v1/account-health/summary'),
   })
+  const alertSummary = useQuery({
+    queryKey: ['alert-summary'],
+    queryFn: () => api.get<AlertSummary>('/api/v1/alerts/summary'),
+  })
   const audit = useQuery({
     queryKey: ['audit', 'latest'],
     queryFn: () => api.get<Paged<AuditEntry>>(`/api/v1/audit-logs${query({ page_size: 8 })}`),
   })
-  return { summary, attention, recent, all, audit, healthSummary }
+  return { summary, attention, recent, all, audit, healthSummary, alertSummary }
 }
 
 export default function Overview() {
   const navigate = useNavigate()
-  const { summary, attention, recent, all, audit, healthSummary } = useOverview()
+  const { summary, attention, recent, all, audit, healthSummary, alertSummary } = useOverview()
 
   if (summary.isLoading) return <Skeleton rows={6} />
   if (summary.isError) return <ErrorState error={summary.error} onRetry={() => summary.refetch()} />
@@ -176,6 +181,84 @@ export default function Overview() {
                 ` · ${healthSummary.data!.failed_runs_recent} evaluation(s) failed in the last 24 hours`}
               . Health is recalculated when an account changes and when you ask for it; nothing is
               fetched from an advertising platform.
+            </InlineNote>
+          </>
+        )}
+      </section>
+
+      <section className="space-y-3">
+        <header className="flex flex-wrap items-baseline justify-between gap-2">
+          <div>
+            <h2 className="text-[15px] font-semibold">Alert Center</h2>
+            <p className="text-[12.5px] text-ink-muted">
+              What is waiting for you, and whether it reached you. These counts describe this
+              product&apos;s own records — they are not a statement about any advertising platform.
+            </p>
+          </div>
+          <Link to="/alerts" className="text-[12px] font-medium text-brand hover:underline">
+            Open Alert Center
+          </Link>
+        </header>
+
+        {alertSummary.isLoading ? (
+          <Skeleton rows={2} />
+        ) : alertSummary.isError ? (
+          <ErrorState error={alertSummary.error} onRetry={() => alertSummary.refetch()} />
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+              <StatTile
+                label="Open critical alerts"
+                value={alertSummary.data!.open_critical}
+                tone={ALERT_SEVERITY_META.critical.tone}
+                hint={ALERT_SEVERITY_META.critical.description}
+                onClick={() => navigate('/alerts?severity=critical&status=open')}
+              />
+              <StatTile
+                label="Open warnings"
+                value={alertSummary.data!.open_warning}
+                tone={ALERT_SEVERITY_META.warning.tone}
+                hint={ALERT_SEVERITY_META.warning.description}
+                onClick={() => navigate('/alerts?severity=warning&status=open')}
+              />
+              <StatTile
+                label="Acknowledged alerts"
+                value={alertSummary.data!.acknowledged}
+                tone={ALERT_STATUS_META.acknowledged.tone}
+                hint={ALERT_STATUS_META.acknowledged.hint}
+                onClick={() => navigate('/alerts?status=acknowledged')}
+              />
+              <StatTile
+                label="Suppressed alerts"
+                value={alertSummary.data!.suppressed}
+                tone={ALERT_STATUS_META.suppressed.tone}
+                hint={ALERT_STATUS_META.suppressed.hint}
+                onClick={() => navigate('/alerts?suppressed=true')}
+              />
+              <StatTile
+                label="Failed final notifications"
+                value={alertSummary.data!.failed_final_notifications}
+                tone={DELIVERY_STATUS_META.failed_final.tone}
+                hint={DELIVERY_STATUS_META.failed_final.hint}
+                onClick={() => navigate('/alerts?delivery_status=failed_final')}
+              />
+              <StatTile
+                label="Deferred by quiet hours"
+                value={alertSummary.data!.deferred_by_quiet_hours}
+                tone="info"
+                hint="Warnings raised inside your quiet window. They are scheduled for the end of it, never discarded."
+                onClick={() => navigate('/alerts?delivery_status=pending')}
+              />
+            </div>
+
+            <InlineNote>
+              <strong>Last successful notification:</strong>{' '}
+              {alertSummary.data!.last_successful_notification_at
+                ? formatRelative(alertSummary.data!.last_successful_notification_at)
+                : 'never'}
+              {(!alertSummary.data!.telegram_transport_configured ||
+                !alertSummary.data!.recipient_configured) &&
+                ` · ${TRANSPORT_NOT_CONFIGURED}`}
             </InlineNote>
           </>
         )}

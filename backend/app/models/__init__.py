@@ -1,3 +1,9 @@
+from app.models.alerts import (
+    Alert,
+    AlertPolicy,
+    NotificationDelivery,
+    NotificationDeliveryAttempt,
+)
 from app.models.entities import (
     AccountAssetLink,
     AccountEvent,
@@ -24,6 +30,10 @@ from app.models.health import (
 )
 
 __all__ = [
+    "Alert",
+    "AlertPolicy",
+    "NotificationDelivery",
+    "NotificationDeliveryAttempt",
     "AccountHealthSignal",
     "AccountHealthSnapshot",
     "HealthEvaluationRun",

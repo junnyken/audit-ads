@@ -272,6 +272,86 @@ Run triggers: `account_mutation`, `checklist_mutation`, `evidence_mutation`,
 A failed evaluation never blocks the A1 mutation that triggered it; it is recorded as a failed run
 and the account's health is reported as `unknown`.
 
+## Alert Center (A3)
+
+Same conventions as A1/A2: bearer auth, workspace scope from the membership, the shared error
+envelope, the shared pagination shape, `404` for anything outside the workspace.
+
+Alert payloads carry a `disclaimer`. No alert state is ever worded as safe, protected, approved
+or immune, and no numeric score exists anywhere in A3.
+
+### Summary and list
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/alerts/summary` | Counts per card, plus `telegram_transport_configured` and `recipient_configured` as booleans |
+| `GET` | `/alerts` | Paginated rows with severity, status, source, health, readiness and delivery state as separate values |
+
+`GET /alerts` filters: `search`, `status`, `severity`, `source_type`, `health_status`,
+`readiness_status`, `business_manager_id`, `ad_account_id`, `delivery_status`,
+`has_pending_delivery`, `suppressed`, `archived`, `page`, `page_size`, `sort`, `sort_direction`.
+Sortable: `severity` (default, worst first), `last_observed_at`, `first_observed_at`, `status`,
+`title`. With no `status` filter the list shows active alerts (open, acknowledged, suppressed).
+
+### Detail and actions
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/alerts/{alert_id}` | Alert, account context, notification history, current policy decision |
+| `POST` | `/alerts/{alert_id}/acknowledge` | `{note}` required. Does **not** resolve; the A2 signal is untouched |
+| `POST` | `/alerts/{alert_id}/resolve` | `{reason}` required. Changes no source record |
+| `POST` | `/alerts/{alert_id}/reopen` | `{reason}` required. `409` if an active alert already holds the key |
+| `POST` | `/alerts/{alert_id}/suppress` | `{reason, expires_at}`, both required. A past or missing expiry is refused |
+| `POST` | `/alerts/{alert_id}/unsuppress` | `{note}` optional. Restores the previous status |
+| `GET` | `/alerts/{alert_id}/audit-logs` | The alert's trail, including its deliveries |
+| `GET` | `/alerts/{alert_id}/notifications` | Every delivery planned for this alert |
+
+Alert statuses: `open`, `acknowledged`, `suppressed`, `resolved`, `expired`, `archived`.
+Severities: `info`, `warning`, `critical`.
+
+### Notification policy
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/notification-policies/current` | Seeds a safe default on first access |
+| `POST` | `/notification-policies/current` | Owner-only. Idempotent create |
+| `PATCH` | `/notification-policies/current` | Owner-only |
+| `GET` | `/notification-policies/current/audit-logs` | Policy change history |
+
+The response carries `telegram_transport_configured` and `recipient_configured` as booleans and
+`telegram_chat_id_masked` as a suffix. **The bot token has no representation in this API at all**;
+a payload containing a token-like field is refused with `forbidden_field`, and a token-shaped
+value in `telegram_chat_id` is refused by validation.
+
+Accepted fields: `name`, `enabled`, `timezone` (IANA), `quiet_hours_enabled`,
+`quiet_hours_start`, `quiet_hours_end`, `critical_bypasses_quiet_hours`,
+`warning_telegram_enabled`, `attention_telegram_enabled`, `reminder_enabled`,
+`reminder_interval_hours`, `max_reminders_per_alert`, `telegram_chat_id`.
+
+### Notification history
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/notifications` | Filters: `alert_id`, `status`, `channel`, `scheduled_after`, `scheduled_before`, `failed_only`, `page`, `page_size`, `sort`, `sort_direction` |
+| `GET` | `/notifications/status/summary` | Safe counters: transport mode, recipient configured, due, failed final, oldest pending age, last success, last attempt |
+| `GET` | `/notifications/{notification_id}` | One delivery, with a masked recipient |
+| `GET` | `/notifications/{notification_id}/attempts` | Append-only attempt history |
+
+Delivery statuses: `pending`, `queued`, `sending`, `sent`, `failed_transient`, `failed_final`,
+`skipped`, `cancelled`. Skip reasons: `no_recipient_configured`, `policy_disabled`,
+`severity_delivery_disabled`, `alert_suppressed`, `alert_not_active`, `timezone_not_configured`,
+`reminders_disabled`.
+
+### Operational
+
+| Method | Path | Notes |
+|---|---|---|
+| `POST` | `/notifications/dispatch-due` | Owner-only. `{confirm: true, batch_size?}`. Works the outbox under the recorded policy; takes **no recipient and no message body** |
+| `POST` | `/notifications/recovery-sweep` | Owner-only. Reclaims deliveries stranded by a dispatcher that died mid-send. Sends nothing |
+
+Both exist because A3 ships no scheduler. Neither can force a message out: policy, dedupe and
+quiet-hours decisions are already recorded on the delivery rows.
+
 ## Health and system
 
 | Method | Path | Notes |

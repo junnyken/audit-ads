@@ -1,7 +1,68 @@
 # FEATURES
 
-Current release: **MINI-SPEC A2 — Evidence-Based Account Health & Alert Foundation** (2026-09-04),
-built on **MINI-SPEC A1 — Account Registry & Stability Readiness**.
+Current release: **MINI-SPEC A3 — Alert Center & Telegram Notification Delivery** (2026-09-04),
+built on **A2 — Evidence-Based Account Health** and **A1 — Account Registry & Stability
+Readiness**.
+
+## Shipped in A3 — Alert Center and notification delivery
+
+### Alert Center
+- Alerts derived deterministically from A2 health signals and failed evaluation runs. A3 reads
+  A2; it never recomputes health and never changes a health severity.
+- Deterministic `alert_key` per source condition, with at most one active alert per key enforced
+  by the database. Re-evaluating an unchanged condition creates nothing.
+- Six states: `open`, `acknowledged`, `suppressed`, `resolved`, `expired`, `archived`. Nothing is
+  ever deleted; a resolved alert keeps its full history and its delivery record.
+- Acknowledge (note required), resolve (reason required), suppress (reason **and** a future
+  expiry — indefinite suppression is refused), unsuppress, reopen. None of them touch the A2
+  signal, the A1 event, the checklist item or the evidence behind the alert.
+- Suppression mutes delivery only: the alert stays visible, and suppressing a critical alert
+  warns explicitly and is audited.
+- Alerts close automatically when their source condition ends, recorded as closed by the engine
+  rather than by a person.
+
+### Notification policy
+- One workspace policy: timezone (IANA, validated), quiet hours with cross-midnight support,
+  critical bypass, per-severity enablement, reminders, and a chat reference.
+- Seeded with safe defaults and **no recipient**, so a new workspace messages nobody.
+- Owner-only to change. The Telegram bot token is server-side environment configuration: it is
+  not in the database, not in any API response, not in an audit row, and not in a log line.
+- The chat reference is masked everywhere it is displayed.
+
+### Delivery (transactional outbox)
+- A delivery row is written in the same transaction as the alert that caused it, so the decision
+  to notify is as durable as the fact behind it.
+- Idempotency key per alert + reason + severity + recipient. Retries append an *attempt*, never a
+  second delivery.
+- Quiet hours defer a warning to the end of the window in the policy's timezone; they never
+  discard it. Critical bypasses by default.
+- Every non-send is recorded as a `skipped` delivery with a plain-language reason.
+- Bounded dispatcher: `FOR UPDATE SKIP LOCKED` claim, concurrency 1, batch 10, 3 attempts with
+  1/5/15-minute backoff, lease-based recovery after a crash.
+- Append-only delivery attempts with an allowlisted response code, a safe message id and a
+  summarised error — never a raw provider body.
+- `python -m app.commands.dispatch_notifications` is the scheduler seam; owner-only
+  dispatch and recovery endpoints exist for operators.
+
+### Telegram transport
+- Isolated behind one adapter; a structural test asserts it is the only backend module that may
+  make an outbound request, and that browser drivers remain banned everywhere.
+- Messages are rendered server-side from a fixed allowlist, with control characters stripped,
+  newlines collapsed so an operator note cannot forge a field, and safe truncation.
+- The dashboard deep link appears only when a public HTTPS URL is configured; a `127.0.0.1` or
+  private-range link is omitted rather than sent.
+- `FakeNotificationTransport` records what would have been sent. **No real Telegram message has
+  ever been sent by this codebase**: the default transport is `disabled` and no bot token exists.
+
+### Surfaces
+- Alerts navigation entry and an Alert Center page with URL-synchronised filters, all required
+  columns, and severity/status/source/health/readiness/delivery shown as separate values.
+- Alert drawer with source rule and version, timeline, notification history with attempts,
+  current policy decision, and the four workflow actions. There is deliberately **no "send now"**.
+- Overview Alert Center section with the six required cards, each linking to a filtered view.
+- Owner-only notification policy in Settings, with capability booleans and a masked recipient.
+- Related-alert counts on the account Health tab, linking into the filtered Alert Center.
+- A clear banner when Telegram is not configured, which never hides the in-app alerts.
 
 ## Shipped in A2 — Account health
 
@@ -117,6 +178,20 @@ built on **MINI-SPEC A1 — Account Registry & Stability Readiness**.
 - `unknown` and `not_ready` are never rendered with success styling — enforced by a single
   colour map and covered by a test.
 
+## Deliberately excluded from A3
+
+| Excluded | Why |
+|---|---|
+| Telegram bot commands, or any two-way control | A3 is one-way delivery. A command that could pause a campaign would be a remote-control path into advertising assets |
+| Auto-remediation from an alert | Every action stays manual and recorded |
+| Email, Slack, SMS, webhooks | One channel, done properly, before adding more |
+| A "send now" button | It would bypass dedupe and quiet hours, which is how alert fatigue starts |
+| A second health engine, or any alert-derived health inference | A2 remains the only source of health computation |
+| Celery, Redis, a scheduler, a production cron | Same reason as A2: A1 has none and the VPS has no headroom. A database outbox is smaller and durable |
+| Storing a bot token anywhere but server configuration | It is a credential; the database, the API and the logs never see it |
+| Real Telegram sends in tests or pilots | Fake transport only; a real send needs a token and the user's explicit approval |
+| Deployment, DNS, reverse proxy, Compose runtime | Belongs to a deployment MINI-SPEC |
+
 ## Deliberately excluded from A2
 
 | Excluded | Why |
@@ -145,6 +220,12 @@ built on **MINI-SPEC A1 — Account Registry & Stability Readiness**.
 
 ## Known limits (follow-ups)
 
+- **No scheduled dispatch.** Deliveries wait until the dispatch command or the owner-only
+  endpoint runs. A deferred warning is scheduled correctly but only leaves when something works
+  the outbox. Wiring `app.commands.dispatch_notifications` to a scheduler is the next infra step.
+- **Reminders are implemented but off**, and have no dedicated UI beyond the toggle.
+- **No real Telegram delivery has been exercised.** The transport code path is tested through a
+  fake; a first real send needs a bot token and the user's explicit approval of a target chat.
 - **No scheduled evaluation.** Health is recalculated on mutation and on request. Without a worker
   nothing sweeps idle accounts, so an untouched account's evaluation ages and is then reported as
   `unknown`/stale — correct, but it means staleness is surfaced rather than prevented. Wiring

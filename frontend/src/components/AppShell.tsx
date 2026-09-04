@@ -10,6 +10,7 @@ const NAV = [
   { to: '/assets', label: 'Assets' },
   { to: '/readiness', label: 'Readiness' },
   { to: '/account-health', label: 'Account Health' },
+  { to: '/alerts', label: 'Alerts' },
   { to: '/audit-log', label: 'Audit Log' },
   { to: '/system', label: 'System Status' },
   { to: '/settings', label: 'Settings' },

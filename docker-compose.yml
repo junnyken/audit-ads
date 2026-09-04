@@ -41,6 +41,13 @@ services:
       BOOTSTRAP_WORKSPACE_NAME: ${BOOTSTRAP_WORKSPACE_NAME:-AdsOps}
       READINESS_MANUAL_REVIEW_INTERVAL_DAYS: ${READINESS_MANUAL_REVIEW_INTERVAL_DAYS:-30}
       DATA_FRESHNESS_STALE_AFTER_DAYS: ${DATA_FRESHNESS_STALE_AFTER_DAYS:-7}
+      # A3. The transport is disabled unless explicitly enabled, and the bot token is passed
+      # from the host environment only — it is never baked into an image or a compose file.
+      NOTIFICATION_TRANSPORT: ${NOTIFICATION_TRANSPORT:-disabled}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_API_BASE_URL: ${TELEGRAM_API_BASE_URL:-https://api.telegram.org}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
+      NOTIFICATION_DISPATCH_BATCH_SIZE: ${NOTIFICATION_DISPATCH_BATCH_SIZE:-10}
     expose:
       - "8000"
     deploy:

@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { api, query } from '../../lib/api'
-import type { AccountHealth, AdAccount, EvaluationRun, HealthSignal, Paged } from '../../lib/types'
+import type { AccountHealth, AdAccount, AlertRow, EvaluationRun, HealthSignal, Paged } from '../../lib/types'
 import { Badge, Card, EmptyState, ErrorState, InlineNote, Skeleton } from '../../components/ui'
 import HealthSignalDrawer from '../../components/HealthSignalDrawer'
+import { Link } from 'react-router-dom'
+import { ALERT_SEVERITY_META } from '../../lib/alerts'
 import {
   FRESHNESS_META,
   HEALTH_META,
@@ -34,6 +36,13 @@ export default function HealthTab({
         `/api/v1/ad-accounts/${account.id}/health/signals${query({ page_size: 200 })}`,
       ),
   })
+  const relatedAlerts = useQuery({
+    queryKey: ['account-alerts', account.id],
+    queryFn: () =>
+      api.get<Paged<AlertRow>>(
+        `/api/v1/alerts${query({ ad_account_id: account.id, page_size: 100 })}`,
+      ),
+  })
   const runs = useQuery({
     queryKey: ['health-runs', account.id],
     queryFn: () =>
@@ -48,6 +57,7 @@ export default function HealthTab({
       void health.refetch()
       void signals.refetch()
       void runs.refetch()
+      void relatedAlerts.refetch()
       onChanged()
     },
   })
@@ -74,6 +84,7 @@ export default function HealthTab({
     void health.refetch()
     void signals.refetch()
     void runs.refetch()
+    void relatedAlerts.refetch()
     onChanged()
   }
 
@@ -101,6 +112,32 @@ export default function HealthTab({
           </div>
 
           <InlineNote>{data.disclaimer}</InlineNote>
+
+          {relatedAlerts.data && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
+              <span className="text-[12.5px] text-ink-muted">
+                {relatedAlerts.data.total === 0
+                  ? 'No active alerts for this account.'
+                  : `${relatedAlerts.data.total} active alert${relatedAlerts.data.total === 1 ? '' : 's'}:`}
+              </span>
+              {(['critical', 'warning', 'info'] as const).map((severity) => {
+                const count = relatedAlerts.data!.items.filter(
+                  (row) => row.severity === severity,
+                ).length
+                return count > 0 ? (
+                  <Badge key={severity} tone={ALERT_SEVERITY_META[severity].tone}>
+                    {ALERT_SEVERITY_META[severity].label}: {count}
+                  </Badge>
+                ) : null
+              })}
+              <Link
+                to={`/alerts?ad_account_id=${account.id}`}
+                className="text-[12px] font-medium text-brand hover:underline"
+              >
+                Open in Alert Center
+              </Link>
+            </div>
+          )}
         </Card>
 
         <Card title="Readiness (separate state)">

@@ -7,6 +7,7 @@ from fastapi import APIRouter
 
 from app.api.deps import Ctx
 from app.core.config import get_settings
+from app.models.alerts import Alert, NotificationDelivery
 from app.models.entities import AdAccount
 from app.schemas.audit import SystemStatusOut
 
@@ -48,6 +49,44 @@ def system_status(ctx: Ctx) -> SystemStatusOut:
         )
     ).scalar()
 
+    open_alerts = int(
+        ctx.session.execute(
+            sa.select(sa.func.count())
+            .select_from(Alert)
+            .where(
+                Alert.workspace_id == ctx.workspace_id,
+                Alert.status.in_(["open", "acknowledged", "suppressed"]),
+                Alert.archived_at.is_(None),
+            )
+        ).scalar_one()
+    )
+    due_deliveries = int(
+        ctx.session.execute(
+            sa.select(sa.func.count())
+            .select_from(NotificationDelivery)
+            .where(
+                NotificationDelivery.workspace_id == ctx.workspace_id,
+                NotificationDelivery.status == "pending",
+                NotificationDelivery.scheduled_for <= sa.func.now(),
+            )
+        ).scalar_one()
+    )
+    failed_final = int(
+        ctx.session.execute(
+            sa.select(sa.func.count())
+            .select_from(NotificationDelivery)
+            .where(
+                NotificationDelivery.workspace_id == ctx.workspace_id,
+                NotificationDelivery.status == "failed_final",
+            )
+        ).scalar_one()
+    )
+    last_notification = ctx.session.execute(
+        sa.select(sa.func.max(NotificationDelivery.sent_at)).where(
+            NotificationDelivery.workspace_id == ctx.workspace_id
+        )
+    ).scalar()
+
     return SystemStatusOut(
         application=settings.app_name,
         version=settings.app_version,
@@ -60,4 +99,11 @@ def system_status(ctx: Ctx) -> SystemStatusOut:
         last_readiness_recalculation_at=last_recalculation,
         account_count=int(account_count),
         server_time=datetime.now(UTC),
+        # A3 counters. Capability booleans and counts only: no token, no chat id, no payload.
+        notification_transport=settings.notification_transport,
+        telegram_transport_configured=settings.telegram_transport_configured,
+        open_alert_count=open_alerts,
+        due_delivery_count=due_deliveries,
+        failed_final_delivery_count=failed_final,
+        last_successful_notification_at=last_notification,
     )
