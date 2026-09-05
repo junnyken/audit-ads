@@ -906,3 +906,38 @@ Two tests were added and the suite is **422 passed**: one asserts the flags stay
 Dockerfile's instructions (comments excluded, so the rationale does not trip its own guard), and
 one drives three different `X-Forwarded-For` values through the real middleware and asserts they
 share a bucket.
+
+
+---
+
+## Frontend → API wiring, for a per-site platform (2026-09-05)
+
+The frontend was built for a single origin: its nginx proxied `/api` to the compose service
+name `api`, and CSP allowed `connect-src 'self'` only. Deploying each part as its own site
+breaks both — `api` does not resolve, and a cross-origin call is refused by the page's own CSP.
+
+**Chosen shape: the browser calls the API directly, and the API base is read at runtime.**
+`/config.js` is written by nginx from `API_ORIGIN` at container start, so one image serves any
+environment. See ARCH §5c for why proxying onward would have quietly disabled the login rate
+limit.
+
+### Verified by running the built image, not by reading it
+
+| Check | Result |
+|---|---|
+| `API_ORIGIN=https://api.example.com` → `/config.js` | `window.__ADSOPS_API_BASE__ = "https://api.example.com";` |
+| → CSP | `connect-src 'self' https://api.example.com` |
+| `API_ORIGIN` unset → `/config.js` | `window.__ADSOPS_API_BASE__ = "";` (same-origin, unchanged behaviour) |
+| → CSP | `connect-src 'self'` |
+| `index.html` load order | `<script src="/config.js">` executes before the deferred module bundle |
+| SPA fallback (`/accounts`) | 200 |
+| Frontend suite | 60 passed, tsc and eslint clean, build 362.12 kB |
+
+**One defect found and fixed in the same pass:** `/config.js` returned **two** `Content-Type`
+headers — nginx sets one for a `return`, and the `add_header` added a second. Replaced with
+`default_type`. Found by reading the response headers of the running container; a config review
+would not have shown it.
+
+**Not yet verified:** no browser has loaded this build against a real API. The two origins have
+never been exercised together, so `CORS_ORIGINS` and `connect-src` agreeing in practice is still
+an assumption.

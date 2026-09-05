@@ -1,0 +1,55 @@
+# nginx configuration, rendered at container start.
+#
+# `${API_ORIGIN}` is substituted by the official nginx image's envsubst step (it processes
+# /etc/nginx/templates/*.template). It is a TEMPLATE rather than a static file because the API
+# origin is not known when the image is built: on a platform that assigns a subdomain, the
+# backend's address does not exist until it has been created. Baking it in would mean a rebuild
+# to point the app at a different environment.
+#
+# Two supported shapes, both driven by this one variable:
+#
+#   API_ORIGIN=""                         same origin. The API is expected behind the same
+#                                         proxy as this app, on /api. Used by the compose stack.
+#   API_ORIGIN="https://api.example.com"  the browser calls the API directly.
+#
+# The browser calling the API directly is deliberate, and it is a security property rather than
+# a preference. If this server proxied /api onward instead, requests would reach the API with
+# three proxies' worth of X-Forwarded-For — but the API is also reachable directly, so a caller
+# could send it a SHORTER, self-authored chain and the API's configured hop count would read a
+# value the caller chose. The rate limiter keys the login bucket on that address. One proxy on
+# every path is what keeps RATE_LIMIT_TRUSTED_PROXY_HOPS=1 true no matter how the API is reached.
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # No secret is ever built into the bundle, but the app is an internal operations tool:
+    # keep it out of search indexes and out of frames.
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "no-referrer" always;
+    add_header X-Robots-Tag "noindex, nofollow" always;
+    add_header Cross-Origin-Opener-Policy "same-origin" always;
+    # No third-party script, font or frame is loaded anywhere in this app. `connect-src` names
+    # the API origin explicitly — the app may talk to itself and to its own API, and nowhere
+    # else. An empty API_ORIGIN leaves it at 'self'.
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ${API_ORIGIN}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" always;
+
+    server_tokens off;
+    client_max_body_size 2m;
+
+    # The one piece of configuration the bundle reads at runtime. Never cached: a stale copy
+    # would point a fresh deployment at the previous environment's API.
+    location = /config.js {
+        # default_type, not add_header: nginx already sets a Content-Type for a `return`, so
+        # adding one emits the header twice.
+        default_type application/javascript;
+        add_header Cache-Control "no-store" always;
+        return 200 'window.__ADSOPS_API_BASE__ = "${API_ORIGIN}";';
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

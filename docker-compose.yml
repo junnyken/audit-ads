@@ -48,8 +48,11 @@ services:
       TELEGRAM_API_BASE_URL: ${TELEGRAM_API_BASE_URL:-https://api.telegram.org}
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
       NOTIFICATION_DISPATCH_BATCH_SIZE: ${NOTIFICATION_DISPATCH_BATCH_SIZE:-10}
-    expose:
-      - "8000"
+    # Published now: the browser calls the API directly, so this stack needs it reachable from
+    # the host. The frontend no longer proxies /api onward — see frontend/default.conf.template
+    # for why that indirection was removed rather than kept.
+    ports:
+      - "${API_PORT:-8000}:8000"
     deploy:
       resources:
         limits:
@@ -59,11 +62,12 @@ services:
   web:
     build:
       context: ./frontend
-      args:
-        # Same origin: nginx proxies /api to the API container, so no secret and no
-        # cross-origin base URL is baked into the bundle.
-        VITE_API_BASE_URL: ""
     restart: unless-stopped
+    environment:
+      # Read at container start and written into /config.js, so the same image serves any
+      # environment without a rebuild. Empty would mean "same origin", which is right only
+      # when something in front proxies /api to the API — this stack has no such proxy.
+      API_ORIGIN: ${API_ORIGIN:-http://localhost:8000}
     depends_on:
       - api
     ports:

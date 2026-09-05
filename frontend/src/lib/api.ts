@@ -1,4 +1,26 @@
-const BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:8000'
+/**
+ * Where the API lives.
+ *
+ * Read at RUNTIME from `/config.js`, not baked in at build time. The deployed origin is not
+ * known when the image is built — on a platform that assigns a subdomain, it does not exist
+ * yet — and a bundle that hard-codes it can only be pointed somewhere else by rebuilding.
+ * `nginx` writes `/config.js` from an environment variable when the container starts, so the
+ * same image serves any environment.
+ *
+ * An empty string is a real answer, not a missing one: it means "same origin", which is what
+ * a deployment fronted by a single proxy wants. Hence the `typeof` check rather than `??`.
+ */
+declare global {
+  interface Window {
+    __ADSOPS_API_BASE__?: string
+  }
+}
+
+const runtimeBase = typeof window !== 'undefined' ? window.__ADSOPS_API_BASE__ : undefined
+const BASE =
+  typeof runtimeBase === 'string'
+    ? runtimeBase
+    : ((import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:8000')
 const TOKEN_KEY = 'adsops.token'
 
 export class ApiError extends Error {

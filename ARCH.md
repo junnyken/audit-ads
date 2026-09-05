@@ -549,6 +549,29 @@ caller gets a fresh, full bucket — so it can never lock anyone out.
 **Never limited:** `/health/live` and `/health/ready`. A limited probe converts a busy minute
 into a restart loop.
 
+## 5c. How the frontend finds the API
+
+The bundle reads its API base at **runtime**, from `/config.js`, which nginx writes from
+`API_ORIGIN` when the container starts (`frontend/default.conf.template`, rendered by the
+official image's envsubst step). It is not a build argument: on a platform that assigns a
+subdomain, the API's address does not exist when the image is built, and a baked-in origin can
+only be changed by rebuilding. `window.__ADSOPS_API_BASE__` wins; the old
+`VITE_API_BASE_URL` remains as a fallback so a locally built bundle still works.
+
+An empty `API_ORIGIN` means **same origin** — correct when something in front proxies `/api` to
+the API, as the production compose's edge nginx does. A non-empty one means the browser calls
+the API directly, which is what a platform deploying each part as its own site needs.
+
+**Why the browser calls the API directly rather than through this server.** Proxying `/api`
+onward would put three proxies' worth of `X-Forwarded-For` in front of the API — but the API is
+also reachable directly, so a caller could send it a *shorter*, self-authored chain and the
+API's configured hop count would land on a value the caller chose. The rate limiter keys the
+login bucket on that address (§5b), so the brute-force bound would evaporate for anyone who
+skipped the frontend. One proxy on every path is what keeps
+`RATE_LIMIT_TRUSTED_PROXY_HOPS=1` true regardless of how the API is reached. The cost is that
+`CORS_ORIGINS` must name the frontend origin, and CSP `connect-src` must name the API origin —
+both are configuration, and both fail loudly rather than silently.
+
 ## 6. Deployment
 
 `docker-compose.yml` runs three services — `db`, `api`, `web` — each with a memory limit and a
