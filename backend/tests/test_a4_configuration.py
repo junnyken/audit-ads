@@ -189,7 +189,10 @@ def test_production_compose_bounds_every_service():
 
 
 def test_nginx_configs_carry_the_required_security_headers():
-    for path in ("frontend/nginx.conf", "deploy/nginx/edge.conf"):
+    # The frontend's config is a TEMPLATE now: API_ORIGIN is substituted at container start,
+    # because the API's address is not known when the image is built. The headers it must carry
+    # are unchanged.
+    for path in ("frontend/default.conf.template", "deploy/nginx/edge.conf"):
         config = (REPO / path).read_text()
         for header in (
             "X-Content-Type-Options",

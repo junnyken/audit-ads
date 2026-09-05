@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 
 import sqlalchemy as sa
@@ -16,6 +17,7 @@ from app.core.errors import install_exception_handlers
 from app.core.logging import configure_logging
 from app.core.production_checks import enforce, is_production
 from app.db.session import SessionLocal, engine
+from app.startup_migration import run_if_requested
 
 
 @asynccontextmanager
@@ -32,6 +34,11 @@ async def lifespan(app: FastAPI):
         _logging.getLogger(__name__).warning(
             "configuration finding", extra={"code": finding.code, "severity": finding.severity}
         )
+
+    # Before the owner is bootstrapped: bootstrapping writes rows, which needs the tables.
+    # Does nothing unless MIGRATE_ON_START names this code's head revision — see
+    # app/startup_migration.py for why rule 23 is narrowed rather than simply broken.
+    run_if_requested(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
     with SessionLocal() as session:
         try:

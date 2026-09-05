@@ -941,3 +941,42 @@ would not have shown it.
 **Not yet verified:** no browser has loaded this build against a real API. The two origins have
 never been exercised together, so `CORS_ORIGINS` and `connect-src` agreeing in practice is still
 an assumption.
+
+
+---
+
+## Startup migration, and a test the previous commit broke (2026-09-05)
+
+### 1. A test that went red in `123a8f2` and was not caught
+
+Renaming `frontend/nginx.conf` to `default.conf.template` broke
+`test_a4_configuration.py::test_nginx_configs_carry_the_required_security_headers`, which reads
+that path from the repo. The frontend suite was run and passed; the **backend** suite, which is
+where the repo-file assertions live, was not re-run after the rename. Fixed by pointing the test
+at the template. The lesson is the one the A5 report already recorded in another form: a change
+in one package can only be cleared by the suite that actually asserts on it.
+
+### 2. `MIGRATE_ON_START` — a narrowing of rule 23, not a hole in it
+
+The deployment platform has no console, no release command, and a database on an internal-only
+host, so `alembic upgrade head` cannot be run from anywhere. The alternative to a controlled
+startup path was an unmigrated database.
+
+`MIGRATE_ON_START` carries **the revision the operator expects**, not a boolean. The upgrade runs
+only when it equals the code's head, so a stale value after a new migration ships is refused
+rather than silently applied — which is the exact accident rule 23 was written to prevent.
+
+| Test | Establishes |
+|---|---|
+| head revision is readable | the guard has something real to compare against |
+| unset → no upgrade | the default is still "never migrate on start" |
+| `true`, `1`, `yes`, `on`, `head`, `""`, `"   "` → no upgrade | it cannot be switched on by habit; it is a revision id, not a flag |
+| `0004_a4_operational_runs` (stale) → no upgrade | shipping a new migration with an old value left set does not apply it |
+| naming this head → upgrade runs | the intended path works |
+| upgrade raises → process still starts | a container that dies here only reads as "restarting"; the reason must be visible |
+| head unreadable → refuses | it never guesses |
+
+**13 new tests. Backend suite 435 passed, ruff clean.**
+
+**Not verified:** it has never run against the deployed database. Whether the platform's
+container actually reaches alembic's head on first boot is an assumption until it is watched.

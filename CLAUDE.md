@@ -43,8 +43,12 @@ Telegram message has been sent, and the extension has never been published or ru
 22. Never deploy, run `docker compose up` against a target, change DNS/firewall/proxy, or send a
     real Telegram message without the user's explicit, separate approval for that specific
     action. Deployment approval never implies send approval.
-23. Migrations are an explicit release step with a backup in front of them. The API image must
-    never migrate on container start.
+23. Migrations are an explicit release step with a backup in front of them. The API image does
+    not migrate on container start **unless `MIGRATE_ON_START` names this code's head revision**
+    — a narrowing forced by a platform with no shell and an internal-only database, documented
+    in `app/startup_migration.py`. It is not a boolean: a stale or boolean-shaped value is
+    refused and logged, so a migration can never be applied that nobody named. Set it for one
+    release, watch the log, unset it. Do not widen this into an unconditional migrate-on-start.
 24. Never use a `latest` or otherwise mutable image tag. `IMAGE_TAG` is the release commit.
 25. `pilot-local-password` and every placeholder secret are refused by production configuration
     validation. Do not weaken that guard to make an environment start.
