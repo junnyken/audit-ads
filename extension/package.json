@@ -9,7 +9,8 @@
     "dev": "vite build --watch",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check-urls": "vite-node scripts/check-urls.ts"
   },
   "dependencies": {
     "react": "^18.3.1",
