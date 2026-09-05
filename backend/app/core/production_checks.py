@@ -182,6 +182,27 @@ def check_settings(settings: Settings) -> list[ConfigFinding]:
             severity="warning",
         )
 
+    # ---- Rate limiting -------------------------------------------------------------
+    if production and not settings.rate_limit_enabled:
+        add(
+            "rate_limit_disabled_in_production",
+            "Rate limiting is switched off, so the login route has no brute-force bound.",
+        )
+    if production and settings.rate_limit_process_count > 1 and settings.rate_limit_enabled:
+        add(
+            "rate_limit_multi_process",
+            "Rate limit buckets are per process. RATE_LIMIT_PROCESS_COUNT is set above one, so "
+            "the configured allowance is divided; confirm it matches the deployed worker count.",
+            severity="warning",
+        )
+    if production and settings.rate_limit_trusted_proxy_hops == 0 and settings.rate_limit_enabled:
+        add(
+            "rate_limit_no_proxy_hops",
+            "RATE_LIMIT_TRUSTED_PROXY_HOPS is zero, so every request behind a proxy shares one "
+            "bucket and one caller can exhaust the allowance for all of them.",
+            severity="warning",
+        )
+
     return findings
 
 

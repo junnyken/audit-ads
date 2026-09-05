@@ -16,6 +16,11 @@ os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("NOTIFICATION_TRANSPORT", "fake")
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "")
 os.environ.setdefault("PUBLIC_APP_URL", "https://adsops.example.com")
+# Rate limiting is off for the suite: hundreds of tests share one TestClient address and a
+# handful of subjects, so the general bucket would drain and turn real assertions into 429s
+# that have nothing to do with what is being tested. The limiter has its own tests, which
+# build an app with it switched on.
+os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 
 import pytest  # noqa: E402
 import sqlalchemy as sa  # noqa: E402

@@ -23,11 +23,17 @@ def settings(**overrides) -> Settings:
         "environment": "production",
         "database_url": "postgresql+psycopg://adsops:a-long-real-password@db:5432/adsops",
         "jwt_secret": "x" * 48,
-        "cors_origins_raw": "https://adsops.example.com",
+        # Alias, not field name: pydantic-settings binds this field by "CORS_ORIGINS" only,
+        # so passing "cors_origins_raw" is dropped and the assertion below tests the default
+        # instead of the value under test. That is what made the wildcard case pass nothing.
+        "CORS_ORIGINS": "https://adsops.example.com",
         "public_app_url": "https://adsops.example.com",
         "notification_transport": "disabled",
         "release_version": "abc1234",
         "enable_api_docs": False,
+        # The suite disables rate limiting (see conftest); a well-configured production
+        # deployment has it on, so state that here rather than inheriting the test default.
+        "rate_limit_enabled": True,
     }
     base.update(overrides)
     return Settings(**base)
@@ -71,8 +77,8 @@ def test_the_pilot_password_is_refused_in_every_environment():
 
 
 def test_wildcard_cors_is_rejected_in_production():
-    assert "cors_wildcard" in codes(check_settings(settings(cors_origins_raw="*")))
-    assert "cors_origins_missing" in codes(check_settings(settings(cors_origins_raw="")))
+    assert "cors_wildcard" in codes(check_settings(settings(CORS_ORIGINS="*")))
+    assert "cors_origins_missing" in codes(check_settings(settings(CORS_ORIGINS="")))
 
 
 def test_telegram_mode_without_a_token_is_an_error():

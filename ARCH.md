@@ -37,6 +37,11 @@ a broker that buys nothing.
 
 ## 2. Request lifecycle
 
+0. `RateLimitMiddleware` consumes a token from the caller's bucket and short-circuits with
+   429 before any routing, session or database work. It is registered first and therefore runs
+   innermost, so its refusal still passes back out through the CORS, security-header and
+   request-context layers — a 429 that lost its CORS headers would reach a browser as an
+   opaque failure instead of a stated reason.
 1. `RequestContextMiddleware` assigns or accepts `X-Request-ID`, stores it in a `ContextVar`,
    echoes it on the response, and logs one structured line (method, path, status, duration —
    never query values or bodies).
@@ -498,6 +503,41 @@ safety promise the product cannot keep.
 
 The backend is the final enforcement point. Client-side omission is never trusted: the tests
 prove the API refuses a secret field even when the UI has no input for it.
+
+## 5b. Rate limiting
+
+A token bucket per (policy, identity), held in process memory.
+
+**Two policies.** Credential exchange (`/auth/login`, `/extension/connect`) is keyed by client
+address, because there is no trustworthy subject yet and keying on the submitted email would
+let anyone lock out a named operator. Everything else is keyed by the subject of a
+signature-**verified** token, falling back to the address. An extension installation is part of
+the key, so two browsers signed in as one operator do not starve each other.
+
+**Why a bucket, not a fixed window.** A fixed window permits the full allowance in the last
+second of one window and again in the first second of the next — double the intended burst,
+exactly when an attacker is trying. A bucket refills continuously and yields an honest
+`Retry-After`.
+
+**Why in-process.** The deployment has no Redis and adding one would be a new service, a new
+failure mode and a new backup, for a limiter whose job is to blunt brute-force and runaway
+clients. The cost is stated rather than hidden: the limit is per process, so
+`RATE_LIMIT_PROCESS_COUNT` divides the configured allowance to make the documented number the
+one an operator gets, and a production configuration above one raises a warning. It is not a
+distributed limiter and nothing claims it is.
+
+**`X-Forwarded-For` is opt-in.** With `RATE_LIMIT_TRUSTED_PROXY_HOPS` at 0 the header is
+ignored entirely, because a client sets it itself and would otherwise mint a fresh bucket per
+request. Above 0, the address is counted from the right — the rightmost entry is the one the
+nearest proxy observed; everything further left is client-supplied. Leaving it at 0 behind a
+real proxy makes every caller share one bucket, so production warns about that too.
+
+**Bounded memory.** Buckets are capped and evicted, idle-first then least-recently-used, so the
+limiter cannot become the exhaustion it prevents. Eviction is always generous — an evicted
+caller gets a fresh, full bucket — so it can never lock anyone out.
+
+**Never limited:** `/health/live` and `/health/ready`. A limited probe converts a busy minute
+into a restart loop.
 
 ## 6. Deployment
 

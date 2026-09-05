@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
+from app.api.rate_limit_middleware import RateLimitMiddleware
 from app.api.v1 import api_router
 from app.bootstrap import bootstrap_owner
 from app.core.config import get_settings
@@ -61,6 +62,14 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # Starlette runs middleware in REVERSE registration order, so the first registered is
+    # innermost. The rate limiter goes first — and therefore innermost — on purpose: its 429 is
+    # generated in middleware rather than by the router, so everything that must decorate a
+    # response has to sit outside it. Inside CORS, a browser would render the refusal as an
+    # opaque CORS failure instead of "you are being rate limited"; inside the security-header
+    # and request-context layers, the refusal would lose its headers and its request id. It
+    # still short-circuits before any route, session or database work.
+    app.add_middleware(RateLimitMiddleware, settings=settings)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(
         CORSMiddleware,
@@ -68,7 +77,7 @@ def create_app() -> FastAPI:
         allow_credentials=False,
         allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
-        expose_headers=["X-Request-ID"],
+        expose_headers=["X-Request-ID", "Retry-After", "X-RateLimit-Limit", "X-RateLimit-Remaining"],
     )
     app.add_middleware(RequestContextMiddleware)
 

@@ -436,3 +436,24 @@ any of them.
 - Roles cannot be assigned through the UI yet.
 - `last_synced_at` is always empty because nothing syncs; readiness reports data freshness as
   `unknown` rather than pretending otherwise.
+
+---
+
+## Rate limiting
+
+Every request under `/api/v1` is bounded. Two budgets, because two things are being protected:
+
+| Budget | Applies to | Keyed by | Default |
+|---|---|---|---|
+| Credential exchange | `POST /auth/login`, `POST /extension/connect` | client address | 10 per 5 minutes |
+| General API | everything else under `/api/v1` | authenticated subject, else address | 300 per minute |
+
+Health checks are never limited. A refusal is HTTP 429 with the standard error envelope, the
+code `rate_limited`, and `Retry-After` in seconds; every response carries `X-RateLimit-Limit`
+and `X-RateLimit-Remaining`.
+
+Two honest limits: the buckets live **in the API process**, so running more than one worker
+divides the allowance (`RATE_LIMIT_PROCESS_COUNT` states how many, and production warns if it
+is above one); and `X-Forwarded-For` is ignored until `RATE_LIMIT_TRUSTED_PROXY_HOPS` says a
+proxy is in front, because a client can set that header itself. Both are reported as
+configuration findings rather than left for someone to discover.

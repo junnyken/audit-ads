@@ -23,6 +23,14 @@ never read from a request body or query string.
 | `entity_archived` | 409 | The target is archived; restore it first |
 | `validation_error` | 422 | Payload failed validation |
 | `forbidden_field` | 422 | Payload carried a secret-bearing field or a credential-shaped value |
+| `rate_limited` | 429 | Too many requests. `details.retry_after_seconds` and the `Retry-After` header say how long to wait |
+
+**Rate limiting** — two budgets. `POST /auth/login` and `POST /extension/connect` share a
+strict per-address budget (default 10 per 5 minutes); everything else under `/api/v1` gets a
+general budget per authenticated subject, falling back to the address when anonymous (default
+300 per minute). Health checks are never limited. Every response carries `X-RateLimit-Limit`
+and `X-RateLimit-Remaining`; a refusal adds `Retry-After` in seconds. Budgets are **per API
+process** — see ARCH §5b.
 
 **Correlation** — send `X-Request-ID` to set it, or read it from the response. It appears in the
 error body, in structured logs and on the audit row.

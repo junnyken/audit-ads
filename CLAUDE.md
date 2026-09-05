@@ -70,6 +70,12 @@ Telegram message has been sent, and the extension has never been published or ru
     a severity, a workspace id or a raw URL from a client.
 36. Host permissions stay minimal and path-scoped. Never add `<all_urls>`, a bare
     `facebook.com` host, or a host permission for the API origin.
+37. Rate limit buckets are per process and the limiter is in-process by design. Do not claim
+    it is distributed, and do not read `X-Forwarded-For` unless `RATE_LIMIT_TRUSTED_PROXY_HOPS`
+    says a proxy is there — a client sets that header itself.
+38. Identity for a bucket comes from a signature-**verified** token, never a decoded one. An
+    unverified subject would let a caller drain a victim's allowance.
+39. Health probes are never rate limited. A limited probe turns a busy minute into a restart loop.
 
 ## Working style
 

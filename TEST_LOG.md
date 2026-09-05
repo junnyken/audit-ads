@@ -807,3 +807,76 @@ Manager URL (`…/adsmanager/manage/campaigns?act=123456789&business_id=999&acce
   allowlist will need maintenance.
 - **No deployment, and no real Telegram message** — unchanged from A4.
 - **Still no rate limiting**, and no CI.
+
+---
+
+## Rate limiting (follow-up, 2026-09-05)
+
+Not a MINI-SPEC: this closes the follow-up that A4 and A5 both recorded and neither did —
+"still no rate limiting". Nothing in the API was bounded, including `POST /auth/login`.
+
+### 1. What was measured before the change
+
+| Check | Result |
+|---|---|
+| Backend suite on a clean tree | **387 passed, 1 failed** |
+| The failure | `test_a4_configuration.py::test_wildcard_cors_is_rejected_in_production` |
+
+The A5 report states "344 passed, unchanged" and a backend total of 388. That is not what the
+tree does today: one A4 configuration test is red, and was red **before** this change — verified
+by stashing the change and re-running.
+
+**Why it was red, and why it matters more than the count.** `Settings` binds
+`cors_origins_raw` by its alias `CORS_ORIGINS` only; pydantic-settings ignores the field name
+even with `populate_by_name=True`, and `extra="ignore"` drops it in silence. The test passed
+`cors_origins_raw="*"`, so the wildcard never reached the settings object and the assertion ran
+against the default. **The production CORS-wildcard check therefore had no working test.** The
+check itself was always correct — proven by re-running it through the alias — so the fix is in
+the test, plus a note on the field so the trap is visible next time.
+
+### 2. Rate limit tests
+
+| Layer | Count | What it establishes |
+|---|---|---|
+| Bucket arithmetic (injected clock) | 8 | Limit, continuous refill, capacity ceiling, per-identity and per-policy isolation, honest `Retry-After`, per-process scaling, bounded memory, refusal of a meaningless policy |
+| Client address | 4 | `X-Forwarded-For` ignored with no configured proxy, counted from the right when there is one, a short chain does not index past the start, a missing peer is not a crash |
+| Identity from a token | 4 | A forged token is anonymous; a valid one yields its subject; an extension installation gets its own bucket; malformed headers are anonymous |
+| Middleware in an app | 8 | Login limited with the project error envelope; `extension/connect` shares the strict budget; the general budget is separate; two subjects do not share a bucket; health probes never limited; a refusal keeps its CORS headers; the switch works; disabling it in production is a configuration error |
+| **Total new** | **32** | |
+| **Backend suite after** | **420 passed** | 388 as A5 claimed, plus 32, with the pre-existing failure fixed |
+
+`ruff check .` clean.
+
+### 3. Live verification against the running API
+
+Server started with `RATE_LIMIT_AUTH_ATTEMPTS=3`, `RATE_LIMIT_AUTH_WINDOW_SECONDS=300`, then
+five login attempts from one address:
+
+| Attempt | Status | Body code | `X-RateLimit-Remaining` | `Retry-After` |
+|---|---|---|---|---|
+| 1 | 422 | `validation_error` | 2 | — |
+| 2 | 422 | `validation_error` | 1 | — |
+| 3 | 422 | `validation_error` | 0 | — |
+| 4 | **429** | `rate_limited` | 0 | **100** |
+| 5 | **429** | `rate_limited` | 0 | **100** |
+
+`Retry-After: 100` is arithmetically right: three tokens per 300 seconds is one per 100.
+`/health/ready` still returned 200 while the address was blocked. The 429 body carried the
+standard envelope and a request id, and **no value** — not the address, the limit window, the
+email or the identity.
+
+The 422s are the schema refusing an 8-character minimum password, not a bug — and they still
+cost a token, which is the intended behaviour: an attacker must not get free probes by sending
+payloads that fail validation before reaching the password check.
+
+### 4. Known limits
+
+- **Per process, not distributed.** No Redis, by choice. `RATE_LIMIT_PROCESS_COUNT` divides the
+  configured allowance so the documented number is what an operator actually gets, and a
+  production configuration with it above one raises a warning to confirm it matches the
+  deployed worker count.
+- **`RATE_LIMIT_TRUSTED_PROXY_HOPS` defaults to 0.** Behind a proxy that means every caller
+  shares one bucket; a production deployment that leaves it at zero gets a warning. It is not
+  defaulted to 1 because guessing the hop count wrong in the other direction lets a client
+  forge its own address and bypass the limit entirely.
+- **Not yet exercised under real concurrency** on a deployed host.

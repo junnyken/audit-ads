@@ -26,6 +26,9 @@ class Settings(BaseSettings):
 
     # Read as a raw string, not a list: pydantic-settings tries to JSON-decode list-typed
     # env values before any validator runs, so "a,b" would fail to parse.
+    #: NOTE: pydantic-settings binds this field by its alias ONLY — `Settings(cors_origins_raw=…)`
+    #: is silently ignored and falls back to the default. Construct it as `CORS_ORIGINS=…`,
+    #: including in tests; asserting against a value passed by field name tests nothing.
     cors_origins_raw: str = Field(default="http://localhost:5173", alias="CORS_ORIGINS")
 
     #: Owner bootstrapped on first start when the database has no workspace yet.
@@ -92,6 +95,25 @@ class Settings(BaseSettings):
     extension_token_expire_minutes: int = 720
     #: Oldest extension build allowed to talk to this API. Empty means "any".
     extension_minimum_version: str = ""
+
+    # ---- Rate limiting ----------------------------------------------------------------
+    #: Master switch. On everywhere by default: a limiter that is off in development is a
+    #: limiter nobody notices is misconfigured until production. Tests turn it off explicitly.
+    rate_limit_enabled: bool = True
+    #: Authentication attempts per window, per client address. Deliberately small: this is the
+    #: brute-force bound, and a human logging in never comes close to it.
+    rate_limit_auth_attempts: int = 10
+    rate_limit_auth_window_seconds: int = 300
+    #: General API calls per window, per authenticated subject (per address when anonymous).
+    rate_limit_api_requests: int = 300
+    rate_limit_api_window_seconds: int = 60
+    #: Number of API worker processes. Buckets are per process, so the configured limits are
+    #: divided by this to make the documented number the number an operator actually gets.
+    rate_limit_process_count: int = 1
+    #: Proxy hops between the client and this process. 0 means "no proxy": X-Forwarded-For is
+    #: ignored entirely, because a client can set that header itself. Behind the production
+    #: nginx edge this is 1; behind an additional platform proxy it is 2.
+    rate_limit_trusted_proxy_hops: int = 0
 
     # ---- A4 controlled test send -----------------------------------------------------
     #: Master switch for the controlled Telegram test send. Off by default: the endpoint
