@@ -73,6 +73,13 @@ services:
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:?set PUBLIC_APP_URL to the public HTTPS origin}
       # Off unless one approved verification is in progress.
       ALLOW_TEST_SEND: ${ALLOW_TEST_SEND:-false}
+      # Proxies between the client and this container. The edge nginx below is one; a platform
+      # proxy in front of it makes two. The rate limiter counts X-Forwarded-For from the right
+      # by exactly this many, so setting it too HIGH reads an address the client supplied and
+      # setting it too LOW puts every caller in one bucket. Count the hops, do not guess.
+      RATE_LIMIT_TRUSTED_PROXY_HOPS: ${RATE_LIMIT_TRUSTED_PROXY_HOPS:-1}
+      # One uvicorn worker (see the Dockerfile CMD), so the configured allowance is the real one.
+      RATE_LIMIT_PROCESS_COUNT: ${RATE_LIMIT_PROCESS_COUNT:-1}
     expose: ["8000"]
     ports: !override []
     networks: [internal]

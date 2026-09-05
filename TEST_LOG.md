@@ -880,3 +880,29 @@ payloads that fail validation before reaching the password check.
   defaulted to 1 because guessing the hop count wrong in the other direction lets a client
   forge its own address and bypass the limit entirely.
 - **Not yet exercised under real concurrency** on a deployed host.
+
+### 5. A defect found while preparing to deploy — the limit was bypassable in the built image
+
+`backend/Dockerfile` ran uvicorn with `--proxy-headers --forwarded-allow-ips "*"`. Read in
+uvicorn 0.34.0, `_TrustedHosts.always_trust` is then true and `get_trusted_client_host` returns
+`x_forwarded_for_hosts[0]` — the **first** entry, which is entirely client-supplied — and
+`ProxyHeadersMiddleware` overwrites `scope["client"]` with it before the application sees the
+request.
+
+So in the production image, with the limiter's own default of `RATE_LIMIT_TRUSTED_PROXY_HOPS=0`
+and its deliberate refusal to read the header itself, the address it keyed the login bucket on
+would still have come from the header: **an attacker varying `X-Forwarded-For` would get a fresh
+bucket on every request, and the brute-force bound would have been worth nothing.** The limiter
+would have looked correct in every test and been bypassable in production.
+
+Found by reading the Dockerfile before deploying, not by a test — no test covered the image.
+
+**Fixed** by removing both flags. Nothing in the application reads `request.url.scheme` or builds
+an absolute URL (grepped), so they provided no value to trade away. The forwarded chain is
+honoured in one place that knows how many hops to expect, and `docker-compose.production.yml`
+now states `RATE_LIMIT_TRUSTED_PROXY_HOPS=1` for the edge nginx in front of the API.
+
+Two tests were added and the suite is **422 passed**: one asserts the flags stay out of the
+Dockerfile's instructions (comments excluded, so the rationale does not trip its own guard), and
+one drives three different `X-Forwarded-For` values through the real middleware and asserts they
+share a bucket.

@@ -9,6 +9,8 @@ Two layers are tested separately, because they fail differently:
 """
 from __future__ import annotations
 
+import pathlib
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -336,3 +338,38 @@ def test_a_disabled_limiter_is_a_production_configuration_error():
     )
     codes = {finding.code for finding in check_settings(settings)}
     assert "rate_limit_disabled_in_production" in codes
+
+
+# --------------------------------------------------------------------------------------
+# The deployed image must not hand the limiter a spoofable address
+# --------------------------------------------------------------------------------------
+
+
+def test_the_api_image_does_not_let_uvicorn_rewrite_the_client_address():
+    """A guard, not a style check.
+
+    `uvicorn --proxy-headers --forwarded-allow-ips "*"` sets `always_trust`, and
+    `_TrustedHosts.get_trusted_client_host` then returns `x_forwarded_for[0]` — the FIRST
+    entry, which is whatever the client wrote. uvicorn overwrites `request.client.host` with
+    it, so the login bucket would be keyed on a value the attacker chooses and the
+    brute-force bound would be worth nothing. The forwarded chain is honoured in
+    `client_address()` instead, which counts from the right by a configured hop count.
+    """
+    dockerfile = (pathlib.Path(__file__).resolve().parents[1] / "Dockerfile").read_text()
+    # Comment lines are excluded on purpose: the CMD above them explains at length why these
+    # flags are absent, and a guard that trips over its own rationale is a guard people delete.
+    instructions = "\n".join(
+        line for line in dockerfile.splitlines() if not line.lstrip().startswith("#")
+    )
+    assert "--proxy-headers" not in instructions
+    assert "--forwarded-allow-ips" not in instructions
+
+
+def test_a_spoofed_forwarded_header_cannot_mint_a_fresh_bucket():
+    """The end-to-end version of the same concern, through the real middleware."""
+    client = TestClient(_app(rate_limit_auth_attempts=2, rate_limit_auth_window_seconds=300))
+
+    assert client.post("/api/v1/auth/login", headers={"X-Forwarded-For": "1.1.1.1"}).status_code == 200
+    assert client.post("/api/v1/auth/login", headers={"X-Forwarded-For": "2.2.2.2"}).status_code == 200
+    # A third address, a third header value — and still the same bucket, because hops is 0.
+    assert client.post("/api/v1/auth/login", headers={"X-Forwarded-For": "3.3.3.3"}).status_code == 429

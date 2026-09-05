@@ -532,6 +532,16 @@ request. Above 0, the address is counted from the right — the rightmost entry 
 nearest proxy observed; everything further left is client-supplied. Leaving it at 0 behind a
 real proxy makes every caller share one bucket, so production warns about that too.
 
+**The image must not pre-empt this.** `uvicorn --proxy-headers --forwarded-allow-ips "*"` sets
+`always_trust`, and uvicorn then takes the **first** `X-Forwarded-For` entry — the one the client
+wrote — and overwrites `request.client.host` with it. The limiter would key the login bucket on a
+value the attacker chooses, and a fresh bucket per request makes the bound decorative. The API
+image therefore runs uvicorn **without** proxy headers; nothing here reads the request scheme or
+builds an absolute URL, so they buy nothing to offset it. A test asserts the flags stay out of the
+Dockerfile. The edge nginx sets `X-Forwarded-For $proxy_add_x_forwarded_for`, which appends the
+peer it saw, so the rightmost entry is the trustworthy one — which is what counting from the right
+by `RATE_LIMIT_TRUSTED_PROXY_HOPS` reads.
+
 **Bounded memory.** Buckets are capped and evicted, idle-first then least-recently-used, so the
 limiter cannot become the exhaustion it prevents. Eviction is always generous — an evicted
 caller gets a fresh, full bucket — so it can never lock anyone out.

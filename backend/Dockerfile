@@ -35,5 +35,14 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 # Run `scripts/release_migrate.sh` (or `alembic upgrade head`) before starting a new version.
 #
 # One worker on purpose: the target VPS is 4 vCPU / 8 GB and already busy.
+# NO --proxy-headers, deliberately. With `--forwarded-allow-ips "*"` uvicorn trusts every
+# peer and takes the FIRST entry of X-Forwarded-For — the one the client wrote — and overwrites
+# `request.client.host` with it. The rate limiter keys the login bucket on that address, so a
+# caller could mint a fresh bucket per request simply by varying the header, and the
+# brute-force bound would be decorative. Nothing in this app reads the request scheme or builds
+# an absolute URL, so proxy headers buy nothing to offset that.
+#
+# The forwarded chain is still honoured, but in one place that knows how many hops to expect:
+# `app/core/rate_limit.py`, via RATE_LIMIT_TRUSTED_PROXY_HOPS, counting from the RIGHT.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", \
-     "--proxy-headers", "--forwarded-allow-ips", "*", "--no-server-header"]
+     "--no-server-header"]
