@@ -1,23 +1,29 @@
-import { READ_ONLY_NOTE } from '../shared/presentation'
+import { useLanguage } from '../shared/i18n'
+import { LanguageToggle } from '../shared/LanguageToggle'
+import { READ_ONLY_NOTE_KEY } from '../shared/presentation'
 import { dashboardLink, useConnection, useContext } from '../shared/useExtension'
 import { AccountIdentity, Disclaimer, OperationalState, UnresolvedContext } from './ContextView'
 
 export default function PopupApp() {
+  const { t } = useLanguage()
   const { connection } = useConnection()
   const connected = Boolean(connection?.connected)
   const { context, error, loading, refresh } = useContext(connected)
 
-  if (!connection) return <div className="wrap muted">Loading…</div>
+  if (!connection) return <div className="wrap muted">{t('common.loading')}</div>
 
   if (!connected) {
     return (
       <div className="wrap stack">
-        <h1>AdsOps Control Center</h1>
-        <p className="muted">The extension is not connected to a dashboard yet.</p>
+        <div className="between">
+          <h1>{t('common.appTitle')}</h1>
+          <LanguageToggle />
+        </div>
+        <p className="muted">{t('popup.notConnected.body')}</p>
         <button type="button" className="primary" onClick={() => chrome.runtime.openOptionsPage()}>
-          Open settings
+          {t('common.openSettings')}
         </button>
-        <p className="notice">{READ_ONLY_NOTE}</p>
+        <p className="notice">{t(READ_ONLY_NOTE_KEY)}</p>
       </div>
     )
   }
@@ -28,17 +34,20 @@ export default function PopupApp() {
   return (
     <div className="wrap stack">
       <div className="between">
-        <h1>AdsOps Control Center</h1>
-        <button type="button" className="link" onClick={() => void refresh()}>
-          Refresh
-        </button>
+        <h1>{t('common.appTitle')}</h1>
+        <div className="row">
+          <LanguageToggle />
+          <button type="button" className="link" onClick={() => void refresh()}>
+            {t('common.refresh')}
+          </button>
+        </div>
       </div>
       <p className="faint">
         {connection.workspaceName} · {connection.userEmail}
       </p>
 
       {error && <p className="notice error">{error}</p>}
-      {loading && !context && <p className="muted">Reading page context…</p>}
+      {loading && !context && <p className="muted">{t('popup.readingContext')}</p>}
 
       {context && confirmed ? (
         <>
@@ -54,7 +63,7 @@ export default function PopupApp() {
                 })
               }
             >
-              Open account
+              {t('popup.openAccount')}
             </button>
             <button
               type="button"
@@ -64,7 +73,7 @@ export default function PopupApp() {
                 })
               }
             >
-              Open alerts
+              {t('popup.openAlerts')}
             </button>
           </div>
         </>
@@ -77,13 +86,13 @@ export default function PopupApp() {
                 type="button"
                 onClick={() => chrome.tabs.create({ url: dashboardLink(base, '/') })}
               >
-                Open dashboard
+                {t('popup.openDashboard')}
               </button>
               <button
                 type="button"
                 onClick={() => chrome.tabs.create({ url: dashboardLink(base, '/accounts') })}
               >
-                Select account manually
+                {t('popup.selectAccountManually')}
               </button>
             </div>
           </>
@@ -91,7 +100,7 @@ export default function PopupApp() {
       )}
 
       <Disclaimer />
-      <p className="faint">{READ_ONLY_NOTE}</p>
+      <p className="faint">{t(READ_ONLY_NOTE_KEY)}</p>
     </div>
   )
 }

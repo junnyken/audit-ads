@@ -26,6 +26,7 @@ export function makeStorageArea() {
 export function installChromeStub(overrides: Record<string, unknown> = {}) {
   const local = makeStorageArea()
   const session = makeStorageArea()
+  local.data.set('adsops.language', 'en')
   const listeners: Listener[] = []
   const stub = {
     runtime: {
@@ -35,7 +36,11 @@ export function installChromeStub(overrides: Record<string, unknown> = {}) {
       onMessage: { addListener: (fn: Listener) => listeners.push(fn) },
       onInstalled: { addListener: vi.fn() },
     },
-    storage: { local, session },
+    storage: {
+      local,
+      session,
+      onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+    },
     tabs: {
       query: vi.fn(async () => [{ id: 1 }]),
       create: vi.fn(),

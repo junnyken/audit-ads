@@ -84,6 +84,10 @@ label.field { display: block; font-size: 12px; color: var(--ink-muted); margin-b
 label.field > span { display: block; margin-bottom: 3px; }
 label.check { display: flex; gap: 7px; align-items: flex-start; font-size: 12.5px; margin-bottom: 6px; }
 
+.lang-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.lang-toggle__option { border: 0; border-radius: 0; padding: 2px 8px; font-size: 11px; font-weight: 600; background: var(--surface); color: var(--ink-faint); }
+.lang-toggle__option--active { background: var(--brand); color: #fff; }
+
 .notice { background: var(--surface-muted); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 11.5px; color: var(--ink-muted); }
 .error { background: #fef3f2; border-color: #fecdca; color: #912018; }
 ul.reasons { margin: 4px 0 0; padding-left: 16px; font-size: 12px; color: var(--ink-muted); }

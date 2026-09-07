@@ -12,6 +12,9 @@ import type { ContextResolution } from './types'
 const SESSION_KEY = 'adsops.connection'
 const SETTINGS_KEY = 'adsops.settings'
 const CONTEXT_KEY_PREFIX = 'adsops.context.'
+const LANGUAGE_KEY = 'adsops.language'
+
+export type Language = 'vi' | 'en'
 
 export interface StoredConnection {
   accessToken: string
@@ -77,6 +80,20 @@ export async function writeSettings(patch: Partial<StoredSettings>): Promise<Sto
   const next = { ...current, ...patch }
   await chrome.storage.local.set({ [SETTINGS_KEY]: next })
   return next
+}
+
+/**
+ * UI language, kept separate from `StoredSettings` on purpose: it is a per-browser display
+ * preference, not part of the dashboard connection, and every extension page (not just the
+ * background worker) reads and writes it directly.
+ */
+export async function readLanguage(): Promise<Language> {
+  const stored = await chrome.storage.local.get(LANGUAGE_KEY)
+  return stored?.[LANGUAGE_KEY] === 'en' ? 'en' : 'vi'
+}
+
+export async function writeLanguage(language: Language): Promise<void> {
+  await chrome.storage.local.set({ [LANGUAGE_KEY]: language })
 }
 
 /**

@@ -2,10 +2,35 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { installChromeStub } from './setup'
+import { LanguageProvider } from '../src/shared/i18n'
 import PopupApp from '../src/popup/PopupApp'
 import SidePanelApp from '../src/sidepanel/SidePanelApp'
 import OptionsApp from '../src/options/OptionsApp'
 import type { ContextResolution } from '../src/shared/types'
+
+function renderPopup() {
+  return render(
+    <LanguageProvider>
+      <PopupApp />
+    </LanguageProvider>,
+  )
+}
+
+function renderSidePanel() {
+  return render(
+    <LanguageProvider>
+      <SidePanelApp />
+    </LanguageProvider>,
+  )
+}
+
+function renderOptions() {
+  return render(
+    <LanguageProvider>
+      <OptionsApp />
+    </LanguageProvider>,
+  )
+}
 
 const CONNECTED = {
   connected: true,
@@ -68,7 +93,7 @@ describe('popup', () => {
 
   it('sends the operator to settings when the extension is not connected', async () => {
     stubWorker({ getConnection: { ok: true, data: { ...CONNECTED, connected: false } } })
-    render(<PopupApp />)
+    renderPopup()
     expect(await screen.findByText(/not connected to a dashboard/i)).toBeInTheDocument()
     expect(screen.queryByText('BM USA - Account 03')).toBeNull()
   })
@@ -78,7 +103,7 @@ describe('popup', () => {
       getConnection: { ok: true, data: CONNECTED },
       getContext: { ok: true, data: CONFIRMED },
     })
-    render(<PopupApp />)
+    renderPopup()
     expect(await screen.findByText('BM USA - Account 03')).toBeInTheDocument()
     expect(await screen.findByText('Confirmed')).toBeInTheDocument()
     expect(await screen.findByText('act_123456789')).toBeInTheDocument()
@@ -102,7 +127,7 @@ describe('popup', () => {
         },
       },
     })
-    render(<PopupApp />)
+    renderPopup()
     expect(await screen.findByText('Not registered')).toBeInTheDocument()
     expect(await screen.findByText(/will not guess which account/i)).toBeInTheDocument()
     expect(await screen.findByRole('button', { name: 'Select account manually' })).toBeInTheDocument()
@@ -114,7 +139,7 @@ describe('popup', () => {
       getConnection: { ok: true, data: CONNECTED },
       getContext: { ok: true, data: CONFIRMED },
     })
-    render(<PopupApp />)
+    renderPopup()
     expect(await screen.findByText(/changes nothing in Ads Manager/i)).toBeInTheDocument()
     const body = document.body.textContent ?? ''
     for (const claim of ['protected', 'no ban risk', 'guaranteed', 'bypass', 'unlock']) {
@@ -132,7 +157,7 @@ describe('side panel workspace guard', () => {
       getContext: { ok: true, data: CONFIRMED },
     })
     const user = userEvent.setup()
-    render(<SidePanelApp />)
+    renderSidePanel()
 
     const save = await screen.findByRole('button', { name: 'Save change intent' })
     expect(save).toBeDisabled()
@@ -149,7 +174,7 @@ describe('side panel workspace guard', () => {
       getConnection: { ok: true, data: CONNECTED },
       getContext: { ok: true, data: CONFIRMED },
     })
-    render(<SidePanelApp />)
+    renderSidePanel()
     expect(
       await screen.findByText(/does not block anything in Ads Manager/i),
     ).toBeInTheDocument()
@@ -162,7 +187,7 @@ describe('side panel workspace guard', () => {
       recordEvent: { ok: true, data: { id: 'event-1' } },
     })
     const user = userEvent.setup()
-    render(<SidePanelApp />)
+    renderSidePanel()
 
     for (const box of await screen.findAllByRole('checkbox')) await user.click(box)
     await user.type(screen.getByPlaceholderText(/Recorded in the account timeline/), 'Budget fix.')
@@ -193,7 +218,7 @@ describe('side panel workspace guard', () => {
         data: { ...CONFIRMED, context_status: 'ambiguous', account: null, message: 'Not sure.' },
       },
     })
-    render(<SidePanelApp />)
+    renderSidePanel()
     expect(await screen.findByText('Not confirmed')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Save change intent' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Record event' })).toBeNull()
@@ -206,7 +231,7 @@ describe('options', () => {
   it('refuses a non-HTTPS dashboard URL for a real host', async () => {
     stubWorker({ getConnection: { ok: true, data: { ...CONNECTED, connected: false, dashboardUrl: '' } } })
     const user = userEvent.setup()
-    render(<OptionsApp />)
+    renderOptions()
     await user.type(await screen.findByLabelText('Dashboard URL'), 'http://adsops.example.com')
     expect(await screen.findByText(/Use an HTTPS address/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Connect' })).toBeDisabled()
@@ -218,7 +243,7 @@ describe('options', () => {
       connect: { ok: true, data: CONNECTED },
     })
     const user = userEvent.setup()
-    render(<OptionsApp />)
+    renderOptions()
     await user.type(await screen.findByLabelText('Dashboard URL'), 'https://adsops.example.com')
     await user.type(screen.getByLabelText('Email'), 'operator@example.com')
     const password = screen.getByLabelText('Password') as HTMLInputElement
@@ -229,7 +254,7 @@ describe('options', () => {
 
   it('explains exactly what is read and what is never read', async () => {
     stubWorker({ getConnection: { ok: true, data: CONNECTED } })
-    render(<OptionsApp />)
+    renderOptions()
     expect(await screen.findByText(/never reads cookies, local storage/i)).toBeInTheDocument()
     expect(await screen.findByText(/password is used once to connect and is never stored/i)).toBeInTheDocument()
     expect(await screen.findByText(/revokes the session on the server/i)).toBeInTheDocument()

@@ -6,25 +6,31 @@
  * such capability anywhere in the extension.
  */
 import { useState } from 'react'
-import { EVENT_LABEL, GUARD_CHECKLIST, READ_ONLY_NOTE } from '../shared/presentation'
+import { useLanguage } from '../shared/i18n'
+import { LanguageToggle } from '../shared/LanguageToggle'
+import { EVENT_LABEL, GUARD_CHECKLIST, READ_ONLY_NOTE_KEY } from '../shared/presentation'
 import { ask } from '../shared/messaging'
 import { dashboardLink, useConnection, useContext } from '../shared/useExtension'
 import type { ExtensionEventType } from '../shared/types'
 import { AccountIdentity, Disclaimer, OperationalState, UnresolvedContext } from '../popup/ContextView'
 
 export default function SidePanelApp() {
+  const { t } = useLanguage()
   const { connection } = useConnection()
   const connected = Boolean(connection?.connected)
   const { context, error, refresh } = useContext(connected)
 
-  if (!connection) return <div className="wrap muted">Loading…</div>
+  if (!connection) return <div className="wrap muted">{t('common.loading')}</div>
   if (!connected) {
     return (
       <div className="wrap stack">
-        <h1>AdsOps Control Center</h1>
-        <p className="muted">Connect the extension to your dashboard to see account context.</p>
+        <div className="between">
+          <h1>{t('common.appTitle')}</h1>
+          <LanguageToggle />
+        </div>
+        <p className="muted">{t('sidepanel.notConnected.body')}</p>
         <button type="button" className="primary" onClick={() => chrome.runtime.openOptionsPage()}>
-          Open settings
+          {t('common.openSettings')}
         </button>
       </div>
     )
@@ -36,10 +42,13 @@ export default function SidePanelApp() {
   return (
     <div className="wrap stack panel">
       <div className="between">
-        <h1>Account context</h1>
-        <button type="button" className="link" onClick={() => void refresh()}>
-          Refresh
-        </button>
+        <h1>{t('sidepanel.title')}</h1>
+        <div className="row">
+          <LanguageToggle />
+          <button type="button" className="link" onClick={() => void refresh()}>
+            {t('common.refresh')}
+          </button>
+        </div>
       </div>
 
       {error && <p className="notice error">{error}</p>}
@@ -63,7 +72,7 @@ export default function SidePanelApp() {
                 })
               }
             >
-              Open account detail
+              {t('sidepanel.openAccountDetail')}
             </button>
             <button
               type="button"
@@ -76,14 +85,14 @@ export default function SidePanelApp() {
                 })
               }
             >
-              Open related alerts
+              {t('sidepanel.openRelatedAlerts')}
             </button>
           </div>
         </>
       )}
 
       <Disclaimer />
-      <p className="faint">{READ_ONLY_NOTE}</p>
+      <p className="faint">{t(READ_ONLY_NOTE_KEY)}</p>
     </div>
   )
 }
@@ -102,6 +111,7 @@ function WorkspaceGuard({
   accountId: string
   onRecorded: () => void
 }) {
+  const { t } = useLanguage()
   const [checked, setChecked] = useState<Record<string, boolean>>({})
   const [reason, setReason] = useState('')
   const [result, setResult] = useState<string | null>(null)
@@ -120,18 +130,18 @@ function WorkspaceGuard({
     })
     setBusy(false)
     if (response.ok) {
-      setResult('Change intent recorded in the account timeline.')
+      setResult(t('sidepanel.guard.success'))
       setChecked({})
       setReason('')
       onRecorded()
     } else {
-      setResult(response.error ?? 'Could not record the change intent.')
+      setResult(response.error ?? t('sidepanel.guard.failure'))
     }
   }
 
   return (
     <div className="card">
-      <h2>Before you change campaign settings</h2>
+      <h2>{t('sidepanel.guard.title')}</h2>
       {GUARD_CHECKLIST.map((item) => (
         <label className="check" key={item.id}>
           <input
@@ -141,25 +151,24 @@ function WorkspaceGuard({
               setChecked((current) => ({ ...current, [item.id]: event.target.checked }))
             }
           />
-          <span>{item.label}</span>
+          <span>{t(item.label)}</span>
         </label>
       ))}
       <label className="field">
-        <span>Why are you making this change?</span>
+        <span>{t('sidepanel.guard.reasonLabel')}</span>
         <textarea
           value={reason}
           onChange={(event) => setReason(event.target.value)}
           maxLength={2000}
-          placeholder="Recorded in the account timeline and the audit log."
+          placeholder={t('sidepanel.guard.reasonPlaceholder')}
         />
       </label>
       <button type="button" className="primary" disabled={!ready || busy} onClick={() => void save()}>
-        {busy ? 'Recording…' : 'Save change intent'}
+        {busy ? t('sidepanel.guard.recording') : t('sidepanel.guard.save')}
       </button>
       {!ready && (
         <p className="faint" style={{ marginTop: 6 }}>
-          Tick every item and record a reason first. This checklist records what you checked; it
-          does not block anything in Ads Manager.
+          {t('sidepanel.guard.hint')}
         </p>
       )}
       {result && <p className="notice" style={{ marginTop: 8 }}>{result}</p>}
@@ -178,6 +187,7 @@ const QUICK_EVENTS: ExtensionEventType[] = [
 
 /** Notes and manual events. Each one becomes an ordinary account event with an audit row. */
 function QuickActions({ accountId, onRecorded }: { accountId: string; onRecorded: () => void }) {
+  const { t } = useLanguage()
   const [eventType, setEventType] = useState<ExtensionEventType>('account_note_added')
   const [note, setNote] = useState('')
   const [result, setResult] = useState<string | null>(null)
@@ -198,36 +208,40 @@ function QuickActions({ accountId, onRecorded }: { accountId: string; onRecorded
     })
     setBusy(false)
     if (response.ok) {
-      setResult(`${EVENT_LABEL[eventType] ?? eventType} recorded.`)
+      const label = EVENT_LABEL[eventType] ? t(EVENT_LABEL[eventType]) : eventType
+      setResult(t('sidepanel.quick.recorded', { label }))
       setNote('')
       onRecorded()
     } else {
-      setResult(response.error ?? 'Could not record that event.')
+      setResult(response.error ?? t('sidepanel.quick.failure'))
     }
   }
 
   return (
     <div className="card">
-      <h2>Record an event</h2>
+      <h2>{t('sidepanel.quick.title')}</h2>
       <label className="field">
-        <span>Event</span>
+        <span>{t('sidepanel.quick.eventLabel')}</span>
         <select
           value={eventType}
           onChange={(event) => setEventType(event.target.value as ExtensionEventType)}
         >
           {QUICK_EVENTS.map((value) => (
             <option key={value} value={value}>
-              {EVENT_LABEL[value] ?? value}
+              {EVENT_LABEL[value] ? t(EVENT_LABEL[value]) : value}
             </option>
           ))}
         </select>
       </label>
       <label className="field">
-        <span>Note{needsNote ? '' : ' (optional)'}</span>
+        <span>
+          {t('sidepanel.quick.noteLabel')}
+          {needsNote ? '' : t('sidepanel.quick.noteOptionalSuffix')}
+        </span>
         <textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} />
       </label>
       <button type="button" disabled={!ready || busy} onClick={() => void record()}>
-        {busy ? 'Recording…' : 'Record event'}
+        {busy ? t('sidepanel.quick.recording') : t('sidepanel.quick.record')}
       </button>
       {result && <p className="notice" style={{ marginTop: 8 }}>{result}</p>}
     </div>

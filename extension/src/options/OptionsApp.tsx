@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
 import { ask } from '../shared/messaging'
-import { READ_ONLY_NOTE } from '../shared/presentation'
+import { useLanguage } from '../shared/i18n'
+import { LanguageToggle } from '../shared/LanguageToggle'
+import { READ_ONLY_NOTE_KEY } from '../shared/presentation'
 import { isUsableDashboardUrl } from '../shared/validation'
 import { useConnection } from '../shared/useExtension'
 
 const VERSION = chrome.runtime.getManifest().version
 
 export default function OptionsApp() {
+  const { t } = useLanguage()
   const { connection, refresh } = useConnection()
   const [dashboardUrl, setDashboardUrl] = useState('')
   const [email, setEmail] = useState('')
@@ -37,7 +40,7 @@ export default function OptionsApp() {
     setPassword('')
     setBusy(false)
     setFailed(!response.ok)
-    setMessage(response.ok ? 'Connected.' : (response.error ?? 'Could not connect.'))
+    setMessage(response.ok ? t('options.connection.connected') : (response.error ?? t('options.connection.connectFailed')))
     await refresh()
   }
 
@@ -46,35 +49,38 @@ export default function OptionsApp() {
     await ask({ kind: 'disconnect', reason: 'Disconnected from the extension options page.' })
     setBusy(false)
     setFailed(false)
-    setMessage('Disconnected. The session was revoked on the server.')
+    setMessage(t('options.connection.disconnected'))
     await refresh()
   }
 
   return (
     <div className="wrap stack" style={{ maxWidth: 560 }}>
-      <h1>AdsOps Control Center — extension settings</h1>
-      <p className="faint">Version {VERSION}</p>
+      <div className="between">
+        <h1>{t('options.title')}</h1>
+        <LanguageToggle />
+      </div>
+      <p className="faint">{t('options.version', { version: VERSION })}</p>
 
       <div className="card">
-        <h2>Connection</h2>
+        <h2>{t('options.connection.title')}</h2>
         {connection?.connected ? (
           <>
             <dl className="kv">
-              <dt>Status</dt>
+              <dt>{t('options.connection.status')}</dt>
               <dd>
-                <span className="badge badge--positive">Connected</span>
+                <span className="badge badge--positive">{t('options.connection.connectedBadge')}</span>
               </dd>
-              <dt>Workspace</dt>
+              <dt>{t('options.connection.workspace')}</dt>
               <dd>{connection.workspaceName}</dd>
-              <dt>Signed in as</dt>
+              <dt>{t('options.connection.signedInAs')}</dt>
               <dd>{connection.userEmail}</dd>
-              <dt>Dashboard</dt>
+              <dt>{t('options.connection.dashboard')}</dt>
               <dd>{connection.dashboardUrl}</dd>
-              <dt>Session expires</dt>
+              <dt>{t('options.connection.sessionExpires')}</dt>
               <dd>
                 {connection.expiresAt
                   ? new Date(connection.expiresAt).toLocaleString()
-                  : 'unknown'}
+                  : t('options.connection.unknown')}
               </dd>
             </dl>
             <button
@@ -83,28 +89,25 @@ export default function OptionsApp() {
               disabled={busy}
               onClick={() => void disconnect()}
             >
-              Disconnect and revoke this browser
+              {t('options.connection.disconnect')}
             </button>
           </>
         ) : (
           <>
             <label className="field">
-              <span>Dashboard URL</span>
+              <span>{t('options.connection.dashboardUrlLabel')}</span>
               <input
                 type="url"
                 value={dashboardUrl}
                 onChange={(event) => setDashboardUrl(event.target.value)}
-                placeholder="https://adsops.example.com"
+                placeholder={t('options.connection.dashboardUrlPlaceholder')}
               />
             </label>
             {dashboardUrl.trim() !== '' && !urlOk && (
-              <p className="notice error">
-                Use an HTTPS address. Plain HTTP is accepted only for localhost during
-                development.
-              </p>
+              <p className="notice error">{t('options.connection.urlHint')}</p>
             )}
             <label className="field">
-              <span>Email</span>
+              <span>{t('options.connection.emailLabel')}</span>
               <input
                 type="email"
                 value={email}
@@ -113,7 +116,7 @@ export default function OptionsApp() {
               />
             </label>
             <label className="field">
-              <span>Password</span>
+              <span>{t('options.connection.passwordLabel')}</span>
               <input
                 type="password"
                 value={password}
@@ -122,17 +125,17 @@ export default function OptionsApp() {
               />
             </label>
             <label className="field">
-              <span>Label for this browser (optional)</span>
+              <span>{t('options.connection.labelLabel')}</span>
               <input
                 type="text"
                 value={label}
                 onChange={(event) => setLabel(event.target.value)}
-                placeholder="Chrome — BM USA profile"
+                placeholder={t('options.connection.labelPlaceholder')}
                 maxLength={120}
               />
             </label>
             <button type="button" className="primary" disabled={!canConnect} onClick={() => void connect()}>
-              {busy ? 'Connecting…' : 'Connect'}
+              {busy ? t('options.connection.connecting') : t('options.connection.connect')}
             </button>
           </>
         )}
@@ -140,29 +143,14 @@ export default function OptionsApp() {
       </div>
 
       <div className="card">
-        <h2>What this extension does with your data</h2>
+        <h2>{t('options.privacy.title')}</h2>
         <ul className="reasons">
-          <li>
-            It reads the account id in the Ads Manager URL, the route path, and the page title.
-            Nothing else.
-          </li>
-          <li>
-            It never reads cookies, local storage, session storage, network traffic or page
-            content, and it never writes to the Ads Manager page.
-          </li>
-          <li>
-            Your password is used once to connect and is never stored. The extension then holds
-            a separate, shorter-lived session that cannot change accounts, readiness or alerts.
-          </li>
-          <li>
-            The session is kept in the browser&apos;s in-memory extension storage and is cleared
-            when the browser closes.
-          </li>
-          <li>
-            Disconnecting revokes the session on the server, so it stops working immediately
-            rather than when it expires.
-          </li>
-          <li>{READ_ONLY_NOTE}</li>
+          <li>{t('options.privacy.item1')}</li>
+          <li>{t('options.privacy.item2')}</li>
+          <li>{t('options.privacy.item3')}</li>
+          <li>{t('options.privacy.item4')}</li>
+          <li>{t('options.privacy.item5')}</li>
+          <li>{t(READ_ONLY_NOTE_KEY)}</li>
         </ul>
       </div>
     </div>

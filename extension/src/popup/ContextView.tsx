@@ -4,9 +4,10 @@
  * Readiness, health and alerts are three separate values here, exactly as in the dashboard.
  * Nothing merges them, and nothing shows an unconfirmed context as if it were confirmed.
  */
+import { useLanguage } from '../shared/i18n'
 import {
   CONTEXT_META,
-  DISCLAIMER,
+  DISCLAIMER_KEY,
   FRESHNESS_META,
   HEALTH_META,
   READINESS_META,
@@ -15,11 +16,13 @@ import {
 import type { ContextResolution } from '../shared/types'
 
 export function StatusBadge({ status }: { status: string }) {
+  const { t } = useLanguage()
   const meta = CONTEXT_META[status] ?? CONTEXT_META.unsupported_page
-  return <span className={toneClass(meta.tone)}>{meta.label}</span>
+  return <span className={toneClass(meta.tone)}>{t(meta.label)}</span>
 }
 
 export function AccountIdentity({ context }: { context: ContextResolution }) {
+  const { t } = useLanguage()
   const account = context.account
   if (!account) return null
   return (
@@ -29,18 +32,18 @@ export function AccountIdentity({ context }: { context: ContextResolution }) {
         <StatusBadge status={context.context_status} />
       </div>
       <dl className="kv" style={{ marginTop: 6 }}>
-        <dt>Account ID</dt>
+        <dt>{t('contextView.accountId')}</dt>
         <dd>{account.external_account_id ?? '—'}</dd>
-        <dt>Business Manager</dt>
+        <dt>{t('contextView.businessManager')}</dt>
         <dd>{account.business_manager_name ?? '—'}</dd>
-        <dt>Owner</dt>
+        <dt>{t('contextView.owner')}</dt>
         <dd>{account.owner_label ?? '—'}</dd>
-        <dt>Page</dt>
+        <dt>{t('contextView.page')}</dt>
         <dd>{context.page_type}</dd>
       </dl>
       {account.archived && (
         <p className="notice" style={{ marginTop: 8 }}>
-          This account is archived and is no longer actively managed.
+          {t('contextView.archivedNotice')}
         </p>
       )}
     </div>
@@ -48,6 +51,7 @@ export function AccountIdentity({ context }: { context: ContextResolution }) {
 }
 
 export function OperationalState({ context }: { context: ContextResolution }) {
+  const { t } = useLanguage()
   const readiness = context.readiness
   const health = context.health
   const alerts = context.alerts
@@ -60,32 +64,38 @@ export function OperationalState({ context }: { context: ContextResolution }) {
   return (
     <div className="card">
       <dl className="kv">
-        <dt>Readiness</dt>
+        <dt>{t('contextView.readiness')}</dt>
         <dd>
-          <span className={toneClass(readinessMeta.tone)}>{readinessMeta.label}</span>
+          <span className={toneClass(readinessMeta.tone)}>{t(readinessMeta.label)}</span>
         </dd>
-        <dt>Health</dt>
+        <dt>{t('contextView.health')}</dt>
         <dd>
-          <span className={toneClass(healthMeta.tone)}>{healthMeta.label}</span>
+          <span className={toneClass(healthMeta.tone)}>{t(healthMeta.label)}</span>
         </dd>
-        <dt>Data freshness</dt>
+        <dt>{t('contextView.dataFreshness')}</dt>
         <dd>
-          <span className={toneClass(freshnessMeta.tone)}>{freshnessMeta.label}</span>
+          <span className={toneClass(freshnessMeta.tone)}>{t(freshnessMeta.label)}</span>
         </dd>
-        <dt>Open alerts</dt>
+        <dt>{t('contextView.openAlerts')}</dt>
         <dd>
           {alerts.open_count === 0 ? (
-            <span className={toneClass('neutral')}>None</span>
+            <span className={toneClass('neutral')}>{t('common.none')}</span>
           ) : (
             <span className="row">
               {alerts.critical_count > 0 && (
-                <span className={toneClass('attention')}>Critical: {alerts.critical_count}</span>
+                <span className={toneClass('attention')}>
+                  {t('contextView.critical', { count: alerts.critical_count })}
+                </span>
               )}
               {alerts.warning_count > 0 && (
-                <span className={toneClass('caution')}>Warning: {alerts.warning_count}</span>
+                <span className={toneClass('caution')}>
+                  {t('contextView.warning', { count: alerts.warning_count })}
+                </span>
               )}
               {alerts.info_count > 0 && (
-                <span className={toneClass('info')}>Info: {alerts.info_count}</span>
+                <span className={toneClass('info')}>
+                  {t('contextView.info', { count: alerts.info_count })}
+                </span>
               )}
             </span>
           )}
@@ -94,14 +104,16 @@ export function OperationalState({ context }: { context: ContextResolution }) {
 
       {readiness.reasons.length > 0 && (
         <>
-          <h2>Readiness reasons</h2>
+          <h2>{t('contextView.readinessReasons')}</h2>
           <ul className="reasons">
             {readiness.reasons.map((reason) => (
               <li key={reason.code}>{reason.message}</li>
             ))}
             {readiness.reason_count > readiness.reasons.length && (
               <li className="faint">
-                and {readiness.reason_count - readiness.reasons.length} more in the dashboard
+                {t('contextView.moreInDashboard', {
+                  count: readiness.reason_count - readiness.reasons.length,
+                })}
               </li>
             )}
           </ul>
@@ -110,7 +122,7 @@ export function OperationalState({ context }: { context: ContextResolution }) {
 
       {health.top_reasons.length > 0 && (
         <>
-          <h2>Health signals</h2>
+          <h2>{t('contextView.healthSignals')}</h2>
           <ul className="reasons">
             {health.top_reasons.map((reason, index) => (
               <li key={`${reason.severity}-${index}`}>{reason.message}</li>
@@ -123,6 +135,7 @@ export function OperationalState({ context }: { context: ContextResolution }) {
 }
 
 export function UnresolvedContext({ context }: { context: ContextResolution }) {
+  const { t } = useLanguage()
   const meta = CONTEXT_META[context.context_status] ?? CONTEXT_META.unsupported_page
   return (
     <div className="card">
@@ -130,16 +143,14 @@ export function UnresolvedContext({ context }: { context: ContextResolution }) {
         <StatusBadge status={context.context_status} />
       </div>
       <p className="muted" style={{ marginTop: 8 }}>
-        {context.message ?? meta.hint}
+        {context.message ?? t(meta.hint)}
       </p>
-      <p className="faint">
-        The extension will not guess which account this is. Open the account in the dashboard if
-        you need to be certain.
-      </p>
+      <p className="faint">{t('contextView.wontGuess')}</p>
     </div>
   )
 }
 
 export function Disclaimer() {
-  return <p className="notice">{DISCLAIMER}</p>
+  const { t } = useLanguage()
+  return <p className="notice">{t(DISCLAIMER_KEY)}</p>
 }
