@@ -21,6 +21,10 @@ const PATH_RULES: [RegExp, PageType][] = [
   [/^\/settings\/?$/, 'settings'],
   [/^\/billing_hub\/accounts\/?$/, 'billing'],
   [/^\/billing_hub\/payment_activity\/?$/, 'billing'],
+  // Real UAT (2026-09-08): Meta also serves the billing hub under /adsmanager/, and the
+  // account-details view adds a further /details segment neither existing rule covers.
+  [/^\/adsmanager\/billing_hub\/accounts(?:\/details)?\/?$/, 'billing'],
+  [/^\/adsmanager\/billing_hub\/payment_activity\/?$/, 'billing'],
 ]
 
 export const MAX_PATH_LENGTH = 120

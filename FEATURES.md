@@ -394,9 +394,13 @@ any of them.
 
 ## Known limits (follow-ups)
 
-- **The extension has never run in a real browser.** It is verified by unit tests, a manifest and
-  bundle audit, and live API calls that send exactly what the content script would send. Loading
-  it unpacked in Chrome against real Ads Manager pages is still outstanding.
+- **Real-browser UAT (2026-09-08):** loaded unpacked in real Chrome, connected to a live backend,
+  and run against real Meta Ads Manager accounts — see `TEST_LOG.md`. Confirmed: exact-match
+  resolution against a registered account, correct non-guessing on an unregistered one, and
+  clean context switching between the two. Found and fixed one real allowlist gap (the billing
+  hub route). Not exercised live: the side panel's note-recording UI, and revocation's effect on
+  an already-open tab within its 30-second context cache (server-side revocation itself was
+  confirmed instant via the API).
 - **Meta's URL shapes are an assumption.** The route allowlist matches today's Ads Manager; when
   it changes, the extension degrades to `unsupported_page` rather than guessing, but the
   allowlist will need updating.
@@ -405,8 +409,14 @@ any of them.
 - **Still no rate limiting.** The extension caches per tab for 30 seconds and only re-resolves
   when the account or route actually changes, but a compromised client could still poll.
 - **No Chrome Web Store listing**, no signing, no update channel.
-- **Nothing has been deployed.** Every deployment command is written, and every one was
-  exercised against a local staging-equivalent stack, but none has run against a real target.
+- **Deployed for the first time (2026-09-08), on Vibe Host, not the compose stack in this repo.**
+  `audit-ads-backend.cmc-1.vibenode.matbao.ai` is live, migrated, and health-checked
+  (`database: reachable`). The paired frontend project's container runs and serves `200`
+  internally but the public domain still 404s — a platform-side Traefik/routing issue, not a
+  code defect, unresolved as of this note. A second, separate Vibe Host project named
+  `audit-ads` was accidentally created from `extension/` instead of `frontend/` and is broken;
+  it has been left alone rather than deleted. None of this used the `docker-compose.yml` /
+  `RUNBOOK_DEPLOY.md` path in this repo, which remains unexercised against a real target.
 - **No real Telegram message has ever been sent.** The transport code path is covered by
   structural and unit-level tests through a fake; a first real send needs a bot token and the
   owner's approval of a named chat.

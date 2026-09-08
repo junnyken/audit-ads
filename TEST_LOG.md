@@ -980,3 +980,41 @@ rather than silently applied — which is the exact accident rule 23 was written
 
 **Not verified:** it has never run against the deployed database. Whether the platform's
 container actually reaches alembic's head on first boot is an assumption until it is watched.
+
+---
+
+## Session 2026-09-08 — A5 real-browser UAT (first ever)
+
+The one thing A5 had never done: run in a real Chrome browser against a real Meta Ads Manager
+account and a live backend. This session did, against a local dev API/DB (bootstrap owner
+`trieunt@matbao.com`), extension loaded unpacked, connected over `http://localhost:8000`.
+
+| Check (RUNBOOK_EXTENSION_UAT.md §5) | Result |
+|---|---|
+| Registered real account (`1167063825546698`, business `1993884657458857`) on its campaign page | **PASS** — popup showed `Confirmed`, correct name (`Tbsupellex`), and real Readiness/Health/Alerts pulled from the backend |
+| Unregistered real account (`148004397`) on its campaign page | **PASS** — `Not registered`, extension did not guess |
+| Switching between the two accounts in the same tab | **PASS** — context updated each time, never stuck on the previous account |
+| Note-recording via the side panel | **Not exercised.** Chrome's "Open side panel" entry did not surface for the operator during this session (Chrome-version-dependent UI, not verified as a defect). Already covered by `tests/ui.test.tsx`'s side-panel workspace-guard tests; not re-verified live. |
+| Session revocation takes effect immediately | **Server-side confirmed**: `POST /extension/installations/revoke` returned `is_active: false` instantly. **Not observed client-side**: the popup kept showing the old `Confirmed` result after revoking, because the per-tab 30-second context cache (`FEATURES.md`) served a cached read instead of calling the API. This is the documented cache behavior, not a bypass of revocation — the *next uncached* call would 401 — but it means an open tab can display stale operational state for up to 30s after an operator revokes a browser elsewhere. Not re-tested past the cache window for time reasons. |
+
+**One real defect found and fixed:** the billing hub page real Meta serves today is
+`/adsmanager/billing_hub/accounts/details/...`, not `/billing_hub/accounts` or
+`/adsmanager/billing/` as the original allowlist assumed. Neither the backend
+(`app/services/extension_context.py`) nor the extension (`shared/validation.ts`) recognised it,
+so the popup showed `Not an Ads Manager page` on a page A5 was always meant to cover. Fixed by
+adding `/adsmanager/billing_hub/accounts(?:/details)?/?$` and
+`/adsmanager/billing_hub/payment_activity/?$` to both allowlists, with regression tests in both
+suites. Extension: 51/51 passed, build clean. Backend: full suite still green (`pytest -q`,
+all passed) after the change, ruff clean.
+
+**Infra note, not a product defect:** the local Postgres container used for this session had no
+persistent volume; its data (bootstrap owner, the just-registered account) was silently lost
+partway through the session while the container itself stayed reported as running, forcing a
+re-bootstrap and re-registration. Anyone repeating local UAT should mount a volume.
+
+**Not exercised this session:** the same UAT against the Vibe Host deployment
+(`audit-ads-backend.cmc-1.vibenode.matbao.ai`) — fixed and health-checked live (migrated,
+`database: reachable`) but the operator did the actual browser UAT against local dev instead.
+The paired `audit-ads-frontend` Vibe Host project still returns 404 publicly despite the
+container running and serving `200` internally — a Traefik/routing-layer issue on the platform
+side, unresolved.

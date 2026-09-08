@@ -77,6 +77,12 @@ describe('URL handling', () => {
     expect(sanitisePath('/billing_hub/accounts').pageType).toBe('billing')
   })
 
+  it('recognises the real /adsmanager/billing_hub shape found in live UAT (2026-09-08)', () => {
+    expect(sanitisePath('/adsmanager/billing_hub/accounts').pageType).toBe('billing')
+    expect(sanitisePath('/adsmanager/billing_hub/accounts/details').pageType).toBe('billing')
+    expect(sanitisePath('/adsmanager/billing_hub/payment_activity').pageType).toBe('billing')
+  })
+
   it('refuses an absurdly long path instead of storing it', () => {
     expect(sanitisePath(`/adsmanager/manage/${'x'.repeat(300)}`).safePath).toBeNull()
   })

@@ -42,6 +42,10 @@ PATH_RULES: tuple[tuple[re.Pattern[str], ExtensionPageType], ...] = (
     (re.compile(r"^/settings/?$"), ExtensionPageType.SETTINGS),
     (re.compile(r"^/billing_hub/accounts/?$"), ExtensionPageType.BILLING),
     (re.compile(r"^/billing_hub/payment_activity/?$"), ExtensionPageType.BILLING),
+    # Real UAT (2026-09-08): Meta serves the billing hub under /adsmanager/ too, and the
+    # account-details view adds a further /details segment neither existing rule covers.
+    (re.compile(r"^/adsmanager/billing_hub/accounts(?:/details)?/?$"), ExtensionPageType.BILLING),
+    (re.compile(r"^/adsmanager/billing_hub/payment_activity/?$"), ExtensionPageType.BILLING),
 )
 
 MAX_PATH_LENGTH = 120

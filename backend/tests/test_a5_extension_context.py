@@ -56,6 +56,21 @@ def test_each_allowlisted_route_maps_to_its_page_type():
     assert sanitise_path("/settings")[1] is ExtensionPageType.SETTINGS
 
 
+def test_billing_hub_under_adsmanager_prefix_is_recognised():
+    """Real UAT (2026-09-08): Meta serves this at /adsmanager/billing_hub/..., not the bare
+    /billing_hub/... path the original allowlist assumed, and adds a /details segment on the
+    per-account view."""
+    assert sanitise_path("/adsmanager/billing_hub/accounts")[1] is ExtensionPageType.BILLING
+    assert (
+        sanitise_path("/adsmanager/billing_hub/accounts/details")[1]
+        is ExtensionPageType.BILLING
+    )
+    assert (
+        sanitise_path("/adsmanager/billing_hub/payment_activity")[1]
+        is ExtensionPageType.BILLING
+    )
+
+
 def test_an_unrecognised_route_is_discarded_not_stored():
     for raw in (
         "/messages/t/123",
