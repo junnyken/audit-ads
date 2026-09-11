@@ -72,27 +72,40 @@ def test_a_dashboard_token_cannot_be_used_on_extension_only_routes(client, auth)
     assert "extension session" in response.json()["error"]["message"].lower()
 
 
-def test_tokens_issued_before_a5_still_work_as_dashboard_sessions(client, owner):
-    """The `token_use` claim is additive; adding it must not sign anyone out."""
-    from app.core.security import create_access_token
-
-    token, _ = create_access_token(
-        subject=str(owner["user"].id),
-        workspace_id=str(owner["workspace"].id),
-        role="owner",
-    )
-    # Strip the claim the way a token minted before A5 would look.
+def test_tokens_issued_before_a5_still_work_as_dashboard_sessions(client, auth):
+    """The `token_use` claim is additive; stripping it (as a pre-A5 token would look) must not
+    sign anyone out. `session_id` (A9) is a *separate* claim and stays intact here — this test
+    isolates `token_use`'s own backward-compatibility guarantee from A9's unrelated one below."""
     import jwt
 
     from app.core.config import get_settings
 
     settings = get_settings()
+    token = auth["Authorization"].removeprefix("Bearer ")
     payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
     payload.pop("token_use")
     legacy = jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
     response = client.get("/api/v1/ad-accounts", headers={"Authorization": f"Bearer {legacy}"})
     assert response.status_code == 200
+
+
+def test_a_token_missing_session_id_is_refused(client, auth):
+    """A9: `session_id` is not additive like `token_use` was — every dashboard token minted
+    since the session registry shipped carries one, and a token without it (forged, or from
+    before the registry existed) is refused rather than trusted by default."""
+    import jwt
+
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    token = auth["Authorization"].removeprefix("Bearer ")
+    payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    payload.pop("session_id")
+    stripped = jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+    response = client.get("/api/v1/ad-accounts", headers={"Authorization": f"Bearer {stripped}"})
+    assert response.status_code == 401
 
 
 def test_reconnecting_the_same_browser_reuses_its_installation(client, auth, db_session):
@@ -415,12 +428,33 @@ def test_every_extension_route_refuses_anonymous_access(client):
 
 
 def test_the_backend_still_starts_no_browser_and_contacts_no_platform():
-    """A5 adds a browser extension; the *server* must remain free of browser tooling."""
+    """A5 adds a browser extension; the *server* must remain free of browser tooling.
+
+    A10 narrows this rule rather than dropping it. The distinction that matters is *which*
+    Meta host: `graph.facebook.com` is the official API this product was always meant to use
+    (A7 onward), and A10 finally reaches it — from two named files and nowhere else. The Ads
+    Manager and Business Manager *web* hosts stay banned outright, because a server reaching
+    those would mean scraping or driving the UI, which is exactly what this rule exists to
+    prevent and what the product charter forbids.
+    """
     import pathlib
 
     root = pathlib.Path(__file__).resolve().parents[1] / "app"
-    sources = "\n".join(path.read_text() for path in root.rglob("*.py"))
+    files = {path.relative_to(root).as_posix(): path.read_text() for path in root.rglob("*.py")}
+    sources = "\n".join(files.values())
+
+    # Browser tooling: still banned everywhere, no exceptions.
     for banned in ("playwright", "selenium", "webdriver", "undetected_chrome", "pyppeteer"):
         assert banned not in sources.lower()
-    for platform in ("graph.facebook.com", "business.facebook.com/api", "adsmanager.facebook.com"):
+
+    # The web UI hosts: still banned everywhere, no exceptions.
+    for platform in ("business.facebook.com/api", "adsmanager.facebook.com"):
         assert platform not in sources
+
+    # The official Graph API: allowed in exactly these two files, by name.
+    graph_allowed = {"core/config.py", "services/meta_graph_transport.py"}
+    graph_offenders = [
+        name for name, text in files.items()
+        if "graph.facebook.com" in text and name not in graph_allowed
+    ]
+    assert graph_offenders == [], graph_offenders

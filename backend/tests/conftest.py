@@ -33,6 +33,7 @@ from app.core.security import hash_password  # noqa: E402
 from app.db.session import SessionLocal, engine  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.models.entities import User, Workspace, WorkspaceMember  # noqa: E402
+from app.services.meta_provider import reset_fake_provider  # noqa: E402
 from app.services.notification_transport import reset_fake_transport  # noqa: E402
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -91,7 +92,13 @@ def transport():
 
 
 @pytest.fixture()
-def app(db_session, transport):
+def meta_provider():
+    """The shared fake Meta provider (A7), cleared for each test."""
+    return reset_fake_provider()
+
+
+@pytest.fixture()
+def app(db_session, transport, meta_provider):
     return create_app()
 
 

@@ -29,9 +29,47 @@ from app.models.health import (
     HealthEvaluationRun,
     HealthRuleDefinition,
 )
+from app.models.meta_discovery import (
+    BusinessManagerDiscoveryRun,
+    DiscoveredAdAccountObservation,
+    DiscoveredPixelObservation,
+)
+from app.models.meta_operations import (
+    AccessShareBatch,
+    AccessShareBatchItem,
+    AccountCreationBatch,
+    AccountCreationBatchItem,
+    MetaConnection,
+    PixelShareBatch,
+    PixelShareBatchItem,
+)
 from app.models.operations import OperationalRun
+from app.models.preflight import (
+    CampaignDraft,
+    LandingPageEvidence,
+    PreflightEvaluationRun,
+    PreflightFinding,
+)
+from app.models.team import (
+    DeviceSession,
+    MemberAdAccountAssignment,
+    MemberBusinessManagerAssignment,
+    WorkspaceInvitation,
+    WorkspaceSeatPlan,
+)
 
 __all__ = [
+    "AccessShareBatch",
+    "AccessShareBatchItem",
+    "AccountCreationBatch",
+    "AccountCreationBatchItem",
+    "MetaConnection",
+    "PixelShareBatch",
+    "PixelShareBatchItem",
+    "CampaignDraft",
+    "LandingPageEvidence",
+    "PreflightEvaluationRun",
+    "PreflightFinding",
     "Alert",
     "AlertPolicy",
     "NotificationDelivery",
@@ -58,4 +96,12 @@ __all__ = [
     "User",
     "Workspace",
     "WorkspaceMember",
+    "DeviceSession",
+    "WorkspaceSeatPlan",
+    "WorkspaceInvitation",
+    "MemberBusinessManagerAssignment",
+    "MemberAdAccountAssignment",
+    "BusinessManagerDiscoveryRun",
+    "DiscoveredAdAccountObservation",
+    "DiscoveredPixelObservation",
 ]

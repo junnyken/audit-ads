@@ -473,6 +473,71 @@ dispatcher runs (`running` / `stale` / `not_configured`) instead of the constant
 Route count rose from 111 to **117**, still with **no `DELETE` anywhere**, and the operations
 surface uses only `GET` and `POST`.
 
+## Preflight Compliance Gate (A6)
+
+Draft-first, rule-based review of a campaign draft before the operator publishes it manually.
+No route in this section ever creates, edits, publishes, pauses or duplicates anything on an
+advertising platform — findings are advisory only, and `draft_status` never claims platform
+approval.
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/campaign-drafts` | Filters: `search`, `draft_status`, `ad_account_id`, `has_blocking_findings`, `archived`, pagination/sort |
+| `POST` | `/campaign-drafts` | Creates in `draft` status |
+| `GET` | `/campaign-drafts/{id}` | |
+| `PATCH` | `/campaign-drafts/{id}` | Any edit resets `draft_status` back to `draft` |
+| `POST` | `/campaign-drafts/{id}/archive` / `/restore` | Soft-archive only |
+| `POST` | `/campaign-drafts/{id}/evaluate` | Runs `CopyRuleEngine` + `LandingPageCheckService` + `AccountContextRuleAdapter`, applies the §6.C verdict rollup. Idempotent-safe: an in-flight or just-completed run (5s cooldown) is returned unchanged rather than duplicated |
+| `GET` | `/campaign-drafts/{id}/evaluation-runs` | History, newest first |
+| `GET` | `/campaign-drafts/{id}/findings` | `include_superseded=false` by default |
+| `GET` | `/campaign-drafts/{id}/landing-page-evidence` | Metadata only — never the fetched HTML |
+| `POST` | `/preflight-findings/{id}/acknowledge` / `/resolve` | Both require a `reason`; neither changes `draft_status` — only a fresh `evaluate` does |
+
+Landing-page fetches go through `services/preflight_safe_http.py`: SSRF-guarded (DNS/IP
+validated before connecting and on every redirect hop), timeout, redirect cap, response-size
+cap, `html.parser`-only signal extraction. `draft_status` values:
+`draft`/`submitted_for_review`/`needs_changes`/`ready_for_manual_review`/
+`blocked_by_internal_policy`/`unknown_missing_evidence`/`archived`.
+
+## BM + ad account creation & sharing (A7)
+
+Two operations against the official Meta API, both gated behind an explicit capability check
+and an explicit operator confirmation. No route here calls a real Meta API yet —
+`FakeMetaBusinessProvider` is the only provider wired anywhere, and no token is ever a column in
+any table (mirrors the Telegram bot token's server-config-only boundary).
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET`/`POST` | `/meta-connections` | `token_configured` is a computed boolean — never the credential |
+| `GET` | `/meta-connections/{id}` | |
+| `POST` | `/meta-connections/{id}/check-capability` | Refreshes `capabilities`/`business_managers` from the provider; nothing else may call the provider without this having run first |
+| `POST` | `/account-creation-batches` | Draft. 409 if the connection's last capability check says `create_ad_account` is not allowed |
+| `GET` | `/account-creation-batches/{id}` | Returns `current_preview_hash` alongside the batch's stored `preview_hash` — compare before confirming |
+| `POST` | `/account-creation-batches/{id}/confirm` | Body: `{"preview_hash": ...}`. 409 (`preview_mismatch`) if the batch changed since preview, or if already confirmed |
+| `POST` | `/account-creation-batches/{id}/run` | 409 if not yet confirmed. Sequential; a retryable failure requeues (bounded); a timeout becomes `unknown`, never auto-retried; a success syncs into `/ad-accounts` through the ordinary registry path (`readiness`/`health` both start `unknown`) |
+| `POST` | `/account-creation-batches/items/{item_id}/reconcile` | Only valid on an `unknown`-status item |
+| `GET`/`POST` | `/access-share-batches` | Same draft/preview/confirm/run shape, gated on `share_ad_account_access` |
+| `POST` | `/access-share-batches/{id}/confirm` / `/run` | Same guarantees as account creation |
+
+Batch item status: `queued`/`running`/`succeeded`/`failed`/`unknown`. A `queued` item stuck
+`running` past a 2-minute lease is reclaimed and requeued (bounded retry) rather than stuck
+forever.
+
+## Bulk Pixel share (A8)
+
+A third operation on the exact same engine as A7 — no new mechanism, one new capability
+(`share_pixel_access`) and one new batch type.
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET`/`POST` | `/pixel-share-batches` | Draft. Body: `{"meta_connection_id", "items": [{"source_external_pixel_id", "target_ad_account_external_id"}]}`. 409 if the connection's last capability check says `share_pixel_access` is not allowed |
+| `GET` | `/pixel-share-batches/{id}` | Same `current_preview_hash` vs. stored `preview_hash` shape as A7's batches |
+| `POST` | `/pixel-share-batches/{id}/confirm` | Body: `{"preview_hash": ...}`. Same `preview_mismatch` 409 guarantees as A7 |
+| `POST` | `/pixel-share-batches/{id}/run` | Same sequential run, bounded retry, `unknown`-on-timeout, lease-recovery guarantees as A7's batches |
+
+`check-capability`'s response now also includes `share_pixel_access` alongside A7's three
+capability fields.
+
 ## Health and system
 
 | Method | Path | Notes |
@@ -480,3 +545,133 @@ surface uses only `GET` and `POST`.
 | `GET` | `/health/live` | No auth. `{"status": "ok"}` |
 | `GET` | `/health/ready` | No auth. 503 when the database is unreachable |
 | `GET` | `/api/v1/system/status` | Auth required. Never exposes hostnames, connection strings, environment values or credentials |
+
+## Dashboard device sessions (A9 Step 2)
+
+Every dashboard login now creates a server-side `DeviceSession` row and embeds its id in the
+JWT as a `session_id` claim, checked on every request — a token whose session is revoked,
+expired, or simply missing the claim is refused, the same way an expired signature would be.
+This is separate from A5's own `ExtensionInstallation` registry, which is untouched.
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/api/v1/security/sessions/me` | The caller's own sessions, `is_current` marks the one used for this request |
+| `POST` | `/api/v1/security/sessions/{id}/revoke` | Own session: revoking your *current* one is refused (`409`) — sign out instead. Another member's session: owner-only (`403` otherwise) and a `reason` is required (`422` without one) |
+| `POST` | `/api/v1/security/sessions/logout-other-devices` | Revokes every other active session for the caller; the current one is untouched |
+
+## Meta connections and the real provider (A10)
+
+`POST /meta-connections/{id}/check-capability` was the only endpoint in this product that could
+reach Meta until A10.1 added `POST /meta-connections/{id}/discoveries`; those two remain the
+whole list. Either reaches Meta only when **both** conditions hold: the connection's
+`environment` is
+`production` **and** `META_ACCESS_TOKEN` is set on the server. Anything else — `fake`,
+`sandbox`, or `production` with no token — uses `FakeMetaBusinessProvider`, so a misconfigured
+environment degrades to "no real call" rather than a surprise one.
+
+The real provider is **read-only by construction**: `create_ad_account`,
+`share_ad_account_access` and `share_pixel_access` raise, and the transport beneath it has no
+method that can POST. A capability check against a real connection therefore reports
+`list_business_managers: true` and the three write capabilities `false` with reason
+`not_supported` — that is accurate, not a misconfiguration.
+
+Graph errors map onto the existing `MetaFailureCode` vocabulary: `token_expired`,
+`rate_limited`, `permission_missing`, `provider_server_error`, `invalid_request`, `timeout`.
+Meta's own error text is never echoed back — it repeats request parameters, which can name a
+Business Manager. See `docs/RUNBOOK_META_CONNECTION.md`.
+
+## Configured BM validation & read-only asset discovery (A10.1)
+
+Two owner-only endpoints, both on an existing connection:
+
+| Method | Path | What it does |
+|---|---|---|
+| `POST` | `/meta-connections/{id}/discoveries` | Validates the configured BM, then reads its ad accounts and Pixels. Returns the run plus reconciliation |
+| `GET` | `/meta-connections/{id}/discoveries/latest` | The most recent run, reconciliation recomputed. **Makes no provider call** |
+
+`META_BUSINESS_ID` is server configuration and is never accepted from a request body, a query
+parameter or the extension. It is not a secret — a BM id is public in Business Settings — so
+unlike the token it may appear in responses and logs.
+
+### Coverage, and why a count alone is not an answer
+
+Discovery reads **two** edges for ad accounts, `owned_ad_accounts` and `client_ad_accounts`,
+and one for Pixels, `adspixels`. Each response carries `required_edges`, a per-edge `coverage`
+object and a `coverage_status` of `complete`, `partial`, `incomplete`, `unknown`, `stale` or
+`not_attempted`.
+
+This exists because of a measurement, not a theory: on a real Business Manager the four ad
+accounts split two and two across the edges. A run reading only the documented
+`owned_ad_accounts` succeeds at everything it attempts, so an error-based notion of
+completeness calls it complete — while half the inventory is invisible. Coverage is therefore
+derived from **whether every required edge answered**, not from the absence of errors, and an
+edge that was never attempted is recorded explicitly rather than omitted.
+
+### Reconciliation
+
+Exact canonical external id only; display names are never matched. Ad account ids are
+canonicalised with A5's `canonical_external_id`, because Meta writes an account as `act_123` on
+one field and `123` on another while the registry stores whichever form an operator typed.
+
+`missing_from_latest_discovery` is the strongest statement available, so it is the last branch
+and every earlier one withholds it: no usable external id → `unknown`; present in the union →
+`matched`; no proven BM mapping → `out_of_scope`; mapped to a different BM → `out_of_scope`;
+coverage not `complete` → `unknown`. It means only "not returned by the latest completed
+discovery" — never that Meta deleted, disabled or restricted anything, and it never changes an
+internal record on its own.
+
+**Pixel reconciliation is asymmetric.** Meta → registry produces `matched` or
+`missing_in_registry`; registry → Meta always produces `out_of_scope`, and the payload says so
+in `pixels.registry_absence_evaluable: false`. `Pixel` has no Business Manager relationship in
+the A1 schema, so a registry Pixel cannot be proven to belong to the configured BM and its
+absence from that BM's discovery is not evidence about it. Lifting this needs a Pixel↔BM
+ownership model, not a foreign key added in passing.
+
+See `docs/META_READ_ONLY_DISCOVERY.md`.
+
+## Team & Seats (A9 Step 5)
+
+Every endpoint below is **owner-only** (`403` for any other role) except
+`POST /team/invitations/accept`, which is for the invitee. Roles in this API use A9's own
+vocabulary — `admin`/`operator`/`viewer` — mapped to the existing `WorkspaceRole` enum
+(`operator`≈`buyer`) at the service boundary; `owner` can never be invited or assigned here.
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/api/v1/team/summary` | `seat_limit`/`available_seats` are `null` until a plan is configured — unknown capacity is never reported as a guessed number |
+| `GET`/`PATCH` | `/api/v1/team/seat-plan` | `seat_limit` cannot be set below the current active-member count (`409`) |
+| `GET` | `/api/v1/team/members` | Includes per-member assigned-BM/ad-account counts and live session count |
+| `GET` | `/api/v1/team/members/{id}` | `404` (not `403`) across workspaces |
+| `PATCH` | `/api/v1/team/members/{id}/role` | Body `{"role": "admin"\|"operator"\|"viewer"}`. `owner` is rejected by the schema itself (`422`); downgrading the last active owner is `409` |
+| `POST` | `/api/v1/team/members/{id}/suspend` | Requires `reason`. Immediately revokes every live dashboard session of that member |
+| `POST` | `/api/v1/team/members/{id}/unsuspend` | Only from `suspended` (`409` otherwise) |
+| `POST` | `/api/v1/team/members/{id}/deactivate` | Requires `reason`. Revokes all sessions, releases the seat, keeps all history |
+| `POST` | `/api/v1/team/members/{id}/reactivate` | `409` when no seat is available |
+| `POST` | `/api/v1/team/members/{id}/archive` | Requires `reason`. Soft archive; the last active owner cannot be archived (`409`) |
+| `GET` | `/api/v1/team/members/{id}/access-preview` | Owner-only, bounded: `is_owner` plus the concrete BM/ad-account id sets a non-owner can actually see |
+| `GET`/`POST` | `/api/v1/team/invitations` | `POST` returns `invite_link_token` **once** — it is never stored raw and never returned by any later read |
+| `GET` | `/api/v1/team/invitations/{id}` | Lazily marks a past-expiry invitation `expired` on read |
+| `POST` | `/api/v1/team/invitations/{id}/revoke` | Requires `reason`. Only a `pending` invitation (`409` otherwise) |
+| `POST` | `/api/v1/team/invitations/{id}/resend` | Supersedes the old token (it stops working immediately) and returns a brand-new one |
+| `POST` | `/api/v1/team/invitations/accept` | Not owner-only. Body `{"token", "password"?, "full_name"?}`. Brand-new email: registers the account (password required, ≥8). Email that already has an account: must be called **with that account's bearer token** (`401` otherwise) — nobody claims an existing account by knowing its address. Signs the member in on success (returns `access_token`) |
+| `GET` | `/api/v1/team/members/{id}/assignments` | Both BM and ad-account assignments, including revoked history |
+| `POST` | `/api/v1/team/members/{id}/business-manager-assignments` | `409` on a duplicate *active* assignment; the owner needs no assignment (`422`) |
+| `POST` | `/api/v1/team/members/{id}/ad-account-assignments` | Same rules |
+| `POST` | `/api/v1/team/assignments/{id}/revoke` | Requires `reason`. Row is kept, status becomes `revoked` — no hard delete |
+| `GET` | `/api/v1/team/members/{id}/sessions` | Owner-only view of another member's device sessions |
+| `POST` | `/api/v1/team/members/{id}/sessions/revoke-all` | Requires `reason`. Returns `revoked_count` |
+
+### Resource scope (A9 Step 7)
+
+Since A9, a non-owner sees only the Business Managers and ad accounts assigned to them. This is
+enforced in `AdAccountRegistryService.get()` — the single point every account-resolving route
+uses — so `/ad-accounts`, readiness, health, events and per-account audit history all inherit
+it. Alerts are filtered by their `ad_account_id`; an alert with no account link is not visible
+to a non-owner. `/meta-connections` and the A7/A8 batch endpoints are owner-only.
+
+Out-of-scope always answers `404`, never `403`, and the body never names the record — the same
+answer another workspace's record gives. The owner is unaffected: no filter, no extra queries.
+
+The UI for all of this lives at `/team` (owner-only) and `/security-devices` (any member),
+both reached from Settings rather than the main nav. Verified in real Chromium —
+`backend/scripts/a9_live_verify.py`, 20/20, screenshots in `docs/evidence/A9-LIVE/`.

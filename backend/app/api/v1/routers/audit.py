@@ -75,7 +75,7 @@ def list_account_audit_logs(
     """Everything that happened to this account, including its checklist items, evidence,
     events and asset links — an audit trail that stopped at the account row would hide most
     of the operational history."""
-    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
+    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     account = registry.get(ad_account_id)
 
     checklist_items = registry.checklists.list_items(account.id)

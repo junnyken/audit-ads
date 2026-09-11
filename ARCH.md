@@ -473,6 +473,66 @@ permission, no `<all_urls>`, and lint rules that make `document.cookie`, `localS
 that a person checked; it does not block, and the UI says so — claiming otherwise would be a
 safety promise the product cannot keep.
 
+## 4f. Meta provider and read-only discovery (A7 / A10 / A10.1)
+
+```
+route ──> _provider_for(connection) ──> FakeMetaBusinessProvider      (default)
+                                   └──> RealMetaBusinessProvider      (production + token)
+                                              │
+                                              └──> MetaGraphTransport  (GET-only)
+```
+
+`_provider_for` returns the real provider only when a connection is marked `production` **and**
+`META_ACCESS_TOKEN` is configured — two deliberate acts by different people, one recorded in the
+database and one in the deployment. Either alone stays fake, so a misconfigured environment
+degrades to "no real call" rather than to a surprise one.
+
+**The no-write boundary is structural, not a setting.** The real provider's `create_ad_account`,
+`share_ad_account_access` and `share_pixel_access` raise `MetaWriteNotEnabled`, and
+`MetaGraphTransport` exposes no method that can issue anything but a GET. Two independent
+reasons, neither of which can be flipped by configuration.
+
+### One reader, so answers cannot disagree
+
+Every Business Manager read goes through `RealMetaBusinessProvider._read_business_managers()`.
+This was learned the hard way: after the first fix there were still **three** readers, and the
+one left outside the helper was `probe()` — the operator's own live verification tool. With
+`META_BUSINESS_ID` configured it reported zero Business Managers while the capability check
+could see one. A verification tool that contradicts the product is worse than either answer
+alone, so a test now exercises each public reader in isolation and fails if any of them reaches
+for `me/businesses` while an id is configured.
+
+`META_BUSINESS_ID` exists because Meta will not name the business behind a system user token —
+established live by asking three ways, not assumed. It is configuration, never a request field;
+it is not a secret, so unlike the token it may appear in logs and responses.
+
+### Discovery and reconciliation (A10.1)
+
+```
+validate configured BM ──> read assets per edge ──> persist observations
+                                                         │
+                          registry ────────────────> reconcile at read time
+```
+
+Validation is a gate: assets are read only after the configured BM was actually read back,
+because an inventory from a BM nobody could confirm cannot be attributed to anything.
+
+Three tables — `business_manager_discovery_runs`,
+`discovered_ad_account_observations`, `discovered_pixel_observations`. Reconciliation has **no**
+table: the spec calls it rebuildable from observations plus registry state, and something
+rebuildable is one less copy that can drift against the two sources it summarises.
+
+Coverage is the load-bearing concept. `complete` is derived from whether every `required_edge`
+answered — never from the absence of errors, because an edge nobody asked for raises no error,
+and that is the case that produces a confidently wrong "missing". The per-edge record includes
+edges that were never attempted, and `required_edges` is stored per run so adding an edge later
+invalidates old coverage instead of silently reinterpreting it.
+
+`missing_from_latest_discovery` sits last in the decision tree, behind `unknown`, `matched` and
+two `out_of_scope` branches. Pixels can never reach it: `Pixel` has no Business Manager
+relationship in the A1 schema, so a registry Pixel cannot be shown to belong to the configured
+BM. That asymmetry is reported in the payload rather than hidden.
+
 ## 5. Security model
 
 | Control | Implementation |

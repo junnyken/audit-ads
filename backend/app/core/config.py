@@ -59,6 +59,30 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_api_base_url: str = "https://api.telegram.org"
     telegram_timeout_seconds: int = 10
+    #: A7/A10: server-side only, same boundary as `telegram_bot_token` above. A long-lived
+    #: system-user token (the auth model chosen for A10 — no OAuth round-trip). It never
+    #: reaches the database, an API response, an audit row, a log line or the frontend bundle;
+    #: `token_configured` is a computed boolean, never the credential.
+    meta_access_token: str = ""
+    #: A10. Pinned deliberately: a floating version means Meta changes behaviour underneath a
+    #: running deployment. Bump it as a decision, with a release, not by accident.
+    meta_graph_api_base_url: str = "https://graph.facebook.com"
+    meta_graph_api_version: str = "v21.0"
+    meta_timeout_seconds: int = 15
+    #: A10.2. The most items one batch may run when writes land on a real Business Manager.
+    #: A created ad account cannot be un-created, and a BM has a finite account quota, so the
+    #: first real write is a pilot of exactly one. Raising this is a deliberate decision after
+    #: that pilot has been checked in Business Settings — not a default anyone drifts past.
+    #: It has no effect on the fake provider, where a write costs nothing and repeats freely.
+    meta_write_pilot_max_items: int = 1
+    #: A10. The Business Manager to read. Required for a system-user token, because Meta will
+    #: not name the business behind one: verified live on 2026-09-10 against a real BM, where
+    #: `business` as a field returned `invalid_request` and `businesses` as both an expanded
+    #: field and an edge came back empty, while reading the BM by id worked. Not a secret — a BM
+    #: id is visible in Business Settings — so unlike the token it may appear in logs and
+    #: findings. Empty means "not configured", which reports as a `False` capability with reason
+    #: `not_configured`, never as a silent success.
+    meta_business_id: str = ""
     #: Public dashboard URL for deep links. A missing or unsafe value omits the link entirely
     #: rather than sending a recipient somewhere unreachable.
     public_app_url: str = ""

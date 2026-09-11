@@ -1,23 +1,29 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.api.deps import Ctx
+from app.core.config import get_settings
 from app.core.errors import AuthenticationError
 from app.core.security import create_access_token, verify_password
 from app.db.session import get_db
 from app.models.entities import User, Workspace, WorkspaceMember
 from app.schemas.auth import CurrentUserResponse, LoginRequest, TokenResponse
+from app.services.audit import AuditLogService
+from app.services.session_registry import SessionRegistryService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, session: Annotated[Session, Depends(get_db)]) -> TokenResponse:
+def login(
+    payload: LoginRequest, request: Request, session: Annotated[Session, Depends(get_db)]
+) -> TokenResponse:
     user = session.execute(
         sa.select(User).where(User.email == payload.email.lower())
     ).scalar_one_or_none()
@@ -40,9 +46,28 @@ def login(payload: LoginRequest, session: Annotated[Session, Depends(get_db)]) -
     if membership is None:
         raise AuthenticationError("This user is not a member of any workspace.")
 
-    token, expires_at = create_access_token(
-        subject=str(user.id), workspace_id=str(membership.workspace_id), role=membership.role.value
+    # A9: every dashboard token now carries a server-side, revocable `DeviceSession` — the
+    # session row is created first (with the token's own expiry) so its id can be embedded as
+    # a claim in the token that is actually signed.
+    settings = get_settings()
+    expires_at = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
+    registry = SessionRegistryService(
+        session, membership.workspace_id, AuditLogService(session, membership.workspace_id, user.id)
     )
+    device_session = registry.create(
+        user_id=user.id,
+        expires_at=expires_at,
+        user_agent=request.headers.get("user-agent"),
+        ip=request.client.host if request.client else None,
+    )
+    token, expires_at = create_access_token(
+        subject=str(user.id),
+        workspace_id=str(membership.workspace_id),
+        role=membership.role.value,
+        expires_in_minutes=settings.access_token_expire_minutes,
+        extra_claims={"session_id": str(device_session.id)},
+    )
+    session.commit()
     return TokenResponse(access_token=token, expires_at=expires_at)
 
 

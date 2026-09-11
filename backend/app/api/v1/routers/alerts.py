@@ -16,7 +16,7 @@ from app.core.enums import (
     DeliveryStatus,
     WorkspaceRole,
 )
-from app.core.errors import AuthorizationError, ValidationError
+from app.core.errors import AuthorizationError, NotFoundError, ValidationError
 from app.models.alerts import Alert, NotificationDelivery, NotificationDeliveryAttempt
 from app.models.entities import AdAccount, AuditLog, BusinessManager, User
 from app.models.health import AccountHealthSnapshot
@@ -161,6 +161,12 @@ def list_alerts(
         .outerjoin(latest, latest.c.alert_id == Alert.id)
         .where(Alert.workspace_id == ctx.workspace_id)
     )
+    visible = ctx.visible_ad_account_ids()
+    if visible is not None:
+        # A9 scope. An alert with no ad-account link cannot be proven to be inside a member's
+        # scope, so it is not shown to one — `NULL IN (...)` excludes it, which is the answer
+        # the spec asks for ("if safe scoping cannot be proven, deny non-owner by default").
+        stmt = stmt.where(Alert.ad_account_id.in_(visible))
     stmt = (
         stmt.where(Alert.archived_at.is_not(None))
         if archived
@@ -268,7 +274,11 @@ def list_alerts(
 
 # ------------------------------------------------------------------------------- detail
 def _get_alert(ctx, alert_id: uuid.UUID) -> Alert:
-    return get_or_404(ctx.session, Alert, alert_id, ctx.workspace_id, label="Alert")
+    alert = get_or_404(ctx.session, Alert, alert_id, ctx.workspace_id, label="Alert")
+    visible = ctx.visible_ad_account_ids()
+    if visible is not None and (alert.ad_account_id is None or alert.ad_account_id not in visible):
+        raise NotFoundError("Alert not found.")
+    return alert
 
 
 def _serialize_delivery(delivery: NotificationDelivery) -> dict[str, Any]:

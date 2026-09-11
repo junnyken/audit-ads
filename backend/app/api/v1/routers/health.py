@@ -320,7 +320,7 @@ def _account_health_payload(ctx, account: AdAccount) -> dict[str, Any]:
 
 @router.get("/ad-accounts/{ad_account_id}/health", response_model=s.AccountHealthOut)
 def account_health(ctx: Ctx, ad_account_id: uuid.UUID) -> dict[str, Any]:
-    account = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit).get(ad_account_id)
+    account = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids()).get(ad_account_id)
     return _account_health_payload(ctx, account)
 
 
@@ -344,7 +344,7 @@ def account_health_signals(
     page: int = Query(1, ge=1),
     page_size: int = Query(100, ge=1, le=200),
 ) -> dict[str, Any]:
-    account = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit).get(ad_account_id)
+    account = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids()).get(ad_account_id)
     stmt = sa.select(AccountHealthSignal).where(
         AccountHealthSignal.ad_account_id == account.id,
         AccountHealthSignal.workspace_id == ctx.workspace_id,
@@ -370,7 +370,7 @@ def recalculate_account_health(ctx: WriteCtx, ad_account_id: uuid.UUID) -> dict[
 
     It contacts no advertising platform and changes nothing outside this product.
     """
-    account = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit).get(ad_account_id)
+    account = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids()).get(ad_account_id)
     service = AccountHealthEvaluationService(ctx.session, ctx.workspace_id, ctx.audit, ctx.actor_id)
     run = service.evaluate_account_safe(account, trigger=EvaluationTrigger.MANUAL_RECALCULATE)
     ctx.commit()

@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from app.core.enums import AccountStatus, AccountType, AssetType, ReadinessStatus
-from app.core.errors import ConflictError, ValidationError
+from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.models.entities import (
     AccountAssetLink,
     AdAccount,
@@ -48,6 +48,10 @@ class AccountFilters:
     page_size: int = 25
     sort: str = "updated_at"
     sort_direction: str = "desc"
+    #: A9 scope. `None` means no restriction (the workspace owner); a set — empty included —
+    #: restricts the result to exactly those accounts. "Assigned nothing" must return nothing,
+    #: never everything (CLAUDE.md rule 4).
+    visible_ids: set[uuid.UUID] | None = None
 
 
 def _normalise_external_id(value: str | None) -> str | None:
@@ -58,16 +62,34 @@ def _normalise_external_id(value: str | None) -> str | None:
 
 
 class AdAccountRegistryService:
-    def __init__(self, session: Session, workspace_id: uuid.UUID, audit: AuditLogService) -> None:
+    def __init__(
+        self,
+        session: Session,
+        workspace_id: uuid.UUID,
+        audit: AuditLogService,
+        *,
+        visible_ids: set[uuid.UUID] | None = None,
+    ) -> None:
         self.session = session
         self.workspace_id = workspace_id
         self.audit = audit
+        #: A9 scope. `None` = no restriction (owner, or a non-request caller such as seeding).
+        #: A set restricts every read that goes through this service — enforced in `get()`
+        #: rather than in each router, so a new route cannot forget it.
+        self.visible_ids = visible_ids
         self.checklists = ReadinessChecklistService(session, workspace_id, audit)
         self.rollup = ReadinessRollupService(session, workspace_id, audit)
 
     # ---------------------------------------------------------------- reads
     def get(self, ad_account_id: uuid.UUID) -> AdAccount:
-        return get_or_404(self.session, AdAccount, ad_account_id, self.workspace_id, label="Ad account")
+        account = get_or_404(
+            self.session, AdAccount, ad_account_id, self.workspace_id, label="Ad account"
+        )
+        if self.visible_ids is not None and account.id not in self.visible_ids:
+            # Non-disclosing: outside the member's scope reads exactly like "does not exist",
+            # the same answer another workspace's record gives (A9 §6.2). Never 403.
+            raise NotFoundError("Ad account not found.")
+        return account
 
     def _link_exists(self, asset_type: AssetType):
         return (
@@ -82,6 +104,8 @@ class AdAccountRegistryService:
 
     def list(self, filters: AccountFilters) -> tuple[Sequence[AdAccount], int]:
         stmt = sa.select(AdAccount).where(AdAccount.workspace_id == self.workspace_id)
+        if filters.visible_ids is not None:
+            stmt = stmt.where(AdAccount.id.in_(filters.visible_ids))
         stmt = (
             stmt.where(AdAccount.archived_at.is_not(None))
             if filters.archived

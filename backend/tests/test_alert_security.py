@@ -210,10 +210,15 @@ def test_a3_adds_no_delete_endpoint(app):
     assert "DELETE" not in methods
 
 
-def test_only_the_telegram_transport_module_may_make_an_outbound_request():
-    """A2 forbade every outbound HTTP import. A3 needs exactly one, so the rule is narrowed,
-    not dropped: browser drivers and general HTTP clients stay banned everywhere, and the single
-    permitted network module is named explicitly."""
+def test_only_named_modules_may_make_an_outbound_request():
+    """A2 forbade every outbound HTTP import. A3 needed exactly one; A6 needs a second, SSRF-
+    guarded one for the landing-page check; A10 needs a third for the Meta Graph API. The rule
+    is narrowed each time, never dropped: browser drivers stay banned everywhere, general HTTP
+    clients stay banned everywhere except the explicitly named modules below, and each of those
+    modules has its own test proving what it's restricted to
+    (`test_the_telegram_transport_only_ever_targets_the_configured_api_base` for Telegram;
+    SSRF protection tests in `test_a6_preflight_rules.py` for the landing-page fetch;
+    `test_a10_meta_real_provider.py` for the Graph transport, including that it is GET-only)."""
     browsers = re.compile(
         r"^\s*(import|from)\s+(selenium|playwright|pyppeteer|undetected_chromedriver|splinter)\b",
         re.MULTILINE,
@@ -222,7 +227,11 @@ def test_only_the_telegram_transport_module_may_make_an_outbound_request():
         r"^\s*(import|from)\s+(requests|httpx|aiohttp|urllib\.request|urllib3|http\.client)\b",
         re.MULTILINE,
     )
-    allowed_network_module = "services/telegram_transport.py"
+    allowed_network_modules = {
+        "services/telegram_transport.py",
+        "services/preflight_safe_http.py",
+        "services/meta_graph_transport.py",
+    }
 
     browser_offenders, http_offenders = [], []
     for path in BACKEND_APP.rglob("*.py"):
@@ -230,7 +239,7 @@ def test_only_the_telegram_transport_module_may_make_an_outbound_request():
         relative = path.relative_to(BACKEND_APP).as_posix()
         if browsers.search(text):
             browser_offenders.append(relative)
-        if http_clients.search(text) and relative != allowed_network_module:
+        if http_clients.search(text) and relative not in allowed_network_modules:
             http_offenders.append(relative)
 
     assert browser_offenders == [], browser_offenders

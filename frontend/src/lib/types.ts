@@ -640,3 +640,380 @@ export interface ExtensionInstallation {
   created_at: string
   is_active: boolean
 }
+
+// ---- A6: Preflight Compliance Gate ------------------------------------------------------
+
+export type DraftStatus =
+  | 'draft'
+  | 'submitted_for_review'
+  | 'needs_changes'
+  | 'ready_for_manual_review'
+  | 'blocked_by_internal_policy'
+  | 'unknown_missing_evidence'
+  | 'archived'
+
+export type FindingCategory =
+  | 'copy_language'
+  | 'landing_page'
+  | 'account_readiness'
+  | 'account_health'
+  | 'budget_change'
+  | 'targeting_completeness'
+  | 'data_quality'
+
+export type FindingSeverity = 'info' | 'warning' | 'blocking'
+export type FindingStatus = 'open' | 'acknowledged' | 'resolved' | 'superseded'
+export type PreflightRunStatus = 'queued' | 'running' | 'succeeded' | 'failed'
+
+export interface CampaignDraft {
+  id: string
+  workspace_id: string
+  ad_account_id: string | null
+  account_display_name: string | null
+  title: string
+  objective: string | null
+  primary_copy: string
+  headline: string | null
+  description: string | null
+  call_to_action: string | null
+  landing_page_url: string | null
+  creative_reference: string | null
+  budget_amount: string | null
+  budget_currency: string | null
+  budget_change_percent: string | null
+  targeting_summary: string | null
+  draft_status: DraftStatus
+  last_evaluated_at: string | null
+  open_blocking_count: number
+  open_warning_count: number
+  created_by: string
+  updated_by: string | null
+  created_at: string
+  updated_at: string
+  archived_at: string | null
+}
+
+export interface PreflightFinding {
+  id: string
+  draft_id: string
+  evaluation_run_id: string
+  category: FindingCategory
+  severity: FindingSeverity
+  rule_key: string
+  rule_version: number
+  message: string
+  field_reference: string | null
+  evidence_reference: string | null
+  recommended_action: string
+  status: FindingStatus
+  resolved_at: string | null
+  resolved_by: string | null
+  resolution_reason: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface PreflightEvaluationRun {
+  id: string
+  draft_id: string
+  status: PreflightRunStatus
+  engine_version: string
+  started_at: string
+  completed_at: string | null
+  error_code: string | null
+  error_summary: string | null
+  result_summary_json: Record<string, unknown> | null
+  created_at: string
+}
+
+export interface LandingPageEvidence {
+  id: string
+  draft_id: string
+  url: string
+  final_url: string | null
+  http_status: number | null
+  is_https: boolean
+  redirect_count: number | null
+  response_time_ms: number | null
+  mobile_viewport_meta_present: boolean | null
+  contact_or_policy_link_detected: boolean | null
+  fetch_error: string | null
+  checked_at: string
+  expires_at: string | null
+}
+
+// -------------------------------------------------------------------- A7: Meta operations
+export type MetaEnvironment = 'fake' | 'sandbox' | 'production'
+export type MetaBatchItemStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'unknown'
+
+export interface MetaCapabilities {
+  list_business_managers: boolean
+  create_ad_account: boolean
+  share_ad_account_access: boolean
+  share_pixel_access: boolean
+  reason: string | null
+}
+
+export interface MetaConnection {
+  id: string
+  label: string
+  environment: MetaEnvironment
+  status: string
+  capabilities: MetaCapabilities | null
+  last_capability_check_at: string | null
+  business_managers: { external_id: string; name: string }[] | null
+  token_configured: boolean
+  notes: string
+  created_at: string
+  updated_at: string
+  archived_at: string | null
+}
+
+/** A10.1. One edge's outcome. `not_attempted` is the value a boolean cannot express, and the
+ * one that matters most when reviewing why an asset was — or was not — called missing. */
+export interface DiscoveryEdgeCoverage {
+  required: boolean
+  status: 'completed' | 'truncated' | 'failed' | 'not_attempted'
+  pages: number
+  items: number
+  error_code: string | null
+}
+
+export type CoverageStatus =
+  | 'complete'
+  | 'partial'
+  | 'incomplete'
+  | 'unknown'
+  | 'stale'
+  | 'not_attempted'
+
+export type ReconciliationStatus =
+  | 'matched'
+  | 'missing_in_registry'
+  | 'missing_from_latest_discovery'
+  | 'metadata_mismatch'
+  | 'out_of_scope'
+  | 'unknown'
+  | 'not_evaluated'
+
+export interface ReconciliationRow {
+  external_id: string | null
+  internal_entity_id: string | null
+  display_name: string
+  status: ReconciliationStatus
+  detail: string | null
+}
+
+export interface DiscoveryAssetResult {
+  coverage_status: CoverageStatus
+  complete: boolean
+  required_edges: string[]
+  coverage: { edges?: Record<string, DiscoveryEdgeCoverage>; total_unique_assets?: number }
+  reconciliation: ReconciliationRow[]
+  /** Pixels only, and always false today: a registry Pixel has no Business Manager mapping, so
+   * its absence from one BM's discovery is not evidence about that BM. */
+  registry_absence_evaluable?: boolean
+}
+
+export interface DiscoveryRun {
+  id: string
+  status: 'running' | 'succeeded' | 'succeeded_with_warnings' | 'failed'
+  trigger: string
+  environment: MetaEnvironment
+  business_manager: { reference: string | null; name: string | null }
+  started_at: string | null
+  completed_at: string | null
+  freshness: 'current' | 'stale' | 'unknown'
+  failure_code: string | null
+  failure_summary: string | null
+  ad_accounts: DiscoveryAssetResult
+  pixels: DiscoveryAssetResult
+}
+
+export interface AccountCreationBatch {
+  id: string
+  meta_connection_id: string
+  business_manager_external_id: string
+  preview_hash: string
+  confirmed_at: string | null
+  created_at: string
+}
+
+export interface AccountCreationItem {
+  id: string
+  batch_id: string
+  name: string
+  currency: string
+  country: string | null
+  timezone: string | null
+  status: MetaBatchItemStatus
+  external_account_id: string | null
+  synced_ad_account_id: string | null
+  failure_code: string | null
+  failure_summary: string | null
+  retry_count: number
+  last_attempted_at: string | null
+}
+
+export interface AccountCreationBatchDetail {
+  batch: AccountCreationBatch
+  items: AccountCreationItem[]
+  current_preview_hash: string
+}
+
+export interface AccessShareBatch {
+  id: string
+  meta_connection_id: string
+  preview_hash: string
+  confirmed_at: string | null
+  created_at: string
+}
+
+export interface AccessShareItem {
+  id: string
+  batch_id: string
+  source_ad_account_id: string | null
+  source_external_account_id: string
+  recipient_reference: string
+  role: string
+  status: MetaBatchItemStatus
+  access_grant_reference: string | null
+  failure_code: string | null
+  failure_summary: string | null
+  retry_count: number
+  last_attempted_at: string | null
+}
+
+export interface AccessShareBatchDetail {
+  batch: AccessShareBatch
+  items: AccessShareItem[]
+  current_preview_hash: string
+}
+
+// -------------------------------------------------------------------- A8: Bulk Pixel share
+export interface PixelShareBatch {
+  id: string
+  meta_connection_id: string
+  preview_hash: string
+  confirmed_at: string | null
+  created_at: string
+}
+
+export interface PixelShareItem {
+  id: string
+  batch_id: string
+  source_pixel_id: string | null
+  source_external_pixel_id: string
+  target_ad_account_id: string | null
+  target_ad_account_external_id: string
+  status: MetaBatchItemStatus
+  access_grant_reference: string | null
+  failure_code: string | null
+  failure_summary: string | null
+  retry_count: number
+  last_attempted_at: string | null
+}
+
+export interface PixelShareBatchDetail {
+  batch: PixelShareBatch
+  items: PixelShareItem[]
+  current_preview_hash: string
+}
+
+// ------------------------------------------------------------------- A9: team seats & devices
+export type WorkspaceMemberStatus = 'invited' | 'active' | 'suspended' | 'deactivated'
+export type AssignmentStatus = 'active' | 'revoked' | 'expired'
+export type InvitationStatus =
+  | 'draft'
+  | 'pending'
+  | 'accepted'
+  | 'expired'
+  | 'revoked'
+  | 'cancelled'
+  | 'archived'
+export type A9Role = 'admin' | 'operator' | 'viewer'
+
+export interface DeviceSession {
+  id: string
+  session_type: 'web'
+  label: string
+  browser_family: string | null
+  os_family: string | null
+  last_seen_at: string | null
+  created_at: string
+  expires_at: string
+  revoked_at: string | null
+  revoked_reason: string | null
+  is_current: boolean
+}
+
+export interface TeamSummary {
+  seat_limit: number | null
+  active_members: number
+  available_seats: number | null
+  pending_invitations: number
+  plan_reference: string | null
+}
+
+export interface SeatPlan {
+  id: string
+  seat_limit: number
+  plan_reference: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface TeamMember {
+  id: string
+  user_id: string
+  email: string
+  full_name: string
+  role: string
+  status: WorkspaceMemberStatus
+  is_archived: boolean
+  assigned_business_manager_count: number
+  assigned_ad_account_count: number
+  active_session_count: number
+  created_at: string
+}
+
+export interface Invitation {
+  id: string
+  email_normalized: string
+  invited_role: string
+  status: InvitationStatus
+  token_last_four: string | null
+  expires_at: string
+  sent_at: string | null
+  accepted_at: string | null
+  revoked_at: string | null
+  revoke_reason: string | null
+  created_at: string
+}
+
+export interface InvitationCreated {
+  invitation: Invitation
+  invite_link_token: string
+}
+
+export interface Assignment {
+  id: string
+  member_id: string
+  business_manager_id: string | null
+  ad_account_id: string | null
+  status: AssignmentStatus
+  assigned_at: string
+  revoked_at: string | null
+  revoke_reason: string | null
+}
+
+export interface MemberAssignments {
+  business_managers: Assignment[]
+  ad_accounts: Assignment[]
+}
+
+export interface AccessPreview {
+  is_owner: boolean
+  business_manager_ids: string[]
+  ad_account_ids: string[]
+}

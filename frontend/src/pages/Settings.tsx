@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import type { CurrentUser, ExtensionInstallation, NotificationPolicy } from '../lib/types'
@@ -38,6 +39,46 @@ export default function Settings() {
             <span className="font-mono text-[11.5px] text-ink-faint">({me.data.workspace.slug})</span>
           </dd>
         </dl>
+      </Card>
+
+      <Card title="Team &amp; security">
+        <div className="grid gap-2 sm:grid-cols-2">
+          {me.data.role === 'owner' && (
+            <Link to="/team" className="card block px-3 py-2.5 hover:border-line-strong">
+              <p className="text-[13px] font-medium">Team &amp; Seats</p>
+              <p className="mt-0.5 text-[12px] text-ink-muted">
+                Seat capacity, invitations, member roles, and which Business Managers or ad
+                accounts each person can see.
+              </p>
+            </Link>
+          )}
+          <Link to="/security-devices" className="card block px-3 py-2.5 hover:border-line-strong">
+            <p className="text-[13px] font-medium">Security &amp; Devices</p>
+            <p className="mt-0.5 text-[12px] text-ink-muted">
+              Where your account is signed in, and how to sign a lost device out server-side.
+            </p>
+          </Link>
+        </div>
+      </Card>
+
+      <Card title="Meta">
+        <Link to="/meta-connections" className="card block px-3 py-2.5 hover:border-line-strong">
+          <p className="text-[13px] font-medium">Meta connections &amp; read-only discovery</p>
+          <p className="mt-0.5 text-[12px] text-ink-muted">
+            Which environment each connection points at, what the token can actually do, and a
+            read-only read of the configured Business Manager&apos;s ad accounts and Pixels.
+          </p>
+        </Link>
+      </Card>
+
+      <Card title="System">
+        <Link to="/system" className="card block px-3 py-2.5 hover:border-line-strong">
+          <p className="text-[13px] font-medium">System Status</p>
+          <p className="mt-0.5 text-[12px] text-ink-muted">
+            Background dispatch, backups and scheduled work — including whether each has ever
+            run, which is reported separately from whether it ran recently.
+          </p>
+        </Link>
       </Card>
 
       <NotificationPolicySection isOwner={me.data.role === 'owner'} />

@@ -21,6 +21,22 @@ AUDIT_READ_ROLES = frozenset(
     {WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.AUDITOR, WorkspaceRole.VIEWER}
 )
 
+#: A9's own role vocabulary (`owner`/`admin`/`operator`/`viewer`, per
+#: `docs/ADSOPS_MINI_SPEC_A9_TEAM_SEATS_DEVICE_SECURITY.md` §5.1) is not this codebase's
+#: `WorkspaceRole` enum (`owner`/`admin`/`buyer`/`viewer`/`auditor`) — decided with the product
+#: owner (`docs/AUDIT_BEFORE_BUILD_A9.md` §5) to keep the existing enum rather than rename it,
+#: and map `operator`≈`buyer` at this one boundary. `owner` and `auditor` are deliberately not
+#: keys here: `owner` can never be invited or role-changed through A9 (guardrail 13), and
+#: `auditor` keeps its own existing meaning rather than being folded into `viewer`.
+A9_ROLE_TO_WORKSPACE_ROLE: dict[str, WorkspaceRole] = {
+    "admin": WorkspaceRole.ADMIN,
+    "operator": WorkspaceRole.BUYER,
+    "viewer": WorkspaceRole.VIEWER,
+}
+WORKSPACE_ROLE_TO_A9_ROLE: dict[WorkspaceRole, str] = {
+    value: key for key, value in A9_ROLE_TO_WORKSPACE_ROLE.items()
+}
+
 
 class WorkspaceAccessService:
     def __init__(self, session: Session) -> None:

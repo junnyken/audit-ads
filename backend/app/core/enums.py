@@ -109,6 +109,20 @@ class DataFreshness(StrEnum):
     UNKNOWN = "unknown"
 
 
+class ActivityStatus(StrEnum):
+    """A7: whether the account itself has been active — a different question from
+    `DataFreshness`, which is about whether *our data* is current. Deliberately three states,
+    not four: there is no operator-recorded evidence path yet for "confirmed inactive"
+    (distinct from "we just have not looked recently"), so that state is not fabricated
+    (A7 principle: missing data is never turned into a claim). `last_activity_at` unset means
+    `UNKNOWN`; set and within the freshness window means `ACTIVE_RECENTLY`; set and older than
+    the window means `STALE` — an old data point, not proof of inactivity."""
+
+    UNKNOWN = "unknown"
+    ACTIVE_RECENTLY = "active_recently"
+    STALE = "stale"
+
+
 class ReasonSeverity(StrEnum):
     INFO = "info"
     WARNING = "warning"
@@ -404,3 +418,204 @@ EXTENSION_EVENT_SEVERITY: dict[str, str] = {
     ExtensionEventType.POLICY_ISSUE_REPORTED: "warning",
     ExtensionEventType.PAYMENT_ISSUE_REPORTED: "warning",
 }
+
+
+# ------------------------------------------------------------------------------------------
+# MINI-SPEC A6 — Preflight Compliance Gate
+# ------------------------------------------------------------------------------------------
+
+
+class DraftStatus(StrEnum):
+    """Section 4.1. Never worded as "approved" or "safe to publish" anywhere it is rendered."""
+
+    DRAFT = "draft"
+    SUBMITTED_FOR_REVIEW = "submitted_for_review"
+    NEEDS_CHANGES = "needs_changes"
+    READY_FOR_MANUAL_REVIEW = "ready_for_manual_review"
+    BLOCKED_BY_INTERNAL_POLICY = "blocked_by_internal_policy"
+    UNKNOWN_MISSING_EVIDENCE = "unknown_missing_evidence"
+    ARCHIVED = "archived"
+
+
+class PreflightEvaluationRunStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class FindingCategory(StrEnum):
+    COPY_LANGUAGE = "copy_language"
+    LANDING_PAGE = "landing_page"
+    ACCOUNT_READINESS = "account_readiness"
+    ACCOUNT_HEALTH = "account_health"
+    BUDGET_CHANGE = "budget_change"
+    TARGETING_COMPLETENESS = "targeting_completeness"
+    DATA_QUALITY = "data_quality"
+
+
+class FindingSeverity(StrEnum):
+    INFO = "info"
+    WARNING = "warning"
+    BLOCKING = "blocking"
+
+
+class FindingStatus(StrEnum):
+    OPEN = "open"
+    ACKNOWLEDGED = "acknowledged"
+    RESOLVED = "resolved"
+    SUPERSEDED = "superseded"
+
+
+# ------------------------------------------------------------------------------------------
+# MINI-SPEC A7 — BM + Ad Account Creation & Sharing (official Meta API only)
+# ------------------------------------------------------------------------------------------
+
+
+class MetaEnvironment(StrEnum):
+    """`fake` is the only one any code path is allowed to call automatically — `sandbox` and
+    `production` exist so the schema/UI has somewhere to point once a real Meta App exists, but
+    reaching them always requires the operator's own separate, explicit setup."""
+
+    FAKE = "fake"
+    SANDBOX = "sandbox"
+    PRODUCTION = "production"
+
+
+class MetaBatchItemStatus(StrEnum):
+    """`unknown` is reachable only via a timeout — never assigned for an ordinary failure, and
+    never advanced to `succeeded` by anything other than a confirmed provider result
+    (A7 guardrail: an ambiguous side effect is never guessed into a positive state)."""
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    UNKNOWN = "unknown"
+
+
+# ------------------------------------------------------------------------------------------
+# MINI-SPEC A10.1 — Configured BM Validation & Read-Only Asset Discovery
+# ------------------------------------------------------------------------------------------
+
+
+class DiscoveryTrigger(StrEnum):
+    """How a discovery run started. `scheduled_reconciliation` is deliberately absent: A10.1
+    only runs when a person asks, so there is no code path that could start one on a timer."""
+
+    MANUAL = "manual"
+    INTERNAL_TEST = "internal_test"
+
+
+class DiscoveryRunStatus(StrEnum):
+    """Deliberately small, because the *reason* a run did not fully succeed already has a
+    vocabulary: `MetaFailureCode`, stored alongside. Repeating `permission_missing`,
+    `token_expired`, `rate_limited` and friends here would create a second, drifting copy of
+    that scheme — the parallel-vocabulary mistake A10 was written to avoid.
+
+    `succeeded_with_warnings` is the honest home for a run that finished without error but did
+    not see everything: an edge was refused, or a page cap stopped the read. It completed; it is
+    not a full inventory, so it may not license `missing_from_latest_discovery`.
+    """
+
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    SUCCEEDED_WITH_WARNINGS = "succeeded_with_warnings"
+    FAILED = "failed"
+
+
+class CoverageStatus(StrEnum):
+    """How much of an asset type a run actually saw — a dimension of its own, separate from
+    *why* it fell short. The reason stays a `MetaFailureCode` on the individual edge, so this
+    enum never becomes a drifting second copy of that vocabulary.
+
+    Proven necessary on real data (2026-09-10): a Business Manager returned four ad accounts,
+    two on `owned_ad_accounts` and two on `client_ad_accounts`. A run reading only the first
+    edge succeeds on everything it attempts, so an error-based notion of completeness calls it
+    complete — while half the inventory is invisible and would be reported missing.
+    """
+
+    #: Every required edge answered and no page cap was hit. The only value that may license
+    #: `missing_from_latest_discovery`.
+    COMPLETE = "complete"
+    #: An edge was cut short — a cap, a rate limit, a server error. More exists than was seen.
+    PARTIAL = "partial"
+    #: An edge could not be read at all, so a whole class of assets may be unrepresented.
+    INCOMPLETE = "incomplete"
+    #: An edge failed in a way this product cannot categorise.
+    UNKNOWN = "unknown"
+    #: Computed at read time against the freshness policy, never stored as a scan result.
+    STALE = "stale"
+    #: The asset type was never asked for. Distinct from seeing nothing.
+    NOT_ATTEMPTED = "not_attempted"
+
+
+class AssetReconciliationStatus(StrEnum):
+    """`missing_from_latest_discovery` says only what it says: the asset was not returned by the
+    most recent *complete* scan. It is never evidence that Meta deleted, disabled or restricted
+    anything, and it never causes an internal record to change on its own."""
+
+    MATCHED = "matched"
+    MISSING_IN_REGISTRY = "missing_in_registry"
+    MISSING_FROM_LATEST_DISCOVERY = "missing_from_latest_discovery"
+    METADATA_MISMATCH = "metadata_mismatch"
+    OUT_OF_SCOPE = "out_of_scope"
+    UNKNOWN = "unknown"
+    NOT_EVALUATED = "not_evaluated"
+
+
+# ------------------------------------------------------------------------------------------
+# MINI-SPEC A9 — Team Seats, BM/Ad-Account Assignment & Device Session Security
+# ------------------------------------------------------------------------------------------
+
+
+class DeviceSessionType(StrEnum):
+    """Only `web` exists today. A5's extension already has its own, separate, working
+    revocation model (`ExtensionInstallation`) — this registry is not merged with it (A9 audit
+    finding), so `chrome_extension` is deliberately not a member here yet."""
+
+    WEB = "web"
+
+
+class SeatPlanStatus(StrEnum):
+    """A single value today — `WorkspaceSeatPlan.archived_at` already answers "is this the
+    workspace's current plan," so this exists only so the schema has somewhere to add a state
+    like `past_due` later without a migration, not because two values are needed now."""
+
+    ACTIVE = "active"
+
+
+class InvitationStatus(StrEnum):
+    """`draft` exists in the spec's vocabulary but nothing in A9 ever creates one — every
+    invitation this product writes starts at `pending` (create-and-send is one action, not a
+    two-step draft/send). Kept as a member for schema-vocabulary completeness only."""
+
+    DRAFT = "draft"
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    EXPIRED = "expired"
+    REVOKED = "revoked"
+    CANCELLED = "cancelled"
+    ARCHIVED = "archived"
+
+
+class WorkspaceMemberStatus(StrEnum):
+    """`archived` is deliberately not a member here — `WorkspaceMember.archived_at` (inherited
+    from `Archivable`, present since A1) already is that state; duplicating it as a fifth enum
+    value would be two sources of truth for the same fact. A membership's *effective* status is
+    `archived` whenever `archived_at is not None`, checked first, before this column."""
+
+    INVITED = "invited"
+    ACTIVE = "active"
+    SUSPENDED = "suspended"
+    DEACTIVATED = "deactivated"
+
+
+class AssignmentStatus(StrEnum):
+    """`archived` is likewise not a member — assignment rows use the same `Archivable`
+    convention as everything else in this codebase; `revoked`/`expired` are this table's own
+    additional states beyond plain archive."""
+
+    ACTIVE = "active"
+    REVOKED = "revoked"
+    EXPIRED = "expired"

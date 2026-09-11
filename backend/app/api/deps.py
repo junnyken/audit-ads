@@ -16,14 +16,20 @@ from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from app.core.errors import AuthenticationError
+from app.core.enums import WorkspaceRole
+from app.core.errors import AuthenticationError, AuthorizationError
 from app.core.security import TOKEN_USE_DASHBOARD, TOKEN_USE_EXTENSION, decode_access_token
 from app.db.session import get_db
 from app.models.entities import User, Workspace, WorkspaceMember
 from app.services.audit import AuditLogService
+from app.services.scope_authorization import ScopeAuthorizationService
+from app.services.session_registry import SessionRegistryService
 from app.services.workspace import WorkspaceAccessService
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+#: Distinguishes "not computed yet" from a computed `None` (which means "owner, no filter").
+_UNSET: Any = object()
 
 
 @dataclass
@@ -33,6 +39,13 @@ class ApiContext:
     membership: WorkspaceMember
     workspace: Workspace
     audit: AuditLogService
+    #: The dashboard `DeviceSession` this request authenticated through. `None` for an
+    #: extension token (A5 keeps its own, separate revocation model — see A9 audit).
+    device_session_id: uuid.UUID | None = None
+    #: Lazily computed once per request — see the `scope` property below.
+    _scope: Any = None
+    _visible_accounts: Any = _UNSET
+    _visible_bms: Any = _UNSET
 
     @property
     def workspace_id(self) -> uuid.UUID:
@@ -44,6 +57,27 @@ class ApiContext:
 
     def commit(self) -> None:
         self.session.commit()
+
+    # ---------------------------------------------------------------- A9 resource scope
+    # `None` means "no filter" — the owner, who sees the whole workspace. A non-owner always
+    # gets a concrete set, empty included: "assigned nothing" is a real answer, not a missing
+    # one, and must never be read as "assigned everything" (CLAUDE.md rule 4).
+
+    @property
+    def scope(self) -> ScopeAuthorizationService:
+        if self._scope is None:
+            self._scope = ScopeAuthorizationService(self.session, self.workspace_id)
+        return self._scope
+
+    def visible_ad_account_ids(self) -> set[uuid.UUID] | None:
+        if self._visible_accounts is _UNSET:
+            self._visible_accounts = self.scope.visible_ad_account_ids(self.membership)
+        return self._visible_accounts
+
+    def visible_business_manager_ids(self) -> set[uuid.UUID] | None:
+        if self._visible_bms is _UNSET:
+            self._visible_bms = self.scope.visible_business_manager_ids(self.membership)
+        return self._visible_bms
 
 
 def _decode(credentials: HTTPAuthorizationCredentials | None) -> dict:
@@ -82,12 +116,31 @@ def _build_context(session: Session, payload: dict) -> ApiContext:
     membership = WorkspaceAccessService(session).get_membership(
         user_id=user.id, workspace_id=workspace.id
     )
+    audit = AuditLogService(session, workspace.id, user.id)
+
+    device_session_id: uuid.UUID | None = None
+    if token_use(payload) == TOKEN_USE_DASHBOARD:
+        # A9: a dashboard token that predates the session registry, or one whose row was
+        # revoked/expired since it was issued, is refused here — the same "sign in again"
+        # boundary as an expired/invalid signature, not a silent downgrade.
+        try:
+            claimed_id = uuid.UUID(str(payload["session_id"]))
+        except (KeyError, ValueError, TypeError) as exc:
+            raise AuthenticationError("Your session has ended. Sign in again.") from exc
+        registry = SessionRegistryService(session, workspace.id, audit)
+        device_session = registry.get_active(claimed_id)
+        if device_session is None:
+            raise AuthenticationError("Your session has ended. Sign in again.")
+        registry.touch(device_session)
+        device_session_id = device_session.id
+
     return ApiContext(
         session=session,
         user=user,
         membership=membership,
         workspace=workspace,
-        audit=AuditLogService(session, workspace.id, user.id),
+        audit=audit,
+        device_session_id=device_session_id,
     )
 
 
@@ -178,8 +231,50 @@ def get_audit_context(ctx: Annotated[ApiContext, Depends(get_context)]) -> ApiCo
     return ctx
 
 
+def get_owner_context(ctx: Annotated[ApiContext, Depends(get_context)]) -> ApiContext:
+    """A9: every team-seat/invite/role/assignment/member-lifecycle mutation is owner-only —
+    a stricter gate than `WriteCtx`'s `MUTATION_ROLES` (owner/admin/buyer)."""
+    if ctx.membership.role != WorkspaceRole.OWNER:
+        raise AuthorizationError("Only the workspace owner can do this.")
+    return ctx
+
+
+def get_optional_authenticated_user(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+    session: Annotated[Session, Depends(get_db)],
+) -> User | None:
+    """For `POST /team/invitations/accept` only: `None` when no bearer token was supplied
+    (the brand-new-email registration path); a real, validated `User` when one was (the
+    existing-account path) — never a silent fallback from an *invalid* token to `None`, since
+    that would let a stale or forged token quietly downgrade into "create a new account"
+    instead of failing loudly.
+    """
+    if credentials is None or not credentials.credentials:
+        return None
+    payload = _decode(credentials)
+    if token_use(payload) != TOKEN_USE_DASHBOARD:
+        raise AuthenticationError("Sign in to the dashboard to accept this invitation.")
+    try:
+        user_id = uuid.UUID(payload["sub"])
+        workspace_id = uuid.UUID(payload["workspace_id"])
+        session_id = uuid.UUID(str(payload["session_id"]))
+    except (KeyError, ValueError, TypeError) as exc:
+        raise AuthenticationError("The access token is not valid.") from exc
+    user = session.get(User, user_id)
+    if user is None or not user.is_active:
+        raise AuthenticationError("This account is no longer active.")
+    # Same boundary as `_build_context`: a revoked/expired session must not count as
+    # authentication anywhere, including here.
+    registry = SessionRegistryService(session, workspace_id, AuditLogService(session, workspace_id, user_id))
+    if registry.get_active(session_id) is None:
+        raise AuthenticationError("Your session has ended. Sign in again.")
+    return user
+
+
 Ctx = Annotated[ApiContext, Depends(get_context)]
 AnyCtx = Annotated[ApiContext, Depends(get_any_context)]
 ExtCtx = Annotated[ExtensionContext, Depends(get_extension_context)]
 WriteCtx = Annotated[ApiContext, Depends(get_write_context)]
 AuditCtx = Annotated[ApiContext, Depends(get_audit_context)]
+OwnerCtx = Annotated[ApiContext, Depends(get_owner_context)]
+OptionalUser = Annotated[User | None, Depends(get_optional_authenticated_user)]

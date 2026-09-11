@@ -19,7 +19,7 @@ router = APIRouter(tags=["events"])
 
 @router.get("/ad-accounts/{ad_account_id}/events", response_model=list[s.AccountEventOut])
 def list_events(ctx: Ctx, ad_account_id: uuid.UUID, include_archived: bool = False) -> list[AccountEvent]:
-    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
+    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     account = registry.get(ad_account_id)
     return AccountEventService(ctx.session, ctx.workspace_id, ctx.audit).list_for_account(
         account.id, include_archived=include_archived
@@ -28,7 +28,7 @@ def list_events(ctx: Ctx, ad_account_id: uuid.UUID, include_archived: bool = Fal
 
 @router.post("/ad-accounts/{ad_account_id}/events", status_code=201)
 def create_event(ctx: WriteCtx, ad_account_id: uuid.UUID, payload: s.AccountEventCreate) -> dict[str, Any]:
-    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
+    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     account = registry.get(ad_account_id)
     event = AccountEventService(ctx.session, ctx.workspace_id, ctx.audit).create(
         account,
@@ -64,7 +64,7 @@ def update_event(ctx: WriteCtx, event_id: uuid.UUID, payload: s.AccountEventUpda
         summary=payload.summary,
         evidence_reference=payload.evidence_reference,
     )
-    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
+    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     result = registry.rollup.evaluate(account)
     trigger_health(ctx, account, EvaluationTrigger.ACCOUNT_EVENT_MUTATION, reference_id=str(event.id))
     ctx.commit()
@@ -80,7 +80,7 @@ def resolve_event(ctx: WriteCtx, event_id: uuid.UUID, payload: s.AccountEventRes
     AccountEventService(ctx.session, ctx.workspace_id, ctx.audit).resolve(
         event, resolution_note=payload.resolution_note, actor_id=ctx.actor_id
     )
-    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
+    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     result = registry.rollup.evaluate(account)
     trigger_health(ctx, account, EvaluationTrigger.ACCOUNT_EVENT_MUTATION, reference_id=str(event.id))
     ctx.commit()

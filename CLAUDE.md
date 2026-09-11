@@ -8,7 +8,13 @@ Telegram message has been sent, and the extension has never been published or ru
 ## Hard rules (these are product requirements, not preferences)
 
 1. Never store or accept passwords, cookies, session data, access/refresh tokens, credentials or
-   raw proxy authentication secrets. The API refuses such fields — keep it that way.
+   raw proxy authentication secrets. `StrictPayload` refuses such fields by name — keep it that
+   way. Exactly two request bodies are allowed to opt out of it, each a plain `BaseModel` with
+   `extra="forbid"` and a docstring saying why: `LoginRequest` (a password, verified against a
+   PBKDF2 hash and never stored) and `InvitationAcceptRequest` (A9 — the one-time invitation
+   token, compared by hash and never persisted, plus the password a brand-new employee is
+   choosing for the account being created in that same call). Adding a third needs the same
+   deliberate, documented justification, not a quiet swap of the base class.
 2. Never hard-delete a domain entity. Use `archived_at`; audit history is permanent.
 3. Every mutation writes a redacted audit row **in the same transaction** as the change.
 4. Missing evidence is never positive evidence. It degrades to `unknown` or `not_ready`.
@@ -35,9 +41,17 @@ Telegram message has been sent, and the extension has never been published or ru
 18. The Telegram bot token lives only in server configuration. It never reaches the database, an
     API response, an audit row, a log line or the frontend bundle.
 19. Telegram is one-way. No bot command, callback or endpoint may change anything.
-20. Only `services/telegram_transport.py` may make an outbound request, and only to the
-    configured API base. Tests use `FakeNotificationTransport`; never send a real message without
-    the user's explicit approval of a named chat.
+20. Only three modules may make an outbound request, each to a narrow purpose:
+    `services/telegram_transport.py` (only to the configured API base — tests use
+    `FakeNotificationTransport`; never send a real message without the user's explicit approval
+    of a named chat) and `services/preflight_safe_http.py` (A6's landing-page check only —
+    every call goes through its SSRF guard: scheme allowlist, DNS/IP validation before
+    connecting and on every redirect hop, timeout, redirect cap, response-size cap). No other
+    module may import an HTTP client or a browser driver; `test_alert_security.py` enforces
+    this by name. The third is `services/meta_graph_transport.py` (A10 — the Meta Graph API
+    only, to the configured base, **GET-only by construction**: it has no method that can POST,
+    PATCH or DELETE, which is what makes the real provider's read-only guarantee structural
+    rather than a setting).
 21. Alert derivation runs in a nested SAVEPOINT inside the health evaluation. An alerting failure
     must degrade alerting only.
 22. Never deploy, run `docker compose up` against a target, change DNS/firewall/proxy, or send a

@@ -62,7 +62,7 @@ def list_accounts(
     sort: str = "updated_at",
     sort_direction: str = Query("desc", pattern="^(asc|desc)$"),
 ) -> dict[str, Any]:
-    service = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
+    service = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     rows, total = service.list(
         AccountFilters(
             search=search,
@@ -80,6 +80,7 @@ def list_accounts(
             page_size=page_size,
             sort=sort,
             sort_direction=sort_direction,
+            visible_ids=ctx.visible_ad_account_ids(),
         )
     )
     evaluations = service.rollup.evaluate_many(list(rows))
@@ -109,7 +110,7 @@ def list_accounts(
 
 @router.post("", status_code=201)
 def create_account(ctx: WriteCtx, payload: s.AdAccountCreate) -> dict[str, Any]:
-    service = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
+    service = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     account = service.create(payload.model_dump())
     trigger_health(ctx, account, EvaluationTrigger.ACCOUNT_MUTATION)
     ctx.commit()
@@ -118,13 +119,13 @@ def create_account(ctx: WriteCtx, payload: s.AdAccountCreate) -> dict[str, Any]:
 
 @router.get("/{ad_account_id}")
 def get_account(ctx: Ctx, ad_account_id: uuid.UUID) -> dict[str, Any]:
-    service = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
+    service = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     return _serialize_account(service.get(ad_account_id))
 
 
 @router.patch("/{ad_account_id}")
 def update_account(ctx: WriteCtx, ad_account_id: uuid.UUID, payload: s.AdAccountUpdate) -> dict[str, Any]:
-    service = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
+    service = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     account = service.update(service.get(ad_account_id), payload.model_dump(exclude_unset=True))
     trigger_health(ctx, account, EvaluationTrigger.ACCOUNT_MUTATION)
     ctx.commit()
@@ -133,7 +134,7 @@ def update_account(ctx: WriteCtx, ad_account_id: uuid.UUID, payload: s.AdAccount
 
 @router.post("/{ad_account_id}/archive")
 def archive_account(ctx: WriteCtx, ad_account_id: uuid.UUID) -> dict[str, Any]:
-    service = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
+    service = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     account = service.archive(service.get(ad_account_id))
     trigger_health(ctx, account, EvaluationTrigger.ACCOUNT_MUTATION)
     ctx.commit()
@@ -142,7 +143,7 @@ def archive_account(ctx: WriteCtx, ad_account_id: uuid.UUID) -> dict[str, Any]:
 
 @router.post("/{ad_account_id}/restore")
 def restore_account(ctx: WriteCtx, ad_account_id: uuid.UUID) -> dict[str, Any]:
-    service = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
+    service = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     account = service.restore(service.get(ad_account_id))
     trigger_health(ctx, account, EvaluationTrigger.ACCOUNT_MUTATION)
     ctx.commit()
@@ -164,7 +165,7 @@ def _serialize_link(ctx, link: AccountAssetLink) -> dict[str, Any]:
 
 @router.get("/{ad_account_id}/asset-links")
 def list_asset_links(ctx: Ctx, ad_account_id: uuid.UUID, include_inactive: bool = True) -> list[dict[str, Any]]:
-    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
+    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     account = registry.get(ad_account_id)
     links = AssetLinkService(ctx.session, ctx.workspace_id, ctx.audit).list_links(
         account.id, include_inactive=include_inactive
@@ -174,7 +175,7 @@ def list_asset_links(ctx: Ctx, ad_account_id: uuid.UUID, include_inactive: bool 
 
 @router.post("/{ad_account_id}/asset-links", status_code=201)
 def create_asset_link(ctx: WriteCtx, ad_account_id: uuid.UUID, payload: s.AssetLinkCreate) -> dict[str, Any]:
-    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
+    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     account = registry.get(ad_account_id)
     links = AssetLinkService(ctx.session, ctx.workspace_id, ctx.audit)
     link = links.link(
@@ -194,7 +195,7 @@ def create_asset_link(ctx: WriteCtx, ad_account_id: uuid.UUID, payload: s.AssetL
 def update_asset_link(
     ctx: WriteCtx, ad_account_id: uuid.UUID, link_id: uuid.UUID, payload: s.AssetLinkUpdate
 ) -> dict[str, Any]:
-    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
+    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     registry.get(ad_account_id)
     link = get_or_404(ctx.session, AccountAssetLink, link_id, ctx.workspace_id, label="Asset link")
     updated = AssetLinkService(ctx.session, ctx.workspace_id, ctx.audit).update_note(link, payload.note)
@@ -204,7 +205,7 @@ def update_asset_link(
 
 @router.post("/{ad_account_id}/asset-links/{link_id}/unlink")
 def unlink_asset(ctx: WriteCtx, ad_account_id: uuid.UUID, link_id: uuid.UUID) -> dict[str, Any]:
-    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
+    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     account = registry.get(ad_account_id)
     link = get_or_404(ctx.session, AccountAssetLink, link_id, ctx.workspace_id, label="Asset link")
     updated = AssetLinkService(ctx.session, ctx.workspace_id, ctx.audit).unlink(link, actor_id=ctx.actor_id)

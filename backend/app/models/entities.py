@@ -24,6 +24,7 @@ from app.core.enums import (
     EvidenceStatus,
     ReadinessStatus,
     ReferenceStatus,
+    WorkspaceMemberStatus,
     WorkspaceRole,
 )
 from app.db.base import Archivable, Base, Timestamped, UUIDPrimaryKey
@@ -67,6 +68,14 @@ class WorkspaceMember(UUIDPrimaryKey, Timestamped, Archivable, Base):
     )
     role: Mapped[WorkspaceRole] = mapped_column(
         _enum(WorkspaceRole, "workspace_role"), nullable=False, default=WorkspaceRole.OWNER
+    )
+    #: A9. `archived` is not a value here — `archived_at` above already is that state; a
+    #: membership's effective status is `archived` whenever `archived_at is not None`,
+    #: independent of whatever this column says (see `WorkspaceMemberStatus`'s own docstring).
+    status: Mapped[WorkspaceMemberStatus] = mapped_column(
+        _enum(WorkspaceMemberStatus, "workspace_member_status"),
+        nullable=False,
+        default=WorkspaceMemberStatus.ACTIVE,
     )
 
     user: Mapped[User] = relationship(lazy="joined")

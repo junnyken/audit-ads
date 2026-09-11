@@ -97,14 +97,14 @@ def readiness_board(
 
 @router.get("/ad-accounts/{ad_account_id}/readiness")
 def get_readiness(ctx: Ctx, ad_account_id: uuid.UUID) -> dict[str, Any]:
-    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
+    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     account = registry.get(ad_account_id)
     return _readiness_payload(registry.rollup.evaluate(account, persist=False))
 
 
 @router.post("/ad-accounts/{ad_account_id}/readiness/recalculate")
 def recalculate_readiness(ctx: WriteCtx, ad_account_id: uuid.UUID) -> dict[str, Any]:
-    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
+    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     account = registry.get(ad_account_id)
     registry.checklists.initialise(account)
     result = registry.rollup.evaluate(account)
@@ -119,7 +119,7 @@ def record_manual_review(
 ) -> dict[str, Any]:
     """Stamp the account-level manual review. This is what makes `last_manual_review_completed`
     current; it expires again once the configured interval passes."""
-    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
+    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     account = registry.record_manual_review(registry.get(ad_account_id), note=payload.note)
     result = registry.rollup.evaluate(account, persist=False)
     trigger_health(ctx, account, EvaluationTrigger.ACCOUNT_MUTATION)
@@ -129,7 +129,7 @@ def record_manual_review(
 
 @router.get("/ad-accounts/{ad_account_id}/readiness/checklist")
 def get_checklist(ctx: Ctx, ad_account_id: uuid.UUID) -> list[dict[str, Any]]:
-    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
+    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     account = registry.get(ad_account_id)
     result = registry.rollup.evaluate(account, persist=False)
     evaluation_by_key = {item.item_key: item for item in result.items}
@@ -155,7 +155,7 @@ def get_checklist(ctx: Ctx, ad_account_id: uuid.UUID) -> list[dict[str, Any]]:
 def update_checklist_item(
     ctx: WriteCtx, ad_account_id: uuid.UUID, item_key: str, payload: s.ChecklistItemUpdate
 ) -> dict[str, Any]:
-    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
+    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     account = registry.get(ad_account_id)
     checklists = ReadinessChecklistService(ctx.session, ctx.workspace_id, ctx.audit)
     item = checklists.get_item(account.id, item_key)
@@ -180,7 +180,7 @@ def update_checklist_item(
 def add_evidence(
     ctx: WriteCtx, ad_account_id: uuid.UUID, item_key: str, payload: s.EvidenceCreate
 ) -> dict[str, Any]:
-    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
+    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     account = registry.get(ad_account_id)
     checklists = ReadinessChecklistService(ctx.session, ctx.workspace_id, ctx.audit)
     item = checklists.get_item(account.id, item_key)
@@ -229,7 +229,7 @@ def update_evidence(ctx: WriteCtx, evidence_id: uuid.UUID, payload: s.EvidenceUp
         expires_at=payload.expires_at,
         actor_id=ctx.actor_id,
     )
-    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
+    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     registry.checklists.recompute_evidence_status(item)
     result = registry.rollup.evaluate(account)
     trigger_health(ctx, account, EvaluationTrigger.EVIDENCE_MUTATION, reference_id=str(evidence.id))
@@ -245,7 +245,7 @@ def archive_evidence(ctx: WriteCtx, evidence_id: uuid.UUID) -> dict[str, Any]:
     evidence = get_or_404(ctx.session, ReadinessEvidence, evidence_id, ctx.workspace_id, label="Evidence")
     account, item = _account_for_evidence(ctx, evidence)
     ReadinessEvidenceService(ctx.session, ctx.workspace_id, ctx.audit).archive(evidence)
-    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit)
+    registry = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     registry.checklists.recompute_evidence_status(item)
     result = registry.rollup.evaluate(account)
     trigger_health(ctx, account, EvaluationTrigger.EVIDENCE_MUTATION, reference_id=str(evidence.id))

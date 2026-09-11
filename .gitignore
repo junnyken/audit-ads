@@ -18,3 +18,6 @@ backups/
 *.sql
 *.sql.gz
 *.sql.gz.*
+
+# Build output packaged as a file rather than a directory — `dist/` above does not match it.
+extension/dist.zip

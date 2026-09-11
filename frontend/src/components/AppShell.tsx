@@ -3,16 +3,16 @@ import { useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { READINESS_DISCLAIMER } from '../lib/readiness'
 
+// MINI-SPEC A7 core nav: "Overview, Business Managers, Ad Accounts, Assets, Operations,
+// Alerts, Settings" — Readiness/Account Health/Preflight/Audit Log/System Status are hidden,
+// not deleted (still reachable by URL, still fully working) so the main nav stays compact.
 const NAV = [
   { to: '/', label: 'Overview', end: true },
   { to: '/accounts', label: 'Accounts' },
   { to: '/business-managers', label: 'Business Managers' },
   { to: '/assets', label: 'Assets' },
-  { to: '/readiness', label: 'Readiness' },
-  { to: '/account-health', label: 'Account Health' },
+  { to: '/operations', label: 'Operations' },
   { to: '/alerts', label: 'Alerts' },
-  { to: '/audit-log', label: 'Audit Log' },
-  { to: '/system', label: 'System Status' },
   { to: '/settings', label: 'Settings' },
 ]
 

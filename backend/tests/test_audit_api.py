@@ -88,7 +88,13 @@ def test_archiving_an_account_keeps_its_audit_history_visible(api):
 def test_audit_history_is_workspace_scoped(client, api, other_owner):
     api.post("/api/v1/ad-accounts", json={"display_name": "Private"})
     intruder = login(client, other_owner["user"].email, other_owner["password"])
-    assert client.get("/api/v1/audit-logs", headers=intruder).json()["total"] == 0
+    # `login()` itself now writes one `session.created` row (A9) in the *intruder's own*
+    # workspace, so the list is no longer empty — the actual invariant under test is that the
+    # owner's mutation never appears in it, not that logging in produces zero audit history.
+    timeline = client.get("/api/v1/audit-logs", headers=intruder).json()
+    actions = {entry["action"] for entry in timeline["items"]}
+    assert "ad_account.created" not in actions
+    assert actions == {"session.created"}
 
 
 def test_audit_logs_have_no_mutation_endpoint(app):
