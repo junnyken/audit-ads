@@ -2581,11 +2581,29 @@ guard that `env.py` passes `disable_existing_loggers=False`. Only the third coul
 real cause; it is asserted on the source because applying that logging config for real would
 reconfigure logging for every test after it.
 
-**Still unverified at the time of writing:** whether migrations 0011-0015 actually applied to the
-production database. What *is* established is that the deployed code's head is
-`0015_a10_3_conn_bm` — the guard only proceeds when `MIGRATE_ON_START` names the code's own head,
-and it logged that it was proceeding. `MIGRATE_ON_START` stays set until a release with this fix
-produces a log line that answers the question.
+**Resolved the same day, by the fix itself.** The release carrying this change logged, in five
+consecutive lines with nothing lost between them:
+
+```
+WARNING app.migration: applying migrations at startup because MIGRATE_ON_START names this head
+INFO  [alembic.runtime.migration] running migrations
+WARNI [app.migration] migration complete
+```
+
+Three facts, and together they settle it. The guard only proceeds when `MIGRATE_ON_START` names
+the running code's own head, so the deployed head is `0015_a10_3_conn_bm`. `migration complete`
+appeared and `migration failed` did not, so the upgrade finished cleanly — and its appearance is
+also production's own confirmation of this fix. And in a log that kept every adjacent line, there
+was **no** `Running upgrade`, so alembic had nothing to do: the database was already at head,
+which means 0011-0015 had applied on the earlier release at 06:06.
+
+`MIGRATE_ON_START` was then removed from the deployment, closing rule 23's cycle: set for one
+release, watch the log, unset. Verified absent from the environment afterwards.
+
+Worth keeping in mind about the earlier releases: the absence of `Running upgrade` lines could
+**not** be read as evidence then, because that log was also missing `migration complete` and
+`Application startup complete` — a log with holes in it says nothing by omission. It only became
+evidence once the log was shown to be complete.
 
 **Also this session:** the per-coverage-status reason on a discovery result. One sentence —
 "because not every required source was read" — was shown for every kind of shortfall. Seen live on
