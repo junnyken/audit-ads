@@ -12,7 +12,17 @@ from app.models import entities  # noqa: F401  (imported for metadata registrati
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # `disable_existing_loggers=False` is load-bearing, not tidiness. The default is True, which
+    # silences every logger that already exists — including `app.migration`, the one that reports
+    # whether a startup migration succeeded or blew up.
+    #
+    # Found on 2026-09-12 while releasing migrations 0011-0015 to production: the log showed
+    # "applying migrations at startup" and alembic's own three lines, then nothing. Neither
+    # "migration complete" nor "migration failed" could ever appear, because this call had already
+    # disabled the logger that emits them. Rule 23 says to set MIGRATE_ON_START for one release,
+    # **watch the log**, and unset it — and the log was structurally incapable of answering. A
+    # failed migration would have been completely silent.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 config.set_main_option("sqlalchemy.url", get_settings().database_url)
 target_metadata = Base.metadata

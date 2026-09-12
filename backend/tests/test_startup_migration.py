@@ -7,6 +7,7 @@ against a clean database (see conftest).
 """
 from __future__ import annotations
 
+import logging
 import pathlib
 
 import pytest
@@ -68,6 +69,52 @@ def test_a_failing_upgrade_does_not_stop_the_process(monkeypatch):
     monkeypatch.setattr(startup_migration.command, "upgrade", boom)
     monkeypatch.setenv(ENV_VAR, head_revision(BACKEND_DIR))
     run_if_requested(BACKEND_DIR)  # must not raise
+
+
+def test_a_failing_upgrade_says_why(monkeypatch, caplog):
+    """The test above only proved the process survives. It never checked that anything was said,
+    and in production nothing was: a real release logged "applying migrations at startup" and then
+    fell silent, with neither a success nor a failure line."""
+
+    def boom(config, target):
+        raise RuntimeError("no")
+
+    monkeypatch.setattr(startup_migration.command, "upgrade", boom)
+    monkeypatch.setenv(ENV_VAR, head_revision(BACKEND_DIR))
+
+    with caplog.at_level(logging.ERROR, logger="app.migration"):
+        run_if_requested(BACKEND_DIR)
+
+    assert any("migration failed" in record.getMessage() for record in caplog.records)
+
+
+def test_a_successful_upgrade_says_so(spy, monkeypatch, caplog):
+    """Rule 23 is "set it for one release, watch the log, unset it". A release whose log cannot
+    say whether the schema changed makes that instruction impossible to follow."""
+    monkeypatch.setenv(ENV_VAR, head_revision(BACKEND_DIR))
+
+    with caplog.at_level(logging.WARNING, logger="app.migration"):
+        run_if_requested(BACKEND_DIR)
+
+    assert any("migration complete" in record.getMessage() for record in caplog.records)
+
+
+def test_alembics_logging_setup_does_not_silence_the_migration_logger():
+    """The actual cause, which the two tests above cannot reach.
+
+    They stub `command.upgrade`, so the real `alembic/env.py` never runs and its logging setup is
+    never applied. In production it is: `fileConfig()` defaults to `disable_existing_loggers=True`
+    and switches off every logger that already exists — including `app.migration`, the one that
+    reports whether the migration worked. Both the success and the failure line were dead before
+    they were ever called.
+
+    Asserted on the source because the behaviour is global logging state, and a test that really
+    applied it would reconfigure logging for every test that runs after it.
+    """
+    source = (pathlib.Path(BACKEND_DIR) / "alembic" / "env.py").read_text()
+
+    assert "fileConfig(" in source, "env.py no longer configures logging; this guard is stale"
+    assert "disable_existing_loggers=False" in source
 
 
 def test_an_unreadable_head_refuses_rather_than_guessing(spy, monkeypatch):

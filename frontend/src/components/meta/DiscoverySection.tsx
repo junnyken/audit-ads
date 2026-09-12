@@ -41,6 +41,24 @@ function ReconciliationBadge({ status }: { status: ReconciliationStatus }) {
   return <Badge tone="neutral">{RECONCILIATION_LABEL[status]}</Badge>
 }
 
+/** Why a run may not conclude anything is missing — stated per coverage status rather than as one
+ * sentence for all of them.
+ *
+ * The single sentence used to read "because not every required source was read", which is only
+ * true of `incomplete`. Seen live on an authority-blocked run where every required source *was*
+ * read and every one answered: the product gave a reason that was not the reason. Naming a cause
+ * that did not happen is the same class of error as naming a conclusion that was not established.
+ */
+function whyNotMissing(status: CoverageStatus): string {
+  if (status === 'incomplete') return 'because not every required source was read'
+  if (status === 'partial') return 'because the read was cut short before the end'
+  if (status === 'stale') return 'because this reading is older than the freshness policy allows'
+  // `unknown` covers both an edge that failed in a way this product cannot categorise and a run
+  // whose access to the Business Manager could not be established. Both mean the same thing here,
+  // and the specific cause is stated separately below rather than guessed at in this sentence.
+  return 'because what this run was able to see could not be established'
+}
+
 function edgeLabel(edge: string): string {
   if (edge === 'owned_ad_accounts') return 'Owned accounts'
   if (edge === 'client_ad_accounts') return 'Client accounts'
@@ -97,8 +115,7 @@ export function AssetResult({
 
       {!result.complete && result.coverage_status !== 'not_attempted' && (
         <p className="mt-1 text-[11.5px] text-amber-700">
-          No internal record is classified as missing from this run, because not every required
-          source was read.
+          No internal record is classified as missing from this run, {whyNotMissing(result.coverage_status)}.
         </p>
       )}
       {emptyNote && <p className="mt-1 text-[11.5px] text-ink-faint">{emptyNote}</p>}

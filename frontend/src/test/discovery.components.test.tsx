@@ -136,6 +136,74 @@ describe('discovery coverage wording', () => {
     expect(screen.queryByText(/No internal record is classified as missing/)).toBeNull()
   })
 
+  it('gives the reason that actually applies, not one sentence for every shortfall', () => {
+    // Seen live on an authority-blocked run: every required source WAS read and every one
+    // answered, while the product said "not every required source was read". Naming a cause that
+    // did not happen is the same class of error as naming a conclusion that was not established.
+    render(
+      <AssetResult
+        title="Ad accounts"
+        result={result({
+          coverage_status: 'unknown',
+          complete: false,
+          coverage: {
+            edges: {
+              owned_ad_accounts: { required: true, status: 'completed', pages: 1, items: 0, error_code: null },
+              client_ad_accounts: { required: true, status: 'completed', pages: 1, items: 0, error_code: null },
+            },
+            total_unique_assets: 0,
+          },
+        })}
+      />,
+    )
+
+    expect(screen.getByText(/what this run was able to see could not be established/)).toBeTruthy()
+    expect(screen.queryByText(/not every required source was read/)).toBeNull()
+  })
+
+  it('still says "not every required source was read" when that is the truth', () => {
+    render(
+      <AssetResult
+        title="Ad accounts"
+        result={result({
+          coverage_status: 'incomplete',
+          complete: false,
+          coverage: {
+            edges: {
+              owned_ad_accounts: { required: true, status: 'completed', pages: 1, items: 2, error_code: null },
+              client_ad_accounts: { required: true, status: 'failed', pages: 0, items: 0, error_code: 'permission_missing' },
+            },
+            total_unique_assets: 2,
+          },
+        })}
+      />,
+    )
+
+    expect(screen.getByText(/not every required source was read/)).toBeTruthy()
+  })
+
+  it('says a truncated read was cut short rather than unread', () => {
+    render(
+      <AssetResult
+        title="Ad accounts"
+        result={result({
+          coverage_status: 'partial',
+          complete: false,
+          coverage: {
+            edges: {
+              owned_ad_accounts: { required: true, status: 'truncated', pages: 10, items: 1000, error_code: null },
+              client_ad_accounts: { required: true, status: 'completed', pages: 1, items: 2, error_code: null },
+            },
+            total_unique_assets: 1002,
+          },
+        })}
+      />,
+    )
+
+    expect(screen.getByText(/cut short before the end/)).toBeTruthy()
+    expect(screen.queryByText(/not every required source was read/)).toBeNull()
+  })
+
   it('offers an import only on a row that is not in the registry', () => {
     render(
       <AssetResult

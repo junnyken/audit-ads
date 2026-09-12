@@ -2554,3 +2554,41 @@ Manager reaching the **real provider object**, asserted on `provider.business_id
 wrong id would do damage — a provider built with the server's BM would read the server's assets and
 record them against a connection naming a different business, which is this column's defect
 reappearing one layer down. The inheriting case is asserted in the same test.
+
+### 2026-09-12 — the startup migration could not report its own outcome
+
+**Backend: 784 passed, exit 0** (28:47). Frontend: 110 passed, `tsc -b` 0, eslint 0, ruff clean.
+
+Found while releasing migrations 0011-0015 to production. The log showed
+`applying migrations at startup because MIGRATE_ON_START names this head`, then alembic's three
+header lines, then nothing — no `migration complete`, no `migration failed`, on a buffer that
+still held later lines.
+
+Cause: `alembic/env.py` called `fileConfig(config.config_file_name)` without
+`disable_existing_loggers=False`. The default is `True`, which switches off every logger that
+already exists — including `app.migration`, the one that reports the outcome. **Both the success
+line and the failure line were dead before they were ever called.** A migration that blew up in
+production would have been completely silent: container up, schema incomplete, nothing said.
+
+That defeats rule 23 exactly where it matters. The rule is "set `MIGRATE_ON_START` for one
+release, **watch the log**, unset it", and the log was structurally incapable of answering.
+
+`test_startup_migration.py` could not have caught it: every test there stubs `command.upgrade`, so
+the real `env.py` never runs and its logging setup is never applied. The existing failure test even
+carried the docstring "the reason must be readable" while asserting only that nothing was raised.
+Three tests added — the failure line is emitted, the success line is emitted, and a source-level
+guard that `env.py` passes `disable_existing_loggers=False`. Only the third could have caught the
+real cause; it is asserted on the source because applying that logging config for real would
+reconfigure logging for every test after it.
+
+**Still unverified at the time of writing:** whether migrations 0011-0015 actually applied to the
+production database. What *is* established is that the deployed code's head is
+`0015_a10_3_conn_bm` — the guard only proceeds when `MIGRATE_ON_START` names the code's own head,
+and it logged that it was proceeding. `MIGRATE_ON_START` stays set until a release with this fix
+produces a log line that answers the question.
+
+**Also this session:** the per-coverage-status reason on a discovery result. One sentence —
+"because not every required source was read" — was shown for every kind of shortfall. Seen live on
+an authority-blocked run where every required source *was* read and every one answered: the
+product stated a cause that had not happened. Now `incomplete`, `partial`, `stale` and `unknown`
+each carry the reason that applies, with a test per branch.
