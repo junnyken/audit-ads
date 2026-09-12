@@ -106,8 +106,13 @@ Telegram message has been sent, and the extension has never been published or ru
 ## Commands
 
 ```bash
+# local dev servers — always through this, never by hand
+scripts/dev.sh start|status|stop|restart|logs
+
 cd backend  && .venv/bin/python -m pytest && .venv/bin/ruff check .
 cd frontend && npx vitest run && npm run build && npx eslint .
+# `npm run typecheck` is `tsc -b`. Plain `tsc --noEmit` compiles ZERO files here — the root
+# tsconfig is `{"files": [], "references": [...]}` — so it always "passes" and proves nothing.
 
 # live verification against a running API (opt-in)
 VITE_API_BASE_URL=http://127.0.0.1:8000 ADSOPS_LIVE_API=http://127.0.0.1:8000 \
