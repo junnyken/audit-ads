@@ -2522,3 +2522,35 @@ whose client edge failed, one asserts no provider call is made at all.
 
 One test went red first because the audit field is `metadata_json`, not `metadata` — a guessed
 field name, the same class of error as `AdAccount.name` earlier in this project.
+
+### A10.3 — a Business Manager per connection (2026-09-12)
+
+**Backend: 781 passed, exit 0** (24:01). Frontend: 107 passed, `tsc -b` 0, eslint 0, ruff clean.
+Migration `0015_a10_3_conn_bm` applied.
+
+`meta_connections.business_manager_reference` closes the §2 defect: a connection named after a
+second business used to read `META_BUSINESS_ID` and list its accounts under the other one's name.
+Set at creation and never updated — there is no PATCH for it — because changing which Business
+Manager a connection reads would silently reinterpret every run already recorded against it, and
+those runs are the evidence behind `missing_from_latest_discovery`.
+
+The migration deliberately does **not** backfill the server value. Empty means "use whatever the
+server is configured with", which is exactly what existing connections already did; writing
+today's value into old rows would claim those runs had been pinned to a Business Manager when they
+never were.
+
+The token axis is untouched and still unanswered. Measured again on 2026-09-12: `adsops-admin`
+still has no role in either second Business Manager (`{bm}/system_users` → `permission_missing`,
+against the administered BM returning two rows). Storing *which* BM to read is common to Shape A
+and Shape B, which is why it could be built before that question was settled.
+
+**Two tests went red on the first full run**, both in `test_a10_meta_real_provider.py`. The cause
+was a hand-rolled `_Connection` stub carrying only `environment`, so the new code hit an
+`AttributeError` — the stub being out of date with the model, not the code being wrong. A stub
+written by hand does not grow a field when the model does; the reason is now in its docstring.
+
+Fixing it exposed an untested path and a new test was added for it: a connection's own Business
+Manager reaching the **real provider object**, asserted on `provider.business_id`. That is where a
+wrong id would do damage — a provider built with the server's BM would read the server's assets and
+record them against a connection naming a different business, which is this column's defect
+reappearing one layer down. The inheriting case is asserted in the same test.

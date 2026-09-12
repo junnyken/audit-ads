@@ -765,6 +765,11 @@ export interface MetaConnection {
   last_capability_check_at: string | null
   business_managers: { external_id: string; name: string }[] | null
   token_configured: boolean
+  /** The Business Manager this connection actually reads, and where that id came from. A
+   * connection that inherits the server setting reads the same BM as every other inheriting
+   * connection — which is why the source has to be visible, not just the id. */
+  business_manager_reference: string | null
+  business_manager_source: 'connection' | 'server'
   notes: string
   created_at: string
   updated_at: string

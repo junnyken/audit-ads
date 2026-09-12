@@ -40,6 +40,11 @@ function ConnectionCard({ connection }: { connection: MetaConnection }) {
         <span className="flex items-center gap-2">
           {connection.label}
           <EnvironmentBadge environment={connection.environment} />
+          {connection.business_manager_source === 'server' && (
+            // Inheriting is legitimate, but it means this card is not about a business of its
+            // own: every inheriting connection reads the one configured Business Manager.
+            <Badge tone="neutral">Uses the server&apos;s Business Manager</Badge>
+          )}
         </span>
       }
       action={
@@ -91,10 +96,17 @@ export default function MetaConnections() {
   })
 
   const [environment, setEnvironment] = useState<MetaEnvironment>('fake')
+  const [businessManager, setBusinessManager] = useState('')
   const create = useMutation({
-    mutationFn: () => api.post<MetaConnection>('/api/v1/meta-connections', { label, environment }),
+    mutationFn: () =>
+      api.post<MetaConnection>('/api/v1/meta-connections', {
+        label,
+        environment,
+        business_manager_reference: businessManager.trim(),
+      }),
     onSuccess: () => {
       setLabel('')
+      setBusinessManager('')
       void queryClient.invalidateQueries({ queryKey: ['meta-connections'] })
     },
   })
@@ -142,6 +154,18 @@ export default function MetaConnections() {
                 <option value="sandbox">Sandbox</option>
                 <option value="production">Production</option>
               </select>
+            </Field>
+          </div>
+          <div className="min-w-[220px]">
+            <Field label="Business Manager ID" htmlFor="connection-bm">
+              <input
+                id="connection-bm"
+                className="input"
+                value={businessManager}
+                onChange={(event) => setBusinessManager(event.target.value)}
+                placeholder="Leave empty to use the server's"
+                maxLength={120}
+              />
             </Field>
           </div>
           <button type="submit" className="btn-primary" disabled={create.isPending || !label.trim()}>

@@ -546,6 +546,17 @@ The gate is authority, not emptiness — a readable BM that genuinely holds noth
 `complete`, because gating on emptiness would suppress every legitimate absence conclusion for a
 BM that was emptied deliberately.
 
+A10.3 also moved the Business Manager from server configuration onto the connection. Until then
+every connection read `META_BUSINESS_ID`, so a connection named after a second business read the
+configured one and listed its accounts under the other one's name — observed live with two
+connections returning the same eight accounts. The reference is set at creation and never updated;
+changing it would silently reinterpret the runs already recorded against it. Empty still inherits
+the server setting, and the response says which, because inheriting means the connection is not
+about a business of its own. The **token** axis is untouched: whether one system-user token can
+read a second Business Manager's assets is still unanswered, and a per-BM token could not live in
+the database regardless (rule 1) — storing which BM to read is common to both possible designs,
+which is why it could be built before that question was settled.
+
 `missing_from_latest_discovery` sits last in the decision tree, behind `unknown`, `matched` and
 two `out_of_scope` branches. Pixels can never reach it: `Pixel` has no Business Manager
 relationship in the A1 schema, so a registry Pixel cannot be shown to belong to the configured

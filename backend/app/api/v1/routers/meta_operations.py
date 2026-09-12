@@ -44,6 +44,17 @@ from app.services.meta_real_provider import build_real_provider
 router = APIRouter(tags=["meta-operations"])
 
 
+def _business_id_for(connection: MetaConnection) -> str:
+    """Which Business Manager this connection reads.
+
+    The connection's own reference wins; empty falls back to the server setting, which is what
+    every connection created before A10.3 did. Precedence is stated in one place because two
+    places deciding it is how a card ends up headed "Triều Shop" while listing another business's
+    accounts — which is exactly what happened before this column existed.
+    """
+    return (connection.business_manager_reference or "").strip() or get_settings().meta_business_id
+
+
 def _provider_for(connection: MetaConnection):
     """Fake by default; a real, **read-only** provider only when a connection is explicitly
     marked `production` *and* a token is configured on the server (A10).
@@ -58,9 +69,10 @@ def _provider_for(connection: MetaConnection):
     is GET-only. See `meta_real_provider.py`.
     """
     settings = get_settings()
+    business_id = _business_id_for(connection)
     if connection.environment == MetaEnvironment.PRODUCTION and settings.meta_access_token:
-        return build_real_provider(settings)
-    return _seeded_fake_provider(settings.meta_business_id)
+        return build_real_provider(settings, business_id=business_id)
+    return _seeded_fake_provider(business_id)
 
 
 def _serialize_connection(connection: MetaConnection) -> dict[str, Any]:
@@ -71,6 +83,11 @@ def _serialize_connection(connection: MetaConnection) -> dict[str, Any]:
         "capabilities": connection.capabilities_json,
         "business_managers": connection.business_managers_json,
         "token_configured": token_configured,
+        # The id actually read, and where it came from. A connection that inherits the server
+        # setting reads the same Business Manager as every other inheriting connection, and the
+        # UI has to be able to say so rather than implying each card is its own business.
+        "business_manager_reference": _business_id_for(connection) or None,
+        "business_manager_source": "connection" if (connection.business_manager_reference or "").strip() else "server",
     }
 
 
@@ -188,7 +205,7 @@ def _discovery_service(ctx: OwnerCtx, connection: MetaConnection) -> MetaDiscove
         ctx.workspace_id,
         ctx.audit,
         provider=_provider_for(connection),
-        business_id=get_settings().meta_business_id,
+        business_id=_business_id_for(connection),
     )
 
 
@@ -217,6 +234,10 @@ def create_connection(ctx: OwnerCtx, payload: s.MetaConnectionCreate) -> dict[st
         workspace_id=ctx.workspace_id,
         label=payload.label,
         environment=payload.environment,
+        # Set here and never updated: changing which Business Manager a connection reads would
+        # silently reinterpret every run it has already recorded, and those runs are the evidence
+        # behind `missing_from_latest_discovery`. A different Business Manager is a new connection.
+        business_manager_reference=payload.business_manager_reference.strip(),
         notes=payload.notes,
         created_by=ctx.user.id,
     )

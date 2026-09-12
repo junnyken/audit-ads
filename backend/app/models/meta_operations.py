@@ -32,6 +32,17 @@ class MetaConnection(UUIDPrimaryKey, Timestamped, Archivable, Base):
         sa.Uuid(), sa.ForeignKey("workspaces.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     label: Mapped[str] = mapped_column(sa.String(200), nullable=False)
+    #: A10.3. Which Business Manager this connection reads. Empty means "whatever the server is
+    #: configured with" (`META_BUSINESS_ID`), which is what every connection created before this
+    #: column did, so existing rows keep their meaning.
+    #:
+    #: Not a secret — a BM id is visible in Business Settings — so unlike the token it may appear
+    #: in responses and logs. Set at creation and never updated: changing which Business Manager a
+    #: connection reads would silently reinterpret every run it already recorded, and those runs
+    #: are the evidence behind `missing_from_latest_discovery`.
+    business_manager_reference: Mapped[str] = mapped_column(
+        sa.String(120), nullable=False, default="", server_default=""
+    )
     environment: Mapped[MetaEnvironment] = mapped_column(
         _enum(MetaEnvironment, "meta_environment"), nullable=False, default=MetaEnvironment.FAKE
     )

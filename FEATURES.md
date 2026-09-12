@@ -157,6 +157,16 @@ coverage or authority: those gate conclusions about absence, and an account that
 observed. Nothing is offered for Pixels, which have no Business Manager relationship to import
 into.
 
+**A10.3 — a Business Manager per connection (built 2026-09-12).** Until now every connection read
+`META_BUSINESS_ID`, so a connection named after a second business read the configured one and
+listed its accounts under the other one's name — observed live with two connections returning the
+same eight accounts. `business_manager_reference` is set at creation and never updated (changing it
+would reinterpret the runs already recorded against it); empty still inherits the server setting,
+and the response says which, because inheriting means the connection is not about a business of its
+own. The token axis is untouched and still unanswered — `adsops-admin` has no role in the second BM
+— but storing *which* BM to read is common to both possible designs, and a per-BM token could never
+live in the database anyway.
+
 **Superseded:** the note below, from A10.1. The import was deferred there because reusing A7's
 preview/confirm machinery would have meant a fourth copy of that state machine. It is built here
 without that machinery instead — one row, one action, one audit record.

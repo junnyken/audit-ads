@@ -346,8 +346,18 @@ def test_build_real_provider_passes_the_configured_version_through():
 
 
 class _Connection:
-    def __init__(self, environment):
+    """Stands in for a `MetaConnection` in the provider-selection tests.
+
+    It has to carry every field `_provider_for` reads, and a hand-rolled stub does not grow a new
+    one when the model does — A10.3 added `business_manager_reference` and these two tests went
+    red on an `AttributeError`, which is the stub being out of date rather than the code being
+    wrong. Defaulting it to empty keeps the existing cases meaning what they meant: inherit the
+    server's Business Manager.
+    """
+
+    def __init__(self, environment, business_manager_reference: str = ""):
         self.environment = environment
+        self.business_manager_reference = business_manager_reference
 
 
 def test_the_fake_provider_stays_the_default_when_no_token_is_configured():
@@ -397,3 +407,31 @@ def test_only_production_plus_a_configured_token_reaches_the_real_provider():
             real.create_ad_account(object())
     finally:
         settings.meta_access_token = previous
+
+
+def test_a_connections_own_business_manager_reaches_the_real_provider():
+    """A10.3. The column is worth nothing if the id stops at the database.
+
+    Asserted on the object that actually talks to Meta, because that is where the wrong id would
+    do damage: a provider built with the server's Business Manager would read the server's assets
+    and record them against a connection that names a different business — which is the defect
+    this column exists to close, reappearing one layer down.
+    """
+    from app.api.v1.routers.meta_operations import _provider_for
+    from app.core.config import get_settings
+    from app.core.enums import MetaEnvironment
+
+    settings = get_settings()
+    previous_token, previous_bm = settings.meta_access_token, settings.meta_business_id
+    settings.meta_access_token = "a-configured-token"
+    settings.meta_business_id = "1993884657458857"
+    try:
+        named = _provider_for(_Connection(MetaEnvironment.PRODUCTION, "109796697343603"))
+        assert named.business_id == "109796697343603"
+
+        # And a connection that names nothing still inherits the server's, as it always did.
+        inherited = _provider_for(_Connection(MetaEnvironment.PRODUCTION))
+        assert inherited.business_id == "1993884657458857"
+    finally:
+        settings.meta_access_token = previous_token
+        settings.meta_business_id = previous_bm

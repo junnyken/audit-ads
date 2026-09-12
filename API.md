@@ -619,6 +619,31 @@ token reports `coverage: complete` truthfully and would otherwise license
 `missing_from_latest_discovery` for records a broader token had just confirmed. Any view that
 compares two runs, or two Business Managers, must carry the reader with the count.
 
+### A Business Manager per connection
+
+`POST /meta-connections` accepts `business_manager_reference` (optional, max 120 chars). Empty
+inherits the server's `META_BUSINESS_ID`, which is what every connection created before A10.3 did.
+
+Every connection response carries the id actually read plus where it came from:
+
+```json
+{"business_manager_reference": "1993884657458857", "business_manager_source": "server"}
+```
+
+`business_manager_source` is `connection` or `server`. It exists because inheriting is legitimate
+but means the card is not about a business of its own — every inheriting connection reads the same
+Business Manager, and two such connections produced two rows for one business.
+
+**Set at creation and never updated.** There is no PATCH for it: changing which Business Manager a
+connection reads would silently reinterpret every run it has already recorded, and those runs are
+the evidence behind `missing_from_latest_discovery`. A different Business Manager is a new
+connection.
+
+Naming a Business Manager does not make it readable. A run whose provider does not return the
+named BM fails with `not_configured` rather than attributing whatever came back to the id asked
+for. With the authority gate, a BM this token has no role in reports `coverage: unknown` and zero
+assets — honestly, instead of `complete`.
+
 ### `business_authority` — whether an empty result may be trusted
 
 Every discovery response carries `business_authority`: `established`, `not_established` or

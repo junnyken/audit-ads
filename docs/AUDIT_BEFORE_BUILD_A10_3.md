@@ -209,6 +209,32 @@ coverage degrades to `unknown` (hard rule 4, which this path violated).
 legitimate absence conclusion for a Business Manager that was emptied on purpose — a test pins
 both halves.
 
+## 4c. Built: a Business Manager per connection (2026-09-12)
+
+The §2 defect is closed. `meta_connections.business_manager_reference` (migration
+`0015_a10_3_conn_bm`, applied and verified) decides which Business Manager a connection reads;
+empty inherits `META_BUSINESS_ID`, which is exactly what every existing connection already did, so
+nothing was backfilled — writing today's server value into old rows would claim those runs had
+been pinned to a BM when they never were.
+
+**Why this could be built before §4 was answered.** The token axis is still open: measured again
+on 2026-09-12, `adsops-admin` still has no role in Triều Shop (`{bm}/system_users` →
+`permission_missing`), so Shape A remains undemonstrated. But storing *which* BM to read is common
+to Shape A and Shape B — Shape B would add a configuration key naming a token, not replace this
+column — and it closes a defect that is live on screen today. Hard rule 1 is untouched: no token
+is stored, and the reference is not a secret.
+
+**Set at creation, never updated**, and there is no PATCH for it. Changing which Business Manager a
+connection reads would silently reinterpret every run already recorded against it, and those runs
+are the evidence behind `missing_from_latest_discovery`. A different Business Manager is a new
+connection.
+
+Naming a BM does not make it readable, and a test pins that: a run whose provider does not return
+the named BM fails with `not_configured` rather than attributing whatever came back to the id that
+was asked for. Combined with §4b, a connection pointed at a Business Manager this token has no role
+in now reports zero assets with `coverage: unknown` and "could not prove access" — which is the
+first time the authority gate will be demonstrated on real data.
+
 ## 5. Constraints A10.3 must respect
 
 - No token in the database, in a payload, in an audit row, in a log, or in a response (rule 1).

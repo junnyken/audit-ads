@@ -28,6 +28,10 @@ class TimestampsOut(ORMModel):
 class MetaConnectionCreate(StrictPayload):
     label: Label
     environment: MetaEnvironment = MetaEnvironment.FAKE
+    #: A10.3. Which Business Manager this connection reads. Empty inherits the server setting,
+    #: which is what every connection created before this field did. Not a secret — a BM id is
+    #: visible in Business Settings — so it is an ordinary field, unlike the token.
+    business_manager_reference: str = Field(default="", max_length=120)
     notes: str = Field(default="", max_length=2000)
 
 

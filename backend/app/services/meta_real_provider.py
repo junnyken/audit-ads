@@ -388,7 +388,9 @@ class RealMetaBusinessProvider(MetaBusinessProvider):
         return self._read_business_managers(limit="1")
 
 
-def build_real_provider(settings) -> RealMetaBusinessProvider:
+def build_real_provider(settings, *, business_id: str | None = None) -> RealMetaBusinessProvider:
+    """`business_id` overrides the server setting, for a connection that names its own Business
+    Manager. Defaulting to the setting keeps every existing caller reading what it read before."""
     return RealMetaBusinessProvider(
         transport=MetaGraphTransport(
             access_token=settings.meta_access_token,
@@ -396,5 +398,5 @@ def build_real_provider(settings) -> RealMetaBusinessProvider:
             api_version=settings.meta_graph_api_version,
             timeout_seconds=settings.meta_timeout_seconds,
         ),
-        business_id=settings.meta_business_id,
+        business_id=business_id if business_id is not None else settings.meta_business_id,
     )
