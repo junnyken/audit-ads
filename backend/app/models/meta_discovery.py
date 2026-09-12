@@ -22,6 +22,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.enums import (
+    BusinessAuthority,
     CoverageStatus,
     DiscoveryRunStatus,
     DiscoveryTrigger,
@@ -100,6 +101,25 @@ class BusinessManagerDiscoveryRun(UUIDPrimaryKey, Timestamped, Archivable, Base)
     #: the same convention `meta_operations.py` already uses for batch item failures.
     failure_code: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
     failure_summary: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
+
+    #: Which Meta identity produced this run. Measured 2026-09-11: the same Business Manager
+    #: returned four ad accounts to an Employee system user and eight to an Admin one, so an
+    #: inventory is a fact about the reader as much as about the BM. Without this, a later run by
+    #: a narrower token would report `complete` — truthfully — and license
+    #: `missing_from_latest_discovery` for records a broader token had just confirmed exist.
+    provider_actor_external_id: Mapped[str | None] = mapped_column(sa.String(120), nullable=True)
+    provider_actor_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+
+    #: A10.3. Whether the provider proved it may read this Business Manager, asked only when the
+    #: inventory came back empty. Stored because it is the difference between "this BM holds
+    #: nothing" and "this token could not see what it holds", and the coverage status alone
+    #: cannot carry that reason. See `BusinessAuthority`.
+    business_authority: Mapped[BusinessAuthority] = mapped_column(
+        _enum(BusinessAuthority, "business_authority"),
+        nullable=False,
+        default=BusinessAuthority.NOT_CHECKED,
+        server_default=BusinessAuthority.NOT_CHECKED.name,
+    )
 
     created_by: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid(), nullable=True)
 

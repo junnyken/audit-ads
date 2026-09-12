@@ -281,10 +281,9 @@ export function Progress({ value, total }: { value: number; total: number }) {
   )
 }
 
-export function InlineNote({ children }: { children: ReactNode }) {
-  return (
-    <p className="rounded-md border border-line bg-surface-muted px-3 py-2 text-[11.5px] text-ink-muted">
-      {children}
-    </p>
-  )
+export function InlineNote({ children, tone }: { children: ReactNode; tone?: Tone }) {
+  // Optional and additive: every existing note keeps the neutral styling it was written with.
+  // A tone is for a note that must not read as ordinary background information.
+  const toned = tone ? TONE_CLASS[tone] : 'border-line bg-surface-muted text-ink-muted'
+  return <p className={`rounded-md border px-3 py-2 text-[11.5px] ${toned}`}>{children}</p>
 }

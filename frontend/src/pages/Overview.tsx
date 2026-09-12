@@ -7,6 +7,8 @@ import { READINESS_META, accountStatusTone } from '../lib/readiness'
 import { FRESHNESS_META, HEALTH_META } from '../lib/health'
 import { ALERT_SEVERITY_META, ALERT_STATUS_META, DELIVERY_STATUS_META, TRANSPORT_NOT_CONFIGURED } from '../lib/alerts'
 import { formatRelative, humanise } from '../lib/format'
+import { useAuth } from '../hooks/useAuth'
+import { DiscoveryOverview } from '../components/meta/DiscoveryOverview'
 
 function useOverview() {
   const summary = useQuery({
@@ -48,6 +50,7 @@ function useOverview() {
 
 export default function Overview() {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const { summary, attention, recent, all, audit, healthSummary, alertSummary } = useOverview()
 
   if (summary.isLoading) return <Skeleton rows={6} />
@@ -263,6 +266,8 @@ export default function Overview() {
           </>
         )}
       </section>
+
+      <DiscoveryOverview isOwner={user?.role === 'owner'} />
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Card

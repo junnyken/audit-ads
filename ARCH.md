@@ -522,11 +522,29 @@ Three tables — `business_manager_discovery_runs`,
 table: the spec calls it rebuildable from observations plus registry state, and something
 rebuildable is one less copy that can drift against the two sources it summarises.
 
+Every run records the identity it read as (`provider_actor_*`, surfaced as `read_as`). Measured
+2026-09-11: the same Business Manager returned 4 ad accounts to an *Employee* system user and 8
+to an *Admin* one. An inventory is a fact about the reader as much as about the BM, and a run by
+a narrower token would otherwise report `complete` truthfully while licensing
+`missing_from_latest_discovery` for records a broader token had just confirmed. Identity is
+established *before* the inventory it qualifies; a test pins that ordering rather than merely
+asserting both calls happened.
+
 Coverage is the load-bearing concept. `complete` is derived from whether every `required_edge`
 answered — never from the absence of errors, because an edge nobody asked for raises no error,
 and that is the case that produces a confidently wrong "missing". The per-edge record includes
 edges that were never attempted, and `required_edges` is stored per run so adding an edge later
 invalidates old coverage instead of silently reinterpreting it.
+
+Coverage alone still had a hole, found on 2026-09-11 and closed by A10.3. A token with **no role**
+in a Business Manager reads that BM's node normally and gets `200` with an empty list and no error
+from every asset edge, while `{bm}/system_users` refuses outright. Every required edge answers, so
+coverage says `complete` — on an inventory of a Business Manager nobody could read. Each run now
+carries a `BusinessAuthority`, asked only when the inventory came back empty: a non-empty result
+proves its own authority, an empty one must establish it or its coverage degrades to `unknown`.
+The gate is authority, not emptiness — a readable BM that genuinely holds nothing still reports
+`complete`, because gating on emptiness would suppress every legitimate absence conclusion for a
+BM that was emptied deliberately.
 
 `missing_from_latest_discovery` sits last in the decision tree, behind `unknown`, `matched` and
 two `out_of_scope` branches. Pixels can never reach it: `Pixel` has no Business Manager

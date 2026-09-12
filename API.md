@@ -607,6 +607,64 @@ completeness calls it complete — while half the inventory is invisible. Covera
 derived from **whether every required edge answered**, not from the absence of errors, and an
 edge that was never attempted is recorded explicitly rather than omitted.
 
+### `read_as` — who produced the result
+
+Every discovery response carries `read_as: {external_id, name}`: the Meta identity the provider
+was acting as. Recorded because the inventory depends on it — measured 2026-09-11, the same
+Business Manager returned 4 ad accounts to an *Employee* system user and 8 to an *Admin* one,
+minutes apart.
+
+A result is therefore evidence about what **that identity** could read. A later run by a narrower
+token reports `coverage: complete` truthfully and would otherwise license
+`missing_from_latest_discovery` for records a broader token had just confirmed. Any view that
+compares two runs, or two Business Managers, must carry the reader with the count.
+
+### `business_authority` — whether an empty result may be trusted
+
+Every discovery response carries `business_authority`: `established`, `not_established` or
+`not_checked`.
+
+It is asked only of an **empty** inventory. Measured 2026-09-11: a system-user token with no role
+in a Business Manager still reads that BM's node, and its asset edges answer `200` with an empty
+list and **no error**, while `{business-id}/system_users` refuses with `permission_missing`. An
+error-free empty result therefore cannot distinguish "this BM holds nothing" from "this token may
+not see what it holds".
+
+Without established authority an empty inventory reports `coverage_status: "unknown"`, never
+`"complete"` — which withholds `missing_from_latest_discovery` for every record mapped to that
+Business Manager. A non-empty inventory proves its own authority and spends no extra call;
+`not_checked` means nobody asked, and never reads as access.
+
+A refusal is recorded as `not_established`, not as proof of non-membership: reading that edge can
+itself require an admin role. Both readings forbid the same conclusion, which is all the gate
+decides.
+
+### `POST /meta-connections/{connection_id}/discoveries/{run_id}/imports`
+
+Registers one ad account the named run returned, in the A1 registry. Body:
+`{"external_account_id": "..."}` — one account, not a list.
+
+The run is named in the path rather than resolved as "the latest": the operator is acting on a
+result they are looking at, and a run completing between render and click must not silently
+become the evidence for a write.
+
+Everything goes through A1's own registry service, so the record is indistinguishable from one
+typed by hand — same uniqueness guard (a second import answers **409**), same audit row, same
+checklist, same `unknown` readiness. Meta having returned an account is not evidence that this
+workspace is ready to run ads on it. The Business Manager row is created if absent, from the
+reference the run already recorded, and reused by external id afterwards.
+
+Refusals: **404** for an account that run did not return, for a run belonging to another
+connection, and for another workspace's run (never 403 — a 403 would confirm the id exists).
+
+**Not gated on coverage or authority.** Those gate conclusions about *absence*, which are only
+meaningful against a full inventory read by an identity allowed to see it. An account that was
+returned was observed; requiring complete coverage would block the first import of a Business
+Manager whose client edge happens to be refused, for no gain in truth.
+
+A second audit row, `meta_discovery.ad_account_imported`, carries the provenance: the run id, the
+Business Manager reference, the edge that produced the account, and the identity that read it.
+
 ### Reconciliation
 
 Exact canonical external id only; display names are never matched. Ad account ids are

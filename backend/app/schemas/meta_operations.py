@@ -31,6 +31,18 @@ class MetaConnectionCreate(StrictPayload):
     notes: str = Field(default="", max_length=2000)
 
 
+class DiscoveryImportRequest(StrictPayload):
+    """A10.3. One ad account, named by the id the run itself returned.
+
+    Deliberately not a list: an import writes a registry record this workspace is then answerable
+    for, so each one is its own decision with its own audit row. A bulk variant would need A7's
+    preview/confirm machinery, and A10.1 already established that copying that state machine a
+    fourth time is the thing to avoid.
+    """
+
+    external_account_id: str = Field(min_length=1, max_length=120)
+
+
 class MetaConnectionOut(TimestampsOut):
     """Built by the router as a plain dict, not `model_validate`ed straight off the ORM row —
     `token_configured` has no column (CLAUDE.md rule 18: never a stored token), it is computed

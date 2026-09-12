@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { AssetResult } from '../components/meta/DiscoverySection'
 import type { DiscoveryAssetResult } from '../lib/types'
 
@@ -134,6 +134,104 @@ describe('discovery coverage wording', () => {
     expect(screen.getByText(/Pixels returned: 0/)).toBeTruthy()
     expect(screen.getByText('Complete')).toBeTruthy()
     expect(screen.queryByText(/No internal record is classified as missing/)).toBeNull()
+  })
+
+  it('offers an import only on a row that is not in the registry', () => {
+    render(
+      <AssetResult
+        title="Ad accounts"
+        result={result({
+          reconciliation: [
+            {
+              external_id: '111',
+              internal_entity_id: null,
+              display_name: 'Tbsupellex',
+              status: 'missing_in_registry',
+              detail: 'Returned by owned_ad_accounts.',
+            },
+            {
+              external_id: '222',
+              internal_entity_id: 'row-2',
+              display_name: 'Already here',
+              status: 'matched',
+              detail: null,
+            },
+          ],
+        })}
+        onImport={() => {}}
+      />,
+    )
+
+    // One button, on the unregistered row only — an already-matched account has nothing to import.
+    expect(screen.getAllByRole('button', { name: 'Add to registry' }).length).toBe(1)
+  })
+
+  it('offers no import at all when the caller supplies no handler', () => {
+    // Pixels: a registry Pixel has no Business Manager relationship in the A1 schema, so there is
+    // nothing to import one into, and a button there would promise a mapping that cannot exist.
+    render(
+      <AssetResult
+        title="Pixels"
+        result={result({
+          required_edges: ['adspixels'],
+          reconciliation: [
+            {
+              external_id: '555',
+              internal_entity_id: null,
+              display_name: 'A pixel',
+              status: 'missing_in_registry',
+              detail: 'Returned by adspixels.',
+            },
+          ],
+        })}
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: 'Add to registry' })).toBeNull()
+  })
+
+  it('passes the external id of the row that was clicked', async () => {
+    const clicked: string[] = []
+    render(
+      <AssetResult
+        title="Ad accounts"
+        result={result({
+          reconciliation: [
+            {
+              external_id: '1167063825546698',
+              internal_entity_id: null,
+              display_name: 'Tbsupellex',
+              status: 'missing_in_registry',
+              detail: null,
+            },
+          ],
+        })}
+        onImport={(id) => clicked.push(id)}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add to registry' }))
+
+    expect(clicked).toEqual(['1167063825546698'])
+  })
+
+  it('disables only the row being imported, not every row', () => {
+    render(
+      <AssetResult
+        title="Ad accounts"
+        result={result({
+          reconciliation: [
+            { external_id: '111', internal_entity_id: null, display_name: 'One', status: 'missing_in_registry', detail: null },
+            { external_id: '222', internal_entity_id: null, display_name: 'Two', status: 'missing_in_registry', detail: null },
+          ],
+        })}
+        onImport={() => {}}
+        importingId="111"
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Adding…' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Add to registry' })).toBeTruthy()
   })
 
   it('states plainly that a registry Pixel cannot be evaluated for absence', () => {

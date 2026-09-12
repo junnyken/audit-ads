@@ -17,6 +17,7 @@ from fastapi import APIRouter
 from app.api.deps import OwnerCtx
 from app.core.config import get_settings
 from app.core.enums import DataFreshness, DiscoveryRunStatus, MetaEnvironment
+from app.core.errors import NotFoundError
 from app.models.meta_discovery import BusinessManagerDiscoveryRun
 from app.models.meta_operations import (
     AccessShareBatch,
@@ -116,6 +117,15 @@ def _serialize_discovery_run(
             "reference": run.configured_business_manager_reference or None,
             "name": run.configured_business_manager_name,
         },
+        # Who read. An inventory is a fact about the reader as much as about the BM — the same
+        # BM returned four ad accounts to an Employee system user and eight to an Admin one.
+        "read_as": {
+            "external_id": run.provider_actor_external_id,
+            "name": run.provider_actor_name,
+        },
+        # Whether the reader could prove it may read this BM at all. Only asked of an empty
+        # inventory, because an empty result is the one that cannot prove its own authority.
+        "business_authority": run.business_authority.value,
         "started_at": run.started_at.isoformat() if run.started_at else None,
         "completed_at": run.completed_at.isoformat() if run.completed_at else None,
         "freshness": _freshness(run.completed_at),
@@ -222,6 +232,83 @@ def create_connection(ctx: OwnerCtx, payload: s.MetaConnectionCreate) -> dict[st
     return _serialize_connection(connection)
 
 
+@connections_router.get("/discovery-summary")
+def discovery_summary(ctx: OwnerCtx) -> list[dict[str, Any]]:
+    """One row per connection: its most recent discovery, without reconciliation.
+
+    Declared **before** `/{connection_id}` on purpose — FastAPI matches in declaration order, and
+    the other way round this literal path is swallowed as a connection id.
+
+    Counts come from what the run already stored, so this makes no provider call and no registry
+    comparison: it answers "what did the last look see, and can it be trusted", which is the
+    Overview's question. Reconciliation is the detail view's question and costs a query per run.
+    """
+    connections = (
+        ctx.session.execute(
+            sa.select(MetaConnection)
+            .where(MetaConnection.workspace_id == ctx.workspace_id, MetaConnection.archived_at.is_(None))
+            .order_by(MetaConnection.created_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+    runs = (
+        ctx.session.execute(
+            sa.select(BusinessManagerDiscoveryRun)
+            .where(
+                BusinessManagerDiscoveryRun.workspace_id == ctx.workspace_id,
+                BusinessManagerDiscoveryRun.archived_at.is_(None),
+            )
+            .order_by(BusinessManagerDiscoveryRun.started_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+    latest: dict[uuid.UUID, BusinessManagerDiscoveryRun] = {}
+    for run in runs:
+        latest.setdefault(run.meta_connection_id, run)
+
+    rows: list[dict[str, Any]] = []
+    for connection in connections:
+        run = latest.get(connection.id)
+        rows.append(
+            {
+                "connection_id": str(connection.id),
+                "connection_label": connection.label,
+                "environment": connection.environment.value,
+                "run": None
+                if run is None
+                else {
+                    "id": str(run.id),
+                    "status": run.status.value,
+                    "business_manager": {
+                        "reference": run.configured_business_manager_reference or None,
+                        "name": run.configured_business_manager_name,
+                    },
+                    # Never a bare count: the reader is part of the result.
+                    "read_as": {
+                        "external_id": run.provider_actor_external_id,
+                        "name": run.provider_actor_name,
+                    },
+                    "business_authority": run.business_authority.value,
+                    "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+                    "freshness": _freshness(run.completed_at),
+                    "ad_accounts": {
+                        "coverage_status": run.ad_account_coverage_status.value,
+                        "count": (run.ad_account_coverage_json or {}).get("total_unique_assets"),
+                        "edges": (run.ad_account_coverage_json or {}).get("edges", {}),
+                    },
+                    "pixels": {
+                        "coverage_status": run.pixel_coverage_status.value,
+                        "count": (run.pixel_coverage_json or {}).get("total_unique_assets"),
+                        "edges": (run.pixel_coverage_json or {}).get("edges", {}),
+                    },
+                },
+            }
+        )
+    return rows
+
+
 @connections_router.get("/{connection_id}")
 def get_connection(ctx: OwnerCtx, connection_id: uuid.UUID) -> dict[str, Any]:
     connection = get_or_404(ctx.session, MetaConnection, connection_id, ctx.workspace_id, label="Meta connection")
@@ -308,6 +395,42 @@ def latest_discovery(ctx: OwnerCtx, connection_id: uuid.UUID) -> dict[str, Any] 
         ad_accounts=service.reconcile_ad_accounts(run),
         pixels=service.reconcile_pixels(run),
     )
+
+
+@connections_router.post("/{connection_id}/discoveries/{run_id}/imports", status_code=201)
+def import_discovered_ad_account(
+    ctx: OwnerCtx,
+    connection_id: uuid.UUID,
+    run_id: uuid.UUID,
+    payload: s.DiscoveryImportRequest,
+) -> dict[str, Any]:
+    """Register one ad account this run returned. Makes no provider call.
+
+    The run is named in the path rather than resolved as "the latest": the operator is acting on
+    a result they are looking at, and a run that completed between rendering and clicking must
+    not silently become the evidence for a write.
+
+    Everything it writes goes through A1's own registry service, so the record is indistinguishable
+    from one typed by hand — same uniqueness guard, same audit row, same checklist, same
+    `unknown` readiness. An account is not ready because Meta returned it.
+    """
+    connection = get_or_404(ctx.session, MetaConnection, connection_id, ctx.workspace_id, label="Meta connection")
+    run = get_or_404(ctx.session, BusinessManagerDiscoveryRun, run_id, ctx.workspace_id, label="Discovery run")
+    if run.meta_connection_id != connection.id:
+        # Out of scope answers 404, never 403 — a 403 would confirm the run exists elsewhere.
+        raise NotFoundError("Discovery run not found.")
+
+    service = _discovery_service(ctx, connection)
+    account = service.import_ad_account(run, payload.external_account_id)
+    payload_out = {
+        "ad_account_id": str(account.id),
+        "external_account_id": account.external_account_id,
+        "display_name": account.display_name,
+        "business_manager_id": str(account.business_manager_id) if account.business_manager_id else None,
+        "readiness_status": account.readiness_status.value,
+    }
+    ctx.commit()
+    return payload_out
 
 
 # ------------------------------------------------------------------------- Account creation

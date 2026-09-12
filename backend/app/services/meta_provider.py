@@ -17,7 +17,7 @@ import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 
-from app.core.enums import CoverageStatus
+from app.core.enums import BusinessAuthority, CoverageStatus
 
 
 class MetaFailureCode(str, Enum):
@@ -174,6 +174,27 @@ class DiscoveredAsset:
 
 
 @dataclass(frozen=True)
+class ProviderIdentity:
+    """Who the provider was acting as when it read.
+
+    Measured on 2026-09-11: the same Business Manager returned **four** ad accounts to an
+    Employee system user and **eight** to an Admin one. The inventory is therefore a property of
+    the identity that asked, not of the Business Manager alone.
+
+    Without this recorded, a later run by a narrower token would show fewer assets, report
+    `complete` — truthfully, since every required edge answered — and silently license
+    `missing_from_latest_discovery` for records a broader token had just confirmed exist.
+    """
+
+    external_id: str | None = None
+    name: str = ""
+
+    @property
+    def known(self) -> bool:
+        return bool(self.external_id)
+
+
+@dataclass(frozen=True)
 class EdgeOutcome:
     """What happened on one edge. `truncated` means the item cap stopped the read early —
     a bounded read, not a complete one."""
@@ -206,6 +227,11 @@ class AssetDiscovery:
     #: Recorded with the run, so adding an edge later invalidates old coverage instead of
     #: silently reinterpreting it as though the new edge had always been read.
     required_edges: tuple[str, ...] = ()
+    #: Whether the provider proved it may read this Business Manager at all. Only consulted when
+    #: the inventory came back empty — a non-empty result proves its own authority. The default
+    #: is `not_checked` on purpose: a provider that forgets to establish authority must not
+    #: inherit a positive.
+    authority: BusinessAuthority = BusinessAuthority.NOT_CHECKED
 
     @property
     def coverage_status(self) -> CoverageStatus:
@@ -232,6 +258,15 @@ class AssetDiscovery:
         answered = {edge.edge for edge in self.edges if edge.ok}
         if any(required not in answered for required in self.required_edges):
             return CoverageStatus.INCOMPLETE
+
+        if not self.assets and self.authority is not BusinessAuthority.ESTABLISHED:
+            # Every edge answered, and every edge was empty. That is the one case where success
+            # carries no proof: measured on real Meta, a token with no role in a Business Manager
+            # gets `200` and `[]` from the asset edges while `{bm}/system_users` refuses. Calling
+            # this complete would license `missing_from_latest_discovery` for every registry
+            # account mapped to a Business Manager nobody could read. Degrade instead (rule 4).
+            return CoverageStatus.UNKNOWN
+
         return CoverageStatus.COMPLETE
 
     @property
@@ -273,6 +308,19 @@ class MetaBusinessProvider:
     #: Declared on the interface rather than checked with `isinstance` so a future provider has
     #: to answer the question explicitly, and so the batch engines never import the real one.
     writes_are_real: bool = False
+
+    def identify(self) -> ProviderIdentity:  # pragma: no cover - interface
+        """Who this provider reads as. Recorded with every discovery run, because what a run can
+        see depends on it."""
+        raise NotImplementedError
+
+    def check_business_authority(self, business_id: str) -> BusinessAuthority:  # pragma: no cover
+        """Whether this provider can prove it may read the Business Manager's assets.
+
+        Only worth spending when an inventory came back empty: a non-empty result has already
+        proved its own authority. See `BusinessAuthority` for why an empty result cannot.
+        """
+        raise NotImplementedError
 
     def discover_ad_accounts(self, business_id: str) -> AssetDiscovery:  # pragma: no cover
         raise NotImplementedError
@@ -325,6 +373,10 @@ class FakeMetaBusinessProvider(MetaBusinessProvider):
     #: What `reconcile_create` answers for a given key — staged explicitly per test, since a
     #: real reconciliation call is a genuinely separate provider capability, not a replay.
     _reconcile_by_key: dict[str, CreateAccountResult | None] = field(default_factory=dict)
+    #: A10.3. `established` by default: a fake Business Manager is one the operator does control,
+    #: so an empty fake inventory means "empty", not "unreadable". A test sets `not_established`
+    #: to exercise the Business Manager this token has no role in.
+    authority: BusinessAuthority = BusinessAuthority.ESTABLISHED
     #: A10.1 discovery. The default inventory a discovery returns when nothing is staged.
     discovered_ad_accounts: list[DiscoveredAsset] = field(default_factory=list)
     discovered_pixels: list[DiscoveredAsset] = field(default_factory=list)
@@ -352,11 +404,25 @@ class FakeMetaBusinessProvider(MetaBusinessProvider):
     def queue_pixel_share_result(self, result: SharePixelResult) -> None:
         self._staged_pixel_share.append(result)
 
+    def identify(self) -> ProviderIdentity:
+        self.calls.append(("identify", ""))
+        return ProviderIdentity(external_id="fake-system-user", name="Fake system user")
+
+    def check_business_authority(self, business_id: str) -> BusinessAuthority:
+        self.calls.append(("check_business_authority", business_id))
+        return self.authority
+
     def discover_ad_accounts(self, business_id: str) -> AssetDiscovery:
         self.calls.append(("discover_ad_accounts", business_id))
         if self._staged_ad_account_discovery:
             return self._staged_ad_account_discovery.pop(0)
         return AssetDiscovery(
+            # Mirrors the real provider's contract: the check is worth spending only on an empty
+            # inventory, so a non-empty one records `not_checked`. A fake that answered
+            # differently would let a test pass on a shape production never produces.
+            authority=(
+                self.authority if not self.discovered_ad_accounts else BusinessAuthority.NOT_CHECKED
+            ),
             assets=tuple(self.discovered_ad_accounts),
             edges=(
                 EdgeOutcome(
@@ -376,6 +442,9 @@ class FakeMetaBusinessProvider(MetaBusinessProvider):
         if self._staged_pixel_discovery:
             return self._staged_pixel_discovery.pop(0)
         return AssetDiscovery(
+            authority=(
+                self.authority if not self.discovered_pixels else BusinessAuthority.NOT_CHECKED
+            ),
             assets=tuple(self.discovered_pixels),
             edges=(
                 EdgeOutcome(
@@ -468,6 +537,8 @@ def reset_fake_provider() -> FakeMetaBusinessProvider:
     _FAKE_PROVIDER.pixels_shared.clear()
     _FAKE_PROVIDER.business_managers.clear()
     _FAKE_PROVIDER.capability = CapabilityCheck(True, True, True, True)
+    # A test that set this to `not_established` must not decide what the next test sees.
+    _FAKE_PROVIDER.authority = BusinessAuthority.ESTABLISHED
     _FAKE_PROVIDER._staged_create.clear()
     _FAKE_PROVIDER._staged_share.clear()
     _FAKE_PROVIDER._staged_pixel_share.clear()

@@ -148,6 +148,28 @@ def test_every_validation_writes_a_redacted_audit_row(session, workspace, audit,
     assert row.after_json["status"] == "succeeded"
 
 
+def test_a_discovery_run_records_which_identity_read_it(session, workspace, audit, connection):
+    """Measured on 2026-09-11: the same Business Manager returned four ad accounts to an Employee
+    system user and eight to an Admin one. An inventory is therefore a fact about the reader as
+    much as about the BM.
+
+    Without this recorded, a later run by a narrower token shows fewer assets, reports
+    `complete` — truthfully, every required edge answered — and licenses
+    `missing_from_latest_discovery` for records a broader token had just confirmed exist.
+    """
+    provider = _provider_seeing({"external_id": BM, "name": "Quảng Cáo Top"})
+    service = _service(session, workspace, audit, provider)
+
+    run = service.validate_configured_business_manager(connection)
+    service.discover_assets(run)
+
+    assert run.provider_actor_external_id == "fake-system-user"
+    assert run.provider_actor_name == "Fake system user"
+    # Identity is established before the assets it qualifies, not after.
+    methods = [method for method, _ in provider.calls]
+    assert methods.index("identify") < methods.index("discover_ad_accounts")
+
+
 def test_validation_calls_the_provider_at_most_twice(session, workspace, audit, connection):
     """Rate-limit budget on a real BM is a real cost, and this is the step that runs before
     every discovery."""

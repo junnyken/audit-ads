@@ -2322,3 +2322,203 @@ confirm one thing and have another created — the exact gap the hash exists to 
 5 new tests; A7's own suites still pass unchanged. Full regression before this change: 743
 passed, exit 0 — the earlier 741/1-failed run was the `.env`-dependent provider-selection test,
 now split into two tests that each set their own condition.
+
+### A10.2 — the Admin-role blocker is cleared, and verified by measurement (2026-09-11)
+
+A dedicated system user was created rather than promoting the shared one. Confirmed through the
+API, not by reading the UI — `GET /{business-id}/system_users?fields=id,name,role`:
+
+```
+ADMIN  adsops-admin                  role=ADMIN
+       Conversions API System User    role=EMPLOYEE
+```
+
+Two things that matter here. The create endpoint's documented requirement — "must be a business
+administrator" — is now satisfied, and satisfied *provably*: scope and role are separate gates,
+and only scope shows up in `debug_token`. A token can hold `ads_management` while its system user
+is an Employee, and the create then fails on the role with a `permission_missing` that looks
+exactly like a missing permission.
+
+The probe was extended to read that edge precisely because this session had already recorded the
+role as unverifiable. It was not; it just had not been looked for.
+
+And the Conversions API system user stays `EMPLOYEE`. Promoting it would have handed the running
+CAPI integration full administrative control of the Business Manager as a side effect of an
+unrelated change — the reason a separate system user was recommended in the first place.
+
+**New operational fact: this token expires.** `debug_token` reports `expires: 1794294290` —
+**2026-11-10 07:04 UTC**, about 60 days out. The previous token reported `never`. A finite
+lifetime is the better security posture, but it means discovery will one day stop with
+`token_expired` and nothing will announce it in advance. Renewal belongs on a calendar, not in
+anyone's memory.
+
+`create_ad_account` still reports `false / not_supported`, which remains correct: the build has
+no write path. Permission and capability are different claims and the output keeps them apart.
+
+### A10.2 — a discovery run now records which identity read it (2026-09-11)
+
+**Found by running discovery against the real BM twice, with two different tokens.** Yesterday's
+run (Conversions API system user, *Employee*) returned 4 ad accounts and 5 Pixels. Today's, with
+`adsops-admin` (*Admin*), returned **8 and 7** on the same Business Manager. Nothing was created
+in between.
+
+An inventory is therefore a fact about the **reader** as much as about the BM. That makes a
+specific wrong conclusion reachable: a later run by a narrower token sees fewer assets, reports
+`coverage: complete` — truthfully, since every required edge answered — and so licenses
+`missing_from_latest_discovery` for registry records a broader token had just confirmed exist.
+
+This is the same shape as the `client_ad_accounts` gap, and neither is an error condition: a scan
+that succeeded at everything it attempted, while not having attempted enough. There the shortfall
+came from an unread edge; here from the token's own permissions.
+
+**Recorded, not merely displayed.** `MetaBusinessProvider.identify()` (one read of `me`) returns
+a `ProviderIdentity`; the run stores `provider_actor_external_id` and `provider_actor_name`.
+Migration `0013_a10_2_actor`, two nullable columns, verified up/down/up, no destructive
+operations. A failed `identify()` yields an unknown identity rather than failing the run — a
+discovery that would otherwise work should not be blocked by not knowing who asked.
+
+Order matters and is pinned by a test: identity is established **before** the inventory it
+qualifies. `test_a_discovery_run_records_which_identity_read_it` asserts
+`calls.index("identify") < calls.index("discover_ad_accounts")`, not merely that both happened.
+
+**The part that actually prevents the wrong reading is the wording.** The UI previously said
+"Ad accounts returned: 8" as though it were a fact about the Business Manager. It now reads
+"…as seen by **adsops-admin**. A different system user may see a different set — this is what
+this identity could read, not everything the Business Manager holds." A reader who saw 4
+yesterday and 8 today can now tell why without asking.
+
+28 targeted tests pass, exit 0. `tsc`, `eslint` and `ruff` clean.
+
+**Also this session:** `/meta-connections` was promoted to the main nav. It had been reachable
+only from Settings and from inside a wizard — the operator could not find the feature they had
+asked for. And the connection form hard-coded `environment: "fake"`, so no `production`
+connection could be created from the UI at all, while the page still claimed "no real Meta App is
+connected anywhere yet". Both were false statements about the product's own state, of the same
+kind as the "Coming later (A9)" card.
+
+**Dev environment, recorded because it cost hours:** the browser could GET the API but its login
+POST never arrived, twice. Cause was cross-origin plus `localhost` resolving to a different
+address family than the API was bound to — a simple GET needs no preflight, a JSON POST does.
+Three rounds of changing the bind address only moved which half was broken. Fixed properly by
+proxying `/api` through the Vite dev server, so the browser is same-origin and neither CORS nor
+address family is involved.
+
+## 2026-09-11 — A10.3 authority gate, Overview card, and four defects found by looking
+
+**Backend: 761 passed, exit 0** (24:47). Frontend: 103 passed, `tsc -b` 0, eslint 0, ruff clean.
+Migration `0014_a10_3_authority` applied up → down → up against the dev database; the five runs
+recorded before it exist as `NOT_CHECKED`, which is what they genuinely are.
+
+### The defect the multi-BM experiment found
+
+Running the A10.3 token experiment against real Meta produced a result the script called
+"Shape A confirmed" and should not have. Three Business Managers, one system-user token:
+
+| BM | `owned_ad_accounts` | `{bm}/system_users` |
+|---|---|---|
+| `1993884657458857` (administered) | `data=5`, `total_count=5` | 2 rows, this token as ADMIN |
+| `3068234753290929` | `data=0`, `total_count=0` | `permission_missing` |
+| `109796697343603` | `data=0`, `total_count=0` | `permission_missing` |
+
+The BM **node** reads fine in all three. The asset edges of a BM this token has no role in answer
+`200` with an empty list and **no error**, while `system_users` refuses outright — one business,
+two edges, two different failure languages.
+
+Measured, not reasoned, against a provider pointed at a BM with no role:
+
+```
+check_capability()        -> list_business_managers: True
+discover_ad_accounts()    -> assets=0  complete=True  coverage=complete
+```
+
+A confident, complete, empty inventory of a Business Manager nobody could read — and `complete`
+is the only thing that licenses `missing_from_latest_discovery`. A mistyped BM id, or a system
+user removed from a BM later, would have reported every registry account mapped to it as no
+longer returned by Meta. Not reachable in production only because the registry is still empty,
+which the next slice is about to change.
+
+This is the A10 `True`-on-empty defect for the third time. A10 fixed it for the capability check;
+A10.1 added coverage so an unread edge could not pass as complete. Both miss this case because
+coverage tracks errors per edge, and here no edge errors.
+
+Closed with `BusinessAuthority`, asked **only** of an empty inventory (a non-empty one proves its
+own authority and spends no call), memoised per BM. Empty without established authority is
+`coverage: unknown`, never `complete`. Two tests pin both halves: an unreadable BM never reaches
+a `missing` conclusion, and a readable-but-genuinely-empty one still does — gating on emptiness
+instead of authority would suppress every legitimate absence conclusion forever.
+
+While fixing the one red test this produced, the contract itself turned out to be loose:
+`authority` was being set to `established` even when assets existed, so the two asset types of one
+Business Manager could carry different values and the run-level column had to pick a winner. It
+now records only what an explicit check answered; assets present means `not_checked`. The fake
+provider was changed to match, because a fake that answers differently from production lets a
+test pass on a shape production never produces.
+
+### Found in the browser, not by tests
+
+1. `GET /meta-connections/discovery-summary` answered **422** for an hour. The route ordering in
+   the code was correct; the running backend predated it and had no `--reload`. The Overview card
+   `return null`ed on a query error, so a 422 rendered as "nothing discovered". The card now shows
+   an `ErrorState`, and a test asserts the literal path resolves with **status 200** — the
+   endpoint had shipped with zero tests, and the 749-test regression never touched it.
+2. A `fake` connection's row rendered **identically to a real Business Manager** — same `Complete`
+   badges, same columns. The local seed reuses the configured BM id, so two rows showed one id
+   under two names. Invented numbers presented as an observation of Meta. Fixed with an
+   environment badge; a test asserts exactly one row carries it.
+3. Two connections, labelled "Triều Shop" and "Quảng Cáo Top", both read the one configured BM and
+   both returned the same 8 accounts — a card titled "Triều Shop" listing another business's
+   accounts, and two Overview rows inviting 8 + 8 = 16. Both now say so: "Label differs from the
+   Business Manager read" on the card, "Same Business Manager as another row" on the table.
+4. `text-attention` is not a class in this theme. It renders as no colour at all, silently — a
+   test asserting the text is present would not have caught it.
+
+### Tooling
+
+**`npx tsc --noEmit` compiles zero files in this project.** The root `tsconfig.json` is
+`{"files": [], "references": [...]}`, so the command always succeeds and proves nothing. Every
+green reported from it was worthless; `npm run build` (`tsc -b && vite build`) was always real.
+`npm run typecheck` is now `tsc -b`, which immediately caught two type errors in a test written
+minutes earlier.
+
+**`scripts/dev.sh`** replaces hand-started servers. The dev servers died repeatedly, and each time
+a dead frontend looked exactly like a broken feature — the page is still in the browser, it just
+cannot reach `/api`. Two structural causes: started in the foreground of a terminal, and stopped
+with `pkill -f`, whose pattern matches the shell running it (that is how a backend restart was
+killed mid-flight, exit 144). Servers now run under `setsid` with a restart loop; stopping kills a
+recorded process group. Verified: `kill -9` on vite gave `HTTP 000` then `HTTP 200` unaided, and
+`stop` left zero orphans.
+
+**`frontend/.env.local` pointed the API at port 8009**, where nothing listens. Vite loads that
+file automatically and it beats the dev proxy, so every request left the page for a dead port
+while the backend sat there healthy — "Failed to fetch", then "Sign-in failed", with **no** login
+request in the backend log at all. It had been there since 09-04, masked whenever someone started
+Vite with `VITE_API_BASE_URL=` by hand. The file is now empty with the reason written in it, and
+`dev.sh` exports the variable empty so a stale value cannot do this again.
+
+Worth recording about the diagnosis: "three layers healthy" was reported after curling
+`http://127.0.0.1:5173/api/...`, which tests the **proxy** — not what the application actually
+calls. The proxy was fine the whole time. The measurement was aimed at the wrong thing.
+
+### A10.3 registry import (same day)
+
+**Backend: 774 passed, exit 0** (21:11). Frontend: 107 passed, `tsc -b` 0, eslint 0, ruff clean.
+13 of the new backend tests are the import itself.
+
+`POST /meta-connections/{connection_id}/discoveries/{run_id}/imports` closes the gap that left
+Business Managers and Accounts reading zero while a discovery listed eight ad accounts. The run id
+is in the path rather than resolved as "latest": the operator is acting on the result in front of
+them, and a run completing between render and click must not silently become the evidence for a
+write. It writes through A1's own registry service, so the record is indistinguishable from one
+typed by hand — and `unknown` readiness is part of that, because Meta having returned an account
+is not evidence this workspace is ready to run ads on it.
+
+Refusals are tested rather than assumed: an id the run did not return is 404 (otherwise this is
+account creation wearing discovery's evidence), a second import is 409, a run from another
+connection or another workspace is 404 and never 403, an unexpected body field is 422.
+
+**Deliberately not gated on coverage or authority.** Those gate conclusions about *absence*. An
+account that was returned was observed. Two tests carry that reasoning: one imports from a run
+whose client edge failed, one asserts no provider call is made at all.
+
+One test went red first because the audit field is `metadata_json`, not `metadata` — a guessed
+field name, the same class of error as `AdAccount.name` earlier in this project.

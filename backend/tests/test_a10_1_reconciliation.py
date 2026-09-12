@@ -16,6 +16,7 @@ import pytest
 
 from app.core.enums import (
     AssetReconciliationStatus,
+    BusinessAuthority,
     CoverageStatus,
     DiscoveryRunStatus,
     MetaEnvironment,
@@ -67,10 +68,14 @@ def _account(session, workspace, external_id, *, business_manager=None, name="Ac
     return row
 
 
-def _run_with(session, workspace, audit, connection, *, accounts=(), pixels=(), coverage=None):
+def _run_with(
+    session, workspace, audit, connection, *, accounts=(), pixels=(), coverage=None,
+    authority=BusinessAuthority.ESTABLISHED,
+):
     """Drive a real run through the service so coverage and observations are produced the same
     way production would produce them, then override coverage when a test needs a partial one."""
     provider = FakeMetaBusinessProvider()
+    provider.authority = authority
     provider.business_managers.append({"external_id": BM, "name": "Quảng Cáo Top"})
     provider.discovered_ad_accounts.extend(accounts)
     provider.discovered_pixels.extend(pixels)
@@ -103,6 +108,53 @@ def test_internal_account_with_proven_configured_bm_mapping_absent_from_complete
     service, run = _run_with(
         session, workspace, audit, connection,
         accounts=[DiscoveredAsset("222", "Still here", "owned_ad_accounts")],
+    )
+    rows = service.reconcile_ad_accounts(run)
+
+    assert run.ad_accounts_complete is True
+    assert _statuses(rows, "111") == [AssetReconciliationStatus.MISSING_FROM_LATEST_DISCOVERY]
+
+
+def test_an_unreadable_business_manager_never_licenses_a_missing_conclusion(
+    session, workspace, audit, connection
+):
+    """The A10.3 case, and the one this whole gate exists for.
+
+    Measured against real Meta on 2026-09-11: a token with no role in a Business Manager reads
+    that BM's node happily and gets `200` with `[]` from every asset edge — no error anywhere.
+    Before the authority gate this run reported `complete`, and `complete` is what licenses the
+    strongest conclusion in the product. Every registry account mapped to that BM would have
+    been reported as no longer returned by Meta, on the strength of a scan that never saw it.
+    """
+    business_manager = _bm(session, workspace, BM, "Quảng Cáo Top")
+    _account(session, workspace, "111", business_manager=business_manager, name="Still real")
+
+    service, run = _run_with(
+        session, workspace, audit, connection,
+        accounts=[],
+        authority=BusinessAuthority.NOT_ESTABLISHED,
+    )
+    rows = service.reconcile_ad_accounts(run)
+
+    assert run.business_authority == BusinessAuthority.NOT_ESTABLISHED
+    assert run.ad_account_coverage_status == CoverageStatus.UNKNOWN
+    assert run.ad_accounts_complete is False
+    assert _statuses(rows, "111") == [AssetReconciliationStatus.UNKNOWN]
+
+
+def test_an_empty_business_manager_the_token_can_read_still_reaches_a_missing_conclusion(
+    session, workspace, audit, connection
+):
+    """The other half, and the reason the gate is authority rather than emptiness: a Business
+    Manager that genuinely holds nothing is a real observation. Blocking it would suppress every
+    legitimate absence conclusion for an emptied BM forever."""
+    business_manager = _bm(session, workspace, BM, "Quảng Cáo Top")
+    _account(session, workspace, "111", business_manager=business_manager, name="Gone")
+
+    service, run = _run_with(
+        session, workspace, audit, connection,
+        accounts=[],
+        authority=BusinessAuthority.ESTABLISHED,
     )
     rows = service.reconcile_ad_accounts(run)
 

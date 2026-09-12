@@ -138,6 +138,29 @@ registry is ever changed by a discovery.
 always `out_of_scope`, because `Pixel` has no Business Manager relationship in the A1 schema and
 so cannot be proven to belong to the configured BM. No foreign key was added to paper over that.
 
+**A10.3 — authority gate (built 2026-09-11, not click-through verified yet).** Found by running
+the multi-BM token experiment against real Meta: a system-user token with **no role** in a
+Business Manager still reads that BM's node, and every asset edge answers `200` with an empty
+list and no error, while `{bm}/system_users` refuses. Coverage therefore said `complete` for an
+inventory of a Business Manager nobody could read — and `complete` is the single gate on
+`missing_from_latest_discovery`. Each run now carries a `BusinessAuthority`, asked only of an
+empty inventory; without it, coverage degrades to `unknown`. A readable-but-genuinely-empty BM is
+untouched, so legitimate absence conclusions still work. See `docs/AUDIT_BEFORE_BUILD_A10_3.md`.
+
+**A10.3 — registry import (built 2026-09-11, not click-through verified yet).** An explicit
+per-row "Add to registry" on each discovered ad account that is not registered yet. It closes the
+gap that left Business Managers and Accounts showing zero while a discovery listed eight accounts.
+It writes through A1's own registry service — same uniqueness guard, same audit row, same
+`unknown` readiness — creates the Business Manager row from the reference the run recorded, makes
+no provider call, and refuses any id the named run did not return. Deliberately not gated on
+coverage or authority: those gate conclusions about absence, and an account that was returned was
+observed. Nothing is offered for Pixels, which have no Business Manager relationship to import
+into.
+
+**Superseded:** the note below, from A10.1. The import was deferred there because reusing A7's
+preview/confirm machinery would have meant a fourth copy of that state machine. It is built here
+without that machinery instead — one row, one action, one audit record.
+
 **Deferred on purpose:** internal import/link. The spec asks it to reuse A7's preview/confirm
 primitives; `services/meta_batch.py` turns out to hold only a hash and a lease helper, with the
 state machine copy-implemented in three services, so building a fourth copy is exactly what the

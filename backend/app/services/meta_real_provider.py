@@ -16,9 +16,10 @@ permission produces "no, and here is why", not an optimistic guess.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
+from app.core.enums import BusinessAuthority
 from app.services.extension_context import canonical_external_id
 from app.services.meta_graph_transport import GraphResponse, MetaGraphTransport
 from app.services.meta_provider import (
@@ -31,6 +32,7 @@ from app.services.meta_provider import (
     MetaBusinessProvider,
     MetaFailureCode,
     MetaWriteNotEnabled,
+    ProviderIdentity,
     ShareAccessRequest,
     ShareAccessResult,
     SharePixelRequest,
@@ -135,6 +137,9 @@ class RealMetaBusinessProvider(MetaBusinessProvider):
     #: Empty means "not configured", which surfaces as a `False` capability with reason
     #: `NOT_CONFIGURED`. It never degrades into a silent success.
     business_id: str = ""
+    #: A10.3. Authority is asked once per Business Manager per provider instance: ad accounts and
+    #: Pixels of the same empty BM would otherwise each spend a call to learn the same fact.
+    _authority_cache: dict[str, BusinessAuthority] = field(default_factory=dict)
 
     # ------------------------------------------------------------------ read
 
@@ -211,6 +216,25 @@ class RealMetaBusinessProvider(MetaBusinessProvider):
         found, _ = self._read_business_managers()
         return found
 
+    def identify(self) -> ProviderIdentity:
+        """One read. `me` resolves to the system user this token belongs to.
+
+        Recorded with every run because the inventory depends on it: the same BM returned four
+        ad accounts to an Employee system user and eight to an Admin one on 2026-09-11. A run is
+        evidence about what *this* identity could see, never about the Business Manager alone.
+
+        A failure here is not fatal — an unknown identity is reported as unknown rather than
+        blocking a discovery that would otherwise work.
+        """
+        response = self.transport.get("me", {"fields": "id,name"})
+        if not response.ok:
+            return ProviderIdentity()
+        identifier = response.payload.get("id")
+        return ProviderIdentity(
+            external_id=str(identifier) if identifier else None,
+            name=str(response.payload.get("name") or ""),
+        )
+
     def discover_ad_accounts(self, business_id: str) -> AssetDiscovery:
         return self._discover(business_id, AD_ACCOUNT_EDGES, AD_ACCOUNT_FIELDS, _ad_account_from_row)
 
@@ -249,8 +273,43 @@ class RealMetaBusinessProvider(MetaBusinessProvider):
                 seen.add(asset.external_id)
                 assets.append(asset)
         return AssetDiscovery(
-            assets=tuple(assets), edges=tuple(outcomes), required_edges=edges
+            assets=tuple(assets),
+            edges=tuple(outcomes),
+            required_edges=edges,
+            # Asked only when nothing came back. Assets are their own proof of authority, so the
+            # common case costs no extra call and records `not_checked` — this field says what an
+            # explicit check answered, never what was inferred. Claiming `established` here would
+            # put two different values on the same Business Manager's two asset types and leave
+            # the run-level summary to pick a winner.
+            authority=(
+                self.check_business_authority(business_id)
+                if not assets
+                else BusinessAuthority.NOT_CHECKED
+            ),
         )
+
+    def check_business_authority(self, business_id: str) -> BusinessAuthority:
+        """Ask Meta something only a member of this Business Manager can read.
+
+        `{business-id}/system_users` is that question: measured 2026-09-11, it returned rows for
+        the Business Manager this token administers and `permission_missing` for two it has no
+        role in — while those same two answered `200` with an empty list on every asset edge.
+
+        A refusal is recorded as `not_established`, never as proof of non-membership: reading
+        this edge can itself require an admin role, so a narrow-but-real member would also be
+        refused. Both readings forbid concluding an asset is missing, which is all this gate
+        needs to decide.
+        """
+        if not business_id:
+            return BusinessAuthority.NOT_CHECKED
+        if business_id in self._authority_cache:
+            return self._authority_cache[business_id]
+        response = self.transport.get(f"{business_id}/system_users", {"fields": "id"})
+        authority = (
+            BusinessAuthority.ESTABLISHED if response.ok else BusinessAuthority.NOT_ESTABLISHED
+        )
+        self._authority_cache[business_id] = authority
+        return authority
 
     def _read_edge(
         self,

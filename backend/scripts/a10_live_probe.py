@@ -37,6 +37,17 @@ Flags, each costing extra read calls:
   system user demonstrably has assets assigned. Reads `me` and then the Business Manager
   directly, which separates "this token cannot see that BM" from "`me/businesses` is simply the
   wrong edge for a system user token" (+2 calls).
+
+**The multi-BM experiment** (`docs/AUDIT_BEFORE_BUILD_A10_3.md` §4). Whether one system-user
+token can read a *second* Business Manager decides which of two designs A10.3 is, and it cannot
+be answered from documentation. Add this system user to the second BM in its Business Settings,
+then:
+
+    .venv/bin/python scripts/a10_live_probe.py --bm <second-bm-id> --assets
+
+`--bm` proves the BM node is readable; `--assets` proves its ad account and Pixel edges are too,
+which is what discovery actually needs. Reading the node alone is not enough to conclude the
+design works. With `--bm` present, `--assets` targets that BM instead of the configured one.
 """
 from __future__ import annotations
 
@@ -176,6 +187,27 @@ def main() -> int:
                 print("  methods raise and the transport has no POST. The permission being present")
                 print("  is not the same as the product being able to use it.")
 
+        # Scope and role are different gates, and only one of them shows up above. Meta's create
+        # endpoint requires a Business *Admin*; a token can hold `ads_management` while its
+        # system user is an Employee, and the create fails on the role, not the scope.
+        if settings.meta_business_id:
+            print("\n  System user roles on this Business Manager (1 more read call):")
+            users = provider.transport.get(
+                f"{settings.meta_business_id}/system_users", {"fields": "id,name,role"}
+            )
+            if not users.ok:
+                print(f"    FAILED — {_code(users)}")
+                print("    (reading this edge may itself need admin; a refusal is not proof of")
+                print("     anything either way)")
+            else:
+                rows = users.payload.get("data", [])
+                if not rows:
+                    print("    none returned")
+                for row in rows:
+                    role = str(row.get("role", "unknown"))
+                    mark = "ADMIN" if "ADMIN" in role.upper() else "     "
+                    print(f"    {mark}  {row.get('name', '(no name)')}  role={role}")
+
     bm_id = _flag_value("--bm")
     if bm_id:
         print(f"\nDiagnosis for BM {bm_id} (2 more read calls):")
@@ -186,30 +218,56 @@ def main() -> int:
             print(f"  GET me      : FAILED — {_code(who)}")
 
         business = provider.transport.get(bm_id, {"fields": "id,name"})
+        second = bm_id != settings.meta_business_id
         if business.ok:
             print(f"  GET {bm_id} : id={business.payload.get('id')}  name={business.payload.get('name', '')}")
-            print("\n  VERDICT: the token CAN read this Business Manager directly.")
-            print("  `me/businesses` returning 0 is then the wrong edge for a system user token")
-            print("  — a defect in this product's provider, not a permission problem on Meta.")
+            if second:
+                # The A10.3 question. Half an answer: the node is readable, but discovery reads
+                # edges, so `--assets` has to agree before this becomes a design decision.
+                print("\n  VERDICT (multi-BM): this token reads a SECOND Business Manager's node.")
+                print("  Necessary, not sufficient — run with --assets to confirm the ad account")
+                print("  and Pixel edges answer too. If they do, A10.3 is Shape A (one token,")
+                print("  a BM id stored per connection). See docs/AUDIT_BEFORE_BUILD_A10_3.md §4.")
+            else:
+                print("\n  VERDICT: the token CAN read this Business Manager directly.")
+                print("  `me/businesses` returning 0 is then the wrong edge for a system user token")
+                print("  — a defect in this product's provider, not a permission problem on Meta.")
         else:
             print(f"  GET {bm_id} : FAILED — {_code(business)}")
-            print("\n  VERDICT: the token cannot read this Business Manager either. That points")
-            print("  at assignment/permission on the Meta side rather than at the chosen edge.")
+            if second:
+                print("\n  VERDICT (multi-BM): this token cannot read a second Business Manager.")
+                print("  Check first that the system user was actually added to it in Business")
+                print("  Settings — a refusal before that step measures nothing. If it was added")
+                print("  and this still fails, A10.3 is Shape B: one configured token per BM,")
+                print("  named in server configuration, never stored in the database.")
+            else:
+                print("\n  VERDICT: the token cannot read this Business Manager either. That points")
+                print("  at assignment/permission on the Meta side rather than at the chosen edge.")
 
     if "--assets" in sys.argv:
-        target = settings.meta_business_id
+        # `--bm` wins: the multi-BM experiment needs the edges of the *second* BM, and reading
+        # the configured one again would answer a question nobody asked.
+        target = bm_id or settings.meta_business_id
         if not target:
-            print("\nAsset discovery : skipped — META_BUSINESS_ID is not set, so there is no BM")
-            print("                  to read assets from.")
+            print("\nAsset discovery : skipped — META_BUSINESS_ID is not set and no --bm was")
+            print("                  given, so there is no BM to read assets from.")
         else:
             print(f"\nAsset discovery for BM {target} (at least 3 more read calls):")
+            if target != settings.meta_business_id:
+                print("  This is NOT the configured Business Manager — it is the A10.3 experiment:")
+                print("  can one system-user token read a second BM's asset edges, not just its")
+                print("  node? Every edge below must answer for the answer to be yes.")
             print("  The open question: a BM holds ad accounts it owns AND ad accounts clients")
             print("  shared into it, on two different edges. `client_ad_accounts` could not be")
             print("  verified in Meta's docs, so this is how we find out whether it answers.\n")
+            second_bm_edges_ok = True
+            second_bm_assets_seen = 0
             for label, discovery in (
                 ("ad accounts", provider.discover_ad_accounts(target)),
                 ("pixels", provider.discover_pixels(target)),
             ):
+                second_bm_edges_ok = second_bm_edges_ok and discovery.complete
+                second_bm_assets_seen += len(discovery.assets)
                 print(f"  {label}: {len(discovery.assets)} returned, complete={discovery.complete}")
                 for edge in discovery.edges:
                     detail = f"pages={edge.pages_read}"
@@ -222,6 +280,31 @@ def main() -> int:
                     print(f"      - {asset.external_id}  {asset.name}  [{asset.source_edge}]")
                 if not discovery.complete:
                     print("      -> INCOMPLETE: this run may not conclude anything is missing.")
+                print()
+
+            if target != settings.meta_business_id:
+                if second_bm_edges_ok and second_bm_assets_seen == 0:
+                    # The A10 defect, one level up. A 200 carrying nothing is not evidence of
+                    # access: Meta returns an empty list both when a BM holds no assets and when
+                    # this token may not see the ones it holds. The earlier version of this
+                    # verdict called that Shape A, which is exactly the mistake `check_capability`
+                    # was repaired for.
+                    print("  VERDICT (multi-BM): INCONCLUSIVE. Every edge answered, and every edge")
+                    print("  returned nothing. An empty 200 does not distinguish 'this Business")
+                    print("  Manager holds no assets' from 'this token may not see its assets'.")
+                    print("  Settle it in Business Settings: if the BM demonstrably holds ad")
+                    print("  accounts, this is a permission gap and the design question is still")
+                    print("  open. If it is genuinely empty, re-run against a BM that is not.")
+                elif second_bm_edges_ok:
+                    print(f"  VERDICT (multi-BM): every required edge answered and {second_bm_assets_seen}")
+                    print("  asset(s) came back from a SECOND Business Manager. A10.3 is Shape A —")
+                    print("  store a BM id per connection, keep one token in server configuration.")
+                else:
+                    print("  VERDICT (multi-BM): at least one required edge did not answer on the")
+                    print("  second Business Manager. Partial access is not enough: a discovery")
+                    print("  that cannot read every required edge is never allowed to conclude an")
+                    print("  asset is missing. Read the per-edge failure above — a permission gap")
+                    print("  is fixable in Business Settings, a flat refusal means Shape B.")
                 print()
 
     capability = provider.check_capability()

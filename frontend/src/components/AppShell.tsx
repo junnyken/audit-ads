@@ -12,6 +12,10 @@ const NAV = [
   { to: '/business-managers', label: 'Business Managers' },
   { to: '/assets', label: 'Assets' },
   { to: '/operations', label: 'Operations' },
+  // A10.1 promoted this from a Settings link: reading the configured Business Manager is a
+  // daily workflow now, not a one-off configuration step, and it was only reachable from
+  // Settings and from inside a wizard.
+  { to: '/meta-connections', label: 'Meta connection' },
   { to: '/alerts', label: 'Alerts' },
   { to: '/settings', label: 'Settings' },
 ]

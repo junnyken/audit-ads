@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from app.core.enums import CoverageStatus
+from app.core.enums import BusinessAuthority, CoverageStatus
 from app.services.meta_graph_transport import GraphResponse
 from app.services.meta_provider import (
     AssetDiscovery,
@@ -236,15 +236,75 @@ def test_an_unconfigured_business_id_never_reaches_the_network():
     assert [edge.edge for edge in result.edges] == list(AD_ACCOUNT_EDGES)
 
 
-def test_a_completed_empty_scan_is_complete_with_no_assets():
+def test_a_completed_empty_scan_is_complete_when_authority_was_established():
     """An empty result is a valid observation, not a failure. It must not read as either
-    'discovery broken' or 'assets confirmed absent from Meta'."""
-    provider, _ = _provider(_page([]), _page([]))
+    'discovery broken' or 'assets confirmed absent from Meta'.
+
+    A10.3 added the third page: an empty inventory now has to prove the token may read this
+    Business Manager at all, and `{bm}/system_users` answering is that proof.
+    """
+    provider, _ = _provider(_page([]), _page([]), _page([{"id": "sysuser-1"}]))
     result = provider.discover_ad_accounts(BM)
 
     assert result.assets == ()
+    assert result.authority == BusinessAuthority.ESTABLISHED
     assert result.complete is True
     assert result.reason is None
+
+
+def test_an_empty_scan_of_an_unreadable_business_manager_is_never_complete():
+    """Measured against real Meta on 2026-09-11: a token with no role in a BM still reads the BM
+    node and gets `200` with `[]` from every asset edge, while `{bm}/system_users` refuses. An
+    error-free empty inventory is therefore not evidence that the BM is empty, and `complete` is
+    what licenses `missing_from_latest_discovery`."""
+    provider, _ = _provider(
+        _page([]),
+        _page([]),
+        GraphResponse(ok=False, payload={}, failure_code=MetaFailureCode.PERMISSION_MISSING),
+    )
+    result = provider.discover_ad_accounts(BM)
+
+    assert result.assets == ()
+    assert result.authority == BusinessAuthority.NOT_ESTABLISHED
+    assert result.coverage_status == CoverageStatus.UNKNOWN
+    assert result.complete is False
+    # No edge failed, so there is no edge-level reason to report. That is precisely why this
+    # case needed a dimension of its own rather than another failure code.
+    assert result.reason is None
+
+
+def test_authority_is_asked_once_per_business_manager_not_once_per_asset_type():
+    """Ad accounts and Pixels of the same empty BM would otherwise each spend a call to learn
+    the same fact, on a token whose rate-limit budget is shared across the whole app."""
+    provider, transport = _provider(
+        _page([]),
+        _page([]),
+        _page([{"id": "sysuser-1"}]),
+        _page([]),
+    )
+
+    provider.discover_ad_accounts(BM)
+    provider.discover_pixels(BM)
+
+    authority_calls = [path for path, _ in transport.calls if path.endswith("/system_users")]
+    assert len(authority_calls) == 1
+
+
+def test_a_non_empty_inventory_is_never_charged_for_an_authority_check():
+    """Assets that came back are their own proof, so the check is not spent — and the field
+    records `not_checked` rather than an inferred `established`. Inferring would put two
+    different authority values on one Business Manager's two asset types, and leave the
+    run-level summary to pick a winner between them."""
+    provider, transport = _provider(
+        _page([{"account_id": "111", "name": "Owned"}]),
+        _page([]),
+    )
+
+    result = provider.discover_ad_accounts(BM)
+
+    assert result.authority == BusinessAuthority.NOT_CHECKED
+    assert result.complete is True
+    assert not [path for path, _ in transport.calls if path.endswith("/system_users")]
 
 
 # ----------------------------------------------------------------------- coverage rules
@@ -252,8 +312,17 @@ def test_a_completed_empty_scan_is_complete_with_no_assets():
 AD_EDGES = ("owned_ad_accounts", "client_ad_accounts")
 
 
-def _ad_coverage(*edges: EdgeOutcome, assets: tuple[DiscoveredAsset, ...] = ()) -> AssetDiscovery:
-    return AssetDiscovery(assets=assets, edges=edges, required_edges=AD_EDGES)
+def _ad_coverage(
+    *edges: EdgeOutcome,
+    assets: tuple[DiscoveredAsset, ...] = (),
+    authority: BusinessAuthority = BusinessAuthority.ESTABLISHED,
+) -> AssetDiscovery:
+    """`authority` defaults to established: these cases are about *edge* coverage, so the premise
+    is a Business Manager the token demonstrably may read. A10.3 made that premise explicit —
+    without it, an empty inventory is no longer evidence of an empty Business Manager."""
+    return AssetDiscovery(
+        assets=assets, edges=edges, required_edges=AD_EDGES, authority=authority
+    )
 
 
 def _ok(edge: str) -> EdgeOutcome:

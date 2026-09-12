@@ -18,8 +18,15 @@ from datetime import UTC, datetime
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from app.core.enums import AssetReconciliationStatus, DiscoveryRunStatus, DiscoveryTrigger
-from app.core.errors import ConflictError
+from app.core.enums import (
+    AccountType,
+    AssetReconciliationStatus,
+    BusinessAuthority,
+    DiscoveryRunStatus,
+    DiscoveryTrigger,
+    EvaluationTrigger,
+)
+from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.models.entities import AdAccount, BusinessManager, Pixel
 from app.models.meta_discovery import (
     BusinessManagerDiscoveryRun,
@@ -28,8 +35,11 @@ from app.models.meta_discovery import (
 )
 from app.models.meta_operations import MetaConnection
 from app.services.audit import AuditLogService
+from app.services.base import require_active, snapshot
 from app.services.extension_context import canonical_external_id
+from app.services.health_service import AccountHealthEvaluationService
 from app.services.meta_provider import AssetDiscovery, MetaBusinessProvider, MetaFailureCode
+from app.services.registry import AdAccountRegistryService
 
 #: Local aliases, purely so the decision trees below read as the rules they implement.
 MATCHED = AssetReconciliationStatus.MATCHED
@@ -53,6 +63,23 @@ class ReconciliationRow:
     #: have. `missing_from_latest_discovery` says only "not returned by the latest completed
     #: discovery" — never "deleted", "removed" or "lost".
     detail: str | None = None
+
+
+def _authority_of(*discoveries: AssetDiscovery) -> BusinessAuthority:
+    """One authority per run, because authority is a fact about the Business Manager, not about
+    an asset type.
+
+    A non-empty inventory records `not_checked` — it proved its own authority and no call was
+    spent — so in practice at most one asset type carries a checked answer, and this collapses
+    them without having to pick a winner. `established` settles it; a checked-and-refused answer
+    is recorded as such; only when nothing asked at all does this stay `not_checked`.
+    """
+    values = {discovery.authority for discovery in discoveries}
+    if BusinessAuthority.ESTABLISHED in values:
+        return BusinessAuthority.ESTABLISHED
+    if BusinessAuthority.NOT_ESTABLISHED in values:
+        return BusinessAuthority.NOT_ESTABLISHED
+    return BusinessAuthority.NOT_CHECKED
 
 
 def _coverage_payload(discovery: AssetDiscovery) -> dict:
@@ -190,9 +217,17 @@ class MetaDiscoveryService:
         if run.status != DiscoveryRunStatus.SUCCEEDED:
             raise ConflictError("Validate the configured Business Manager before reading assets.")
 
+        # Recorded before the inventory it qualifies. What a run can see depends on which
+        # identity asked, so an inventory without its reader is evidence about nothing in
+        # particular.
+        identity = self.provider.identify()
+        run.provider_actor_external_id = identity.external_id
+        run.provider_actor_name = identity.name or None
+
         accounts = self.provider.discover_ad_accounts(self.business_id)
         pixels = self.provider.discover_pixels(self.business_id)
 
+        run.business_authority = _authority_of(accounts, pixels)
         run.ad_account_required_edges_json = list(accounts.required_edges)
         run.ad_account_coverage_json = _coverage_payload(accounts)
         run.ad_account_coverage_status = accounts.coverage_status
@@ -243,6 +278,118 @@ class MetaDiscoveryService:
             action="meta_discovery.assets_discovered",
         )
         return run
+
+    # ------------------------------------------------------------------- import
+
+    def import_ad_account(
+        self, run: BusinessManagerDiscoveryRun, external_account_id: str
+    ) -> AdAccount:
+        """Register one observed ad account in the A1 registry, on an explicit request.
+
+        One row at a time, never automatic. Discovery reads Meta; the registry is what this
+        workspace has decided to track and is answerable for. Collapsing the two would turn every
+        scan into a silent writer, and A10.1 deliberately shipped with no such path.
+
+        **Coverage and authority are not gates here**, and the asymmetry is the whole point. They
+        gate conclusions about *absence*: "this account is gone" only means something against a
+        full inventory read by an identity allowed to see it. Presence needs neither — the account
+        was returned by Meta, which is evidence it exists, whatever else the run failed to read.
+        Requiring complete coverage to import would block the first import of a Business Manager
+        whose client edge happens to be refused, for no gain in truth.
+
+        Nothing is fabricated on the way in: readiness and health start at `unknown`, exactly as
+        they do for an account an operator types by hand. Having been seen in Meta is not evidence
+        of being ready to run.
+        """
+        canonical = canonical_external_id(external_account_id)
+        if not canonical:
+            raise ValidationError(
+                "An ad account id is required.", details={"field": "external_account_id"}
+            )
+
+        observation = self.session.execute(
+            sa.select(DiscoveredAdAccountObservation).where(
+                DiscoveredAdAccountObservation.business_manager_discovery_run_id == run.id,
+                DiscoveredAdAccountObservation.external_account_id == canonical,
+            )
+        ).scalar_one_or_none()
+        if observation is None:
+            # Imports are only ever made from something this run actually returned. Accepting an
+            # arbitrary id here would turn a read-only feature into a general account-creation
+            # endpoint wearing discovery's evidence.
+            raise NotFoundError("This ad account was not returned by that discovery run.")
+
+        business_manager = self._registry_business_manager(run)
+        registry = AdAccountRegistryService(self.session, self.workspace_id, self.audit)
+        account = registry.create(
+            {
+                "display_name": observation.display_name or canonical,
+                "external_account_id": canonical,
+                "account_type": AccountType.BUSINESS_MANAGER,
+                "business_manager_id": business_manager.id,
+            }
+        )
+        AccountHealthEvaluationService(
+            self.session, self.workspace_id, self.audit, self.audit.actor_id
+        ).evaluate_account_safe(
+            account, trigger=EvaluationTrigger.ACCOUNT_MUTATION, trigger_reference_id=str(run.id)
+        )
+        # `registry.create` already writes `ad_account.created`. This second row is the
+        # provenance: which run, which identity read it, and which edge produced it — the facts
+        # that answer "where did this record come from" a month from now.
+        self.audit.record(
+            action="meta_discovery.ad_account_imported",
+            entity_type="ad_account",
+            entity_id=account.id,
+            metadata={
+                "discovery_run_id": str(run.id),
+                "business_manager_reference": run.configured_business_manager_reference,
+                "source_edge": observation.source_edge,
+                "read_as": run.provider_actor_name,
+            },
+        )
+        return account
+
+    def _registry_business_manager(self, run: BusinessManagerDiscoveryRun) -> BusinessManager:
+        """The registry row for the Business Manager this run read, created if absent.
+
+        Created rather than demanded: the run has already proved this Business Manager exists and
+        proved which one the account came from. Making an operator retype an id they cannot get
+        wrong is the friction that left the Business Managers page empty while eight accounts sat
+        in a discovery result.
+
+        An existing row is reused by external id, so importing a second account does not produce
+        a second Business Manager.
+        """
+        reference = canonical_external_id(run.configured_business_manager_reference)
+        if not reference:
+            raise ConflictError("This discovery run did not record a Business Manager.")
+
+        existing = self.session.execute(
+            sa.select(BusinessManager).where(
+                BusinessManager.workspace_id == self.workspace_id,
+                BusinessManager.external_id == reference,
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            require_active(existing, label="Business Manager")
+            return existing
+
+        business_manager = BusinessManager(
+            workspace_id=self.workspace_id,
+            external_id=reference,
+            name=run.configured_business_manager_name or reference,
+        )
+        self.session.add(business_manager)
+        self.session.flush()
+        self.audit.record(
+            action="business_manager.created",
+            entity_type="business_manager",
+            entity_id=business_manager.id,
+            after=snapshot(business_manager),
+            metadata={"created_from_discovery_run_id": str(run.id)},
+        )
+        return business_manager
 
     # ------------------------------------------------------------- reconciliation
 

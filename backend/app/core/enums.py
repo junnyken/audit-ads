@@ -550,6 +550,31 @@ class CoverageStatus(StrEnum):
     NOT_ATTEMPTED = "not_attempted"
 
 
+class BusinessAuthority(StrEnum):
+    """Whether the provider positively proved it may read a Business Manager's assets.
+
+    Measured against real Meta on 2026-09-11, and the reason this enum exists: a system-user
+    token with no role in a Business Manager can still read that BM's **node** (`id`, `name`),
+    and its asset edges answer `200` with an empty list and no error — while
+    `{business-id}/system_users`, same token, same BM, refuses with `permission_missing`. One
+    business, two edges, two different failure languages.
+
+    So an error-free empty inventory does not distinguish "this Business Manager holds nothing"
+    from "this token may not see what it holds". Without this dimension the first reading wins
+    by default, and `complete` — the single gate on `missing_from_latest_discovery` — is granted
+    to a Business Manager nobody could actually read.
+    """
+
+    #: Nobody asked. The honest default: it must never read as access (hard rule 4).
+    NOT_CHECKED = "not_checked"
+    #: A positive answer to something only a member can read.
+    ESTABLISHED = "established"
+    #: The check was made and did not come back positive. Deliberately one value, not two:
+    #: "no role at all" and "a role too narrow to prove itself" are indistinguishable from
+    #: outside, and collapsing them into access is the defect this prevents.
+    NOT_ESTABLISHED = "not_established"
+
+
 class AssetReconciliationStatus(StrEnum):
     """`missing_from_latest_discovery` says only what it says: the asset was not returned by the
     most recent *complete* scan. It is never evidence that Meta deleted, disabled or restricted

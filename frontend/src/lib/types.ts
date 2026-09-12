@@ -744,6 +744,8 @@ export interface LandingPageEvidence {
 
 // -------------------------------------------------------------------- A7: Meta operations
 export type MetaEnvironment = 'fake' | 'sandbox' | 'production'
+
+export type BusinessAuthority = 'not_checked' | 'established' | 'not_established'
 export type MetaBatchItemStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'unknown'
 
 export interface MetaCapabilities {
@@ -821,6 +823,13 @@ export interface DiscoveryRun {
   trigger: string
   environment: MetaEnvironment
   business_manager: { reference: string | null; name: string | null }
+  /** Which Meta identity produced this run. The same BM returns different assets to different
+   * system users, so a count means little without knowing who was asking. */
+  read_as: { external_id: string | null; name: string | null }
+  /** Whether the reader could prove it may read this Business Manager at all. Asked only of an
+   * empty inventory: a token with no role in a BM still reads the BM node, and its asset edges
+   * answer 200 with an empty list and no error. */
+  business_authority: BusinessAuthority
   started_at: string | null
   completed_at: string | null
   freshness: 'current' | 'stale' | 'unknown'
@@ -828,6 +837,32 @@ export interface DiscoveryRun {
   failure_summary: string | null
   ad_accounts: DiscoveryAssetResult
   pixels: DiscoveryAssetResult
+}
+
+/** One row of the Overview discovery table: the latest run per connection, no reconciliation. */
+export interface DiscoverySummaryRow {
+  connection_id: string
+  connection_label: string
+  environment: MetaEnvironment
+  run: {
+    id: string
+    status: DiscoveryRun['status']
+    business_manager: { reference: string | null; name: string | null }
+    read_as: { external_id: string | null; name: string | null }
+    business_authority: BusinessAuthority
+    completed_at: string | null
+    freshness: DiscoveryRun['freshness']
+    ad_accounts: {
+      coverage_status: CoverageStatus
+      count: number | null
+      edges: Record<string, DiscoveryEdgeCoverage>
+    }
+    pixels: {
+      coverage_status: CoverageStatus
+      count: number | null
+      edges: Record<string, DiscoveryEdgeCoverage>
+    }
+  } | null
 }
 
 export interface AccountCreationBatch {

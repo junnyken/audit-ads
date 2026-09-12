@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import type { MetaConnection } from '../lib/types'
+import type { MetaConnection, MetaEnvironment } from '../lib/types'
 import { Badge, Card, EmptyState, ErrorState, Field, Skeleton } from '../components/ui'
 import { DiscoverySection } from '../components/meta/DiscoverySection'
 import { formatDateTime } from '../lib/format'
@@ -76,7 +76,7 @@ function ConnectionCard({ connection }: { connection: MetaConnection }) {
             </ul>
           </div>
         )}
-        <DiscoverySection connectionId={connection.id} />
+        <DiscoverySection connectionId={connection.id} connectionLabel={connection.label} />
       </div>
     </Card>
   )
@@ -90,8 +90,9 @@ export default function MetaConnections() {
     queryFn: () => api.get<MetaConnection[]>('/api/v1/meta-connections'),
   })
 
+  const [environment, setEnvironment] = useState<MetaEnvironment>('fake')
   const create = useMutation({
-    mutationFn: () => api.post<MetaConnection>('/api/v1/meta-connections', { label, environment: 'fake' }),
+    mutationFn: () => api.post<MetaConnection>('/api/v1/meta-connections', { label, environment }),
     onSuccess: () => {
       setLabel('')
       void queryClient.invalidateQueries({ queryKey: ['meta-connections'] })
@@ -129,14 +130,30 @@ export default function MetaConnections() {
               />
             </Field>
           </div>
+          <div className="min-w-[180px]">
+            <Field label="Environment" htmlFor="connection-environment">
+              <select
+                id="connection-environment"
+                className="input"
+                value={environment}
+                onChange={(event) => setEnvironment(event.target.value as MetaEnvironment)}
+              >
+                <option value="fake">Fake (local testing)</option>
+                <option value="sandbox">Sandbox</option>
+                <option value="production">Production</option>
+              </select>
+            </Field>
+          </div>
           <button type="submit" className="btn-primary" disabled={create.isPending || !label.trim()}>
             {create.isPending ? 'Adding…' : 'Add connection'}
           </button>
         </form>
         {create.isError && <ErrorState error={create.error} />}
         <p className="mt-2 text-[11.5px] text-ink-faint">
-          Only the fake environment is reachable in this build — no real Meta App is connected
-          anywhere yet.
+          Only <strong>Production</strong> can reach Meta, and only when the server also has a
+          token configured — either condition missing and the connection quietly uses the fake
+          provider rather than making a surprise call. Everything this build does against Meta is
+          read-only: it cannot create, share or change anything.
         </p>
       </Card>
 
