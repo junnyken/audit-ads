@@ -21,3 +21,6 @@ backups/
 
 # Build output packaged as a file rather than a directory — `dist/` above does not match it.
 extension/dist.zip
+
+# Local dev server pids and logs (scripts/dev.sh)
+.dev/
