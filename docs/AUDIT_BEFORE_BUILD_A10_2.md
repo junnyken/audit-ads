@@ -109,10 +109,50 @@ the same class of thing, on a path where the mistake is permanent.
 **Recommendation: click-through A10.1 first.** It is an hour, and it is the cheapest evidence
 available before the first irreversible write.
 
+## 8. Built — 2026-09-12
+
+§2's recommendation was followed exactly: `MetaGraphTransport` was not widened. It gained one
+`post()`, refusing every path but `{business-id}/adaccount`, anchored at both ends; PATCH and
+DELETE remain absent. `test_the_transport_is_get_only_by_construction` was replaced by
+`test_the_transport_can_create_but_can_never_modify_or_delete` plus a path-refusal test — visibly,
+with the reason in the new docstring, because the old one had named itself as the tripwire.
+
+§4's decision was taken as written: `reconcile_create` returns `None`, and the cost is stated
+rather than softened — a timed-out create stays `unknown` until a person looks. The provider maps
+a timeout, and also a dropped connection, to `unknown` rather than `failed`, because neither can
+prove the request never arrived.
+
+Meta's three required-but-unchosen fields are derived from the batch's own Business Manager id, so
+everything sent is derivable from what was previewed. **They are an unverified assumption about
+Meta's API** — `end_advertiser` set to the Business Manager itself, `media_agency` and `partner`
+`NONE` — because this path has never run against the real endpoint. A wrong assumption returns
+`invalid_request` and creates nothing, which is the correct way for it to fail.
+
+### §3's prerequisites, re-checked
+
+| Prerequisite | Status on 2026-09-12 |
+|---|---|
+| `ads_management` permission | **Met** — confirmed on the token via `debug_token` |
+| System user's role | **Met, and measured today**: `{bm}/system_users` returns `adsops-admin` as **ADMIN** on `1993884657458857`. §3 had this as "unverified; creation may require Admin" |
+| Target Business Manager confirmed | **Met** in practice — it is the BM every session has worked against |
+| **Billing configured** | **Still unverified.** `billing_required` now has its own failure code so this is named rather than reported as a generic rejection |
+| **Ad-account quota and usage** | **Still unknown.** Meta does not expose it; §3's own words apply — "a pilot that consumes the last slot is a different decision from one that consumes the fifth of fifty" |
+
+Two of five remain, and both are the ones only the operator can close. §7 stands unchanged: the
+capability exists, and no real create has been issued.
+
+### §6's prerequisite, partly met
+
+A10.1 has now been click-through verified in a real browser — discovery, the Overview card, the
+per-connection Business Manager, and the authority gate returning `0 · Unknown` on a Business
+Manager the token has no role in. Four defects were found that way and none by tests, which is
+what §6 predicted. **The import action is still unclicked**, and the production frontend is
+unreachable at its edge, so the click-through has to happen locally.
+
 ## 7. Standing confirmations
 
 - No write has been implemented or invoked. The two barriers in §2 are intact.
 - No code was changed to produce this audit.
 - Executing a real create — even one — requires the operator's explicit, separate approval for
   that specific action, naming the BM. Building the capability is not approval to use it
-  (CLAUDE.md rule 22).
+  (CLAUDE.md rule 22). **Still true after §8: the capability is built and has never been used.**

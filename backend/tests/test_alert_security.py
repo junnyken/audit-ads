@@ -218,7 +218,13 @@ def test_only_named_modules_may_make_an_outbound_request():
     modules has its own test proving what it's restricted to
     (`test_the_telegram_transport_only_ever_targets_the_configured_api_base` for Telegram;
     SSRF protection tests in `test_a6_preflight_rules.py` for the landing-page fetch;
-    `test_a10_meta_real_provider.py` for the Graph transport, including that it is GET-only)."""
+    `test_a10_meta_real_provider.py` for the Graph transport).
+
+    The Graph transport was GET-only until A10.2, which enabled exactly one write. The narrowing
+    moved rather than disappeared: it can now POST, but only to `{business-id}/adaccount`, and it
+    still has no method that can PATCH or DELETE — nothing already on Meta can be modified or
+    removed from here. See `test_the_transport_can_create_but_can_never_modify_or_delete` and
+    `test_the_transport_refuses_every_post_path_except_creating_an_ad_account`."""
     browsers = re.compile(
         r"^\s*(import|from)\s+(selenium|playwright|pyppeteer|undetected_chromedriver|splinter)\b",
         re.MULTILINE,

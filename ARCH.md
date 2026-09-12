@@ -562,6 +562,42 @@ two `out_of_scope` branches. Pixels can never reach it: `Pixel` has no Business 
 relationship in the A1 schema, so a registry Pixel cannot be shown to belong to the configured
 BM. That asymmetry is reported in the payload rather than hidden.
 
+### 4g. The one write (A10.2)
+
+A10 made "read-only" a property of the types, with two independent barriers: the provider's write
+methods raised, and the transport had no method that could POST. A10.2 removed the second one —
+deliberately, visibly, and as narrowly as it could be removed.
+
+`MetaGraphTransport.post()` exists and refuses every path except `{business-id}/adaccount`,
+anchored at both ends. PATCH and DELETE are still absent, so nothing that already exists on Meta
+can be modified or removed from this backend. The distinction the audit drew is the one that
+matters: a transport that can POST *anywhere* is a far larger surface than one that can create
+*one kind of thing*. `test_the_transport_is_get_only_by_construction` was replaced rather than
+quietly edited — its own docstring had named itself as the thing that must be deleted first.
+
+Three properties carry the safety, and each is a test:
+
+- **Everything sent is derivable from what was previewed.** Meta requires `end_advertiser`,
+  `media_agency` and `partner`, which nobody chooses; they are derived from the batch's Business
+  Manager id rather than invented at call time. A field sent to Meta that is not inside the
+  preview hash would let an operator confirm one thing and have another created.
+- **A timed-out create is `unknown`, never `failed`.** `failed` invites a retry, and a retry
+  would create a second real ad account. A dropped connection maps the same way: it cannot prove
+  the request never arrived. This is the opposite of the GET path, where a network error is
+  retryable.
+- **`reconcile_create` answers `None`, by decision.** Meta has no idempotency key for ad account
+  creation, and matching by name is forbidden (A10.1 guardrail 14, A5 rule 31). So a timed-out
+  create stays `unknown` until a person opens Business Settings and looks. An `unknown` that
+  resolved itself to `succeeded` would be the worst defect this product could ship.
+
+Sharing ad-account access and sharing a Pixel were left out of A10.2's scope and still raise.
+Live batches remain capped at `META_WRITE_PILOT_MAX_ITEMS` (default 1) whenever the provider
+reports `writes_are_real`.
+
+**Building the capability is not permission to use it** (rule 22). At the time of writing no real
+create has been issued, and two prerequisites from the audit are still unverified: billing on the
+target Business Manager, and how many of its ad-account slots remain.
+
 ## 5. Security model
 
 | Control | Implementation |

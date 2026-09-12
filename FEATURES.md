@@ -1,5 +1,68 @@
 # FEATURES
 
+## Current status — 2026-09-12
+
+A one-page picture of what this tool does, what actually runs, and what is blocked. Everything
+below is measured, not assumed; anything unverified says so.
+
+### What it is
+
+An internal operations console for running Meta ad accounts: a registry of accounts and the
+Business Managers, Pages, Pixels, payment profiles, browser profiles and proxies they depend on;
+an evidence-based readiness state; a separate health state; an alert centre; a Chrome extension
+that recognises which account an operator is looking at; and a read-only connection to the Meta
+Graph API that can now create exactly one kind of thing.
+
+Its governing idea: **missing evidence degrades to `unknown`, never to a guessed positive.** Most
+of the defects found in this project have been violations of that rule, not crashes.
+
+### What runs today
+
+| | State |
+|---|---|
+| Backend on Vibe Host | **Live.** `audit-ads-backend.cmc-1.vibenode.matbao.ai`, healthy, database reachable |
+| Production schema | **At head `0015_a10_3_conn_bm`.** Migrations 0011-0015 applied 2026-09-12, confirmed by a `migration complete` log line |
+| Frontend on Vibe Host | **Unreachable.** Container healthy and answering 200 internally; the platform edge returns its catch-all. A routing entry, not a code problem |
+| Local development | `scripts/dev.sh start` — supervised, self-restarting, 18h+ uptime observed |
+| Tests | ~784 backend, ~110 frontend, all green; `npm run typecheck` is `tsc -b` |
+| Real Meta reads | **Working against a live Business Manager.** 8 ad accounts and 7 Pixels discovered, with coverage, reader identity and authority recorded |
+| Real Meta writes | **Capability built, never used.** See A10.2 below |
+| Telegram | **Never sent a real message.** No bot token in the deployed environment |
+| Chrome extension | Loaded unpacked in a real browser; never published |
+
+### What is blocked, and on whom
+
+| Blocked | Needs |
+|---|---|
+| Frontend reachable in production | Hosting panel: route `audit-ads-frontend.cmc-1.vibenode.matbao.ai` to its container |
+| First real ad-account create | Billing confirmed on BM `1993884657458857`, the remaining ad-account slot count, and an explicit approval naming that BM (rule 22) |
+| Multi-Business-Manager in practice | `adsops-admin` added as a **member** of the second BM. Today it has no role there, so a discovery honestly reports `0 · Unknown` |
+| A real Telegram message | `TELEGRAM_BOT_TOKEN` in server configuration **and** a separate approval naming a chat (rules 20 and 22) |
+| A10.1 import click-through | Someone to click "Add to registry" once, locally |
+
+### Known limits worth stating plainly
+
+- **A timed-out ad-account create stays `unknown` until a person looks.** Meta has no idempotency
+  key for creation and name matching is forbidden here, so nothing can resolve it automatically.
+  This is a deliberate choice: an `unknown` that resolved itself would risk a silently duplicated
+  real ad account.
+- **A discovery describes what one identity could read**, not what a Business Manager holds. The
+  same BM returned 4 accounts to an Employee token and 8 to an Admin one.
+- **Discovery never writes to the registry by itself.** Importing is one row, one action, one
+  audit record, always explicit.
+- **Readiness and health are separate questions** and neither is a score. Nothing here predicts
+  whether Meta will approve or restrict anything.
+
+### Where to look next
+
+`docs/AUDIT_BEFORE_BUILD_A10_3.md` for the multi-BM and authority work, including the live
+measurements behind it. `docs/AUDIT_BEFORE_BUILD_A10_2.md` §8 for what the write path does and
+which prerequisites remain. `TEST_LOG.md` for what was actually verified and what was not — it
+records the failures too, including three separate instances of the same "absence of evidence read
+as evidence" defect.
+
+---
+
 Current release: **MINI-SPEC A9 — Team Seats, BM/Ad-Account Assignment & Device Session
 Security** (complete, 2026-09-09) — built on **A8 — Bulk Pixel Share**, **A7 — BM + Ad Account Creation & Sharing**,
 **A6 — Preflight Compliance Gate** (hidden from nav, not deleted — direction moved on), **A5 —
@@ -112,8 +175,42 @@ configured BM reads back, and so do its ad accounts and Pixels. Zero writes were
 none can be. Full results in `TEST_LOG.md`.
 
 **No real Telegram message has ever been sent, and the extension has never been published.**
-A4 Stage B and a Chrome Web Store listing each still need their own explicit approval. The compose stack in this repo has been
-deployed once (Vibe Host, 2026-09-08) — see "Known limits" below.
+
+**A4 Stage B is now half done.** Its two halves need separate approvals, and only the first has
+been given. The deployment half is complete: the backend runs on Vibe Host, and on 2026-09-12 the
+schema was brought from A5-era to head — migrations 0011-0015 applied under an operator-named
+`MIGRATE_ON_START`, confirmed by a `migration complete` log line, after which the variable was
+removed. The send half has not started: `TELEGRAM_BOT_TOKEN` is not configured in the deployed
+environment, and a real message additionally needs approval for a **named chat** (rule 20), which
+deployment approval does not imply (rule 22).
+
+The frontend half of the deployment is still unreachable: its container is healthy and answers 200
+internally, while the platform edge returns its catch-all. That is a routing entry, not a code
+problem, and needs the hosting panel.
+
+## A10.2 (capability built, never used) — the one real write
+
+Creating an ad account on a live Business Manager is now implemented. **No real create has been
+issued**, and building the capability is not permission to use it (rule 22): a first pilot needs
+the operator's explicit, separate approval naming the Business Manager.
+
+`MetaGraphTransport` gained exactly one write method, refusing every path except
+`{business-id}/adaccount`. It still cannot PATCH or DELETE, so nothing already on Meta can be
+changed or removed from here. `test_the_transport_is_get_only_by_construction` was replaced by a
+narrower guard, on the record, because its own docstring had named itself the tripwire.
+
+Everything sent is derivable from what the operator previewed and confirmed. A timed-out create is
+`unknown` and never `failed` — `failed` invites a retry, and a retry would create a second real
+account. `reconcile_create` answers `None` by decision, because Meta has no idempotency key for
+creation and name matching is forbidden, so a timed-out create waits for a person to look.
+
+**Still unverified before a first pilot:** billing on `1993884657458857`, and how many of its
+ad-account slots remain. A pilot that consumes the last slot is a different decision from one that
+consumes the fifth of fifty. A `billing_required` failure code is mapped separately so a billing
+problem is named as one.
+
+**Explicitly out of scope, and still refusing:** bulk creation, A7's access-share write, A8's
+Pixel-share write, and any automatic retry of an `unknown` item.
 
 ## A10.1 (built and click-through verified) — configured BM validation & read-only asset discovery
 

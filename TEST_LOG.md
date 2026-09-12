@@ -2610,3 +2610,46 @@ evidence once the log was shown to be complete.
 an authority-blocked run where every required source *was* read and every one answered: the
 product stated a cause that had not happened. Now `incomplete`, `partial`, `stale` and `unknown`
 each carry the reason that applies, with a test per branch.
+
+### 2026-09-12 — A10.2: the one real write, built and never used
+
+**Backend: 794 passed, exit 0** (22:32). Frontend: 110 passed, `tsc -b` 0, eslint 0, ruff clean.
+
+`test_the_transport_is_get_only_by_construction` was deleted. Its own docstring had named it as
+the thing that must be deleted first if a write were ever added, so this is that deletion — on the
+record, with a narrower guard in its place rather than a gap. `MetaGraphTransport` gained exactly
+one write method, refusing every path except `{business-id}/adaccount`, anchored at both ends; a
+test drives seven rejected paths including `…/adaccount/../me` and `…/adaccountsomethingelse`.
+PATCH and DELETE remain absent, so nothing already on Meta can be modified or removed.
+
+Four existing tests went red on the first run, all of them asserting "create is refused". Each was
+rewritten to describe what is still true rather than deleted:
+
+- Sharing ad-account access and sharing a Pixel still raise, and still never reach the transport.
+- `_provider_for` still yields a real provider only for `production` + a configured token, and
+  that test now proves the refusal on a share instead of a create.
+- The batch-level "failed, not unknown" test moved one layer along: an unusable Business Manager
+  reference is refused before a socket is opened, so it is `failed` with `invalid_request`.
+  `unknown` stays reserved for "this may have happened on Meta's side", and a request that was
+  never made cannot have.
+
+Three properties carry the safety, each with its own test: everything sent is derivable from what
+was previewed (Meta's three required-but-unchosen fields are derived from the batch's Business
+Manager id, not invented at call time); a timed-out create — and a dropped connection — is
+`unknown` and never `failed`, because `failed` invites a retry and a retry would create a second
+real ad account; and `reconcile_create` answers `None` by decision, leaving a timed-out create
+`unknown` until a person opens Business Settings.
+
+`billing_required` now has its own mapped failure code, so a fixable billing condition is named
+rather than arriving as a generic rejection.
+
+**No real create has been issued.** Two prerequisites from the A10.2 audit remain unverified and
+only the operator can close them: billing on the target Business Manager, and how many of its
+ad-account slots are left. The audit's own words apply — "a pilot that consumes the last slot is a
+different decision from one that consumes the fifth of fifty". One prerequisite *was* closed today
+by measurement: `{bm}/system_users` reports `adsops-admin` as ADMIN, where the audit had recorded
+the role as unverified.
+
+The three derived Meta fields are an **assumption that has never met the real endpoint**:
+`end_advertiser` set to the Business Manager itself, `media_agency` and `partner` `NONE`. If Meta
+disagrees, the first pilot returns `invalid_request` and creates nothing.

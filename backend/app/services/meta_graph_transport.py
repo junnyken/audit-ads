@@ -1,9 +1,14 @@
 """The third — and, at the time of writing, last — module in this backend permitted to make an
 outbound network request. A10.
 
-It talks to exactly one host: the configured Meta Graph API base. It performs **GET requests
-only**; there is no code path here that can POST, PATCH or DELETE, which is what makes A10's
-"read-only" claim structural rather than a promise (see `meta_real_provider.py`).
+It talks to exactly one host: the configured Meta Graph API base. Until A10.2 it performed GET
+requests only, and that was what made A10's "read-only" claim structural rather than a promise.
+
+A10.2 removed that barrier deliberately, and as narrowly as it could be removed. There is now
+exactly one write method, `post()`, and it refuses every path except `{business-id}/adaccount`.
+The distinction is the whole point: a transport that can POST *anywhere* is a far larger surface
+than one that can create *one kind of thing*. PATCH and DELETE remain absent — nothing here can
+modify or remove anything that already exists on Meta.
 
 What leaves this process: a Graph path, a pinned API version, and the access token in the
 `Authorization` header. What never enters a log, an audit row or an API response: the token
@@ -17,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -34,6 +40,15 @@ _TOKEN_ERROR_CODES = {102, 190}
 _RATE_LIMIT_CODES = {4, 17, 32, 613}
 #: Missing permission / not allowed on this object.
 _PERMISSION_ERROR_CODES = {10, 200, 299, 3, 33}
+#: A10.2. Billing must be configured on a Business Manager before it may hold a new ad account.
+#: Mapped to its own code so an operator is told to go fix billing, rather than being handed a
+#: generic "invalid request" for a condition with an obvious remedy.
+_BILLING_ERROR_CODES = {2500, 1487742}
+
+#: The only Graph path this transport may POST to, anchored at both ends. A Business Manager id
+#: is a bare number, so the pattern is exact rather than a prefix check — `12/adaccount/../me`
+#: and `12/adaccountsomethingelse` both fail it.
+_WRITABLE_PATH = re.compile(r"^\d{1,30}/adaccount$")
 
 
 @dataclass(frozen=True)
@@ -108,6 +123,70 @@ class MetaGraphTransport:
                 failure_summary="The Meta API could not be reached.",
             )
 
+    def post(self, path: str, data: dict[str, str]) -> GraphResponse:
+        """Issue one POST. The **only** write this backend can make against Meta.
+
+        `path` must be exactly `{business-id}/adaccount`; anything else raises before a socket is
+        opened. That is deliberate and structural: A10 made read-only a property of the type
+        rather than a setting, and A10.2 narrows rather than abandons that idea — this transport
+        can create one kind of thing, and cannot modify or delete anything at all.
+
+        A refusal here is a programming error, not an operational one, so it raises rather than
+        returning a failed `GraphResponse`. A failed response would flow into the batch engine's
+        vocabulary as though Meta had answered, and nothing was sent.
+
+        Body fields go in the form-encoded body, not the query string: a URL ends up in
+        intermediaries' access logs, and these fields name a Business Manager.
+        """
+        if not _WRITABLE_PATH.match(path.strip("/")):
+            raise ValueError("This transport may only POST to {business-id}/adaccount.")
+        if not self.access_token:
+            return GraphResponse(
+                ok=False,
+                failure_code=MetaFailureCode.PERMISSION_MISSING,
+                failure_summary="No Meta access token is configured on the server.",
+            )
+
+        body = urllib.parse.urlencode(data).encode("utf-8")
+        request = urllib.request.Request(  # noqa: S310 - scheme and host are fixed by configuration
+            self._build_url(path, None),
+            method="POST",
+            data=body,
+            headers={
+                "Authorization": f"Bearer {self.access_token}",
+                "Accept": "application/json",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                payload = json.loads(response.read().decode("utf-8") or "{}")
+                return GraphResponse(
+                    ok=True,
+                    payload=payload if isinstance(payload, dict) else {"data": payload},
+                    rate_limit_header=response.headers.get("X-Business-Use-Case-Usage"),
+                )
+        except urllib.error.HTTPError as exc:
+            return self._from_http_error(exc)
+        except TimeoutError:
+            # The case this whole product is most careful about. A timed-out create may have
+            # succeeded on Meta's side, so `TIMEOUT` maps to `unknown` in the batch engine, which
+            # never auto-retries it — a blind retry here would create a second real ad account.
+            return GraphResponse(
+                ok=False,
+                failure_code=MetaFailureCode.TIMEOUT,
+                failure_summary="The Meta API did not respond in time. The account may or may not have been created.",
+            )
+        except (urllib.error.URLError, OSError) as exc:
+            # Also `unknown`, and for the same reason: a connection that dropped mid-request
+            # cannot prove the request never arrived.
+            logger.warning("meta graph write failed", extra={"context": {"reason": type(exc).__name__}})
+            return GraphResponse(
+                ok=False,
+                failure_code=MetaFailureCode.TIMEOUT,
+                failure_summary="The Meta API could not be reached. The account may or may not have been created.",
+            )
+
     def _build_url(self, path: str, params: dict[str, str] | None) -> str:
         safe_path = path.strip("/")
         base = f"{self.api_base_url.rstrip('/')}/{self.api_version}/{safe_path}"
@@ -144,6 +223,9 @@ class MetaGraphTransport:
         elif exc.code >= 500:
             failure = MetaFailureCode.PROVIDER_SERVER_ERROR
             summary = "The Meta API returned a server error."
+        elif code in _BILLING_ERROR_CODES:
+            failure = MetaFailureCode.BILLING_REQUIRED
+            summary = "The Business Manager needs billing configured before it can hold this."
         elif exc.code == 400:
             failure = MetaFailureCode.INVALID_REQUEST
             summary = "The Meta API rejected the request as invalid."

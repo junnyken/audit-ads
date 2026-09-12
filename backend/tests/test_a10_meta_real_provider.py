@@ -15,7 +15,7 @@ from dataclasses import dataclass
 import pytest
 
 from app.services.meta_graph_transport import GraphResponse, MetaGraphTransport
-from app.services.meta_provider import MetaFailureCode
+from app.services.meta_provider import CreateAccountRequest, MetaFailureCode
 from app.services.meta_real_provider import (
     MetaWriteNotEnabled,
     RealMetaBusinessProvider,
@@ -48,17 +48,74 @@ class StubTransport:
         self.calls.append((path, params))
         return self.response
 
+    def post(self, path: str, data: dict | None = None) -> GraphResponse:
+        self.calls.append((path, data))
+        return self.response
+
 
 # ------------------------------------------------------------------------------- transport
 
 
-def test_the_transport_is_get_only_by_construction():
-    """The read-only guarantee is structural: there is no method here that can write. If a
-    later change adds one, this test is the thing that should have to be deleted first."""
-    write_verbs = {"post", "put", "patch", "delete", "request"}
+def test_the_transport_can_create_but_can_never_modify_or_delete():
+    """Replaces `test_the_transport_is_get_only_by_construction`, deliberately and on the record.
+
+    That test's docstring said: *"If a later change adds one, this test is the thing that should
+    have to be deleted first."* A10.2 is that change, and this is the deletion — not a quiet edit
+    inside a larger diff, but a narrower guard put in its place.
+
+    What was given up: the transport can now POST. What was kept, and is what actually bounds the
+    damage: it can still never PATCH or DELETE, so nothing that already exists on Meta can be
+    modified or removed by this backend. `post` is the only write verb, and the next test pins
+    the single path it will accept.
+    """
+    forbidden = {"put", "patch", "delete", "request"}
     public = {name for name in dir(MetaGraphTransport) if not name.startswith("_")}
-    assert not (public & write_verbs), public & write_verbs
-    assert "get" in public
+
+    assert not (public & forbidden), public & forbidden
+    assert {"get", "post"} <= public
+
+
+def test_the_transport_refuses_every_post_path_except_creating_an_ad_account():
+    """"Can create one kind of thing" is a far smaller surface than "can POST anywhere", and the
+    difference has to be enforced rather than intended."""
+    transport = MetaGraphTransport(access_token="t")
+
+    for path in (
+        "me/businesses",
+        "1993884657458857/system_users",
+        "1993884657458857/adaccounts",
+        "1993884657458857/adaccount/../me",
+        "1993884657458857/adaccountsomethingelse",
+        "adaccount",
+        "",
+    ):
+        with pytest.raises(ValueError):
+            transport.post(path, {"name": "x"})
+
+
+def test_a_refused_post_path_raises_before_a_socket_is_opened(monkeypatch):
+    """A refusal must not look like an answer from Meta. If it returned a failed response it
+    would flow into the batch engine's vocabulary as though the request had been made."""
+
+    def fail(*args, **kwargs):
+        raise AssertionError("urlopen must not be called for a refused path")
+
+    monkeypatch.setattr("urllib.request.urlopen", fail)
+
+    with pytest.raises(ValueError):
+        MetaGraphTransport(access_token="t").post("me/businesses", {})
+
+
+def test_a_missing_token_never_reaches_the_network_on_a_write_either(monkeypatch):
+    def fail(*args, **kwargs):
+        raise AssertionError("urlopen must not be called without a token")
+
+    monkeypatch.setattr("urllib.request.urlopen", fail)
+
+    result = MetaGraphTransport(access_token="").post("123/adaccount", {"name": "x"})
+
+    assert result.ok is False
+    assert result.failure_code == MetaFailureCode.PERMISSION_MISSING
 
 
 def test_a_missing_token_never_reaches_the_network(monkeypatch):
@@ -269,28 +326,152 @@ def test_the_capability_and_the_listing_it_gates_cannot_disagree():
 @pytest.mark.parametrize(
     ("method", "argument"),
     [
-        ("create_ad_account", object()),
         ("share_ad_account_access", object()),
         ("share_pixel_access", object()),
     ],
 )
-def test_every_write_raises_rather_than_silently_doing_nothing(method, argument):
-    """A failed *result* would flow into the batch engine's retry machinery as though the
-    attempt had really happened. It did not, so this raises instead."""
+def test_the_writes_a10_2_did_not_enable_still_raise(method, argument):
+    """A10.2 enabled exactly one write: creating an ad account. Sharing ad-account access and
+    sharing a Pixel were explicitly left out of its scope, and the refusal has to stay an
+    exception — a failed *result* would flow into the batch engine's retry machinery as though
+    the attempt had really happened, and it did not."""
     provider = RealMetaBusinessProvider(transport=StubTransport(GraphResponse(ok=True)))
 
     with pytest.raises(MetaWriteNotEnabled):
         getattr(provider, method)(argument)
 
 
-def test_a_write_attempt_never_reaches_the_transport():
+def test_a_share_attempt_never_reaches_the_transport():
     stub = StubTransport(GraphResponse(ok=True))
     provider = RealMetaBusinessProvider(transport=stub)
 
     with pytest.raises(MetaWriteNotEnabled):
-        provider.create_ad_account(object())
+        provider.share_ad_account_access(object())
 
     assert stub.calls == []
+
+
+# ------------------------------------------------------------------- the one enabled write
+
+
+def _create(currency="VND", timezone_id=52, business="1993884657458857", name="Pilot"):
+    return CreateAccountRequest(
+        business_manager_external_id=business,
+        name=name,
+        currency=currency,
+        country="VN",
+        timezone=None,
+        idempotency_key="key-1",
+        timezone_id=timezone_id,
+    )
+
+
+def test_a_create_sends_only_values_derivable_from_what_was_previewed():
+    """The rule `test_a10_2_create_request_shape.py` exists for: a field sent to Meta that is not
+    inside the preview hash lets an operator confirm one thing and have another created. Meta
+    requires three fields nobody chooses, so they are derived from the batch's own Business
+    Manager id rather than invented at call time."""
+    stub = StubTransport(GraphResponse(ok=True, payload={"id": "act_555"}))
+    provider = RealMetaBusinessProvider(transport=stub)  # type: ignore[arg-type]
+
+    provider.create_ad_account(_create())
+
+    path, body = stub.calls[0]
+    assert path == "1993884657458857/adaccount"
+    assert body == {
+        "name": "Pilot",
+        "currency": "VND",
+        "timezone_id": "52",
+        "end_advertiser": "1993884657458857",
+        "media_agency": "NONE",
+        "partner": "NONE",
+    }
+    # `country` is not a parameter Meta accepts; it is kept on the registry record only.
+    assert "country" not in body
+
+
+def test_a_created_account_id_is_canonicalised_like_every_other_external_id():
+    """Meta answers with `act_555`. The registry stores whichever form an operator typed, so a
+    raw string here would make the same account read as both missing from the registry and
+    missing from discovery."""
+    stub = StubTransport(GraphResponse(ok=True, payload={"id": "act_555"}))
+    provider = RealMetaBusinessProvider(transport=stub)  # type: ignore[arg-type]
+
+    result = provider.create_ad_account(_create())
+
+    assert result.status == "succeeded"
+    assert result.external_account_id == "555"
+
+
+def test_a_create_without_a_timezone_id_is_refused_before_anything_is_sent():
+    """`timezone` is a free-text operator note and is never sent. Guessing an integer id would
+    stamp a permanent artifact with a value nobody chose."""
+    stub = StubTransport(GraphResponse(ok=True, payload={"id": "act_555"}))
+    provider = RealMetaBusinessProvider(transport=stub)  # type: ignore[arg-type]
+
+    result = provider.create_ad_account(_create(timezone_id=None))
+
+    assert result.status == "failed"
+    assert result.failure_code == MetaFailureCode.INVALID_REQUEST
+    assert stub.calls == []
+
+
+def test_an_unusable_business_manager_reference_is_refused_before_anything_is_sent():
+    stub = StubTransport(GraphResponse(ok=True, payload={"id": "act_555"}))
+    provider = RealMetaBusinessProvider(transport=stub)  # type: ignore[arg-type]
+
+    result = provider.create_ad_account(_create(business="bm_1"))
+
+    assert result.status == "failed"
+    assert result.failure_code == MetaFailureCode.INVALID_REQUEST
+    assert stub.calls == []
+
+
+def test_a_timed_out_create_is_unknown_and_never_failed():
+    """The most dangerous outcome in this product. A timed-out create may have succeeded on
+    Meta's side, so it must not be reported as failed — `failed` invites a retry, and a retry
+    would create a second real ad account."""
+    stub = StubTransport(
+        GraphResponse(ok=False, failure_code=MetaFailureCode.TIMEOUT, failure_summary="slow")
+    )
+    provider = RealMetaBusinessProvider(transport=stub)  # type: ignore[arg-type]
+
+    result = provider.create_ad_account(_create())
+
+    assert result.status == "unknown"
+    assert result.retryable is False
+
+
+def test_a_two_hundred_that_names_no_account_is_unknown_rather_than_succeeded():
+    """Rule 4. Something may exist that this product cannot identify, and recording an account
+    with no id would be worse than saying so."""
+    stub = StubTransport(GraphResponse(ok=True, payload={}))
+    provider = RealMetaBusinessProvider(transport=stub)  # type: ignore[arg-type]
+
+    result = provider.create_ad_account(_create())
+
+    assert result.status == "unknown"
+
+
+def test_a_billing_refusal_is_reported_as_billing_not_as_a_generic_rejection():
+    stub = StubTransport(
+        GraphResponse(ok=False, failure_code=MetaFailureCode.BILLING_REQUIRED, failure_summary="x")
+    )
+    provider = RealMetaBusinessProvider(transport=stub)  # type: ignore[arg-type]
+
+    result = provider.create_ad_account(_create())
+
+    assert result.status == "failed"
+    assert result.failure_code == MetaFailureCode.BILLING_REQUIRED
+
+
+def test_reconcile_create_answers_none_because_meta_has_no_idempotency_key():
+    """Not an omission — a decision. Matching by name is forbidden (A10.1 guardrail 14, A5 rule
+    31), so the only honest answer is "this provider cannot resolve that", which leaves a
+    timed-out create `unknown` until a person opens Business Settings and looks."""
+    provider = RealMetaBusinessProvider(transport=StubTransport(GraphResponse(ok=True)))
+
+    assert provider.reconcile_create("key-1") is None
 
 
 def test_the_probe_cannot_contradict_the_capability_it_exists_to_verify():
@@ -401,10 +582,11 @@ def test_only_production_plus_a_configured_token_reaches_the_real_provider():
 
         real = _provider_for(_Connection(MetaEnvironment.PRODUCTION))
         assert isinstance(real, RealMetaBusinessProvider)
-        # And it still cannot write, which is the point of the whole arrangement.
         assert real.writes_are_real is True
+        # A10.2 enabled exactly one write. Sharing is still refused, and `writes_are_real` is what
+        # makes the batch engine cap a live batch at the pilot limit.
         with pytest.raises(MetaWriteNotEnabled):
-            real.create_ad_account(object())
+            real.share_ad_account_access(object())
     finally:
         settings.meta_access_token = previous
 

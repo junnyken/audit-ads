@@ -70,22 +70,30 @@ def _run(service, batch):
     return preview
 
 
-def test_a_refused_create_is_failed_with_a_reason_not_unknown(
+def test_a_create_that_never_left_the_process_is_failed_not_unknown(
     session, workspace, audit, owner, connection, refusing_provider
 ):
+    """A10.2 enabled the create path, so this is no longer about refusal — it is about the same
+    principle one layer along. `bm_1` is not a usable Business Manager id, so the provider stops
+    before opening a socket. Nothing was sent, therefore `failed`, never `unknown`: `unknown` is
+    reserved for "this may have happened on Meta's side", and a request that was never made
+    cannot have.
+
+    `refusing_provider` still carries a transport that raises if touched, which is what proves
+    nothing left the process.
+    """
     service = AccountCreationBatchService(session, workspace.id, audit, owner["user"].id)
     batch = service.create_draft(
         meta_connection_id=connection.id,
         business_manager_external_id="bm_1",
-        items=[DraftAccountItem(name="Pilot account", currency="VND", country="VN")],
+        items=[DraftAccountItem(name="Pilot account", currency="VND", country="VN", timezone_id=52)],
     )
     _run(service, batch)
     service.run(batch, refusing_provider)
 
     item = service.list_items(batch)[0]
     assert item.status == MetaBatchItemStatus.FAILED
-    assert item.failure_code == MetaFailureCode.NOT_SUPPORTED.value
-    # The whole point: not `unknown`, which would mean "it might have happened".
+    assert item.failure_code == MetaFailureCode.INVALID_REQUEST.value
     assert item.status != MetaBatchItemStatus.UNKNOWN
 
 

@@ -619,6 +619,21 @@ token reports `coverage: complete` truthfully and would otherwise license
 `missing_from_latest_discovery` for records a broader token had just confirmed. Any view that
 compares two runs, or two Business Managers, must carry the reader with the count.
 
+### Ad account creation against a real Business Manager (A10.2)
+
+The existing A7 batch endpoints are unchanged. What changed is what a `production` connection's
+provider does when a confirmed batch runs: it now really creates the account.
+
+Item outcomes carry the same vocabulary as before, with two that matter more than the rest:
+
+| Outcome | Meaning |
+|---|---|
+| `failed` + `billing_required` | The Business Manager needs billing configured before it can hold a new ad account. Mapped separately so a fixable condition is named rather than reported as a generic rejection |
+| `unknown` + `timeout` | The request may have succeeded on Meta's side. **Never retried automatically**, and `reconcile_create` cannot resolve it — Meta has no idempotency key for creation, and matching by name is forbidden. It waits for a person to open Business Settings |
+
+A live batch is capped at `META_WRITE_PILOT_MAX_ITEMS` (default 1) whenever the provider's writes
+are real. Sharing ad-account access and sharing a Pixel are still refused outright.
+
 ### A Business Manager per connection
 
 `POST /meta-connections` accepts `business_manager_reference` (optional, max 120 chars). Empty

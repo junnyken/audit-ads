@@ -353,9 +353,78 @@ class RealMetaBusinessProvider(MetaBusinessProvider):
     # ----------------------------------------------------------------- write
 
     def create_ad_account(self, request: CreateAccountRequest) -> CreateAccountResult:
-        raise MetaWriteNotEnabled(
-            "Creating an ad account against a real Meta connection is not enabled in this build."
+        """The one real write this product can make. A10.2.
+
+        Every value sent is derivable from what the operator previewed and confirmed: `name`,
+        `currency` and `timezone_id` come straight off the confirmed item, and the three fields
+        Meta requires but nobody chooses are derived from the batch's own Business Manager id.
+        That rule is not decoration — `test_a10_2_create_request_shape.py` exists because a field
+        sent to Meta that is *not* inside the preview hash lets an operator confirm one thing and
+        have another created.
+
+        **The three derived values are an unverified assumption about Meta's API**, because this
+        method has never run against the real endpoint. `end_advertiser` is set to the Business
+        Manager itself — the business is advertising for itself, which is the case this product
+        is built for — and `media_agency` and `partner` are `NONE`. If Meta disagrees, the first
+        pilot returns `invalid_request` and nothing is created, which is the correct way for a
+        wrong assumption to fail.
+        """
+        if request.timezone_id is None:
+            # `timezone` is a free-text operator note and is never sent. Guessing an integer id
+            # would stamp a permanent artifact with a value nobody chose.
+            return CreateAccountResult(
+                status="failed",
+                failure_code=MetaFailureCode.INVALID_REQUEST,
+                failure_summary="No Meta timezone id was supplied for this account.",
+            )
+        business_id = canonical_external_id(request.business_manager_external_id)
+        if not business_id or not business_id.isdigit():
+            return CreateAccountResult(
+                status="failed",
+                failure_code=MetaFailureCode.INVALID_REQUEST,
+                failure_summary="The Business Manager reference is not a usable id.",
+            )
+
+        response = self.transport.post(
+            f"{business_id}/adaccount",
+            {
+                "name": request.name,
+                "currency": request.currency,
+                "timezone_id": str(request.timezone_id),
+                "end_advertiser": business_id,
+                "media_agency": "NONE",
+                "partner": "NONE",
+            },
         )
+        if not response.ok:
+            if response.failure_code is MetaFailureCode.TIMEOUT:
+                # Never `failed`. A timed-out create may have succeeded on Meta's side, and the
+                # batch engine reserves `unknown` for exactly that: it stops, and waits for a
+                # person. Calling it failed would invite a retry that creates a second account.
+                return CreateAccountResult(
+                    status="unknown",
+                    failure_code=response.failure_code,
+                    failure_summary=response.failure_summary,
+                )
+            return CreateAccountResult(
+                status="failed",
+                failure_code=response.failure_code or MetaFailureCode.UNKNOWN_ERROR,
+                failure_summary=response.failure_summary,
+            )
+
+        external_id = canonical_external_id(
+            response.payload.get("account_id") or response.payload.get("id")
+        )
+        if not external_id:
+            # Meta answered 200 and named nothing. Under rule 4 that is not a success: something
+            # may exist that this product cannot identify, and `unknown` is what sends a person
+            # to look rather than recording an account with no id.
+            return CreateAccountResult(
+                status="unknown",
+                failure_code=MetaFailureCode.UNKNOWN_ERROR,
+                failure_summary="Meta accepted the request but returned no account id.",
+            )
+        return CreateAccountResult(status="succeeded", external_account_id=external_id)
 
     def share_ad_account_access(self, request: ShareAccessRequest) -> ShareAccessResult:
         raise MetaWriteNotEnabled(
@@ -368,8 +437,20 @@ class RealMetaBusinessProvider(MetaBusinessProvider):
         )
 
     def reconcile_create(self, idempotency_key: str) -> CreateAccountResult | None:
-        """Nothing this provider did could have created anything, so there is nothing to
-        reconcile. `None` is the interface's own "no answer available"."""
+        """`None`, always — and that is a decision, not an omission.
+
+        **Meta's Graph API has no idempotency key for ad account creation.** A real reconciliation
+        therefore has only two options. Matching by name is forbidden outright: A10.1 guardrail 14
+        and A5 rule 31 both require exact, immutable external identity and reject name matching,
+        because duplicates and renames make it unsafe — and here it would risk adopting somebody
+        else's account, or missing a duplicate this product had just created.
+
+        So the honest answer is "this provider cannot resolve that", which the interface already
+        allows. The cost is real and must not be softened anywhere: **a timed-out create stays
+        `unknown` until a person opens Business Settings and looks.** An `unknown` that quietly
+        resolved itself to `succeeded` would be the worst defect this product could ship — a
+        silently duplicated real ad account.
+        """
         return None
 
     # ------------------------------------------------------------ diagnostics
