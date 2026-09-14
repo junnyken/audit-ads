@@ -451,3 +451,156 @@ describe('the discovery history of one connection', () => {
     expect(container.textContent).toContain('recomputed')
   })
 })
+
+// ------------------------------------------------------- O2.1 B3: every coverage state on screen
+
+describe('every coverage state is distinguishable on screen', () => {
+  // Audited 2026-09-14: "Partial", "Not attempted" and "Unknown" were rendered by CoverageBadge
+  // but no test had ever asserted that they reach the screen. A label can be deleted, renamed or
+  // silently lost to a colourless class (this project has had exactly that bug with
+  // `text-attention`) and every suite would still pass.
+  function withCoverage(status: DiscoveryAssetResult['coverage_status'], complete: boolean) {
+    return result({ coverage_status: status, complete, reconciliation: [] })
+  }
+
+  const CASES: [DiscoveryAssetResult['coverage_status'], string][] = [
+    ['complete', 'Complete'],
+    ['partial', 'Partial'],
+    ['incomplete', 'Incomplete'],
+    ['unknown', 'Unknown'],
+    ['stale', 'Stale'],
+    ['not_attempted', 'Not attempted'],
+  ]
+
+  /** The status filter is a <select>, and "Unknown" is both a coverage status and a reconciliation
+   * status — so the word legitimately appears twice on this screen, once as a badge and once as a
+   * dropdown option. Asserting the badge means excluding the option rather than loosening the
+   * assertion to "appears somewhere". */
+  function badgeText(label: string): HTMLElement[] {
+    return screen.getAllByText(label).filter((el) => el.tagName !== 'OPTION')
+  }
+
+  it.each(CASES)('renders %s as "%s"', (status, label) => {
+    render(
+      <AssetInventory
+        result={withCoverage(status, status === 'complete')}
+        edge="all"
+        status="all"
+        onEdgeChange={noop}
+        onStatusChange={noop}
+      />,
+    )
+
+    expect(badgeText(label)).toHaveLength(1)
+  })
+
+  it('withholds the missing conclusion for every state except complete and not_attempted', () => {
+    // `not_attempted` is excluded deliberately: nothing was read, so there is no shortfall to
+    // explain — the badge alone says it. Every other non-complete state must say why no record is
+    // being called missing.
+    for (const status of ['partial', 'incomplete', 'unknown', 'stale'] as const) {
+      const { unmount } = render(
+        <AssetInventory
+          result={withCoverage(status, false)}
+          edge="all"
+          status="all"
+          onEdgeChange={noop}
+          onStatusChange={noop}
+        />,
+      )
+      expect(
+        screen.getByText(/No internal record is classified as missing from this run/),
+      ).toBeTruthy()
+      unmount()
+    }
+  })
+
+  it('never renders a not-attempted edge as a bare zero', () => {
+    render(
+      <AssetInventory
+        result={result({
+          coverage_status: 'incomplete',
+          complete: false,
+          reconciliation: [],
+          coverage: {
+            edges: {
+              owned_ad_accounts: { required: true, status: 'completed', pages: 1, items: 5, error_code: null },
+              client_ad_accounts: { required: true, status: 'not_attempted', pages: 0, items: 0, error_code: null },
+            },
+            total_unique_assets: 5,
+          },
+        })}
+        edge="all"
+        status="all"
+        onEdgeChange={noop}
+        onStatusChange={noop}
+      />,
+    )
+
+    // The edge that was never read says so in words; it must not be shown as "0 items", which
+    // reads as "this edge returned nothing" — a different and much stronger claim.
+    expect(screen.getByText(/not attempted/)).toBeTruthy()
+    expect(screen.queryByText(/Client accounts[\s\S]*0 items/)).toBeNull()
+  })
+})
+
+// ----------------------------------------------------------------- O2.1 B4: authority on screen
+
+describe('an empty inventory never speaks for the Business Manager', () => {
+  it('shows the caveat and claims no coverage when authority was not established', () => {
+    // The exact defect A10.3 exists to prevent, asserted at the screen rather than in the engine:
+    // measured on real Meta, a token with no role in a BM still reads its node and every asset
+    // edge answers 200 with an empty list.
+    render(
+      <AssetInventory
+        result={result({
+          coverage_status: 'unknown',
+          complete: false,
+          reconciliation: [],
+          coverage: {
+            edges: {
+              owned_ad_accounts: { required: true, status: 'completed', pages: 1, items: 0, error_code: null },
+              client_ad_accounts: { required: true, status: 'completed', pages: 1, items: 0, error_code: null },
+            },
+            total_unique_assets: 0,
+          },
+        })}
+        edge="all"
+        status="all"
+        onEdgeChange={noop}
+        onStatusChange={noop}
+      />,
+    )
+
+    expect(screen.getAllByText('Unknown').filter((el) => el.tagName !== 'OPTION')).toHaveLength(1)
+    expect(screen.queryByText('Complete')).toBeNull()
+    expect(
+      screen.getByText(/No internal record is classified as missing from this run/),
+    ).toBeTruthy()
+    expect(screen.getByText(/could not be established/)).toBeTruthy()
+  })
+})
+
+// ------------------------------------------------------------- O2.1 B6: the Pixel asymmetry text
+
+describe('the Pixel limitation is still stated after O1.1 refactored this surface', () => {
+  it('says a registry Pixel cannot be evaluated for absence from one Business Manager', () => {
+    // Zero test references before 2026-09-14. A `Pixel` has no Business Manager relationship in
+    // the A1 schema, so its absence from one BM's discovery is not evidence about that BM. If this
+    // sentence disappears, the product starts implying a conclusion the schema cannot support.
+    render(
+      <AssetInventory
+        result={result({ reconciliation: [] })}
+        edge="all"
+        status="all"
+        onEdgeChange={noop}
+        onStatusChange={noop}
+        emptyNote="Pixel Business Manager mapping is not recorded yet, so a registry Pixel cannot be evaluated for absence from this Business Manager."
+      />,
+    )
+
+    expect(
+      screen.getByText(/cannot be evaluated for absence from this Business Manager/),
+    ).toBeTruthy()
+  })
+})

@@ -2916,3 +2916,55 @@ is what makes "success" mean the suite ran rather than passed empty.
 published (no store listing is checkable from this workspace) and that the *production* schema is
 still at head (the production database is internal-only; last confirmed 2026-09-12 from a log
 line). The local dev database was measured at `0015_a10_3_conn_bm`.
+
+## MINI-SPEC O2.1 — Discovery Authority/Coverage UAT Hardening (2026-09-14)
+
+**Regression before any change: backend exit 0.** After: **exit 0, 827 collected** (824 before,
++3 from B7). Frontend **145 passed / 20 skipped** (135 before, +10), `tsc -b` 0, eslint 0, build 0.
+
+**The browser half of B1–B6 was not executed, and this is the headline of the slice.** Audit
+finding: `scripts/a9_live_verify.py` — the pattern O2.1 §5.A names — signs in as
+`trieunt@matbao.com` with a password committed to this repository, and that account **no longer
+exists**. The dev database holds exactly one user, `uxui.matbao@gmail.com`, created 2026-09-10. So
+*every* live-verify script in this repo is currently unrunnable, not only a new one. Playwright
+itself is fine. Minting a session was refused by guardrail 5 and was not worked around.
+
+`scripts/o2_1_live_verify.py` was written to the same pattern with one deliberate difference: it
+reads `ADSOPS_LIVE_EMAIL` / `ADSOPS_LIVE_PASSWORD` from the environment and **exits 2 with an
+explanation when they are absent** (verified by running it). Committing a second credential would
+rot exactly the way the first one did.
+
+### Four states had no test at all — the spec was too generous
+
+O2.1 assumed these were "verified in code but never seen on screen". Measured against the suites,
+three coverage labels and the Pixel limitation were not verified *anywhere*:
+
+| State | Asserted as rendered output before today |
+|---|---|
+| `partial` → "Partial" | **no** |
+| `not_attempted` → "Not attempted" | **no** |
+| `unknown` → "Unknown" | **no** |
+| Pixel reverse-absence sentence | **no — zero references** |
+
+All four now have assertions, plus: every non-complete state except `not_attempted` must still
+print the "no record is classified as missing" sentence, and a not-attempted edge must never be
+rendered as `0 items` — "0 items" claims the edge answered and returned nothing, which is a
+strictly stronger claim than "it was never asked".
+
+**A test-authoring trap found while writing them:** `getByText('Unknown')` matches two elements,
+because "Unknown" is both a coverage status (a badge) and a reconciliation status (a `<select>`
+option) on the same screen. The assertions exclude `OPTION` nodes rather than loosening to "appears
+somewhere" — otherwise deleting the badge entirely would still pass.
+
+### B7 — a non-owner **inside the owning workspace** had never been tested
+
+O1.1 only covered a *different* workspace. Three tests added, reusing A9's `member_headers`
+pattern: the history endpoint refuses a BUYER member of the same workspace; the refusal body leaks
+neither the label, the Business Manager id, an account name nor an edge name; and all five
+discovery routes refuse that member, because one route being owner-only proves nothing about the
+others.
+
+### B8 — registry re-measured immediately before writing the report
+
+`business_managers` 1, `ad_accounts` 2, `audit_logs` 56, `pixels` 0. Unchanged: no import was
+performed during O2.1.

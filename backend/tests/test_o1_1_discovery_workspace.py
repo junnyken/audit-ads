@@ -9,6 +9,9 @@ from __future__ import annotations
 import pytest
 
 from app.core.config import get_settings
+from app.core.enums import WorkspaceRole
+from app.core.security import hash_password
+from app.models.entities import User, WorkspaceMember
 from app.services.meta_provider import AssetDiscovery, DiscoveredAsset, EdgeOutcome
 
 BM = "1993884657458857"
@@ -205,3 +208,95 @@ def test_a_connection_with_no_runs_returns_an_empty_page_not_an_error(api, confi
 
     assert body["items"] == []
     assert body["total"] == 0
+
+
+# ------------------------------------------------------- O2.1 B7: a non-owner of the SAME workspace
+
+@pytest.fixture()
+def member_headers(client, db_session, owner):
+    """A real signed-in member of the owner's own workspace, in the `buyer` role.
+
+    O1.1 only ever tested a *different workspace*. A non-owner **inside the owning workspace** is
+    the case an operator actually creates by inviting a colleague, and it had never been exercised
+    against discovery. Built with A9's existing pattern rather than a new one.
+    """
+    user = User(
+        email="o21-member@example.com",
+        full_name="O2.1 Member",
+        password_hash=hash_password("correct-horse-battery"),
+        is_active=True,
+    )
+    db_session.add(user)
+    db_session.flush()
+    db_session.add(
+        WorkspaceMember(
+            workspace_id=owner["workspace"].id, user_id=user.id, role=WorkspaceRole.BUYER
+        )
+    )
+    db_session.commit()
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "o21-member@example.com", "password": "correct-horse-battery"},
+    ).json()
+    return {"Authorization": f"Bearer {login['access_token']}"}
+
+
+def test_a_non_owner_member_cannot_read_the_discovery_history(
+    api, client, member_headers, meta_provider, configured_bm
+):
+    """Owner-only, per ACCESS_SCOPE_MATRIX.md. A batch item records an external id that may not
+    correspond to any local record, so membership scope cannot be proven for it — and A9's rule for
+    that case is to deny rather than guess."""
+    _seed(meta_provider, accounts=[DiscoveredAsset("111", "Account", "owned_ad_accounts")])
+    connection = make_connection(api)
+    api.post(f"/api/v1/meta-connections/{connection['id']}/discoveries")
+
+    response = client.get(
+        f"/api/v1/meta-connections/{connection['id']}/discoveries", headers=member_headers
+    )
+
+    assert response.status_code in (403, 404)
+
+
+def test_the_refusal_discloses_nothing_about_the_connection(
+    api, client, member_headers, meta_provider, configured_bm
+):
+    """A refusal must not become an oracle: the body must not confirm the connection exists, name
+    its label, its Business Manager, or anything a run returned."""
+    _seed(meta_provider, accounts=[DiscoveredAsset("111", "Quảng Cáo Top account", "owned_ad_accounts")])
+    connection = make_connection(api, label="A distinctive label")
+    api.post(f"/api/v1/meta-connections/{connection['id']}/discoveries")
+
+    body = client.get(
+        f"/api/v1/meta-connections/{connection['id']}/discoveries", headers=member_headers
+    ).text
+
+    for leak in ("A distinctive label", BM, "Quảng Cáo Top account", "owned_ad_accounts"):
+        assert leak not in body
+
+
+def test_every_discovery_route_refuses_the_non_owner_member(
+    api, client, member_headers, meta_provider, configured_bm
+):
+    """One route being owner-only proves nothing about the others. This walks the whole surface."""
+    _seed(meta_provider, accounts=[DiscoveredAsset("111", "Account", "owned_ad_accounts")])
+    connection = make_connection(api)
+    run = api.post(f"/api/v1/meta-connections/{connection['id']}/discoveries").json()
+    base = f"/api/v1/meta-connections/{connection['id']}"
+
+    attempts = {
+        f"GET {base}/discoveries": client.get(f"{base}/discoveries", headers=member_headers),
+        f"GET {base}/discoveries/latest": client.get(f"{base}/discoveries/latest", headers=member_headers),
+        f"POST {base}/discoveries": client.post(f"{base}/discoveries", headers=member_headers),
+        "GET /meta-connections/discovery-summary": client.get(
+            "/api/v1/meta-connections/discovery-summary", headers=member_headers
+        ),
+        f"POST {base}/discoveries/{run['id']}/imports": client.post(
+            f"{base}/discoveries/{run['id']}/imports",
+            json={"external_account_id": "111"},
+            headers=member_headers,
+        ),
+    }
+
+    refused = {name: r.status_code for name, r in attempts.items()}
+    assert all(code in (403, 404) for code in refused.values()), refused
