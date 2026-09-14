@@ -2733,3 +2733,43 @@ it may resurrect that. Not run; it needs the operator's decision.
 the hosting API, no shell on the platform, and `list_env` returns variable names without values, so
 the connection string cannot be read. The master plan's P0.4 restore drill cannot be executed from
 this workspace by any route currently available.
+
+---
+
+## O1.1 — connection discovery workspace (2026-09-14)
+
+**Backend regression, after the change: 808 passed, exit 0.** Baseline before the change was 797.
+The 11 new tests are in `tests/test_o1_1_discovery_workspace.py`. The exit code was measured from
+`PIPESTATUS[0]`, not from the end of a pipeline.
+
+**Frontend: 127 passed, 20 skipped** (110 before), `npm run typecheck` (`tsc -b`) exit 0, `eslint .`
+clean, `npm run build` succeeded. 17 of the new tests are in `src/test/connection.workspace.test.tsx`.
+
+### A defect the new test found, in the code the same change had just touched
+
+`test_a_pixel_row_carries_its_edge_too` failed first time: an ad-account row not yet in the registry
+carried `source_edge`, but the **Pixel** row in the same state did not — I had added the field to
+the matched Pixel branch and missed the `missing_in_registry` one. So a client-shared Pixel could
+not be told apart from an owned one on exactly the rows an operator acts on. Fixed in
+`services/meta_discovery.py`; the test was written before the code was believed correct, which is
+why it was found at all.
+
+### `tsc -b` earned its keep again
+
+Adding `source_edge` to `ReconciliationRow` broke seven fixtures in `discovery.components.test.tsx`.
+`tsc -b` named all seven by line. The old `tsc --noEmit` compiled zero files here and would have
+reported success.
+
+### What was NOT verified, and why
+
+**The browser click-through of "Add to registry" still has not happened.** The local dashboard
+requires a sign-in, the password is not held in this workspace, and minting a session token to
+bypass the login screen was refused by the safety classifier as credential materialisation. That
+refusal was not worked around. The registry therefore still holds **0 Business Managers and 0 ad
+accounts**, and the import path remains verified only by automated tests — the exact state the
+O1.1 audit recorded as a gap. The new workspace's Ad Accounts tab has consequently never been seen
+with a real row in a browser.
+
+**Nothing about production was verified.** The production frontend is still unreachable through the
+platform edge, so no part of O1.1 has been seen there. No deployment was made, no Meta write was
+issued, and no Telegram message was sent.

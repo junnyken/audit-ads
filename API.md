@@ -588,6 +588,7 @@ Two owner-only endpoints, both on an existing connection:
 |---|---|---|
 | `POST` | `/meta-connections/{id}/discoveries` | Validates the configured BM, then reads its ad accounts and Pixels. Returns the run plus reconciliation |
 | `GET` | `/meta-connections/{id}/discoveries/latest` | The most recent run, reconciliation recomputed. **Makes no provider call** |
+| `GET` | `/meta-connections/{id}/discoveries` | O1.1 — every run this connection recorded, newest first, paginated. **Makes no provider call** |
 
 `META_BUSINESS_ID` is server configuration and is never accepted from a request body, a query
 parameter or the extension. It is not a secret — a BM id is public in Business Settings — so
@@ -678,6 +679,37 @@ Business Manager. A non-empty inventory proves its own authority and spends no e
 A refusal is recorded as `not_established`, not as proof of non-membership: reading that edge can
 itself require an admin role. Both readings forbid the same conclusion, which is all the gate
 decides.
+
+### `GET /meta-connections/{connection_id}/discoveries` — history (O1.1)
+
+`page` / `page_size` (default 25, max 100) in the standard paged envelope, newest first. Owner
+only, and like `latest` it reads stored rows — **no provider call**, so opening the page spends no
+rate-limit budget against a real Business Manager.
+
+Each item is the run as it was recorded: status, trigger, environment, the Business Manager asked
+for, the identity it was read as, `business_authority`, `freshness`, any failure, and the full
+per-edge coverage for ad accounts and Pixels — including `not_attempted`. Two runs that returned
+different counts can therefore be compared on what each was able to see, rather than on the
+numbers alone.
+
+**Reconciliation is deliberately absent.** It is recomputed against the registry as it stands
+*now*; attaching it to a week-old observation would place two different moments side by side and
+invite reading one as evidence about the other. History answers "what did this look see, and could
+it be trusted" — nothing about today's registry.
+
+### `source_edge` on every reconciliation row (O1.1)
+
+Each ad-account and Pixel reconciliation row carries `source_edge`: the Graph edge whose response
+produced the observation — `owned_ad_accounts`, `client_ad_accounts` or `adspixels`.
+
+The fact was already stored on both observation tables and already shown, but only as prose inside
+`detail` ("Returned by owned_ad_accounts."), which cannot be filtered on and would break the
+moment that sentence was translated. It is now a field, on matched and `missing_in_registry` rows
+alike.
+
+It is `null` — never a guessed edge — for a row that came from the registry rather than from an
+observation, such as an internal record no observation matched. A client-shared account and an
+owned one differ in what the workspace may do with them, so this is not cosmetic.
 
 ### `POST /meta-connections/{connection_id}/discoveries/{run_id}/imports`
 

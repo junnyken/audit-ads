@@ -101,6 +101,7 @@ describe('discovery coverage wording', () => {
               internal_entity_id: 'row-1',
               display_name: 'Thanh Công',
               status: 'missing_from_latest_discovery',
+              source_edge: null,
               detail: 'Not returned by the latest completed discovery.',
             },
           ],
@@ -216,12 +217,14 @@ describe('discovery coverage wording', () => {
               display_name: 'Tbsupellex',
               status: 'missing_in_registry',
               detail: 'Returned by owned_ad_accounts.',
+              source_edge: 'owned_ad_accounts',
             },
             {
               external_id: '222',
               internal_entity_id: 'row-2',
               display_name: 'Already here',
               status: 'matched',
+              source_edge: 'client_ad_accounts',
               detail: null,
             },
           ],
@@ -248,6 +251,7 @@ describe('discovery coverage wording', () => {
               internal_entity_id: null,
               display_name: 'A pixel',
               status: 'missing_in_registry',
+              source_edge: 'adspixels',
               detail: 'Returned by adspixels.',
             },
           ],
@@ -271,6 +275,7 @@ describe('discovery coverage wording', () => {
               display_name: 'Tbsupellex',
               status: 'missing_in_registry',
               detail: null,
+              source_edge: 'owned_ad_accounts',
             },
           ],
         })}
@@ -289,8 +294,8 @@ describe('discovery coverage wording', () => {
         title="Ad accounts"
         result={result({
           reconciliation: [
-            { external_id: '111', internal_entity_id: null, display_name: 'One', status: 'missing_in_registry', detail: null },
-            { external_id: '222', internal_entity_id: null, display_name: 'Two', status: 'missing_in_registry', detail: null },
+            { external_id: '111', internal_entity_id: null, display_name: 'One', status: 'missing_in_registry', detail: null, source_edge: 'owned_ad_accounts' },
+            { external_id: '222', internal_entity_id: null, display_name: 'Two', status: 'missing_in_registry', detail: null, source_edge: 'client_ad_accounts' },
           ],
         })}
         onImport={() => {}}

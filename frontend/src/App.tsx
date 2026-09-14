@@ -17,6 +17,7 @@ import Preflight from './pages/Preflight'
 import PreflightDetail from './pages/PreflightDetail'
 import Operations from './pages/Operations'
 import MetaConnections from './pages/MetaConnections'
+import MetaConnectionWorkspace from './pages/MetaConnectionWorkspace'
 import CreateAccountWizard from './pages/operations/CreateAccountWizard'
 import ShareAccessWizard from './pages/operations/ShareAccessWizard'
 import PixelShareWizard from './pages/operations/PixelShareWizard'
@@ -54,6 +55,7 @@ export default function App() {
         <Route path="operations/share-access" element={<ShareAccessWizard />} />
         <Route path="operations/pixel-share" element={<PixelShareWizard />} />
         <Route path="meta-connections" element={<MetaConnections />} />
+        <Route path="meta-connections/:connectionId" element={<MetaConnectionWorkspace />} />
         <Route path="team" element={<TeamSeats />} />
         <Route path="security-devices" element={<SecurityDevices />} />
         <Route path="audit-log" element={<AuditLog />} />

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import type { MetaConnection, MetaEnvironment } from '../lib/types'
@@ -48,9 +49,14 @@ function ConnectionCard({ connection }: { connection: MetaConnection }) {
         </span>
       }
       action={
-        <button type="button" className="btn-secondary" onClick={() => check.mutate()} disabled={check.isPending}>
-          {check.isPending ? 'Checking…' : 'Check capability'}
-        </button>
+        <span className="flex items-center gap-2">
+          <Link to={`/meta-connections/${connection.id}`} className="btn-secondary">
+            Open workspace
+          </Link>
+          <button type="button" className="btn-secondary" onClick={() => check.mutate()} disabled={check.isPending}>
+            {check.isPending ? 'Checking…' : 'Check capability'}
+          </button>
+        </span>
       }
     >
       <div className="space-y-2">

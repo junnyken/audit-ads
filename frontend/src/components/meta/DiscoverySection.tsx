@@ -13,7 +13,7 @@ import { Badge, InlineNote } from '../ui'
 /** Coverage is never styled as success unless it is actually complete. `partial`, `incomplete`
  * and `unknown` all mean the same thing to the operator — this run cannot be used to conclude
  * anything is absent — so none of them may look reassuring. */
-function CoverageBadge({ status }: { status: CoverageStatus }) {
+export function CoverageBadge({ status }: { status: CoverageStatus }) {
   if (status === 'complete') return <Badge tone="positive">Complete</Badge>
   if (status === 'not_attempted') return <Badge tone="neutral">Not attempted</Badge>
   if (status === 'partial') return <Badge tone="caution">Partial</Badge>
@@ -21,7 +21,7 @@ function CoverageBadge({ status }: { status: CoverageStatus }) {
   return <Badge tone="attention">{status === 'unknown' ? 'Unknown' : 'Incomplete'}</Badge>
 }
 
-const RECONCILIATION_LABEL: Record<ReconciliationStatus, string> = {
+export const RECONCILIATION_LABEL: Record<ReconciliationStatus, string> = {
   matched: 'Matched',
   missing_in_registry: 'Not in registry',
   // Deliberately factual. Never "deleted", "removed" or "lost" — this product only knows what
@@ -33,7 +33,7 @@ const RECONCILIATION_LABEL: Record<ReconciliationStatus, string> = {
   not_evaluated: 'Not evaluated',
 }
 
-function ReconciliationBadge({ status }: { status: ReconciliationStatus }) {
+export function ReconciliationBadge({ status }: { status: ReconciliationStatus }) {
   if (status === 'matched') return <Badge tone="positive">{RECONCILIATION_LABEL[status]}</Badge>
   if (status === 'missing_in_registry') return <Badge tone="info">{RECONCILIATION_LABEL[status]}</Badge>
   if (status === 'missing_from_latest_discovery')
@@ -49,7 +49,7 @@ function ReconciliationBadge({ status }: { status: ReconciliationStatus }) {
  * read and every one answered: the product gave a reason that was not the reason. Naming a cause
  * that did not happen is the same class of error as naming a conclusion that was not established.
  */
-function whyNotMissing(status: CoverageStatus): string {
+export function whyNotMissing(status: CoverageStatus): string {
   if (status === 'incomplete') return 'because not every required source was read'
   if (status === 'partial') return 'because the read was cut short before the end'
   if (status === 'stale') return 'because this reading is older than the freshness policy allows'
@@ -59,7 +59,7 @@ function whyNotMissing(status: CoverageStatus): string {
   return 'because what this run was able to see could not be established'
 }
 
-function edgeLabel(edge: string): string {
+export function edgeLabel(edge: string): string {
   if (edge === 'owned_ad_accounts') return 'Owned accounts'
   if (edge === 'client_ad_accounts') return 'Client accounts'
   if (edge === 'adspixels') return 'Business Pixels'

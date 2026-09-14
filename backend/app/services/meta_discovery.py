@@ -63,6 +63,15 @@ class ReconciliationRow:
     #: have. `missing_from_latest_discovery` says only "not returned by the latest completed
     #: discovery" — never "deleted", "removed" or "lost".
     detail: str | None = None
+    #: Which Graph edge produced the observation behind this row — `owned_ad_accounts` or
+    #: `client_ad_accounts` for an ad account, `adspixels` for a Pixel. `None` for a row that
+    #: exists only in the registry, because nothing observed it.
+    #:
+    #: O1.1. The fact was already stored on the observation; it reached the operator only as prose
+    #: inside `detail` ("Returned by owned_ad_accounts."), which a filter cannot use and a
+    #: translation would break. Carrying it as a field is what lets the UI offer an owned/client
+    #: filter without parsing a sentence.
+    source_edge: str | None = None
 
 
 def _authority_of(*discoveries: AssetDiscovery) -> BusinessAuthority:
@@ -433,7 +442,12 @@ class MetaDiscoveryService:
             # Exact identity wins before any scope reasoning: the account was demonstrably
             # returned by this run, so it is present whatever the internal mapping says.
             if canonical in observed:
-                rows.append(self._row("ad_account", canonical, account.id, account.display_name, MATCHED))
+                rows.append(
+                    self._row(
+                        "ad_account", canonical, account.id, account.display_name, MATCHED,
+                        source_edge=observed[canonical].source_edge,
+                    )
+                )
                 continue
 
             business_manager = (
@@ -464,7 +478,8 @@ class MetaDiscoveryService:
             if external_id not in internal_ids:
                 rows.append(
                     self._row("ad_account", external_id, None, observation.display_name or "",
-                              MISSING_IN_REGISTRY, f"Returned by {observation.source_edge}.")
+                              MISSING_IN_REGISTRY, f"Returned by {observation.source_edge}.",
+                              source_edge=observation.source_edge)
                 )
         return rows
 
@@ -504,7 +519,12 @@ class MetaDiscoveryService:
                 continue
             internal_ids.add(canonical)
             if canonical in observed:
-                rows.append(self._row("pixel", canonical, pixel.id, pixel.name, MATCHED))
+                rows.append(
+                    self._row(
+                        "pixel", canonical, pixel.id, pixel.name, MATCHED,
+                        source_edge=observed[canonical].source_edge,
+                    )
+                )
                 continue
             rows.append(
                 self._row("pixel", canonical, pixel.id, pixel.name, OUT_OF_SCOPE,
@@ -516,7 +536,8 @@ class MetaDiscoveryService:
             if external_id not in internal_ids:
                 rows.append(
                     self._row("pixel", external_id, None, observation.display_name or "",
-                              MISSING_IN_REGISTRY, f"Returned by {observation.source_edge}.")
+                              MISSING_IN_REGISTRY, f"Returned by {observation.source_edge}.",
+                              source_edge=observation.source_edge)
                 )
         return rows
 
@@ -528,6 +549,7 @@ class MetaDiscoveryService:
         display_name: str,
         status: AssetReconciliationStatus,
         detail: str | None = None,
+        source_edge: str | None = None,
     ) -> ReconciliationRow:
         return ReconciliationRow(
             asset_type=asset_type,
@@ -536,6 +558,7 @@ class MetaDiscoveryService:
             display_name=display_name,
             status=status,
             detail=detail,
+            source_edge=source_edge,
         )
 
     # ------------------------------------------------------------------ internals

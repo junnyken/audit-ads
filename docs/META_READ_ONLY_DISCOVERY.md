@@ -221,6 +221,28 @@ authority over: whether a Pixel belongs to exactly one BM or many; where existin
 be backfilled from; whether a mapping records ownership, access or use; and whether an operator's
 manual assertion counts as provider truth. That is a separate mini-spec.
 
+## Which edge returned a row, and every earlier run (O1.1)
+
+Each reconciliation row carries `source_edge` — `owned_ad_accounts`, `client_ad_accounts` or
+`adspixels`. This was always stored on the observation; it was only ever readable as a sentence
+inside `detail`, which cannot be filtered and would not survive translation. An owned account and a
+client-shared one differ in what this workspace may do with them, so the distinction is now
+structured data.
+
+`source_edge` is `null` for a row that came from the registry rather than from an observation —
+an internal record no observation matched was returned by no edge, and naming one would claim a
+reading that never happened. The workspace's edge filter therefore drops such rows rather than
+assigning them to whichever edge is selected.
+
+`GET /meta-connections/{id}/discoveries` lists every run a connection has recorded, newest first,
+paginated, reading stored rows only. Each item carries that run's own coverage, authority, reader
+identity and failure, including edges that were `not_attempted` — so a run that never asked a
+required edge can never be mistaken for the complete one beside it.
+
+It carries **no reconciliation**, deliberately: reconciliation is recomputed against the registry
+as it stands now, and showing it against an old observation would put two different moments side by
+side as though they were one.
+
 ## Bounds
 
 Every call is explicit — a person pressed a button. There is no timer, no page-load trigger and

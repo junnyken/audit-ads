@@ -809,6 +809,10 @@ export interface ReconciliationRow {
   display_name: string
   status: ReconciliationStatus
   detail: string | null
+  /** Which Graph edge returned this asset. Null for a row that came from the registry rather
+   * than from an observation — an internal record no observation matched has no edge, and
+   * inventing one would claim a reading that never happened. */
+  source_edge: string | null
 }
 
 export interface DiscoveryAssetResult {
@@ -842,6 +846,27 @@ export interface DiscoveryRun {
   failure_summary: string | null
   ad_accounts: DiscoveryAssetResult
   pixels: DiscoveryAssetResult
+}
+
+/** One historical run, exactly as it was recorded — coverage, authority and reader identity, and
+ * deliberately no reconciliation. Reconciliation is recomputed against the registry as it is
+ * *now*, so showing it beside a week-old observation would put today's registry and an old
+ * reading side by side and invite reading one as evidence about the other. */
+export interface DiscoveryRunSummary {
+  id: string
+  status: DiscoveryRun['status']
+  trigger: string
+  environment: MetaEnvironment
+  business_manager: { reference: string | null; name: string | null }
+  read_as: { external_id: string | null; name: string | null }
+  business_authority: BusinessAuthority
+  started_at: string | null
+  completed_at: string | null
+  freshness: DiscoveryRun['freshness']
+  failure_code: string | null
+  failure_summary: string | null
+  ad_accounts: Omit<DiscoveryAssetResult, 'reconciliation'>
+  pixels: Omit<DiscoveryAssetResult, 'reconciliation'>
 }
 
 /** One row of the Overview discovery table: the latest run per connection, no reconciliation. */

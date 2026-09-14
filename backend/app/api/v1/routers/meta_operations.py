@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import sqlalchemy as sa
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from app.api.deps import OwnerCtx
 from app.core.config import get_settings
@@ -26,6 +26,7 @@ from app.models.meta_operations import (
     PixelShareBatch,
 )
 from app.schemas import meta_operations as s
+from app.schemas.common import page_response
 from app.services.base import get_or_404, snapshot
 from app.services.meta_access_share import AccessShareBatchService, DraftShareItem
 from app.services.meta_account_creation import AccountCreationBatchService, DraftAccountItem
@@ -112,6 +113,9 @@ def _serialize_reconciliation(rows: list[ReconciliationRow]) -> list[dict[str, A
             "display_name": row.display_name,
             "status": row.status.value,
             "detail": row.detail,
+            # Structured, not parsed out of `detail`. A filter cannot read a sentence, and a
+            # translated one would break silently.
+            "source_edge": row.source_edge,
         }
         for row in rows
     ]
@@ -386,6 +390,94 @@ def run_discovery(ctx: OwnerCtx, connection_id: uuid.UUID) -> dict[str, Any]:
     )
     ctx.commit()
     return payload
+
+
+def _serialize_run_summary(run: BusinessManagerDiscoveryRun) -> dict[str, Any]:
+    """One run, without reconciliation.
+
+    Reconciliation is recomputed against the registry as it is *now*, so attaching it to a
+    historical run would describe today's registry beside an old observation and invite reading
+    one as evidence about the other. History answers "what did each look see, and could it be
+    trusted" — the same question the Overview asks, per run.
+    """
+    return {
+        "id": str(run.id),
+        "status": run.status.value,
+        "trigger": run.trigger.value,
+        "environment": run.provider_environment.value,
+        "business_manager": {
+            "reference": run.configured_business_manager_reference or None,
+            "name": run.configured_business_manager_name,
+        },
+        "read_as": {
+            "external_id": run.provider_actor_external_id,
+            "name": run.provider_actor_name,
+        },
+        "business_authority": run.business_authority.value,
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+        "freshness": _freshness(run.completed_at),
+        "failure_code": run.failure_code,
+        "failure_summary": run.failure_summary,
+        "ad_accounts": {
+            "coverage_status": run.ad_account_coverage_status.value,
+            "complete": run.ad_accounts_complete,
+            "required_edges": run.ad_account_required_edges_json or [],
+            "coverage": run.ad_account_coverage_json or {},
+        },
+        "pixels": {
+            "coverage_status": run.pixel_coverage_status.value,
+            "complete": run.pixels_complete,
+            "required_edges": run.pixel_required_edges_json or [],
+            "coverage": run.pixel_coverage_json or {},
+        },
+    }
+
+
+@connections_router.get("/{connection_id}/discoveries")
+def list_discoveries(
+    ctx: OwnerCtx,
+    connection_id: uuid.UUID,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+) -> dict[str, Any]:
+    """Every run this connection has recorded, newest first. O1.1.
+
+    Reads persisted runs only — **no provider call**, so opening the history costs no rate-limit
+    budget. Owner-only like every other discovery route, for the reason recorded in
+    `ACCESS_SCOPE_MATRIX.md`: a run names an external id that may match no local record, so
+    membership scope cannot be proven for it and A9's rule is to deny rather than guess.
+
+    Each row carries its own coverage, authority and per-edge detail. A run that was complete
+    last week and one that never attempted an edge must not look alike in a list, which is
+    exactly where a summary would flatten them.
+    """
+    connection = get_or_404(ctx.session, MetaConnection, connection_id, ctx.workspace_id, label="Meta connection")
+    where = (
+        BusinessManagerDiscoveryRun.workspace_id == ctx.workspace_id,
+        BusinessManagerDiscoveryRun.meta_connection_id == connection.id,
+        BusinessManagerDiscoveryRun.archived_at.is_(None),
+    )
+    total = ctx.session.execute(
+        sa.select(sa.func.count()).select_from(BusinessManagerDiscoveryRun).where(*where)
+    ).scalar_one()
+    runs = (
+        ctx.session.execute(
+            sa.select(BusinessManagerDiscoveryRun)
+            .where(*where)
+            .order_by(BusinessManagerDiscoveryRun.started_at.desc())
+            .limit(page_size)
+            .offset((page - 1) * page_size)
+        )
+        .scalars()
+        .all()
+    )
+    return page_response(
+        [_serialize_run_summary(run) for run in runs],
+        page=page,
+        page_size=page_size,
+        total=int(total),
+    )
 
 
 @connections_router.get("/{connection_id}/discoveries/latest")

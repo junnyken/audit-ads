@@ -598,6 +598,36 @@ reports `writes_are_real`.
 create has been issued, and two prerequisites from the audit are still unverified: billing on the
 target Business Manager, and how many of its ad-account slots remain.
 
+### 4h. The connection discovery workspace (O1.1)
+
+O1.1 asked for a workspace keyed by Business Manager, at `/business-managers/{id}/…`. It was built
+keyed by **connection** instead, and that is the one substantive deviation from the spec.
+
+`business_managers` is the A1 registry — rows an operator typed or imported. No discovery data
+hangs off it: `BusinessManagerDiscoveryRun` points at `meta_connections`, and the Business Manager
+it read is a **string with no foreign key**. Counted on 2026-09-14 the registry held 0 Business
+Managers and 0 ad accounts, against 7 runs and 36 observations. A BM-keyed workspace would have
+404ed on every URL on the day it shipped. The Business Manager is shown as an attribute of the
+connection, which is what the schema says it is; when imports populate the registry, a BM-keyed
+view becomes possible without moving any of this.
+
+Two read-only additions were needed, and no more. Neither adds a column, a table or a call:
+
+- **`source_edge` on each reconciliation row.** The edge was already stored on both observation
+  tables and already displayed — as prose inside `detail`. Prose cannot be filtered and breaks on
+  translation, so the field is now structured, and `null` rather than guessed for a row that came
+  from the registry rather than from an observation.
+- **`GET /meta-connections/{id}/discoveries`.** Paginated history of runs, serving the question
+  the Overview answers for the latest run only: what did each look see, and could it be trusted.
+  It carries **no reconciliation** — reconciliation is recomputed against today's registry, and
+  pinning it to an old observation would put two moments side by side as if they were one.
+
+The five endpoints in O1.1 §7B were not built: four are keyed by `business_manager_id` and would
+be read models over rows that do not exist yet.
+
+Add-to-Registry is reused unchanged, now reachable from the workspace's Ad Accounts tab as well as
+from the connection card.
+
 ## 5. Security model
 
 | Control | Implementation |

@@ -24,7 +24,7 @@ of the defects found in this project have been violations of that rule, not cras
 | Production schema | **At head `0015_a10_3_conn_bm`.** Migrations 0011-0015 applied 2026-09-12, confirmed by a `migration complete` log line |
 | Frontend on Vibe Host | **Unreachable.** Container healthy and answering 200 internally; the platform edge returns its catch-all. A routing entry, not a code problem |
 | Local development | `scripts/dev.sh start` — supervised, self-restarting, 18h+ uptime observed |
-| Tests | ~784 backend, ~110 frontend, all green; `npm run typecheck` is `tsc -b` |
+| Tests | **808 backend, 127 frontend**, all green (2026-09-14); `npm run typecheck` is `tsc -b` |
 | Real Meta reads | **Working against a live Business Manager.** 8 ad accounts and 7 Pixels discovered, with coverage, reader identity and authority recorded |
 | Real Meta writes | **Capability built, never used.** See A10.2 below |
 | Telegram | **Never sent a real message.** No bot token in the deployed environment |
@@ -38,7 +38,7 @@ of the defects found in this project have been violations of that rule, not cras
 | First real ad-account create | Billing confirmed on BM `1993884657458857`, the remaining ad-account slot count, and an explicit approval naming that BM (rule 22) |
 | Multi-Business-Manager in practice | `adsops-admin` added as a **member** of the second BM. Today it has no role there, so a discovery honestly reports `0 · Unknown` |
 | A real Telegram message | `TELEGRAM_BOT_TOKEN` in server configuration **and** a separate approval naming a chat (rules 20 and 22) |
-| A10.1 import click-through | Someone to click "Add to registry" once, locally |
+| A10.1 import click-through | Someone to click "Add to registry" once, locally. Still not done — the registry holds 0 Business Managers and 0 ad accounts |
 
 ### Known limits worth stating plainly
 
@@ -263,6 +263,24 @@ and the response says which, because inheriting means the connection is not abou
 own. The token axis is untouched and still unanswered — `adsops-admin` has no role in the second BM
 — but storing *which* BM to read is common to both possible designs, and a per-BM token could never
 live in the database anyway.
+
+**O1.1 — connection discovery workspace (built 2026-09-14).** A page per connection at
+`meta-connections/:connectionId` with four tabs: Overview, Ad Accounts, Pixels and Discovery
+History. Each asset tab lists every reconciliation row with the Graph edge that returned it, and
+filters on that edge and on reconciliation status; the history tab lists every run this connection
+recorded, newest first, each with its own coverage, authority and reader identity.
+
+Two things made it possible, both read-only, neither adding a column or a call: `source_edge` on
+every reconciliation row (the edge was already stored, but only readable as prose inside `detail`),
+and `GET /meta-connections/{id}/discoveries`.
+
+The spec asked for the workspace to be keyed by Business Manager. It is keyed by **connection**
+instead, because that is where the data lives: the registry held 0 Business Managers against 7 runs
+and 36 observations, so every BM-keyed URL would have 404ed on day one. See
+`docs/AUDIT_BEFORE_BUILD_O1_1.md` §1a and `ARCH.md` §4h.
+
+History deliberately shows no reconciliation: it is recomputed against today's registry, and
+pinning it beside a week-old observation would present two moments as one.
 
 **Superseded:** the note below, from A10.1. The import was deferred there because reusing A7's
 preview/confirm machinery would have meant a fourth copy of that state machine. It is built here
