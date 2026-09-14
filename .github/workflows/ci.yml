@@ -1,0 +1,98 @@
+name: CI
+
+# Runs the same commands CLAUDE.md tells a person to run, in the same order, so a green run here
+# means the same thing a green run on a laptop means. Nothing here deploys, sends, or reaches Meta:
+# the suite sets NOTIFICATION_TRANSPORT=fake and configures no Meta credential, so the real
+# provider is never constructed.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        # The suite builds its schema with alembic against a real Postgres; sqlite would not
+        # exercise the same types, and the migration tests are part of what must stay green.
+        image: postgres:16
+        env:
+          POSTGRES_USER: adsops
+          POSTGRES_PASSWORD: adsops
+          POSTGRES_DB: adsops_test
+        # 5434 is what tests/conftest.py defaults to, so CI and a laptop use one address.
+        ports: ['5434:5432']
+        options: >-
+          --health-cmd "pg_isready -U adsops -d adsops_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          # requirements-dev.txt starts with `-r requirements.txt`, so this is the whole set.
+          pip install -r requirements-dev.txt
+
+      - name: Lint
+        working-directory: backend
+        run: ruff check .
+
+      - name: Tests
+        working-directory: backend
+        # One run, in one process, against one database — running the suite twice concurrently on
+        # a shared Postgres produces false reds, and the migration tests drop tables as they go.
+        run: python -m pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: frontend
+        # `tsc -b`, never `tsc --noEmit`: the root tsconfig is {"files": [], "references": [...]},
+        # so --noEmit compiles zero files here and would pass while the app is broken.
+        run: npm run typecheck
+
+      - name: Lint
+        working-directory: frontend
+        run: npx eslint .
+
+      - name: Tests
+        working-directory: frontend
+        run: npx vitest run
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build

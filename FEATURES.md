@@ -817,8 +817,13 @@ than one that is merely incomplete, so each line below names how it was verified
 
 ### Still true
 
-- **No CI.** `.github/workflows` holds zero files. Every suite is run by hand; nothing runs on
-  push. This is the one infrastructure gap from the original list that survived re-checking.
+- ~~**No CI.**~~ Added 2026-09-14: `.github/workflows/ci.yml` runs ruff + the backend suite against
+  a real Postgres 16 service on 5434 (the address `tests/conftest.py` already defaults to), and
+  `tsc -b` + eslint + vitest + build for the frontend, on every push to `main` and every pull
+  request. It runs the same commands `CLAUDE.md` gives a person, in the same order, so a green run
+  means the same thing in both places. It reaches nothing: the suite forces
+  `NOTIFICATION_TRANSPORT=fake` and configures no Meta credential, so the real provider is never
+  constructed.
 - **No real Telegram message has ever been sent.** `TELEGRAM_BOT_TOKEN` is unset in the deployed
   environment, and the transport is exercised only through `FakeNotificationTransport`. A first
   real send needs the token *and* a separate approval naming a chat (rules 20 and 22).
