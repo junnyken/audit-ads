@@ -24,7 +24,7 @@ of the defects found in this project have been violations of that rule, not cras
 | Production schema | **At head `0015_a10_3_conn_bm`.** Migrations 0011-0015 applied 2026-09-12, confirmed by a `migration complete` log line |
 | Frontend on Vibe Host | **Unreachable.** Container healthy and answering 200 internally; the platform edge returns its catch-all. A routing entry, not a code problem |
 | Local development | `scripts/dev.sh start` — supervised, self-restarting, 18h+ uptime observed |
-| Tests | **808 backend, 128 frontend**, all green (2026-09-14); `npm run typecheck` is `tsc -b` |
+| Tests | **808 backend, 131 frontend**, all green (2026-09-14); `npm run typecheck` is `tsc -b` |
 | Registry import | **Exercised for the first time 2026-09-14.** Two owned accounts imported by hand from a real run; 1 Business Manager and 2 ad accounts now in the registry, each with a full audit chain and readiness `unknown` |
 | Real Meta reads | **Working against a live Business Manager.** 8 ad accounts and 7 Pixels discovered, with coverage, reader identity and authority recorded |
 | Real Meta writes | **Capability built, never used.** See A10.2 below |
@@ -279,6 +279,16 @@ The spec asked for the workspace to be keyed by Business Manager. It is keyed by
 instead, because that is where the data lives: the registry held 0 Business Managers against 7 runs
 and 36 observations, so every BM-keyed URL would have 404ed on day one. See
 `docs/AUDIT_BEFORE_BUILD_O1_1.md` §1a and `ARCH.md` §4h.
+
+**O1.1 follow-up (built 2026-09-14, after the first real use).** Two additions the first
+click-through asked for:
+
+- **"Add to registry" now asks once.** The first click offers; a second confirms. The sentence in
+  between states both halves: nothing in Meta is created, shared or changed — and a registry record
+  cannot be deleted afterwards, only archived (rule 2). One row at a time.
+- **The connection Overview says whether that Business Manager is in the registry.** Read from the
+  registry, not from Meta. If the lookup fails it says *"Registry could not be checked"* rather than
+  "not in the registry" — a failed read is never absence (rule 4).
 
 History deliberately shows no reconciliation: it is recomputed against today's registry, and
 pinning it beside a week-old observation would present two moments as one.

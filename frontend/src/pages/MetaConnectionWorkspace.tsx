@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ApiError, api } from '../lib/api'
 import { formatDateTime } from '../lib/format'
-import type { DiscoveryRun, MetaConnection } from '../lib/types'
+import type { DiscoveryRun, MetaConnection, Paged } from '../lib/types'
 import { Badge, Card, ErrorState, InlineNote, Skeleton, Tabs } from '../components/ui'
 import { AssetInventory, type EdgeFilter, type StatusFilter } from '../components/meta/AssetInventory'
 import { CoverageBadge } from '../components/meta/DiscoverySection'
@@ -60,6 +60,22 @@ export default function MetaConnectionWorkspace() {
   })
 
   const data = latest.data ?? null
+
+  // Whether the Business Manager this run read has a row in the A1 registry. Read-only, and asked
+  // of the registry rather than of Meta. The import invalidates ['business-managers'], and this
+  // key sits under that prefix, so the answer refreshes itself after an import creates the row.
+  const bmReference = data?.business_manager.reference ?? null
+  const registryBm = useQuery({
+    queryKey: ['business-managers', 'workspace-lookup', bmReference],
+    enabled: Boolean(bmReference),
+    queryFn: () =>
+      api.get<Paged<{ id: string; name: string; external_id: string | null }>>(
+        `/api/v1/business-managers?search=${encodeURIComponent(bmReference!)}&page_size=25`,
+      ),
+  })
+  // `search` may match loosely; the claim being made is exact, so the comparison is exact too.
+  const registryRow = registryBm.data?.items.find((item) => item.external_id === bmReference)
+
   const importAccount = useMutation({
     // The run id is in the path, not "latest": the operator is acting on the result in front of
     // them, and a run that completed between rendering and clicking must not silently become the
@@ -139,7 +155,25 @@ export default function MetaConnectionWorkspace() {
                         {data.business_manager.name ?? data.business_manager.reference ?? 'not configured'}
                       </span>
                       {data.freshness === 'stale' && <Badge tone="caution">Stale reading</Badge>}
+                      {bmReference &&
+                        // Never a guess. A failed lookup says so; it must not read as "absent",
+                        // which is the whole discipline this product is built on.
+                        (registryBm.isLoading ? (
+                          <span className="text-[11.5px] text-ink-faint">Checking the registry…</span>
+                        ) : registryBm.isError ? (
+                          <Badge tone="neutral">Registry could not be checked</Badge>
+                        ) : registryRow ? (
+                          <Badge tone="positive">In the registry</Badge>
+                        ) : (
+                          <Badge tone="neutral">Not in the registry yet</Badge>
+                        ))}
                     </div>
+                    {bmReference && !registryBm.isLoading && !registryBm.isError && !registryRow && (
+                      <p className="text-[11.5px] text-ink-faint">
+                        This Business Manager has no record in the registry yet. Adding any ad
+                        account from this run creates one — nothing in Meta is touched either way.
+                      </p>
+                    )}
                     <div className="grid gap-1 sm:grid-cols-2">
                       <span className="flex items-center gap-2">
                         <span className="text-ink-muted">

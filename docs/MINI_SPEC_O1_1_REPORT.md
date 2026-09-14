@@ -74,7 +74,13 @@ Frontend:
 - `src/test/connection.workspace.test.tsx` — new, 17 tests.
 - `src/test/discovery.components.test.tsx` — 7 fixtures updated for the new required field.
 
-Docs: `API.md`, `ARCH.md` §4h, `FEATURES.md`, `TEST_LOG.md`, this report.
+Docs: `API.md`, `ARCH.md` §4h, `FEATURES.md`, `TEST_LOG.md`, `docs/META_READ_ONLY_DISCOVERY.md`,
+`docs/VIBEHOST_SUPPORT_REQUEST.md`, this report.
+
+**Follow-up after the first real use (2026-09-14):** `AssetInventory` gained a per-row confirmation
+step, and the Overview tab now reports whether the run's Business Manager has a registry row —
+saying so is refused when the lookup fails, rather than reported as absence. Frontend tests 128 →
+131.
 
 ## 5. New API/DB/State
 
@@ -171,12 +177,15 @@ test asserts the sentence appears exactly once and the raw edge name never reach
 
 ## 8. Remaining Limits / Follow-ups
 
-1. **Click "Add to registry" once** — needs either the local dashboard password entered by the
-   operator in their own browser, or approval for a local token-minting command. Until then the
-   import path is verified only by automated tests.
-2. **Production frontend routing** — the stack plan declares the `web` service but stack membership
-   contains only the api. A platform-side fix; `deploy_stack` could resurrect the deleted
-   `extension` service and was not run.
+1. ~~Click "Add to registry" once~~ — **done 2026-09-14**, see §7.
+2. **Production frontend routing** — measured again on 2026-09-14: the stack has been stuck at
+   `status: "deploying"` since 2026-09-07 with `lastReconciledAt` unchanged, its plan declares three
+   services and only the api was ever created, and the standalone frontend project (now at
+   `audit-ads-app.cmc-1.vibenode.matbao.ai`, not `audit-ads-frontend…`) returns the platform
+   catch-all while the backend on the same node answers `/health/live` 200. A platform-side fix;
+   `deploy_stack` was **not** run because the plan still contains the deliberately deleted
+   `extension` service. Evidence and the request are written up in
+   `docs/VIBEHOST_SUPPORT_REQUEST.md`.
 3. **A BM-keyed workspace** remains possible and is not ruled out — it becomes buildable the moment
    the registry has rows, and nothing in this release stands in its way.
 4. **Multi-Business-Manager in practice** still waits on `adsops-admin` being made a member of the

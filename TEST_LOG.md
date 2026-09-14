@@ -2817,3 +2817,36 @@ Two items from the operator's checklist were **never built** and are recorded as
 as failures: there is no confirmation dialog on the button, and the Overview tab has no "not yet
 added to registry" state — it shows the Business Manager the run read, so it looks identical before
 and after. What did change and was seen: the row flipped to **Matched**.
+
+### O1.1 follow-up, 2026-09-14 — confirmation step and registry lookup
+
+Frontend **131 passed** (128 before), `tsc -b` 0, eslint clean, build ok. No backend file changed,
+so the backend suite was not re-run.
+
+One existing test went red and was **rewritten rather than deleted**: it asserted that one click on
+"Add to registry" imports the account, which is exactly what the confirmation step changed. It now
+states what is still true — the action is offered only on rows absent from the registry — and
+carries the second click.
+
+The registry lookup on the Overview tab distinguishes three answers, not two: in the registry, not
+in the registry, and **"Registry could not be checked"** when the request fails. A failed read is
+never absence (rule 4), and the two states would otherwise be rendered identically.
+
+### Production, re-measured 2026-09-14
+
+| URL | Result |
+|---|---|
+| `audit-ads-backend…/health/live` | **200** |
+| `audit-ads-backend…/health/ready` | **200** |
+| `audit-ads-app…/` | 404, platform catch-all (`<title>Địa chỉ này chưa phục vụ nội dung · Vibe Host</title>`) |
+| `audit-ads-frontend…/` | 404, same catch-all |
+
+**The hostname recorded in earlier entries was wrong**: the standalone frontend project now serves
+at `audit-ads-app`, not `audit-ads-frontend`. Both are unreachable, so no conclusion changes — but
+the name given to support does.
+
+New finding: the `audit-ads` stack has been stuck at `status: "deploying"` since 2026-09-07T10:20Z,
+`lastReconciledAt` unchanged for seven days, its plan declaring three services with only the api
+ever created. Written up with the evidence in `docs/VIBEHOST_SUPPORT_REQUEST.md`. `deploy_stack`
+was deliberately not run: the plan still contains the `extension` service that was intentionally
+deleted.

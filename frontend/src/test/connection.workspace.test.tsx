@@ -212,10 +212,82 @@ describe('the inventory of one asset type', () => {
       />,
     )
 
+    // Only the absent row is offered the action; the matched one has nothing to import.
     const buttons = screen.getAllByRole('button', { name: 'Add to registry' })
     expect(buttons).toHaveLength(1)
+
+    // Two steps since the confirmation was added — the offer, then the decision.
     fireEvent.click(buttons[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
     expect(onImport).toHaveBeenCalledWith('111')
+  })
+
+  it('asks once before importing, and says what cannot be taken back', () => {
+    const onImport = vi.fn()
+    render(
+      <AssetInventory
+        result={result({
+          reconciliation: [row({ external_id: '111', display_name: 'Not here yet' })],
+        })}
+        edge="all"
+        status="all"
+        onEdgeChange={noop}
+        onStatusChange={noop}
+        onImport={onImport}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add to registry' }))
+
+    // Nothing has been imported yet — the first click only asks.
+    expect(onImport).not.toHaveBeenCalled()
+    expect(screen.getByText(/Nothing in Meta is created, shared or changed/)).toBeTruthy()
+    expect(screen.getByText(/cannot be deleted afterwards — only archived/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    expect(onImport).toHaveBeenCalledWith('111')
+  })
+
+  it('imports nothing when the operator cancels', () => {
+    const onImport = vi.fn()
+    render(
+      <AssetInventory
+        result={result({ reconciliation: [row({ external_id: '111' })] })}
+        edge="all"
+        status="all"
+        onEdgeChange={noop}
+        onStatusChange={noop}
+        onImport={onImport}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add to registry' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(onImport).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Add to registry' })).toBeTruthy()
+    expect(screen.queryByText(/cannot be deleted afterwards/)).toBeNull()
+  })
+
+  it('asks about one row at a time', () => {
+    const onImport = vi.fn()
+    render(
+      <AssetInventory
+        result={result({
+          reconciliation: [row({ external_id: '111' }), row({ external_id: '222' })],
+        })}
+        edge="all"
+        status="all"
+        onEdgeChange={noop}
+        onStatusChange={noop}
+        onImport={onImport}
+      />,
+    )
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Add to registry' })[0])
+
+    expect(screen.getAllByRole('button', { name: 'Confirm' })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: 'Add to registry' })).toHaveLength(1)
   })
 
   it('offers no import at all when the caller supplies none — Pixels have nothing to import into', () => {

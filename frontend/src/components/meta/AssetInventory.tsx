@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { DiscoveryAssetResult, ReconciliationRow } from '../../lib/types'
 import { CoverageBadge, ReconciliationBadge, edgeLabel, whyNotMissing } from './DiscoverySection'
 import { EmptyState, InlineNote } from '../ui'
@@ -46,6 +47,7 @@ export function AssetInventory({
   importingId?: string | null
   emptyNote?: string
 }) {
+  const [pendingId, setPendingId] = useState<string | null>(null)
   const edges = Object.entries(result.coverage.edges ?? {})
   const rows = filterRows(result.reconciliation, edge, status)
   const returned = result.coverage.total_unique_assets ?? result.reconciliation.length
@@ -158,19 +160,54 @@ export function AssetInventory({
                     : 'No observation from this run matched this internal record'}
                   {row.detail ? ` · ${row.detail}` : ''}
                 </span>
+                {pendingId === row.external_id && (
+                  // Worth one deliberate step: this product never hard-deletes a domain entity, so
+                  // a mis-click leaves a registry record that can only be archived, and an audit
+                  // row that is permanent. The sentence says both halves — what it does not touch
+                  // (Meta) and what cannot be taken back (the record).
+                  <span className="mt-1 block text-[11px] text-amber-700">
+                    Adds this account to the internal registry. Nothing in Meta is created, shared
+                    or changed. A registry record cannot be deleted afterwards — only archived.
+                  </span>
+                )}
               </span>
               <span className="flex shrink-0 items-center gap-2">
                 <ReconciliationBadge status={row.status} />
-                {onImport && row.status === 'missing_in_registry' && row.external_id && (
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={() => onImport(row.external_id as string)}
-                    disabled={importingId === row.external_id}
-                  >
-                    {importingId === row.external_id ? 'Adding…' : 'Add to registry'}
-                  </button>
-                )}
+                {onImport &&
+                  row.status === 'missing_in_registry' &&
+                  row.external_id &&
+                  (pendingId === row.external_id ? (
+                    <span className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        onClick={() => {
+                          onImport(row.external_id as string)
+                          setPendingId(null)
+                        }}
+                        disabled={importingId === row.external_id}
+                      >
+                        {importingId === row.external_id ? 'Adding…' : 'Confirm'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => setPendingId(null)}
+                        disabled={importingId === row.external_id}
+                      >
+                        Cancel
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => setPendingId(row.external_id as string)}
+                      disabled={importingId === row.external_id}
+                    >
+                      {importingId === row.external_id ? 'Adding…' : 'Add to registry'}
+                    </button>
+                  ))}
               </span>
             </li>
           ))}
