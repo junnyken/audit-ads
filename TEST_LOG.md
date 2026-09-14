@@ -2653,3 +2653,39 @@ the role as unverified.
 The three derived Meta fields are an **assumption that has never met the real endpoint**:
 `end_advertiser` set to the Business Manager itself, `media_agency` and `partner` `NONE`. If Meta
 disagrees, the first pilot returns `invalid_request` and creates nothing.
+
+### 2026-09-14 — the configuration check now says it ran
+
+**Backend: 797 passed, exit 0** (17:46). Ruff clean.
+
+Production was restarted to find out whether any configuration finding existed, and the log could
+not answer — not because anything was broken, but because **nothing is written when there is
+nothing to report**. "Checked, all clear" and "never checked" were the same silence. That is the
+third instance of this defect shape in three days, after the startup migration's outcome line and
+the coverage sentence that named a cause that had not happened.
+
+A `configuration checked` line is now logged on every startup, carrying the number of findings,
+how many are errors, and `production_mode`. The per-finding lines are unchanged, and `enforce()`
+still runs where it ran before — this adds observability and moves no guard.
+
+`production_mode` rides along because it decides whether those findings are refusals or advice.
+**The deployed backend has no `ENVIRONMENT` variable**, so `is_production()` is `False` there and
+every rule-25 check — placeholder secrets, the pilot password, secrets under 32 characters — is
+running in warn-only mode on the one environment it exists to protect. `/docs` and `/openapi.json`
+are 404 in production because `ENABLE_API_DOCS` says so, not because the production guard is
+active.
+
+**A correction to yesterday's reasoning, recorded because the wrong version was stated out loud:**
+`enforce()` was described as running at import time, before the platform's log window opens. It
+does not — it runs inside the FastAPI lifespan, between `Waiting for application startup` and
+`Application startup complete`, and both of those lines were present in the captured buffer. The
+missing `bootstrap` line was offered as corroboration and proves nothing either: bootstrap only
+logs when it skips, and production has `BOOTSTRAP_OWNER_EMAIL` set. So the honest reading of that
+restart is that production most likely has zero findings — which the new line will now state
+outright rather than leaving to be inferred from an absence.
+
+Three tests pin it: a clean configuration still logs the line, the summary reports whether the
+checks are refusals or advice, and the counts match the findings reported. All three needed
+`configure_logging` stubbed — the real one installs this project's JSON handler and replaces the
+root handlers, taking pytest's capturing handler with it. The records were written the whole time;
+the test simply could not see them.

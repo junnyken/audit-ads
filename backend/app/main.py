@@ -30,10 +30,27 @@ async def lifespan(app: FastAPI):
     # refusal: `enforce` raises in production and only warns elsewhere.
     import logging as _logging
 
-    for finding in enforce(settings):
+    findings = enforce(settings)
+    for finding in findings:
         _logging.getLogger(__name__).warning(
             "configuration finding", extra={"code": finding.code, "severity": finding.severity}
         )
+    # Logged every time, including when there is nothing to report. Without it, "checked and all
+    # clear" and "never checked" are the same absence in a log, and this project has already been
+    # bitten by exactly that: the startup migration's outcome line was silently disabled, and its
+    # absence was nearly read as "there was nothing to migrate".
+    #
+    # `production_mode` rides along because it decides whether the findings above are refusals or
+    # merely advice — a deployment that does not consider itself production runs every one of
+    # these checks in warn-only mode, which is worth being able to see from the outside.
+    _logging.getLogger(__name__).warning(
+        "configuration checked",
+        extra={
+            "findings": len(findings),
+            "errors": sum(1 for finding in findings if finding.severity == "error"),
+            "production_mode": is_production(settings),
+        },
+    )
 
     # Before the owner is bootstrapped: bootstrapping writes rows, which needs the tables.
     # Does nothing unless MIGRATE_ON_START names this code's head revision — see

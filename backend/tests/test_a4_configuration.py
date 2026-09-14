@@ -208,3 +208,81 @@ def test_nginx_configs_carry_the_required_security_headers():
     # HSTS ships commented out on purpose: enabling it before the certificate is right locks
     # browsers out of the site.
     assert "# add_header Strict-Transport-Security" in edge
+
+
+# ------------------------------------------------------- the startup line that proves it ran
+
+
+def _startup_log(caplog, monkeypatch) -> list:
+    """Drive the app's lifespan and return what `app.main` logged.
+
+    `configure_logging` is stubbed out: the real one installs this project's JSON handler and
+    replaces the root handlers, which takes pytest's capturing handler with it — the records are
+    written, just not where the test can see them.
+    """
+    import asyncio
+    import logging
+
+    from fastapi import FastAPI
+
+    from app.main import lifespan
+
+    monkeypatch.setattr("app.main.configure_logging", lambda _level: None)
+
+    async def _run() -> None:
+        async with lifespan(FastAPI()):
+            pass
+
+    with caplog.at_level(logging.WARNING, logger="app.main"):
+        asyncio.run(_run())
+    return [record for record in caplog.records if record.name == "app.main"]
+
+
+def test_a_clean_configuration_still_says_it_was_checked(caplog, monkeypatch):
+    """"Checked, nothing wrong" and "never checked" are the same silence otherwise.
+
+    This project has already paid for that ambiguity once: the startup migration's outcome line
+    was silently disabled, and its absence was nearly read as "there was nothing to migrate". A
+    production deployment was restarted specifically to find out whether any configuration
+    finding existed, and the log could not answer — not because anything was broken, but because
+    nothing is written when there is nothing to report.
+    """
+    monkeypatch.setattr("app.main.enforce", lambda _settings: [])
+
+    messages = [record.getMessage() for record in _startup_log(caplog, monkeypatch)]
+
+    assert "configuration checked" in messages
+
+
+def test_the_summary_says_whether_the_checks_are_refusals_or_advice(caplog, monkeypatch):
+    """`enforce` only raises when the process considers itself production. A deployment with no
+    `ENVIRONMENT` set runs every one of these checks in warn-only mode, and that is worth being
+    able to read from outside rather than inferring from an env var nobody can see."""
+    monkeypatch.setattr("app.main.enforce", lambda _settings: [])
+    monkeypatch.setattr("app.main.is_production", lambda _settings: False)
+
+    summary = next(r for r in _startup_log(caplog, monkeypatch) if r.getMessage() == "configuration checked")
+
+    assert summary.production_mode is False
+    assert summary.findings == 0
+    assert summary.errors == 0
+
+
+def test_the_summary_counts_the_findings_it_reported(caplog, monkeypatch):
+    from app.core.production_checks import ConfigFinding
+
+    monkeypatch.setattr(
+        "app.main.enforce",
+        lambda _settings: [
+            ConfigFinding(code="a", severity="error", message="x"),
+            ConfigFinding(code="b", severity="warning", message="y"),
+        ],
+    )
+
+    records = _startup_log(caplog, monkeypatch)
+    summary = next(r for r in records if r.getMessage() == "configuration checked")
+
+    assert summary.findings == 2
+    assert summary.errors == 1
+    # The per-finding lines are still emitted; the summary does not replace them.
+    assert sum(1 for r in records if r.getMessage() == "configuration finding") == 2
