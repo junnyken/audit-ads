@@ -120,6 +120,14 @@ not copy these forward — re-measure them at the moment you write about them.
     built, deployed, sent or verified, check it: `FEATURES.md`'s own follow-up list had accumulated
     five false statements by 2026-09-14, including "no real Meta provider exists" written while the
     product was reading a live Business Manager.
+42. A live-verification credential lives only in the environment, read through
+    `scripts/lib/live_auth.py` (`ADSOPS_LIVE_EMAIL` / `ADSOPS_LIVE_PASSWORD`), and a missing one
+    exits **2** before a browser opens. Never commit an email or password — not in a script, a
+    test or a document; a test that must detect an old one matches a prefix. Never mint a token,
+    inject `localStorage` or set a cookie to skip the login: a check that bypasses authentication
+    is not checking the product. **A documented credential is not evidence that the account still
+    exists** — three scripts signed in as a deleted account for weeks and nobody knew, because
+    nobody ran them. See `docs/LIVE_VERIFICATION_RUNBOOK.md`.
 
 ## Working style
 

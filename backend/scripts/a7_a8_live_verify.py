@@ -14,15 +14,24 @@ Needs the dev stack up: backend on :8000, frontend on :5173 (origin must match C
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from playwright.sync_api import Page, sync_playwright
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-FRONTEND = "http://localhost:5173"
-EMAIL = "trieunt@matbao.com"
-PASSWORD = "dev-password-6779"
+from lib.live_auth import require_credentials, sign_in  # noqa: E402
+
+#: Imported inside `main()`, after the credential check. At module level a missing Playwright —
+#: which this project's own venv does not have, by design — raises ModuleNotFoundError before the
+#: script can say the far more common thing: that nobody exported the credentials.
+
+if TYPE_CHECKING:  # annotations only — see the note on the import inside main()
+    from playwright.sync_api import Page
+
+FRONTEND = os.environ.get("ADSOPS_LIVE_FRONTEND", "http://localhost:5173")
 OUT = Path(__file__).resolve().parent.parent.parent / "docs" / "evidence" / "A7-A8-LIVE"
 
 RESULTS: list[tuple[str, bool, str]] = []
@@ -46,14 +55,6 @@ def reset_batches() -> None:
         ],
         capture_output=True, timeout=30, check=False,
     )
-
-
-def sign_in(page: Page) -> None:
-    page.goto(FRONTEND, wait_until="networkidle")
-    page.fill("input[type=email]", EMAIL)
-    page.fill("input[type=password]", PASSWORD)
-    page.click("button[type=submit]")
-    page.wait_for_selector("nav", timeout=15000)
 
 
 def run_wizard(page: Page, *, path: str, label: str, fill_items, screenshot_prefix: str) -> None:
@@ -99,6 +100,11 @@ def run_wizard(page: Page, *, path: str, label: str, fill_items, screenshot_pref
 
 
 def main() -> int:
+    # Resolved before a browser exists: a missing variable must stop the run, not
+    # surface later as a failed login that reads like a product defect.
+    credentials = require_credentials()
+
+    from playwright.sync_api import sync_playwright  # noqa: PLC0415 — see the note above
     OUT.mkdir(parents=True, exist_ok=True)
     reset_batches()
 
@@ -109,7 +115,7 @@ def main() -> int:
         page.on("pageerror", lambda e: CONSOLE_ERRORS.append(f"pageerror: {e}"))
 
         try:
-            sign_in(page)
+            sign_in(page, credentials)
 
             # --- Meta connection + capability check (A7's own settings page) ---------------
             page.goto(f"{FRONTEND}/meta-connections", wait_until="networkidle")

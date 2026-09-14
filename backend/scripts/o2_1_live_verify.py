@@ -5,7 +5,7 @@ Follows the pattern of `a9_live_verify.py` / `a10_live_probe.py` / `a6_live_veri
 deliberate difference: **the credential comes from the environment, not from a literal in the
 source.**
 
-`a9_live_verify.py` signs in as `trieunt@matbao.com` with a password committed to this repository.
+`a9_live_verify.py` used to sign in with an email and password committed to this repository.
 Measured 2026-09-14: that account no longer exists — the dev database holds exactly one user — so
 every prior live-verify script in this repo is currently unrunnable. Rather than commit a second
 credential that will rot the same way, this script asks for one:
@@ -27,12 +27,15 @@ import os
 import sys
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-FRONTEND = os.environ.get("ADSOPS_LIVE_FRONTEND", "http://localhost:5173")
-EMAIL = os.environ.get("ADSOPS_LIVE_EMAIL", "")
-PASSWORD = os.environ.get("ADSOPS_LIVE_PASSWORD", "")
-OUT = Path(__file__).resolve().parent.parent.parent / "docs" / "evidence" / "O2-1-LIVE"
+from lib.live_auth import require_credentials, sign_in  # noqa: E402
+
+#: Imported inside `main()`, after the credential check. At module level a missing Playwright —
+#: which this project's own venv does not have, by design — raises ModuleNotFoundError before the
+#: script can say the far more common thing: that nobody exported the credentials.
+
+OUT = Path(__file__).resolve().parent.parent.parent / "docs" / "evidence" / "O2-2-LIVE"
 
 #: The connection whose discovery produced the real import, and the two accounts it created.
 #: Overridable so this script survives a different dev database.
@@ -53,15 +56,10 @@ def shot(page, name: str) -> None:
 
 
 def main() -> int:
-    if not EMAIL or not PASSWORD:
-        print(
-            "ADSOPS_LIVE_EMAIL and ADSOPS_LIVE_PASSWORD must be set.\n"
-            "This script will not invent a credential and will not mint a session: the point of a\n"
-            "live verification is that a real identity performed it.",
-            file=sys.stderr,
-        )
-        return 2
+    # Resolved before a browser exists, and exits 2 when unset — see scripts/lib/live_auth.py.
+    credentials = require_credentials()
 
+    from playwright.sync_api import sync_playwright  # noqa: PLC0415 — see the note above
     OUT.mkdir(parents=True, exist_ok=True)
 
     with sync_playwright() as p:
@@ -72,16 +70,12 @@ def main() -> int:
 
         try:
             # --- real sign-in, through the real form -------------------------------------
-            page.goto(FRONTEND, wait_until="networkidle")
-            page.fill("input[type=email]", EMAIL)
-            page.fill("input[type=password]", PASSWORD)
-            page.click("button[type=submit]")
-            page.wait_for_selector("nav", timeout=15000)
+            sign_in(page, credentials)
             check("L0 signed in through the real auth flow", "Overview" in page.inner_text("body"))
             shot(page, "L0-signed-in")
 
             # --- reach the workspace for the connection that produced the import ----------
-            page.goto(f"{FRONTEND}/meta-connections", wait_until="networkidle")
+            page.goto(f"{credentials.frontend}/meta-connections", wait_until="networkidle")
             page.wait_for_timeout(800)
             shot(page, "L1-connections")
             card = page.locator("div").filter(has_text=CONNECTION_LABEL).first

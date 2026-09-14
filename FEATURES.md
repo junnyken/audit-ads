@@ -821,6 +821,24 @@ standing unqualified:** that the extension was never published (no store listing
 here) and that the *production* schema is still at head (the production database is internal-only;
 last confirmed 2026-09-12 from a log line).
 
+### Verification tooling
+
+**Live-verification credentials are decoupled (O2.2, 2026-09-14).** `a6`, `a7_a8`, `a9` and
+`o2_1_live_verify.py` all read `ADSOPS_LIVE_EMAIL` / `ADSOPS_LIVE_PASSWORD` through
+`backend/scripts/lib/live_auth.py`; a missing variable exits **2** before Chromium starts. No
+email or password is committed anywhere in the repository — including in the tests, which match a
+prefix rather than storing the value.
+
+This was found because three of those scripts were signing in as an account that **no longer
+existed in the development database**, measured the same day. They had been unrunnable for an
+unknown length of time and nobody knew, because nobody had run them: a committed credential gives
+no signal when it stops being true.
+
+`a10_live_probe.py` is deliberately **not** migrated — it has no dashboard login at all; it makes
+one read-only Meta call and asks for the *Meta token* at a hidden prompt. A test states that
+decision so a later reader does not "fix" it. Policy and commands:
+`docs/LIVE_VERIFICATION_RUNBOOK.md`.
+
 ### Still true
 
 - ~~**No CI.**~~ Added 2026-09-14 and **verified green the same day** — run `34819289771` on

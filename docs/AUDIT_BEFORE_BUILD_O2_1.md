@@ -34,9 +34,13 @@ This is the blocking finding.
 `scripts/a9_live_verify.py`, the pattern §5.A names, signs in as:
 
 ```
-EMAIL    = "trieunt@matbao.com"
-PASSWORD = "dev-password-6779"
+EMAIL    = "<an email literal>"
+PASSWORD = "<a password literal>"
 ```
+
+*(The values were quoted verbatim in the first version of this document. That was itself the
+behaviour O2.2 forbids — a credential committed to the repository — and it was removed on
+2026-09-14. The account no longer exists either way; the point stands without the value.)*
 
 The dev database holds **exactly one user**, `uxui.matbao@gmail.com`, created 2026-09-10. The
 account those scripts use **no longer exists**, so every prior live-verify script in this repo is

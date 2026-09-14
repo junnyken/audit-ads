@@ -29,6 +29,10 @@ the authority gate and registry import; **A9 — Team Seats & Device Security**;
 >
 > Each of the unused capabilities still needs its own explicit approval.
 
+**Real-browser verification** runs through `backend/scripts/*_live_verify.py`, which sign in with
+`ADSOPS_LIVE_EMAIL` / `ADSOPS_LIVE_PASSWORD` from the shell and exit 2 when those are unset. No
+credential is committed anywhere in this repository. See `docs/LIVE_VERIFICATION_RUNBOOK.md`.
+
 Separate questions, answered separately and shown side by side:
 
 | | Question | States |

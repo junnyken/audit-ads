@@ -987,7 +987,7 @@ container actually reaches alembic's head on first boot is an assumption until i
 
 The one thing A5 had never done: run in a real Chrome browser against a real Meta Ads Manager
 account and a live backend. This session did, against a local dev API/DB (bootstrap owner
-`trieunt@matbao.com`), extension loaded unpacked, connected over `http://localhost:8000`.
+the dev owner account of the time), extension loaded unpacked, connected over `http://localhost:8000`.
 
 | Check (RUNBOOK_EXTENSION_UAT.md §5) | Result |
 |---|---|
@@ -2924,7 +2924,7 @@ line). The local dev database was measured at `0015_a10_3_conn_bm`.
 
 **The browser half of B1–B6 was not executed, and this is the headline of the slice.** Audit
 finding: `scripts/a9_live_verify.py` — the pattern O2.1 §5.A names — signs in as
-`trieunt@matbao.com` with a password committed to this repository, and that account **no longer
+an email and password committed to this repository, and that account **no longer
 exists**. The dev database holds exactly one user, `uxui.matbao@gmail.com`, created 2026-09-10. So
 *every* live-verify script in this repo is currently unrunnable, not only a new one. Playwright
 itself is fine. Minting a session was refused by guardrail 5 and was not worked around.
@@ -2968,3 +2968,51 @@ others.
 
 `business_managers` 1, `ad_accounts` 2, `audit_logs` 56, `pixels` 0. Unchanged: no import was
 performed during O2.1.
+
+## MINI-SPEC O2.2 — Live Verification Credential Decoupling (2026-09-14)
+
+**Regression before any change: backend exit 0.** After: **exit 0, 864 collected** (827 before,
++37 credential tests). `ruff check .` clean. Frontend **145 passed / 20 skipped**, `tsc -b` 0,
+eslint 0, build 0 — unchanged, as expected: no frontend file was touched.
+
+### The defect the new tests found, in the tooling they were written for
+
+`test_running_without_credentials_exits_two_and_says_nothing_secret` failed for all four scripts on
+its first run. Cause: `playwright` was imported at module level, **before** the credential gate. So
+running a script with this project's own venv — the interpreter `CLAUDE.md` tells you to use for
+`backend/` — raised `ModuleNotFoundError: No module named 'playwright'` and exited **1**, sending
+the reader after a missing library when the real problem was an unset variable.
+
+Fixed by importing Playwright inside `main()`, after `require_credentials()`, with `Page` kept for
+annotations under `TYPE_CHECKING`. Re-measured with `.venv/bin/python`: all four now exit **2** and
+print the credential message. The two failure modes are now ordered by how often they happen.
+
+### What was decoupled
+
+`a6`, `a7_a8`, `a9` and `o2_1_live_verify.py` now read `ADSOPS_LIVE_EMAIL` / `ADSOPS_LIVE_PASSWORD`
+through `scripts/lib/live_auth.py`. No default, no fallback, no `.env`. `LiveCredentials.__repr__`
+hides the password so it cannot leak through an f-string, a log line or a traceback.
+
+**The full stale password string no longer exists anywhere in the repository** — verified by
+grepping the whole tree. It had been in three scripts *and* in
+`docs/AUDIT_BEFORE_BUILD_O2_1.md`, where I had quoted it verbatim the day before to prove the
+scripts carried a credential. Quoting it was the same mistake in a different file. The tests detect
+the old credential by **prefix**, so asserting its absence does not require storing it.
+
+The stale email is gone too, including from two `TEST_LOG.md` entries and one script docstring.
+
+### Deliberately not migrated
+
+`a10_live_probe.py` has no dashboard login: it makes one read-only Meta call and asks for the
+*Meta token* at a hidden prompt. Attaching `ADSOPS_LIVE_EMAIL` to it would be attaching the wrong
+model. `test_the_meta_probe_is_deliberately_not_migrated` records that decision so a later reader
+does not "fix" it.
+
+`create_dev_owner.py` was checked as a possible route to a credential and is not one:
+`bootstrap_owner()` returns the existing workspace and creates nothing once a workspace exists.
+
+### Browser UAT: still not run
+
+No credentials were exported, so no browser was opened and **no O2.1 scenario was executed on
+screen**. Registry re-measured at the end of this session: `business_managers` 1, `ad_accounts` 2 —
+unchanged, as nothing was imported.

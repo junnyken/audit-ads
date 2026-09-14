@@ -17,15 +17,20 @@ Needs the dev stack up: backend on :8000, frontend on :5173.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-FRONTEND = "http://localhost:5173"  # must match CORS_ORIGINS exactly — 127.0.0.1 is a different origin
-EMAIL = "trieunt@matbao.com"
-PASSWORD = "dev-password-6779"
+from lib.live_auth import require_credentials, sign_in  # noqa: E402
+
+#: Imported inside `main()`, after the credential check. At module level a missing Playwright —
+#: which this project's own venv does not have, by design — raises ModuleNotFoundError before the
+#: script can say the far more common thing: that nobody exported the credentials.
+
+FRONTEND = os.environ.get("ADSOPS_LIVE_FRONTEND", "http://localhost:5173")  # must match CORS_ORIGINS exactly — 127.0.0.1 is a different origin
 OUT = Path(__file__).resolve().parent.parent.parent / "docs" / "evidence" / "A9-LIVE"
 
 RESULTS: list[tuple[str, bool, str]] = []
@@ -54,6 +59,11 @@ def reset_a9_artifacts() -> None:
 
 
 def main() -> int:
+    # Resolved before a browser exists: a missing variable must stop the run, not
+    # surface later as a failed login that reads like a product defect.
+    credentials = require_credentials()
+
+    from playwright.sync_api import sync_playwright  # noqa: PLC0415 — see the note above
     OUT.mkdir(parents=True, exist_ok=True)
     reset_a9_artifacts()
 
@@ -65,11 +75,7 @@ def main() -> int:
 
         try:
             # --- sign in ------------------------------------------------------------------
-            page.goto(FRONTEND, wait_until="networkidle")
-            page.fill("input[type=email]", EMAIL)
-            page.fill("input[type=password]", PASSWORD)
-            page.click("button[type=submit]")
-            page.wait_for_selector("nav", timeout=15000)
+            sign_in(page, credentials)
             check("L1 sign in reaches the dashboard", "Overview" in page.inner_text("body"))
 
             # --- settings shows the two new entry points ----------------------------------
@@ -89,7 +95,7 @@ def main() -> int:
                 "L4 unconfigured capacity is shown as unknown, not a guessed number",
                 "No seat plan is configured" in body or "no seat plan configured" in body.lower(),
             )
-            check("L5 the owner is listed as a member", EMAIL in body)
+            check("L5 the owner is listed as a member", credentials.email in body)
             page.screenshot(path=str(OUT / "02_team_before_plan.png"), full_page=True)
 
             # --- set a seat plan ---------------------------------------------------------

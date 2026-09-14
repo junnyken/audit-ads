@@ -99,3 +99,20 @@ benefit. The Security & Devices page shows both, clearly labelled as separate.
   in-memory blocklist to get out of sync — and no cache to be stale, either.
 - The registry is per workspace. A user who belongs to two workspaces has separate sessions in
   each, and revoking in one does not touch the other.
+
+## Live verification signs in like anyone else
+
+A browser verification script creates an ordinary `DeviceSession`: it types into the real login
+form and submits it. Nothing about it is privileged, and nothing about it is skipped — no token is
+minted, no cookie is written, nothing is injected into `localStorage`. A check that bypassed the
+auth flow would not be checking the product.
+
+The credential comes from `ADSOPS_LIVE_EMAIL` / `ADSOPS_LIVE_PASSWORD` through
+`backend/scripts/lib/live_auth.py`, never from the source. Measured 2026-09-14: three scripts had
+been signing in as an account that no longer existed, for an unknown length of time, because a
+committed credential gives no signal when it stops working. The full policy is in
+`docs/LIVE_VERIFICATION_RUNBOOK.md`; `tests/test_live_verification_credentials.py` enforces it.
+
+Sessions created by a verification run are real and revocable from **Security & Devices**, like any
+other. A run does not revoke its own session at the end — that would tear down the flow it is in
+the middle of verifying.
