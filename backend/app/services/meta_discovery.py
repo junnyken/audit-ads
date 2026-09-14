@@ -477,8 +477,11 @@ class MetaDiscoveryService:
         for external_id, observation in observed.items():
             if external_id not in internal_ids:
                 rows.append(
+                    # `detail` used to repeat "Returned by <edge>." Since O1.1 the edge is a
+                    # structured field, and a UI reading both printed the same fact twice — once
+                    # translated, once raw. One fact, one place: `detail` stays empty here.
                     self._row("ad_account", external_id, None, observation.display_name or "",
-                              MISSING_IN_REGISTRY, f"Returned by {observation.source_edge}.",
+                              MISSING_IN_REGISTRY, None,
                               source_edge=observation.source_edge)
                 )
         return rows
@@ -535,8 +538,11 @@ class MetaDiscoveryService:
         for external_id, observation in observed.items():
             if external_id not in internal_ids:
                 rows.append(
+                    # `detail` used to repeat "Returned by <edge>." Since O1.1 the edge is a
+                    # structured field, and a UI reading both printed the same fact twice — once
+                    # translated, once raw. One fact, one place: `detail` stays empty here.
                     self._row("pixel", external_id, None, observation.display_name or "",
-                              MISSING_IN_REGISTRY, f"Returned by {observation.source_edge}.",
+                              MISSING_IN_REGISTRY, None,
                               source_edge=observation.source_edge)
                 )
         return rows

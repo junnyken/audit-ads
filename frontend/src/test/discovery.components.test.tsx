@@ -216,7 +216,7 @@ describe('discovery coverage wording', () => {
               internal_entity_id: null,
               display_name: 'Tbsupellex',
               status: 'missing_in_registry',
-              detail: 'Returned by owned_ad_accounts.',
+              detail: null,
               source_edge: 'owned_ad_accounts',
             },
             {
@@ -252,7 +252,7 @@ describe('discovery coverage wording', () => {
               display_name: 'A pixel',
               status: 'missing_in_registry',
               source_edge: 'adspixels',
-              detail: 'Returned by adspixels.',
+              detail: null,
             },
           ],
         })}

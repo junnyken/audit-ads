@@ -115,20 +115,59 @@ files here and would have reported success.
 
 ## 7. Live Verification
 
-**Not performed, and that is the honest state of this release.**
+**Performed 2026-09-14 by the operator**, in Chrome against the local stack (frontend :5173, API
+:8001, Postgres :5434). The agent did not sign in: minting a session token was refused by the
+safety classifier as credential materialisation and was not worked around. That refusal turned out
+to be the right outcome on its own terms — an imported row must carry a real actor, and it does.
 
-Guardrails 10 and 11 asked for "Add to registry" to be clicked once locally. It was not. The local
-dashboard requires a sign-in; the password is not held in this workspace, and minting a session
-token to bypass the login screen was refused by the safety classifier as credential
-materialisation. That refusal was not worked around. The registry therefore still holds **0
-Business Managers and 0 ad accounts**, and the Ad Accounts tab has never been seen in a browser
-with a real row in it.
+```
+Add to registry: exercised = true (clicked twice, on two owned accounts)
+Registry row count before: business_managers=0, ad_accounts=0, audit_logs=28
+Registry row count after:  business_managers=1, ad_accounts=2, audit_logs=56
+Audit entry created: confirmed
+Zero Meta provider write calls during this action: confirmed
+Production frontend: still not reachable, not part of this verification
+```
 
-Production was not verified either: the production frontend remains unreachable through the
-platform edge (a routing entry missing from the stack, diagnosed 2026-09-13 and unchanged).
+Imported: `Q.C-1` (1069545664559001) and `Q.C - 2` (1594590901195302), both from
+`owned_ad_accounts`, both from run `8d153a28…` against BM `1993884657458857`. The Business Manager
+row was created once, on the first import, and reused by external id on the second — the behaviour
+the design claimed, seen rather than asserted.
 
-What *was* verified live: `GET /meta-connections/{id}/discoveries` is registered and answers **401**
-unauthenticated on the running dev backend, so the route exists and is not open.
+**Audit entry.** Each import wrote `meta_discovery.ad_account_imported` naming
+`discovery_run_id`, `business_manager_reference` and `source_edge`, with a real `actor_id`. The
+first also wrote `business_manager.created` carrying `created_from_discovery_run_id`. The full A1 →
+A2 → A3 chain fired behind each one in the same transaction: `readiness_checklist.initialised`,
+three `health_signal.opened` (`readiness_unknown`, `mandatory_readiness_evidence_missing`,
+`manual_review_due_or_stale`), `health_snapshot.changed`, three `alert.created`, three
+`notification.skipped` (`no_recipient_configured` / `severity_delivery_disabled` — Telegram is not
+configured and nothing was sent).
+
+Both imported accounts sit at readiness `UNKNOWN`, which is correct and worth stating: Meta having
+returned an account is not evidence that this workspace is ready to run ads on it.
+
+**Zero Meta calls.** The only `meta_graph_transport` line in the dev log is dated 2026-09-12. The
+two import requests (`POST …/imports`, `201`, 362 ms and 250 ms) and the `GET …/discoveries/latest`
+refetches that follow them are the whole network story of the action.
+
+**Overview tab with a linked BM: not applicable — it was never built.** The operator's checklist
+expected the Overview tab to stop saying "not yet added to registry"; no such string exists, and
+that tab shows the Business Manager the *run* read, from the run, so it looks the same before and
+after. What did change, and was seen: the row flipped from **Not in registry** to **Matched**, and
+the registry went from empty to 1 BM / 2 accounts. There is also no confirmation dialog — the
+button acts immediately; the deliberation is that it appears only on `missing_in_registry` rows,
+one button per row.
+
+### The click found a defect 145 automated tests did not
+
+Every row rendered the same fact twice: *"Returned by Owned accounts · Returned by
+owned_ad_accounts."* The server's `detail` restated in prose what `source_edge` now carries as
+data, and the new tab rendered both — once translated, once raw. This is precisely the duplication
+O1.1 set out to remove, reintroduced by the change that removed it.
+
+Fixed: `detail` is empty on `missing_in_registry` rows, both UIs read the structured field, and a
+test asserts the sentence appears exactly once and the raw edge name never reaches the screen.
+**No test could have caught it** — each half was correct alone, and no assertion compared them.
 
 ## 8. Remaining Limits / Follow-ups
 

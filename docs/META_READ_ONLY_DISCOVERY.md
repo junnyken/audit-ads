@@ -229,6 +229,11 @@ inside `detail`, which cannot be filtered and would not survive translation. An 
 client-shared one differ in what this workspace may do with them, so the distinction is now
 structured data.
 
+`detail` no longer restates it. It used to read "Returned by owned_ad_accounts." on the same rows,
+and the first browser use of the O1.1 tab showed both at once — "Returned by Owned accounts ·
+Returned by owned_ad_accounts." One fact, one place: `detail` is empty on `missing_in_registry`
+rows and every UI reads the field.
+
 `source_edge` is `null` for a row that came from the registry rather than from an observation —
 an internal record no observation matched was returned by no edge, and naming one would claim a
 reading that never happened. The workspace's edge filter therefore drops such rows rather than

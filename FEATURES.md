@@ -24,7 +24,8 @@ of the defects found in this project have been violations of that rule, not cras
 | Production schema | **At head `0015_a10_3_conn_bm`.** Migrations 0011-0015 applied 2026-09-12, confirmed by a `migration complete` log line |
 | Frontend on Vibe Host | **Unreachable.** Container healthy and answering 200 internally; the platform edge returns its catch-all. A routing entry, not a code problem |
 | Local development | `scripts/dev.sh start` — supervised, self-restarting, 18h+ uptime observed |
-| Tests | **808 backend, 127 frontend**, all green (2026-09-14); `npm run typecheck` is `tsc -b` |
+| Tests | **808 backend, 128 frontend**, all green (2026-09-14); `npm run typecheck` is `tsc -b` |
+| Registry import | **Exercised for the first time 2026-09-14.** Two owned accounts imported by hand from a real run; 1 Business Manager and 2 ad accounts now in the registry, each with a full audit chain and readiness `unknown` |
 | Real Meta reads | **Working against a live Business Manager.** 8 ad accounts and 7 Pixels discovered, with coverage, reader identity and authority recorded |
 | Real Meta writes | **Capability built, never used.** See A10.2 below |
 | Telegram | **Never sent a real message.** No bot token in the deployed environment |
@@ -38,7 +39,7 @@ of the defects found in this project have been violations of that rule, not cras
 | First real ad-account create | Billing confirmed on BM `1993884657458857`, the remaining ad-account slot count, and an explicit approval naming that BM (rule 22) |
 | Multi-Business-Manager in practice | `adsops-admin` added as a **member** of the second BM. Today it has no role there, so a discovery honestly reports `0 · Unknown` |
 | A real Telegram message | `TELEGRAM_BOT_TOKEN` in server configuration **and** a separate approval naming a chat (rules 20 and 22) |
-| A10.1 import click-through | Someone to click "Add to registry" once, locally. Still not done — the registry holds 0 Business Managers and 0 ad accounts |
+
 
 ### Known limits worth stating plainly
 

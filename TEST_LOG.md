@@ -2773,3 +2773,47 @@ with a real row in a browser.
 **Nothing about production was verified.** The production frontend is still unreachable through the
 platform edge, so no part of O1.1 has been seen there. No deployment was made, no Meta write was
 issued, and no Telegram message was sent.
+
+### Live verification, 2026-09-14 — "Add to registry" clicked for the first time
+
+Done by the operator in Chrome against the local stack, after the agent's attempt to mint a session
+token was refused as credential materialisation and not worked around. The refusal was correct on
+its own terms: the imported rows carry a real `actor_id`, which a self-minted session could not
+have given them.
+
+```
+before: business_managers=0  ad_accounts=0  audit_logs=28
+after:  business_managers=1  ad_accounts=2  audit_logs=56
+```
+
+Two owned accounts — `Q.C-1` (1069545664559001) and `Q.C - 2` (1594590901195302) — imported from
+run `8d153a28…` against BM `1993884657458857`. The BM row was created on the first import and
+reused on the second. Each import wrote `meta_discovery.ad_account_imported` naming the run, the BM
+reference and the `source_edge`, and pulled the whole A1→A2→A3 chain with it in the same
+transaction: checklist initialised, three health signals opened, snapshot changed, three alerts
+created, three notifications skipped (Telegram not configured, nothing sent). Both accounts sit at
+readiness `unknown` — Meta returning an account is not evidence this workspace is ready to use it.
+
+**Zero Meta calls during the action.** The only `meta_graph_transport` line in the dev log is dated
+2026-09-12. The action's entire network story is two `POST …/imports` (201, 362 ms and 250 ms) and
+the `GET …/discoveries/latest` refetch after each.
+
+### The click found what 145 automated tests could not
+
+Every row on the new Ad Accounts tab read **"Returned by Owned accounts · Returned by
+owned_ad_accounts."** — the same fact twice, once translated and once raw. The server's `detail`
+restated in prose exactly what `source_edge` now carries as data, and the tab rendered both. It is
+the duplication O1.1 existed to remove, reintroduced by the change that removed it.
+
+No assertion could have caught it: each half was correct on its own, and nothing compared them. It
+took one screen, once. `detail` is now empty on `missing_in_registry` rows, both UIs read the
+structured field, and a test asserts the sentence appears exactly once and that the raw edge name
+never reaches the screen.
+
+Full suites re-run after the fix: **backend exit 0** (808 collected, unchanged — the fix removed
+prose, not tests), **frontend 128 passed** (one new test), `tsc -b` 0, eslint clean, build ok.
+
+Two items from the operator's checklist were **never built** and are recorded as such rather than
+as failures: there is no confirmation dialog on the button, and the Overview tab has no "not yet
+added to registry" state — it shows the Business Manager the run read, so it looks identical before
+and after. What did change and was seen: the row flipped to **Matched**.

@@ -93,6 +93,27 @@ describe('the inventory of one asset type', () => {
     expect(screen.getByText(/Returned by Client accounts/)).toBeTruthy()
   })
 
+  it('states the edge exactly once — found on a real screen, not by a test', () => {
+    // Shipped defect, seen 2026-09-14 in the first browser use of this tab: every row read
+    // "Returned by Owned accounts · Returned by owned_ad_accounts." The server's `detail` repeated
+    // in prose what `source_edge` now carries as data, and this component rendered both — the same
+    // fact twice, once translated and once raw. `detail` is empty for these rows now.
+    const { container } = render(
+      <AssetInventory
+        result={result({
+          reconciliation: [row({ external_id: '111', source_edge: 'owned_ad_accounts', detail: null })],
+        })}
+        edge="all"
+        status="all"
+        onEdgeChange={noop}
+        onStatusChange={noop}
+      />,
+    )
+
+    expect(container.textContent!.match(/Returned by Owned accounts/g)).toHaveLength(1)
+    expect(container.textContent).not.toContain('owned_ad_accounts')
+  })
+
   it('says plainly when a row came from no observation rather than leaving it blank', () => {
     render(
       <AssetInventory

@@ -130,6 +130,14 @@ export function AssetResult({
               <span className="min-w-0">
                 <span className="block truncate">{row.display_name || '(no name)'}</span>
                 <span className="font-mono text-[11px] text-ink-faint">{row.external_id ?? '—'}</span>
+                {/* The edge comes from the structured field, never from prose — the two used to
+                    be rendered side by side, printing the same fact twice, once translated and
+                    once raw. */}
+                {row.source_edge && (
+                  <span className="block text-[11px] text-ink-faint">
+                    Returned by {edgeLabel(row.source_edge)}
+                  </span>
+                )}
                 {row.detail && <span className="block text-[11px] text-ink-faint">{row.detail}</span>}
               </span>
               <span className="flex shrink-0 items-center gap-2">
