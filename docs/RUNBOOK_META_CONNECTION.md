@@ -222,6 +222,51 @@ Vì vậy mỗi kết quả đều kèm `coverage_status`. Chỉ `complete` mớ
 kết luận đó chỉ có nghĩa **"không được trả về trong lần quét hoàn chỉnh gần nhất"** — không phải
 Meta đã xoá hay khoá gì. Chi tiết đầy đủ: `docs/META_READ_ONLY_DISCOVERY.md`.
 
+## 7b. Đọc Business Manager thứ hai (một credential cho mỗi BM)
+
+Một system-user token thuộc về **đúng business đã tạo ra nó**. Đo ngày 11-09-2026: token không có
+vai trò trong một BM vẫn đọc được node của BM đó, mọi cạnh tài sản trả `200` kèm danh sách rỗng và
+**không báo lỗi**, chỉ `{bm}/system_users` mới từ chối. Nghĩa là một token không thể là câu trả lời
+cho hai business.
+
+**Chia sẻ đối tác (partner sharing) không thay thế được.** Discovery đọc thẳng trên node của chính
+BM: `{bm}/owned_ad_accounts`, `{bm}/client_ad_accounts`, `{bm}/adspixels`, `{bm}/system_users`.
+Chia sẻ tài sản từ BM 2 sang BM 1 chỉ làm chúng hiện dưới **`client_ad_accounts` của BM 1**; các
+cạnh của BM 2 vẫn không đọc được, và connection trỏ vào BM 2 vẫn báo `0 · Unknown` — đúng sự thật,
+không phải lỗi.
+
+### Các bước
+
+1. Trong Business Settings của **BM thứ hai** (chính BM bạn muốn đọc): **Users → System users →
+   Add** → tạo system user, vai trò Admin hoặc Employee tuỳ nhu cầu đọc.
+2. **Add assets** cho system user đó: chọn các ad account và Pixel cần đọc.
+3. **Generate new token** cho system user đó. Quyền tối thiểu để đọc: `business_management`,
+   `ads_read`. Không cần quyền ghi.
+4. **Không gửi token qua chat, không lưu vào cơ sở dữ liệu, không commit.** Dán thẳng vào cấu hình
+   máy chủ (panel Vibe Host → project → Environment):
+
+   ```
+   META_ACCESS_TOKENS_BY_BUSINESS={"109796697343603":"<token vừa sinh>"}
+   ```
+
+   Nhiều BM thì thêm khoá vào cùng một JSON. Đổi token của một BM thì phải ghi lại cả biến này —
+   đây là cái giá đã biết của việc gộp vào một biến, ghi rõ trong
+   `docs/AUDIT_BEFORE_BUILD_MULTI_TOKEN.md` §8.
+
+5. Khởi động lại dịch vụ, rồi mở thẻ kết nối. Nhãn phải đổi thành **"Own reader for this Business
+   Manager"**. Nếu vẫn là **"Server default reader"** thì khoá JSON không khớp id BM của
+   connection — kiểm lại đúng từng chữ số.
+
+6. Chạy lại discovery. Nếu vẫn `0 · Unknown` thì token đó chưa được cấp tài sản ở bước 2, hoặc
+   thiếu quyền ở bước 3 — **không phải** lỗi của công cụ.
+
+### Điều gì đổi, điều gì không
+
+Không cấu hình gì thì mọi thứ chạy y như trước: BM nào không có khoá riêng vẫn dùng
+`META_ACCESS_TOKEN`. Fallback này được giữ có chủ ý — một system user vẫn có thể hợp pháp nắm tài
+sản ở nhiều business, và từ chối thử sẽ lấy mất quyền truy cập đang chạy được. Nhưng **"Server
+default reader" không phải bằng chứng có quyền**: nó chỉ nói không có credential riêng cho BM này.
+
 ## 8. Muốn bật ghi thì cần gì
 
 Đó là một mini-spec sau, không phải một thay đổi cấu hình. Tối thiểu cần: các quyền bổ sung đã

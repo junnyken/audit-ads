@@ -660,6 +660,25 @@ named BM fails with `not_configured` rather than attributing whatever came back 
 for. With the authority gate, a BM this token has no role in reports `coverage: unknown` and zero
 assets — honestly, instead of `complete`.
 
+### `reader_source` — which credential answers for this Business Manager
+
+Every connection response carries `reader_source`: `business_specific`, `server_default`, `none`,
+or `fake`. It is a name, never a value; no endpoint has ever returned a token and none does now.
+
+It replaces what `token_configured` alone could say. That boolean answered "the server holds *a*
+token", which is not the question an operator asks while looking at one connection: a token that
+reads one business proves nothing about another. `token_configured` is still present and is now
+computed per Business Manager, so it agrees with `reader_source`.
+
+Resolution is server-side and additive: a Business Manager with an entry in
+`META_ACCESS_TOKENS_BY_BUSINESS` uses it; anything else falls back to `META_ACCESS_TOKEN`, exactly
+as before this existed. The default is never preferred over a business's own entry, and the
+fallback is deliberately kept rather than refused — one system user can legitimately hold assets
+across businesses, and refusing to try would remove access that works today.
+
+`server_default` is therefore not a claim of access. The UI says so in words: the credential may
+have no role in that business, in which case an empty result is not evidence the business is empty.
+
 ### `business_authority` — whether an empty result may be trusted
 
 Every discovery response carries `business_authority`: `established`, `not_established` or

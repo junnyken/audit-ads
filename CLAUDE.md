@@ -1,9 +1,17 @@
 # AdsOps Control Center — agent instructions
 
 Governing process: `MINI_SPEC_PLAYBOOK.md`. Read it, plus `FEATURES.md`, `ARCH.md`, `API.md` and
-`TEST_LOG.md`, before changing code. Current release: MINI-SPEC A5 (Chrome context extension), on A4 Stage A (deployment
-readiness), A3 (alerts + Telegram), A2 (health) and A1 (registry). Nothing is deployed, no real
-Telegram message has been sent, and the extension has never been published or run in a browser.
+`TEST_LOG.md`, before changing code. Current release: O1.1 (connection discovery workspace) and the
+per-Business-Manager reader credential, on A10/A10.1/A10.2/A10.3 (real Meta reads, one guarded
+write capability, authority gate, registry import), A9 (team seats), A6-A8, A5 (Chrome extension),
+A4 Stage A, A3, A2, A1.
+
+Accurate as of 2026-09-14, checked against the code rather than remembered:
+the **backend is deployed** on Vibe Host with the schema at head and real Meta reads working; the
+**production frontend is unreachable** (platform routing, not code); **no real Telegram message has
+ever been sent**; **no real ad account has ever been created** — A10.2 built the capability and
+rule 22 means that is not permission to use it; the extension **has been run unpacked in a real
+browser** but has never been published.
 
 ## Hard rules (these are product requirements, not preferences)
 
@@ -94,6 +102,16 @@ Telegram message has been sent, and the extension has never been published or ru
 38. Identity for a bucket comes from a signature-**verified** token, never a decoded one. An
     unverified subject would let a caller drain a victim's allowance.
 39. Health probes are never rate limited. A limited probe turns a busy minute into a restart loop.
+40. A Meta reader credential lives only in server configuration, keyed by Business Manager id
+    (`META_ACCESS_TOKENS_BY_BUSINESS`). Never add a column, a request field or a response field
+    that carries one; `reader_source` names *which* credential answered and is the most that may
+    be disclosed. A Business Manager with its own entry is never read with the default token. The
+    fallback in the other direction is deliberate and documented — do not tighten it into a
+    refusal without measuring what access that removes.
+41. Never describe this product's state from memory. Before writing that something is or is not
+    built, deployed, sent or verified, check it: `FEATURES.md`'s own follow-up list had accumulated
+    five false statements by 2026-09-14, including "no real Meta provider exists" written while the
+    product was reading a live Business Manager.
 
 ## Working style
 

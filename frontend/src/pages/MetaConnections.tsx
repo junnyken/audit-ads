@@ -5,6 +5,7 @@ import { api } from '../lib/api'
 import type { MetaConnection, MetaEnvironment } from '../lib/types'
 import { Badge, Card, EmptyState, ErrorState, Field, Skeleton } from '../components/ui'
 import { DiscoverySection } from '../components/meta/DiscoverySection'
+import { ReaderSourceBadge } from '../components/meta/ReaderSource'
 import { formatDateTime } from '../lib/format'
 
 function EnvironmentBadge({ environment }: { environment: string }) {
@@ -60,11 +61,9 @@ function ConnectionCard({ connection }: { connection: MetaConnection }) {
       }
     >
       <div className="space-y-2">
-        <div className="flex items-center justify-between text-[12.5px]">
-          <span className="text-ink-muted">Token configured</span>
-          <Badge tone={connection.token_configured ? 'positive' : 'attention'}>
-            {connection.token_configured ? 'Yes' : 'No'}
-          </Badge>
+        <div className="flex items-center justify-between gap-2 text-[12.5px]">
+          <span className="text-ink-muted">Reader credential</span>
+          <ReaderSourceBadge source={connection.reader_source} />
         </div>
         <CapabilityRow label="List Business Managers" allowed={connection.capabilities?.list_business_managers} />
         <CapabilityRow label="Create ad account" allowed={connection.capabilities?.create_ad_account} />

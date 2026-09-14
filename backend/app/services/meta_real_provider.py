@@ -42,7 +42,15 @@ from app.services.meta_provider import (
 #: Re-exported so existing imports of `meta_real_provider.MetaWriteNotEnabled` keep working.
 #: It is defined on the interface because the batch engines must recognise it without depending
 #: on this module — see the definition in `meta_provider.py`.
-__all__ = ["MetaWriteNotEnabled", "RealMetaBusinessProvider", "build_real_provider"]
+__all__ = [
+    "MetaWriteNotEnabled",
+    "READER_BUSINESS_SPECIFIC",
+    "READER_NONE",
+    "READER_SERVER_DEFAULT",
+    "RealMetaBusinessProvider",
+    "build_real_provider",
+    "resolve_reader",
+]
 
 
 #: A Business Manager holds ad accounts it *owns* and ad accounts clients have *shared into* it,
@@ -469,15 +477,41 @@ class RealMetaBusinessProvider(MetaBusinessProvider):
         return self._read_business_managers(limit="1")
 
 
+#: Which configured credential answered for a Business Manager. A name, never a value — the three
+#: answers are all the operator needs to diagnose a reader, and none of them discloses anything.
+READER_BUSINESS_SPECIFIC = "business_specific"
+READER_SERVER_DEFAULT = "server_default"
+READER_NONE = "none"
+
+
+def resolve_reader(settings, business_id: str | None) -> tuple[str, str]:
+    """Return `(access_token, reader_source)` for one Business Manager.
+
+    A Business Manager with its own configured entry always wins. Anything else falls back to the
+    single server token, which is what every caller did before this existed — a system user can
+    legitimately hold assets across businesses, and refusing to try would remove access that works.
+
+    The token is returned, never logged, and never handed to anything but the transport.
+    """
+    mapped = (settings.meta_access_tokens_by_business or {}).get((business_id or "").strip())
+    if mapped and mapped.strip():
+        return mapped.strip(), READER_BUSINESS_SPECIFIC
+    if settings.meta_access_token:
+        return settings.meta_access_token, READER_SERVER_DEFAULT
+    return "", READER_NONE
+
+
 def build_real_provider(settings, *, business_id: str | None = None) -> RealMetaBusinessProvider:
     """`business_id` overrides the server setting, for a connection that names its own Business
     Manager. Defaulting to the setting keeps every existing caller reading what it read before."""
+    resolved_business_id = business_id if business_id is not None else settings.meta_business_id
+    access_token, _ = resolve_reader(settings, resolved_business_id)
     return RealMetaBusinessProvider(
         transport=MetaGraphTransport(
-            access_token=settings.meta_access_token,
+            access_token=access_token,
             api_base_url=settings.meta_graph_api_base_url,
             api_version=settings.meta_graph_api_version,
             timeout_seconds=settings.meta_timeout_seconds,
         ),
-        business_id=business_id if business_id is not None else settings.meta_business_id,
+        business_id=resolved_business_id,
     )

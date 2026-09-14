@@ -64,6 +64,21 @@ class Settings(BaseSettings):
     #: reaches the database, an API response, an audit row, a log line or the frontend bundle;
     #: `token_configured` is a computed boolean, never the credential.
     meta_access_token: str = ""
+    #: One reader credential per Business Manager, for the case one system user cannot read
+    #: another business at all — measured 2026-09-11: a token with no role in a BM still reads
+    #: the BM node, every asset edge answers 200 with an empty list, and only
+    #: `{bm}/system_users` refuses. Partner sharing does not fix it: discovery reads the BM node
+    #: itself, so shared assets surface under the *sharing* BM's `client_ad_accounts` instead.
+    #:
+    #: Keyed by Business Manager id, which `meta_connections.business_manager_reference` already
+    #: stores, so the database learns nothing new and no migration is needed. A BM with no entry
+    #: falls back to `meta_access_token` — exactly today's behaviour — because a system user may
+    #: legitimately hold assets across businesses and refusing to try would remove working access.
+    #:
+    #: Same boundary as every other credential here: server configuration only. It never reaches
+    #: the database, an API response, an audit row, a log line or the frontend bundle.
+    #: `META_ACCESS_TOKENS_BY_BUSINESS={"109796697343603":"..."}`
+    meta_access_tokens_by_business: dict[str, str] = {}
     #: A10. Pinned deliberately: a floating version means Meta changes behaviour underneath a
     #: running deployment. Bump it as a decision, with a release, not by accident.
     meta_graph_api_base_url: str = "https://graph.facebook.com"

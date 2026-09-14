@@ -24,7 +24,7 @@ of the defects found in this project have been violations of that rule, not cras
 | Production schema | **At head `0015_a10_3_conn_bm`.** Migrations 0011-0015 applied 2026-09-12, confirmed by a `migration complete` log line |
 | Frontend on Vibe Host | **Unreachable.** Container healthy and answering 200 internally; the platform edge returns its catch-all. A routing entry, not a code problem |
 | Local development | `scripts/dev.sh start` — supervised, self-restarting, 18h+ uptime observed |
-| Tests | **808 backend, 131 frontend**, all green (2026-09-14); `npm run typecheck` is `tsc -b` |
+| Tests | **824 backend, 135 frontend**, all green (2026-09-14); `npm run typecheck` is `tsc -b` |
 | Registry import | **Exercised for the first time 2026-09-14.** Two owned accounts imported by hand from a real run; 1 Business Manager and 2 ad accounts now in the registry, each with a full audit chain and readiness `unknown` |
 | Real Meta reads | **Working against a live Business Manager.** 8 ad accounts and 7 Pixels discovered, with coverage, reader identity and authority recorded |
 | Real Meta writes | **Capability built, never used.** See A10.2 below |
@@ -37,7 +37,7 @@ of the defects found in this project have been violations of that rule, not cras
 |---|---|
 | Frontend reachable in production | Hosting panel: route `audit-ads-frontend.cmc-1.vibenode.matbao.ai` to its container |
 | First real ad-account create | Billing confirmed on BM `1993884657458857`, the remaining ad-account slot count, and an explicit approval naming that BM (rule 22) |
-| Multi-Business-Manager in practice | `adsops-admin` added as a **member** of the second BM. Today it has no role there, so a discovery honestly reports `0 · Unknown` |
+| Multi-Business-Manager in practice | A system user created **inside** BM `109796697343603` and its token put in `META_ACCESS_TOKENS_BY_BUSINESS`. The code side is built; partner sharing cannot substitute, because discovery reads the BM node itself |
 | A real Telegram message | `TELEGRAM_BOT_TOKEN` in server configuration **and** a separate approval naming a chat (rules 20 and 22) |
 
 
@@ -280,6 +280,18 @@ instead, because that is where the data lives: the registry held 0 Business Mana
 and 36 observations, so every BM-keyed URL would have 404ed on day one. See
 `docs/AUDIT_BEFORE_BUILD_O1_1.md` §1a and `ARCH.md` §4h.
 
+**One reader credential per Business Manager (built 2026-09-14).** A system-user token belongs to
+the business that created it. `META_ACCESS_TOKENS_BY_BUSINESS` maps a Business Manager id to its
+own credential; anything unmapped keeps using `META_ACCESS_TOKEN` exactly as before, so configuring
+nothing changes nothing. Keyed by BM id because the connection already stores that id — **no
+migration, no new column, and no credential name in any request body**. Every connection now
+reports `reader_source` (`business_specific` / `server_default` / `none` / `fake`), and
+`token_configured` is computed per Business Manager instead of being one global boolean that said
+"yes" for a business nothing could read. Partner sharing was measured and cannot substitute:
+discovery reads the Business Manager node itself, so shared assets surface under the *sharing*
+business instead. See `docs/AUDIT_BEFORE_BUILD_MULTI_TOKEN.md` and `ARCH.md` §4i. **Granting access
+is still a Business Settings action** — this slice only lets the right credential be used.
+
 **O1.1 follow-up (built 2026-09-14, after the first real use).** Two additions the first
 click-through asked for:
 
@@ -348,9 +360,12 @@ itself.
   + `AccountHealthEvaluationService` path every other account uses — it starts
   `readiness=unknown, health=unknown` for the same structural reason any new account does, never
   special-cased as trusted because creation succeeded.
-- `FakeMetaBusinessProvider` (mirrors A3's `FakeNotificationTransport` pattern) is the only
-  provider wired anywhere — capability check, create, share, and reconciliation can all be
-  exercised end-to-end with no real Meta App, token, or permission.
+- `FakeMetaBusinessProvider` (mirrors A3's `FakeNotificationTransport` pattern) was the only
+  provider wired anywhere **at the time of A7** — capability check, create, share, and
+  reconciliation could all be exercised end-to-end with no real Meta App, token, or permission.
+  A10 added the real read-only provider alongside it; the fake is still what every environment
+  except `production`-with-a-credential uses, so a misconfiguration degrades to "no real call"
+  rather than to a surprise one.
 - Frontend: `Operations` (4 cards — Create/Share live at the time, Bulk Pixel share/Team seats
   "Coming later" with no execute button; Bulk Pixel share went live in A8, see above),
   `MetaConnections`, `CreateAccountWizard`, `ShareAccessWizard` (5 steps each). Main nav
@@ -795,76 +810,71 @@ any of them.
 
 ## Known limits (follow-ups)
 
-- **A7's two wizards and A8's `PixelShareWizard` have now been clicked through in a real
-  browser** (`backend/scripts/a7_a8_live_verify.py`, 20/20, screenshots in
-  `docs/evidence/A7-A8-LIVE/`) — and it immediately found a real bug that every other check had
-  missed: after "Confirm batch", all three wizards set the step they were already on, leaving
-  step 5 (Run) unreachable. A batch could be drafted, previewed and confirmed, then never run
-  from the UI. Fixed and re-verified. The *reason* this gap had stood for several sessions was
-  also wrong as recorded: not unavailable browser tooling, but a missing system library
-  (`libnspr4.so`), found and fixed on 2026-09-09.
-- **A6's Preflight pages have now been clicked through too** (`backend/scripts/a6_live_verify.py`,
-  18/18, screenshots in `docs/evidence/A6-LIVE/`), which closes the last of these gaps: every UI
-  surface in this product has now been verified in a real browser at least once. A6 itself stays
-  deferred and hidden from the nav — verified is not the same as promoted.
-- **No real Meta provider exists.** `FakeMetaBusinessProvider` is the only one wired anywhere;
-  a real one needs a Meta App, approved permissions, a server-config-only token, and its own
-  explicit approval before anything in A7 can reach the real API.
-- **Real-browser UAT (2026-09-08):** loaded unpacked in real Chrome, connected to a live backend,
-  and run against real Meta Ads Manager accounts — see `TEST_LOG.md`. Confirmed: exact-match
-  resolution against a registered account, correct non-guessing on an unregistered one, and
-  clean context switching between the two. Found and fixed one real allowlist gap (the billing
-  hub route). Not exercised live: the side panel's note-recording UI, and revocation's effect on
-  an already-open tab within its 30-second context cache (server-side revocation itself was
-  confirmed instant via the API).
-- **Meta's URL shapes are an assumption.** The route allowlist matches today's Ads Manager; when
-  it changes, the extension degrades to `unsupported_page` rather than guessing, but the
-  allowlist will need updating.
+Rewritten 2026-09-14 by checking every claim against the code. The list had accumulated since A1
+and five of its statements had become false — including "no real Meta provider exists", written
+while the product was reading a live Business Manager. A document that contradicts itself is worse
+than one that is merely incomplete, so each line below names how it was verified.
+
+### Still true
+
+- **No CI.** `.github/workflows` holds zero files. Every suite is run by hand; nothing runs on
+  push. This is the one infrastructure gap from the original list that survived re-checking.
+- **No real Telegram message has ever been sent.** `TELEGRAM_BOT_TOKEN` is unset in the deployed
+  environment, and the transport is exercised only through `FakeNotificationTransport`. A first
+  real send needs the token *and* a separate approval naming a chat (rules 20 and 22).
+- **No real ad-account has ever been created.** A10.2 built the capability; rule 22 means building
+  it is not permission to use it. Three prerequisites remain: billing on the target Business
+  Manager, its remaining account quota, and an approval naming that BM.
+- **No scheduled health evaluation.** `app/commands/evaluate_health.py` exists and
+  `docker-compose.production.yml` runs `run_dispatcher`, but health is still recalculated only on
+  mutation and on request. An untouched account's evaluation ages and is then reported as
+  `unknown`/stale — correct, but staleness is surfaced rather than prevented.
+- **Health backfill is synchronous and bounded** (default 5, maximum 50 accounts).
+- **Rule enable/disable has no UI.** The schema and engine support it; nothing in `frontend/src`
+  toggles it.
+- **Evidence has no file storage.** It is metadata plus an optional external link; there is no
+  upload layer.
+- **Off-host backup transfer is manual.** Nothing ships a backup to an object store, and the
+  platform exposes no backup or restore API, so `RUNBOOK_BACKUP_RESTORE.md`'s restore drill cannot
+  be executed from this workspace by any route currently available.
+- **Resource limits are unproven at runtime.** `docker-compose.yml` declares them; this
+  workspace's Docker-in-Docker cgroup is `domain threaded` and cannot apply any, so they are
+  validated by `compose config` only.
+- **The repo's own compose deploy path is unexercised.** The live deployment is Vibe Host, not
+  `docker-compose.production.yml` / `RUNBOOK_DEPLOY.md`.
+- **Meta's URL shapes are an assumption.** The extension's route allowlist matches today's Ads
+  Manager; when it changes the extension degrades to `unsupported_page` rather than guessing, but
+  the allowlist will need updating.
 - **A deployment must add `chrome-extension://<id>` to `CORS_ORIGINS`**, and the id is only known
-  once the extension is packed.
-- **Still no rate limiting.** The extension caches per tab for 30 seconds and only re-resolves
-  when the account or route actually changes, but a compromised client could still poll.
-- **No Chrome Web Store listing**, no signing, no update channel.
-- **Deployed for the first time (2026-09-08), on Vibe Host, not the compose stack in this repo.**
-  `audit-ads-backend.cmc-1.vibenode.matbao.ai` is live, migrated, and health-checked
-  (`database: reachable`). The paired frontend project's container runs and serves `200`
-  internally but the public domain still 404s — a platform-side Traefik/routing issue, not a
-  code defect, unresolved as of this note. A second, separate Vibe Host project named
-  `audit-ads` was accidentally created from `extension/` instead of `frontend/` and is broken;
-  it has been left alone rather than deleted. None of this used the `docker-compose.yml` /
-  `RUNBOOK_DEPLOY.md` path in this repo, which remains unexercised against a real target.
-- **No real Telegram message has ever been sent.** The transport code path is covered by
-  structural and unit-level tests through a fake; a first real send needs a bot token and the
-  owner's approval of a named chat.
-- **The deployment target is unresolved**: no git remote, no domain, no confirmed host, no
-  backup destination. `docs/AUDIT_BEFORE_BUILD_A4.md` §6 lists exactly what is missing.
-- **Resource limits are unproven at runtime.** This workspace's Docker-in-Docker cgroup is
-  `domain threaded` and cannot apply any limit; they are validated by `compose config` only.
-- **Off-host backup transfer is manual.** Nothing ships credentials to an object store.
-- **No real-browser UAT.** Verification is jsdom rendering against the live API plus a
-  production build. A person has still never clicked through the app.
-- **Still no CI, and no rate limiting.**
-- **Scheduled dispatch is now solved** by the A4 dispatcher container, but it has only ever run
-  locally. On a real deployment it is unproven until Stage B.
-- **Reminders are implemented but off**, and have no dedicated UI beyond the toggle.
-- **No real Telegram delivery has been exercised.** The transport code path is tested through a
-  fake; a first real send needs a bot token and the user's explicit approval of a target chat.
-- **No scheduled evaluation.** Health is recalculated on mutation and on request. Without a worker
-  nothing sweeps idle accounts, so an untouched account's evaluation ages and is then reported as
-  `unknown`/stale — correct, but it means staleness is surfaced rather than prevented. Wiring
-  `app.commands.evaluate_health` to a scheduler belongs to A3.
-- **Backfill is synchronous and bounded** (default 5, maximum 50 accounts) rather than
-  asynchronous, for the same reason.
-- Rule enable/disable is supported by the schema and engine but has no UI.
-- No rate-limiting middleware yet (no existing middleware to extend in A1).
-- No CI pipeline configured for this repository.
-- Evidence is metadata plus an optional external link; there is no file upload/storage layer.
-- Roles cannot be assigned through the UI yet.
-- `last_synced_at` is always empty because nothing syncs; readiness reports data freshness as
-  `unknown` rather than pretending otherwise.
+  once the extension is packed. No Chrome Web Store listing, no signing, no update channel.
+- **Pixels cannot be imported into the registry.** A `Pixel` has no Business Manager relationship
+  in the A1 schema, so there is nothing to import one *into*. Reported in the payload rather than
+  hidden: `registry_absence_evaluable` is `false`.
+- **Production frontend is unreachable.** Measured 2026-09-14: `audit-ads-app…` and
+  `audit-ads-frontend…` both return the platform catch-all while the backend on the same node
+  answers `/health/live` 200, and the `audit-ads` stack has been stuck at `status: "deploying"`
+  since 2026-09-07. Platform-side. Evidence and the request: `docs/VIBEHOST_SUPPORT_REQUEST.md`.
 
----
+### No longer true — corrected
 
+- ~~"No real Meta provider exists."~~ `app/services/meta_real_provider.py` has existed since A10
+  and has read a live Business Manager: 8 ad accounts (5 owned, 3 client) and 7 Pixels, with
+  coverage, reader identity and authority recorded.
+- ~~"No real-browser UAT. A person has still never clicked through the app."~~ A6, A7 and A8 were
+  click-through verified in 2026-09 with screenshots under `docs/evidence/`, and on 2026-09-14 the
+  operator imported two real ad accounts through the UI. That click found a defect 145 automated
+  tests had not.
+- ~~"No rate limiting."~~ `app/api/rate_limit_middleware.py` exists, with settings and production
+  checks behind it. It is per process and in-process by design (rule 37) — do not describe it as
+  distributed.
+- ~~"The deployment target is unresolved: no git remote, no domain, no confirmed host."~~ The
+  remote is GitHub, the host is Vibe Host, and `audit-ads-backend.cmc-1.vibenode.matbao.ai` is
+  live with the schema at head. The *backup destination* is still unresolved, which is the part of
+  that sentence that was true and is kept above.
+- ~~"A second Vibe Host project named `audit-ads` … has been left alone rather than deleted."~~ It
+  was deleted. Its service is still in the stack plan, which is why `deploy_stack` must not be run
+  without removing it first.
+- ~~The duplicated "No real Telegram message" entry.~~ It appeared twice; merged into one.
 ## Rate limiting
 
 Every request under `/api/v1` is bounded. Two budgets, because two things are being protected:

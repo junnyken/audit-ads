@@ -765,6 +765,11 @@ export interface MetaConnection {
   last_capability_check_at: string | null
   business_managers: { external_id: string; name: string }[] | null
   token_configured: boolean
+  /** Which configured credential answers for this connection's Business Manager — a name, never
+   * a value. `business_specific`: this BM has its own reader. `server_default`: it falls back to
+   * the single server token, which may or may not have a role in that business.
+   * `none`: nothing is configured that could read it. `fake`: no real credential is involved. */
+  reader_source: 'business_specific' | 'server_default' | 'none' | 'fake'
   /** The Business Manager this connection actually reads, and where that id came from. A
    * connection that inherits the server setting reads the same BM as every other inheriting
    * connection — which is why the source has to be visible, not just the id. */

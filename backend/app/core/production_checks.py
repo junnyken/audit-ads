@@ -203,6 +203,31 @@ def check_settings(settings: Settings) -> list[ConfigFinding]:
             severity="warning",
         )
 
+    # ---- Meta reader credentials ---------------------------------------------------
+    # Per rule 26 every finding names a code and a sentence, never the offending value — and here
+    # the value is a credential, so the Business Manager id (public, visible in Business Settings)
+    # is the most that may be said.
+    for business_id, value in (settings.meta_access_tokens_by_business or {}).items():
+        if not business_id.strip():
+            add(
+                "meta_reader_business_id_empty",
+                "META_ACCESS_TOKENS_BY_BUSINESS contains an entry with no Business Manager id, so "
+                "no connection can ever resolve it.",
+            )
+        elif not value.strip():
+            add(
+                "meta_reader_token_empty",
+                f"META_ACCESS_TOKENS_BY_BUSINESS has an empty value for Business Manager "
+                f"{business_id.strip()}. An empty entry silently falls back to the default token, "
+                "which reads a different business.",
+            )
+        elif _placeholder(value):
+            add(
+                "meta_reader_token_placeholder",
+                f"META_ACCESS_TOKENS_BY_BUSINESS holds a known placeholder for Business Manager "
+                f"{business_id.strip()}.",
+            )
+
     return findings
 
 

@@ -4,12 +4,17 @@ Single-operator-first operations platform for managing 30+ advertising accounts 
 dashboard instead of a wall of Chrome windows: an account registry, ownership and asset
 mapping, an evidence-first readiness checklist, account events and an immutable audit trail.
 
-**Release: MINI-SPEC A5 — Chrome Context Extension & Account Workspace Guard**, on top of
-**A4 Stage A — Deployment Readiness**, **A3 — Alert Center & Telegram Notification Delivery**,
-**A2 — Evidence-Based Account Health** and **A1 — Account Registry & Stability Readiness.**
+**Release: O1.1 — Connection Discovery Workspace**, with a reader credential per Business Manager,
+on top of **A10-A10.3 — real read-only Meta discovery**, one deliberately narrow write capability,
+the authority gate and registry import; **A9 — Team Seats & Device Security**; **A6-A8**;
+**A5 — Chrome Context Extension**; **A4 Stage A**; **A3**; **A2**; **A1**.
 
-> Nothing has been deployed, no real Telegram message has ever been sent, and the extension has
-> never been published or loaded in a browser. Each of those needs its own explicit approval.
+> State as of 2026-09-14, checked against the code rather than remembered. The **backend is
+> deployed** (Vibe Host, schema at head, real Meta reads working) and the **production frontend is
+> unreachable** — a platform routing failure, not a code defect. **No real Telegram message has
+> ever been sent.** **No real ad account has ever been created:** A10.2 built that capability, and
+> building it is not permission to use it. The extension has been loaded unpacked in a real browser
+> but **never published**. Each of those still needs its own explicit approval.
 
 Separate questions, answered separately and shown side by side:
 

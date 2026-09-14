@@ -628,6 +628,46 @@ be read models over rows that do not exist yet.
 Add-to-Registry is reused unchanged, now reachable from the workspace's Ad Accounts tab as well as
 from the connection card.
 
+### 4i. One reader credential per Business Manager
+
+A10 chose a long-lived system-user token, which is scoped to the business that created it. Measured
+2026-09-11: such a token still reads a foreign Business Manager's *node*, and every asset edge
+answers `200` with an empty list and no error, while `{bm}/system_users` refuses. That is why the
+authority gate exists — and why one token cannot be the answer for two businesses.
+
+Partner sharing does not close the gap, and the reason is in the code rather than in a guess: every
+read discovery makes is on the Business Manager node itself (`{bm}/owned_ad_accounts`,
+`{bm}/client_ad_accounts`, `{bm}/adspixels`, `{bm}/system_users`). Sharing assets from BM 2 to BM 1
+makes them appear under **BM 1's** `client_ad_accounts`; BM 2's own edges stay unreadable. A
+connection pointed at BM 2 keeps reporting `0 · Unknown`, honestly.
+
+So the credential is keyed by Business Manager id, in server configuration:
+
+```
+META_ACCESS_TOKENS_BY_BUSINESS={"109796697343603":"<that business's token>"}
+```
+
+Keyed by BM id specifically because `meta_connections.business_manager_reference` already stores
+that id — **the database learns nothing new and there is no migration**. Three designs that would
+have needed one (an alias column, numbered slots, per-alias environment variables) were rejected in
+`docs/AUDIT_BEFORE_BUILD_MULTI_TOKEN.md` §5. The per-alias variable design was rejected for a
+concrete reason: pydantic loads `.env` itself, so an `os.environ` lookup would resolve differently
+in local development than in production.
+
+`resolve_reader()` returns `(token, reader_source)` and is the only place the choice is made.
+Resolution is additive — configure nothing and behaviour is bit-for-bit what it was — and a
+business's own entry is never passed over for the default. The fallback in the other direction is
+kept deliberately: a system user can legitimately hold assets across businesses.
+
+The API exposes `reader_source` — a name, never a value — and `token_configured` is computed per
+Business Manager rather than as one global boolean. The audit also recorded a constraint worth
+keeping: `SENSITIVE_NAME_FRAGMENTS` forbids any request field whose *name* contains `token`,
+`secret` or `credential`, so no design that carries a credential's name in a request body was ever
+available. This one carries nothing in a request body at all.
+
+**The slice grants no access by itself.** Someone still has to create a system user inside the
+second Business Manager and generate its token in Business Settings.
+
 ## 5. Security model
 
 | Control | Implementation |

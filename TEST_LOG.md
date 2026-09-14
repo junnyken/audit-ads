@@ -2850,3 +2850,33 @@ New finding: the `audit-ads` stack has been stuck at `status: "deploying"` since
 ever created. Written up with the evidence in `docs/VIBEHOST_SUPPORT_REQUEST.md`. `deploy_stack`
 was deliberately not run: the plan still contains the `extension` service that was intentionally
 deleted.
+
+### Documentation truth-up, 2026-09-14
+
+`FEATURES.md`'s "Known limits (follow-ups)" had accumulated since A1 and **five of its statements
+had become false**. Every line was re-checked against the code; the section now separates what is
+still true from what was corrected, and says how each was verified.
+
+The false ones, and what actually holds:
+
+| Claim | Checked by | Reality |
+|---|---|---|
+| "No real Meta provider exists" | `ls app/services/meta_real_provider.py` | exists since A10; has read a live BM |
+| "A person has still never clicked through the app" | `docs/evidence/`, and this log | A6/A7/A8 verified; operator imported two real accounts on 2026-09-14 |
+| "No rate limiting" (twice) | `ls app/api/rate_limit_middleware.py` | exists, with settings and production checks |
+| "No git remote, no domain, no confirmed host" | `git remote get-url origin`, `curl /health/live` | GitHub remote; backend live on Vibe Host |
+| "`audit-ads` project … left alone rather than deleted" | `list_projects` | deleted; its service still sits in the stack plan |
+
+`"Still no CI"` survived re-checking: `.github/workflows` holds zero files.
+
+The same false statement was found in two more places and corrected: **`CLAUDE.md`'s header** —
+which every agent session reads first — still said "Nothing is deployed … the extension has never
+been … run in a browser", and **`README.md`'s banner** said the same. Both now carry a dated,
+code-checked status line.
+
+Two hard rules were added from what this session established: **40** (a Meta reader credential
+lives only in server configuration, keyed by Business Manager id; never a column or a field) and
+**41** (never describe this product's state from memory — check it, because this is exactly how
+five false statements survived for weeks).
+
+No code changed in this pass.

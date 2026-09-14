@@ -33,7 +33,7 @@ from app.services.meta_account_creation import AccountCreationBatchService, Draf
 from app.services.meta_discovery import MetaDiscoveryService, ReconciliationRow
 from app.services.meta_pixel_share import DraftPixelShareItem, PixelShareBatchService
 from app.services.meta_provider import DiscoveredAsset, get_fake_provider
-from app.services.meta_real_provider import build_real_provider
+from app.services.meta_real_provider import READER_NONE, build_real_provider, resolve_reader
 
 #: A9 permission matrix (§6): "Manage Meta connections/capabilities" and "Queue A7/A8 external
 #: operation" are owner-only by default — Admin only "if role capability exists", and A9
@@ -71,23 +71,33 @@ def _provider_for(connection: MetaConnection):
     """
     settings = get_settings()
     business_id = _business_id_for(connection)
-    if connection.environment == MetaEnvironment.PRODUCTION and settings.meta_access_token:
+    _, reader_source = resolve_reader(settings, business_id)
+    if connection.environment == MetaEnvironment.PRODUCTION and reader_source != READER_NONE:
         return build_real_provider(settings, business_id=business_id)
     return _seeded_fake_provider(business_id)
 
 
 def _serialize_connection(connection: MetaConnection) -> dict[str, Any]:
     settings = get_settings()
-    token_configured = True if connection.environment.value == "fake" else bool(settings.meta_access_token)
+    business_id = _business_id_for(connection)
+    # Per Business Manager, not per server. The old global boolean answered "the server holds *a*
+    # token", which is not the question an operator asks while looking at one connection's card:
+    # a token that reads one business proves nothing about another.
+    _, reader_source = resolve_reader(settings, business_id)
+    token_configured = True if connection.environment.value == "fake" else reader_source != READER_NONE
     return {
         **{k: v for k, v in snapshot(connection).items() if k not in ("capabilities_json", "business_managers_json")},
         "capabilities": connection.capabilities_json,
         "business_managers": connection.business_managers_json,
         "token_configured": token_configured,
+        # Which configured credential answers for this connection's Business Manager — a name,
+        # never a value. `business_specific` means this BM has its own entry; `server_default`
+        # means it falls back to the single server token, which may or may not have a role there.
+        "reader_source": "fake" if connection.environment.value == "fake" else reader_source,
         # The id actually read, and where it came from. A connection that inherits the server
         # setting reads the same Business Manager as every other inheriting connection, and the
         # UI has to be able to say so rather than implying each card is its own business.
-        "business_manager_reference": _business_id_for(connection) or None,
+        "business_manager_reference": business_id or None,
         "business_manager_source": "connection" if (connection.business_manager_reference or "").strip() else "server",
     }
 
