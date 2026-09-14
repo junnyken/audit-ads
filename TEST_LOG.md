@@ -2689,3 +2689,47 @@ checks are refusals or advice, and the counts match the findings reported. All t
 `configure_logging` stubbed — the real one installs this project's JSON handler and replaces the
 root handlers, taking pytest's capturing handler with it. The records were written the whole time;
 the test simply could not see them.
+
+### 2026-09-14 — production mode turned on, and what it was hiding
+
+`ENVIRONMENT=production` is now set on the deployed backend. It started cleanly and reports:
+
+```
+configuration finding   code=release_version_unset  severity=warning
+configuration checked   findings=1  errors=0  production_mode=true
+```
+
+`errors: 0` means all six checks that had been asleep now pass: the database password is not a
+known placeholder, `JWT_SECRET` is at least 32 characters, `BOOTSTRAP_OWNER_PASSWORD` is at least
+12, `CORS_ORIGINS` is non-empty and carries no wildcard, `PUBLIC_APP_URL` is HTTPS, and rate
+limiting is on. From here, changing any of those to an unsafe value refuses startup instead of
+booting and looking healthy. `/docs` and `/openapi.json` are still 404, now enforced by code
+rather than only by `ENABLE_API_DOCS`.
+
+**A correction, recorded because the wrong reasoning was stated before acting on it.** The step
+was justified as "we measured `findings: 0`, so `enforce()` has nothing to raise". That does not
+follow: in `check_settings`, most checks sit behind `elif production:` and had never run. The
+earlier zero was a count of the handful that run everywhere, not evidence about the rest. The
+outcome was safe; the reason given for expecting it was not. Found by re-reading the checks before
+flipping the switch, not after.
+
+`release_version_unset` stays open on purpose. Stamping `RELEASE_VERSION` by hand would have to be
+redone every release, and a stale stamp is worse than none — it would name the wrong commit
+confidently. It stays unset, and the warning stays visible, until CI stamps it. That is also why
+identifying the running commit yesterday took a chain of inference through migration logs.
+
+**Frontend 404 — root cause found, not yet fixed.** `get_stack` shows the stack's plan declares
+three services: `api` from `backend/`, `web` from `frontend/` with subdomain `audit-ads-frontend`,
+and `web` from `extension/` with subdomain `audit-ads`. The stack's actual membership contains
+**only the api**. The frontend exists as a standalone project outside the stack, so the platform
+edge has no route for its hostname — which is why its container answers 200 internally while the
+public URL returns the catch-all. `lastReconciledAt` is 2026-09-07.
+
+`deploy_stack` would rebuild from that plan and could fix the routing — but the plan still contains
+the `audit-ads` service built from `extension/`, the project that was deliberately deleted. Running
+it may resurrect that. Not run; it needs the operator's decision.
+
+**Backups remain unprovable from here.** There is no database creation, backup or restore tool in
+the hosting API, no shell on the platform, and `list_env` returns variable names without values, so
+the connection string cannot be read. The master plan's P0.4 restore drill cannot be executed from
+this workspace by any route currently available.
