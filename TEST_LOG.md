@@ -2880,3 +2880,39 @@ lives only in server configuration, keyed by Business Manager id; never a column
 five false statements survived for weeks).
 
 No code changed in this pass.
+
+### Rule 41 closeout audit, 2026-09-14
+
+A verification pass, no product code changed. Every number below was produced during the pass, not
+carried forward.
+
+**Clean-checkout regression.** Cloned to a scratch directory, `git checkout b2f3fd6` (SHA verified
+`b2f3fd6fde71ad45727a38a4c1fc002c2c0912b2`), fresh venv, `pip install -r requirements-dev.txt`,
+`npm ci`. Backend: ruff 0, pytest **exit 0**, 824 collected. Frontend: `tsc -b` 0, eslint 0,
+**135 passed / 20 skipped**, build 0.
+
+**CI.** Run `34819289771` on `b2f3fd6` — the workflow's first-ever run (`total_count: 1`) and it
+was green: 2 jobs, every step `success`, 341s wall clock. The backend `Tests` step took 306s, which
+is what makes "success" mean the suite ran rather than passed empty.
+
+**Three things I reported earlier today were wrong or imprecise, found by re-measuring:**
+
+1. **"each imported account matches exactly one observation"** — it matches **two**. Both
+   `1069545664559001` and `1594590901195302` appear in run `8d153a28` *and* in run `82c251ff`,
+   because two connections read the same Business Manager. The true statement is narrower: exactly
+   one observation **within the run the import named**, which is what the import actually resolves
+   against.
+2. **"8 ad accounts and 7 Pixels discovered, with coverage, reader identity and authority
+   recorded"** — the run the import was made from, `8d153a28`, recorded **no reader identity**
+   (`provider_actor_name` is null) and `authority = NOT_CHECKED`. A different run over the same
+   Business Manager, `82c251ff`, is the one holding `adsops-admin` and `ESTABLISHED`. The audit row
+   for each import says `read_as: null`, and that is faithful to the run rather than a logging bug.
+3. **`business_managers` has no link back to the connection or the run.** Its columns are
+   workspace, external id, name, status, country, currency, notes and the timestamps — nothing
+   more. Provenance for the import lives in the audit row
+   (`business_manager.created` → `created_from_discovery_run_id`), not in the row itself.
+
+**Two claims are now marked unverifiable rather than left standing:** that the extension was never
+published (no store listing is checkable from this workspace) and that the *production* schema is
+still at head (the production database is internal-only; last confirmed 2026-09-12 from a log
+line). The local dev database was measured at `0015_a10_3_conn_bm`.

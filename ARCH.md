@@ -594,9 +594,12 @@ Sharing ad-account access and sharing a Pixel were left out of A10.2's scope and
 Live batches remain capped at `META_WRITE_PILOT_MAX_ITEMS` (default 1) whenever the provider
 reports `writes_are_real`.
 
-**Building the capability is not permission to use it** (rule 22). At the time of writing no real
-create has been issued, and two prerequisites from the audit are still unverified: billing on the
-target Business Manager, and how many of its ad-account slots remain.
+**Building the capability is not permission to use it** (rule 22). **Verified 2026-09-14** by
+counting rows: `meta_account_creation_batches`, `meta_account_creation_batch_items`,
+`meta_access_share_batch*` and `meta_pixel_share_batch*` are all **0 rows**, so no create has been
+issued or even attempted. Two prerequisites from the audit remain unverified: billing on the target
+Business Manager, and how many of its ad-account slots remain — neither is checkable from this
+workspace.
 
 ### 4h. The connection discovery workspace (O1.1)
 
@@ -605,9 +608,12 @@ keyed by **connection** instead, and that is the one substantive deviation from 
 
 `business_managers` is the A1 registry — rows an operator typed or imported. No discovery data
 hangs off it: `BusinessManagerDiscoveryRun` points at `meta_connections`, and the Business Manager
-it read is a **string with no foreign key**. Counted on 2026-09-14 the registry held 0 Business
-Managers and 0 ad accounts, against 7 runs and 36 observations. A BM-keyed workspace would have
-404ed on every URL on the day it shipped. The Business Manager is shown as an attribute of the
+it read is a **string with no foreign key**. Counted on 2026-09-14 *before the first import*, the
+registry held 0 Business Managers and 0 ad accounts, against 7 runs and 36 observations — which is
+why a BM-keyed workspace would have 404ed on every URL on the day it shipped. **Re-measured
+2026-09-14 after the first import: 1 Business Manager, 2 ad accounts.** The reasoning stands on the
+measurement at design time; the registry is no longer empty, and the counts above are history, not
+present state. The Business Manager is shown as an attribute of the
 connection, which is what the schema says it is; when imports populate the registry, a BM-keyed
 view becomes possible without moving any of this.
 

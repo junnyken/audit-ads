@@ -6,12 +6,20 @@ per-Business-Manager reader credential, on A10/A10.1/A10.2/A10.3 (real Meta read
 write capability, authority gate, registry import), A9 (team seats), A6-A8, A5 (Chrome extension),
 A4 Stage A, A3, A2, A1.
 
-Accurate as of 2026-09-14, checked against the code rather than remembered:
-the **backend is deployed** on Vibe Host with the schema at head and real Meta reads working; the
-**production frontend is unreachable** (platform routing, not code); **no real Telegram message has
-ever been sent**; **no real ad account has ever been created** — A10.2 built the capability and
-rule 22 means that is not permission to use it; the extension **has been run unpacked in a real
-browser** but has never been published.
+**Product state, each line re-measured 2026-09-14 and carrying how it was measured.** Rule 41: do
+not copy these forward — re-measure them at the moment you write about them.
+
+| Claim | Verified | How |
+|---|---|---|
+| Backend deployed and healthy | 2026-09-14 | `audit-ads-backend.cmc-1.vibenode.matbao.ai/health/live` → 200; `/health/ready` → `{"status":"ok","database":"reachable"}` |
+| Production frontend unreachable | 2026-09-14 | `audit-ads-app…` and `audit-ads-frontend…` both serve the platform catch-all (`<title>Địa chỉ này chưa phục vụ nội dung · Vibe Host</title>`). Platform routing, not code |
+| Real Meta reads work | 2026-09-14 | run `8d153a28…` holds 8 ad-account observations (5 owned + 3 client) and 7 Pixel observations |
+| Registry is no longer empty | 2026-09-14 | `business_managers` = 1, `ad_accounts` = 2 |
+| No real Telegram message ever sent | 2026-09-14 | `notification_deliveries`: 6 rows, all `SKIPPED`; no `SENT` row exists |
+| No real ad account ever created | 2026-09-14 | every `meta_*_batch` / `*_batch_items` table is 0 rows |
+| CI green | 2026-09-14 | run `34819289771` on `b2f3fd6`: 2 jobs, every step success, 341s |
+| Extension never published | **not verifiable here** | no Chrome Web Store listing can be checked from this workspace; it rests on the operator's word |
+| Production schema at head | **not re-verifiable here** | the production database is internal-only. Last confirmed 2026-09-12 by a `migration complete` log line. The **local** dev database is at `0015_a10_3_conn_bm` (measured 2026-09-14) |
 
 ## Hard rules (these are product requirements, not preferences)
 

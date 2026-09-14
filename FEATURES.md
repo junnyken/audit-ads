@@ -20,16 +20,16 @@ of the defects found in this project have been violations of that rule, not cras
 
 | | State |
 |---|---|
-| Backend on Vibe Host | **Live.** `audit-ads-backend.cmc-1.vibenode.matbao.ai`, healthy, database reachable |
-| Production schema | **At head `0015_a10_3_conn_bm`.** Migrations 0011-0015 applied 2026-09-12, confirmed by a `migration complete` log line |
-| Frontend on Vibe Host | **Unreachable.** Container healthy and answering 200 internally; the platform edge returns its catch-all. A routing entry, not a code problem |
-| Local development | `scripts/dev.sh start` — supervised, self-restarting, 18h+ uptime observed |
-| Tests | **824 backend, 135 frontend**, all green (2026-09-14); `npm run typecheck` is `tsc -b` |
-| Registry import | **Exercised for the first time 2026-09-14.** Two owned accounts imported by hand from a real run; 1 Business Manager and 2 ad accounts now in the registry, each with a full audit chain and readiness `unknown` |
-| Real Meta reads | **Working against a live Business Manager.** 8 ad accounts and 7 Pixels discovered, with coverage, reader identity and authority recorded |
-| Real Meta writes | **Capability built, never used.** See A10.2 below |
-| Telegram | **Never sent a real message.** No bot token in the deployed environment |
-| Chrome extension | Loaded unpacked in a real browser; never published |
+| Backend on Vibe Host | **Live** — verified 2026-09-14: `/health/live` 200, `/health/ready` `{"status":"ok","database":"reachable"}` |
+| Production schema | **Not re-verifiable from this workspace** — the production database is internal-only. Last confirmed **2026-09-12** by a `migration complete` log line naming `0015_a10_3_conn_bm`. The **local dev** database is at `0015_a10_3_conn_bm`, measured 2026-09-14 |
+| Frontend on Vibe Host | **Unreachable** — verified 2026-09-14: `audit-ads-app…` and `audit-ads-frontend…` both return the platform catch-all page. "Container answers 200 internally" was measured 2026-09-13 and is **not re-verifiable from here**; the stack has been stuck at `status: "deploying"` since 2026-09-07 |
+| Local development | `scripts/dev.sh start` — supervised, self-restarting. Keeper process up **2d 22h**, measured 2026-09-14 (started 2026-09-11 16:42) |
+| Tests | **824 backend, 135 frontend** — re-run 2026-09-14 from a **clean clone at `b2f3fd6`** with a fresh venv and `npm ci`: pytest exit 0 (824 collected), ruff 0, `tsc -b` 0, eslint 0, vitest 135 passed / 20 skipped, build 0. `npm run typecheck` is `tsc -b` — plain `tsc --noEmit` compiles zero files here |
+| Registry import | **Exercised for the first time 2026-09-14** — re-measured the same day: `business_managers` = 1 (`Quảng Cáo Top` / `1993884657458857`), `ad_accounts` = 2 (`1069545664559001`, `1594590901195302`), both `readiness_status = UNKNOWN`, each with an audit row naming run `8d153a28` and edge `owned_ad_accounts` |
+| Real Meta reads | **Working against a live Business Manager** — verified 2026-09-14: two runs each hold 8 ad-account observations (5 owned + 3 client) and 7 Pixel observations. **Reader identity is recorded on one of them, not both**: run `82c251ff` has `adsops-admin` and `authority=ESTABLISHED`; run `8d153a28` — the one the registry import was made from — has **no actor recorded** and `authority=NOT_CHECKED` (correct: authority is only asked of an empty inventory) |
+| Real Meta writes | **Capability built, never used** — verified 2026-09-14: `meta_account_creation_batches`, `meta_access_share_batch*` and `meta_pixel_share_batch*` are all 0 rows. See A10.2 below |
+| Telegram | **Never sent a real message** — verified 2026-09-14: `notification_deliveries` holds 6 rows, every one `SKIPPED`; no `SENT` row exists |
+| Chrome extension | Loaded unpacked in a real browser (2026-09-08, see `TEST_LOG.md`). **"Never published" is not verifiable from this workspace** — no store listing can be checked here |
 
 ### What is blocked, and on whom
 
@@ -810,14 +810,23 @@ any of them.
 
 ## Known limits (follow-ups)
 
-Rewritten 2026-09-14 by checking every claim against the code. The list had accumulated since A1
-and five of its statements had become false — including "no real Meta provider exists", written
-while the product was reading a live Business Manager. A document that contradicts itself is worse
-than one that is merely incomplete, so each line below names how it was verified.
+Rewritten 2026-09-14 by checking every claim against the code, and **re-verified the same day**
+under rule 41. The list had accumulated since A1 and five of its statements had become false —
+including "no real Meta provider exists", written while the product was reading a live Business
+Manager. A document that contradicts itself is worse than one that is merely incomplete, so each
+line below names how it was verified.
+
+**Two claims here cannot be verified from this workspace and are marked as such rather than left
+standing unqualified:** that the extension was never published (no store listing is checkable from
+here) and that the *production* schema is still at head (the production database is internal-only;
+last confirmed 2026-09-12 from a log line).
 
 ### Still true
 
-- ~~**No CI.**~~ Added 2026-09-14: `.github/workflows/ci.yml` runs ruff + the backend suite against
+- ~~**No CI.**~~ Added 2026-09-14 and **verified green the same day** — run `34819289771` on
+  `b2f3fd6`, the workflow's first-ever run: 2 jobs, every step `success`, 341s wall clock, with the
+  backend `Tests` step taking 306s (so the suite really ran rather than passing empty).
+  `.github/workflows/ci.yml` runs ruff + the backend suite against
   a real Postgres 16 service on 5434 (the address `tests/conftest.py` already defaults to), and
   `tsc -b` + eslint + vitest + build for the frontend, on every push to `main` and every pull
   request. It runs the same commands `CLAUDE.md` gives a person, in the same order, so a green run
@@ -834,7 +843,8 @@ than one that is merely incomplete, so each line below names how it was verified
   `docker-compose.production.yml` runs `run_dispatcher`, but health is still recalculated only on
   mutation and on request. An untouched account's evaluation ages and is then reported as
   `unknown`/stale — correct, but staleness is surfaced rather than prevented.
-- **Health backfill is synchronous and bounded** (default 5, maximum 50 accounts).
+- **Health backfill is synchronous and bounded** — maximum 50 accounts, enforced by
+  `BackfillRequest.batch_size` (`ge=1, le=50`), verified 2026-09-14.
 - **Rule enable/disable has no UI.** The schema and engine support it; nothing in `frontend/src`
   toggles it.
 - **Evidence has no file storage.** It is metadata plus an optional external link; there is no

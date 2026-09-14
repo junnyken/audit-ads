@@ -9,12 +9,25 @@ on top of **A10-A10.3 — real read-only Meta discovery**, one deliberately narr
 the authority gate and registry import; **A9 — Team Seats & Device Security**; **A6-A8**;
 **A5 — Chrome Context Extension**; **A4 Stage A**; **A3**; **A2**; **A1**.
 
-> State as of 2026-09-14, checked against the code rather than remembered. The **backend is
-> deployed** (Vibe Host, schema at head, real Meta reads working) and the **production frontend is
-> unreachable** — a platform routing failure, not a code defect. **No real Telegram message has
-> ever been sent.** **No real ad account has ever been created:** A10.2 built that capability, and
-> building it is not permission to use it. The extension has been loaded unpacked in a real browser
-> but **never published**. Each of those still needs its own explicit approval.
+> **State, each claim re-measured 2026-09-14** (`CLAUDE.md` carries the same table with the exact
+> command behind each line):
+>
+> - **Backend deployed and healthy** — `/health/live` 200, `/health/ready` reports the database
+>   reachable.
+> - **Production frontend unreachable** — both hostnames serve the platform's catch-all page. A
+>   routing failure on the host, not a code defect.
+> - **Real Meta reads work** — the latest run holds 8 ad-account observations (5 owned, 3 client)
+>   and 7 Pixel observations.
+> - **The registry holds 1 Business Manager and 2 ad accounts**, imported by hand on 2026-09-14.
+> - **No real Telegram message has ever been sent** — every notification row is `SKIPPED`.
+> - **No real ad account has ever been created** — every batch table is empty. A10.2 built that
+>   capability, and building it is not permission to use it.
+> - **CI is green** — run `34819289771`, 2 jobs, every step success.
+> - **Not verifiable from the workspace:** that the extension was never published, and that the
+>   *production* schema is still at head (the production database is internal-only; last confirmed
+>   2026-09-12 from a migration log line).
+>
+> Each of the unused capabilities still needs its own explicit approval.
 
 Separate questions, answered separately and shown side by side:
 
