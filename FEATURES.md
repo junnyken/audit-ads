@@ -866,8 +866,14 @@ decision so a later reader does not "fix" it. Policy and commands:
   live the same day: two aged snapshots refreshed, zero Meta calls.
 - **Health backfill is synchronous and bounded** — maximum 50 accounts, enforced by
   `BackfillRequest.batch_size` (`ge=1, le=50`), verified 2026-09-14.
-- **Rule enable/disable has no UI.** The schema and engine support it; nothing in `frontend/src`
-  toggles it.
+- ~~**Rule enable/disable has no UI.**~~ Built 2026-09-15, and the follow-up was wrong about why:
+  the schema supported it, **the engine did not**. `enabled_definitions()` discarded a disabled row
+  *before* comparing versions, so a workspace override at `v2, enabled=False` was thrown away and
+  the global `v1, enabled=True` still won — no workspace had ever been able to switch a check off.
+  Measured the same day: all 10 definitions were global, enabled, `v1`. Fixed by choosing the
+  highest version per key first and honouring its flag; `PATCH /account-health/rules/{rule_key}` is
+  owner-only and writes a **workspace-scoped override**, never editing the shared default.
+  Disabling expires the rule's open signals — expired, not resolved — and keeps the history.
 - **Evidence has no file storage.** It is metadata plus an optional external link; there is no
   upload layer.
 - **Off-host backup transfer is manual.** Nothing ships a backup to an object store, and the

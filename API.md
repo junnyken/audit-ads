@@ -280,6 +280,24 @@ Run triggers: `account_mutation`, `checklist_mutation`, `evidence_mutation`,
 A failed evaluation never blocks the A1 mutation that triggered it; it is recorded as a failed run
 and the account's health is reported as `unknown`.
 
+### Turning a health check off (2026-09-15)
+
+`PATCH /account-health/rules/{rule_key}` with `{"enabled": bool}`. **Owner only** — it changes what
+every member of the workspace is shown, not one account.
+
+It never edits the shared default. Every rule definition shipped today is global
+(`workspace_id IS NULL`), so flipping one in place would change another tenant's health; instead
+this writes a **workspace-scoped override** at the next version, which the engine then prefers.
+Asking twice for the same state moves the existing override rather than stacking versions.
+
+**Disabling is not resolving.** At the next evaluation the rule's open signals are closed as
+`expired`, with the reason recorded in the audit row, and the history is kept. A check that is
+switched off says nothing about whether the problem it watched for is still there. Rule 13's
+wording — "No current issues found by *configured* checks" — already carried this.
+
+A `rule_key` the engine cannot evaluate is refused with 404 rather than stored: a definition
+nothing reads would be a setting that silently does nothing.
+
 ## Alert Center (A3)
 
 Same conventions as A1/A2: bearer auth, workspace scope from the membership, the shared error

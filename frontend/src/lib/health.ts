@@ -94,6 +94,18 @@ export const SIGNAL_STATUS_META: Record<SignalStatus, { label: string; tone: Ton
   },
 }
 
+/** What turning a check off actually does, in the words the operator needs before doing it.
+ *
+ * The engine expires a disabled rule's open signals rather than resolving them — a resolved signal
+ * says the condition stopped being true, and switching off the check that watched for it says
+ * nothing of the kind. This sentence is the UI half of that guarantee, and it is deliberately
+ * blunt: a workspace that quietens a check should be in no doubt about what it has and has not
+ * changed. */
+export const DISABLE_CONSEQUENCE =
+  'Turning a check off stops it producing signals for this workspace and expires the ones it ' +
+  'had already opened — expired, not resolved. The history is kept, and nothing about it means ' +
+  'the problem the check was watching for has gone away.'
+
 export const HEALTH_DISCLAIMER =
   'Account health is an internal operational state derived from records you entered. Clear signals means no current issues were found by the configured checks; it is not a platform approval, not a safety guarantee, and not a prediction of enforcement.'
 

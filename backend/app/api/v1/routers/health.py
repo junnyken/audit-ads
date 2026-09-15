@@ -497,6 +497,42 @@ def list_rules(ctx: Ctx) -> list[dict[str, Any]]:
     return payload
 
 
+@router.patch("/account-health/rules/{rule_key}")
+def set_rule_enabled(ctx: WriteCtx, rule_key: str, payload: s.RuleEnabledRequest) -> dict[str, Any]:
+    """Turn a check on or off for this workspace.
+
+    Owner-only, following the backfill's precedent: this changes what every member of the
+    workspace is shown, not one account. It never edits the shared default — it writes a
+    workspace-scoped override — so another tenant's health is untouched.
+
+    Disabling is not resolving. Open signals from the rule are **expired** at the next evaluation,
+    with the reason recorded, and the history is kept. A check that is switched off does not mean
+    the problem it was watching for has gone away.
+    """
+    if ctx.membership.role != WorkspaceRole.OWNER:
+        raise AuthorizationError("Only the workspace owner can turn a health check on or off.")
+    registry = HealthRuleRegistryService(ctx.session, ctx.workspace_id)
+    registry.ensure_seeded()
+    if rule_key not in HEALTH_RULES_BY_KEY:
+        # A definition the engine cannot evaluate would be a setting that silently does nothing.
+        raise NotFoundError("Health rule not found.")
+    definition = registry.set_enabled(rule_key, enabled=payload.enabled)
+    ctx.audit.record(
+        action="health_rule.enabled_changed" if payload.enabled else "health_rule.disabled",
+        entity_type="health_rule_definition",
+        entity_id=definition.id,
+        metadata={"rule_key": rule_key, "enabled": payload.enabled, "version": definition.version},
+    )
+    ctx.commit()
+    data = s.HealthRuleOut.model_validate(definition).model_dump()
+    rule = HEALTH_RULES_BY_KEY.get(rule_key)
+    if rule:
+        data["why_it_matters"] = rule.why_it_matters
+        data["recommended_next_step"] = rule.recommended_next_step
+        data["applicability"] = rule.applicability
+    return data
+
+
 @router.get("/account-health/evaluation-runs")
 def list_runs(
     ctx: Ctx,

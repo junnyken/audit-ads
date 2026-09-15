@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, query } from '../lib/api'
 import type { AccountHealthRow, HealthRule, Paged } from '../lib/types'
 import { Badge, Card, EmptyState, ErrorState, InlineNote, Skeleton } from '../components/ui'
-import { FRESHNESS_META, HEALTH_DISCLAIMER, HEALTH_META, SEVERITY_META } from '../lib/health'
+import { DISABLE_CONSEQUENCE, FRESHNESS_META, HEALTH_DISCLAIMER, HEALTH_META, SEVERITY_META } from '../lib/health'
 import { READINESS_META, accountStatusTone } from '../lib/readiness'
+import { useAuth } from '../hooks/useAuth'
 import { formatRelative, humanise } from '../lib/format'
 
 const SORTS = [
@@ -48,6 +49,21 @@ export default function AccountHealth() {
     queryKey: ['account-health', filters],
     queryFn: () => api.get<Paged<AccountHealthRow>>(`/api/v1/account-health${query(filters)}`),
   })
+  const { user } = useAuth()
+  const isOwner = user?.role === 'owner'
+  const queryClient = useQueryClient()
+  const toggle = useMutation({
+    mutationFn: ({ ruleKey, enabled }: { ruleKey: string; enabled: boolean }) =>
+      api.patch(`/api/v1/account-health/rules/${ruleKey}`, { enabled }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['health-rules'] })
+      // Turning a check off changes what every account's health says, so the lists that read it
+      // must not keep showing the previous answer.
+      void queryClient.invalidateQueries({ queryKey: ['account-health'] })
+      void queryClient.invalidateQueries({ queryKey: ['health-summary'] })
+    },
+  })
+
   const rules = useQuery({
     queryKey: ['health-rules'],
     queryFn: () => api.get<HealthRule[]>('/api/v1/account-health/rules'),
@@ -76,9 +92,14 @@ export default function AccountHealth() {
       {showRules && (
         <Card title="Configured checks">
           <p className="mb-2 text-[12px] text-ink-muted">
-            These are the only checks that produce signals. They are versioned and read-only in
-            this release.
+            These are the only checks that produce signals, and they are versioned.{' '}
+            {isOwner
+              ? 'You can turn one off for this workspace; the shared default is left untouched for everyone else.'
+              : 'Only the workspace owner can turn one off.'}
           </p>
+          <InlineNote tone="caution">
+            {DISABLE_CONSEQUENCE}
+          </InlineNote>
           <ul className="divide-y divide-line">
             {(rules.data ?? []).map((rule) => (
               <li key={`${rule.rule_key}-${rule.version}`} className="py-2">
@@ -95,8 +116,28 @@ export default function AccountHealth() {
                   >
                     Filter
                   </button>
+                  {!rule.enabled && <Badge tone="neutral">Turned off</Badge>}
+                  {isOwner && (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      disabled={toggle.isPending}
+                      onClick={() =>
+                        toggle.mutate({ ruleKey: rule.rule_key, enabled: !rule.enabled })
+                      }
+                    >
+                      {rule.enabled ? 'Turn off' : 'Turn on'}
+                    </button>
+                  )}
                 </div>
                 <p className="mt-0.5 text-[12px] text-ink-muted">{rule.description}</p>
+                {!rule.enabled && (
+                  <p className="mt-0.5 text-[11.5px] text-amber-700">
+                    This check is not running for this workspace. Signals it had opened were
+                    expired, not resolved — the history keeps them, and nothing here says the
+                    underlying problem went away.
+                  </p>
+                )}
               </li>
             ))}
           </ul>

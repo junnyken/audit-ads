@@ -3105,3 +3105,57 @@ the same transaction. Detail endpoint only — one lookup per row would be N+1 o
    an earlier run printed `TSC EXIT: 0` while `tsc` was **red** (`TS6192`, an unused import in the
    new test file). There is a memory note about exactly this trap and I walked into it again. This
    run writes each command's output to a file and reads `$?` immediately after it.
+
+## Turning a health rule off (2026-09-15)
+
+**Baseline:** the previous slice's verified run at `9dd851c` — exit 0, 884 collected, measured the
+same day with the working tree clean at that commit. A fresh baseline was started and **timed out
+at 65%** (`exit 124`, `timeout 900`) because the machine was loaded and the node's disk was at
+100%; it is not cited as evidence of anything.
+
+**After:** backend **exit 0, 894 collected** (+10). ruff 0. Frontend **154 passed / 20 skipped**
+(+5), `tsc -b` 0, eslint 0, build 0.
+
+### The follow-up was wrong about why this was missing
+
+`FEATURES.md` said "supported by the schema and engine but has no UI". The schema supported it.
+**The engine did not.** `enabled_definitions()` discarded a disabled row *before* comparing
+versions:
+
+```python
+if not row.enabled or row.rule_key not in HEALTH_RULES_BY_KEY:
+    continue                                  # a disabled override dies here
+if current is None or row.version > current.version:
+```
+
+So a workspace override at `v2, enabled=False` was thrown away and the global `v1, enabled=True`
+still won. Measured 2026-09-15: all **10** definitions were global, enabled, `v1` — no override had
+ever existed, and none could have worked. Shipping only a UI would have given the operator a switch
+that appeared to work and did nothing.
+
+Fixed by choosing the newest definition per key first and honouring its flag. A test pins that with
+no override anywhere — every workspace today — the selection result is **identical to before**.
+
+### What the tests hold
+
+The override never edits the shared default, and a second workspace still sees the rule enabled.
+Asking twice for the same state stacks no versions. Only the owner may change a rule, following the
+backfill's precedent. A `rule_key` the engine cannot evaluate is refused rather than stored.
+
+And the one that matters most: **disabling expires the open signals rather than resolving them**,
+because a resolved signal claims the condition stopped being true and switching off the check that
+watched for it claims nothing of the kind.
+
+### A test of mine that looked at the wrong column
+
+It asserted the expiry reason on `signal.resolution_reason`, which is `None` — that column is
+deliberately written only for `RESOLVED`, since filling it for an expired signal would say it was
+resolved. The reason lives in the audit row's metadata. The assertion now reads it there.
+
+### Two ERRORs that were environmental, checked rather than assumed
+
+The first full run after the change ended `exit 1` with two ERRORs in `test_a9_team_api.py`
+(session revoke) — nothing this slice touches. Running that file alone passed 22/22, which is
+necessary but not sufficient: it could still have been a cross-test interaction. A second full run
+ended **exit 0 with no errors**, which is what settles it. The node's disk was at 100% and load
+average ~8 throughout.

@@ -28,7 +28,7 @@ from app.core.enums import (
     HealthStatus,
     SignalStatus,
 )
-from app.core.errors import ConflictError, ValidationError
+from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.core.redaction import redact
 from app.models.entities import AccountEvent, AdAccount, ReadinessChecklistItem
 from app.models.health import (
@@ -119,16 +119,74 @@ class HealthRuleRegistryService:
         ).scalars().all()
         return list(rows)
 
+    def set_enabled(self, rule_key: str, *, enabled: bool) -> HealthRuleDefinition:
+        """Turn a check on or off for **this workspace only**.
+
+        Never edits the row it is overriding. Every definition shipped today is global
+        (`workspace_id IS NULL`) and shared by every workspace, so flipping one in place would
+        change what a different tenant is shown — which is what rule 8 exists to prevent. Instead
+        this writes a workspace-scoped copy at the next version, which
+        `enabled_definitions()` then prefers.
+
+        Idempotent in effect rather than in rows: asking twice for the same state leaves the
+        existing override alone rather than stacking versions that all say the same thing.
+        """
+        definitions = self.list_definitions()
+        for_key = [row for row in definitions if row.rule_key == rule_key]
+        if not for_key:
+            raise NotFoundError("Health rule not found.")
+
+        newest = max(for_key, key=lambda row: row.version)
+        if newest.workspace_id == self.workspace_id and newest.enabled == enabled:
+            return newest
+        if newest.workspace_id == self.workspace_id:
+            # Already this workspace's own override — move it rather than pile another version on.
+            newest.enabled = enabled
+            self.session.flush()
+            return newest
+
+        override = HealthRuleDefinition(
+            workspace_id=self.workspace_id,
+            rule_key=newest.rule_key,
+            version=newest.version + 1,
+            name=newest.name,
+            description=newest.description,
+            category=newest.category,
+            enabled=enabled,
+            severity=newest.severity,
+            source_requirements_json=dict(newest.source_requirements_json or {}),
+            condition_config_json=dict(newest.condition_config_json or {}),
+            freshness_policy_json=(
+                dict(newest.freshness_policy_json) if newest.freshness_policy_json else None
+            ),
+        )
+        self.session.add(override)
+        self.session.flush()
+        return override
+
     def enabled_definitions(self) -> dict[str, HealthRuleDefinition]:
-        """Highest enabled version per rule key. A rule with no enabled row stops generating."""
-        chosen: dict[str, HealthRuleDefinition] = {}
+        """The highest version per rule key decides, and then its `enabled` flag is honoured.
+
+        The order matters, and getting it backwards made the whole override mechanism useless. The
+        previous version discarded a disabled row *before* comparing versions, so a workspace that
+        added `v2, enabled=False` had that row thrown away and the global `v1, enabled=True` still
+        won — the rule kept running and nothing said why. Measured 2026-09-15: every definition in
+        the database is a global, enabled `v1`, so no workspace had ever been able to switch a
+        check off.
+
+        Now the newest definition for a key wins whichever way it points: an override can turn a
+        rule off, or back on, and a global row remains the default where no override exists. With
+        no override anywhere the result is identical to before, which is what a test pins.
+        """
+        newest: dict[str, HealthRuleDefinition] = {}
         for row in self.list_definitions():
-            if not row.enabled or row.rule_key not in HEALTH_RULES_BY_KEY:
+            if row.rule_key not in HEALTH_RULES_BY_KEY:
+                # A definition the engine cannot evaluate is not a rule, whatever the row says.
                 continue
-            current = chosen.get(row.rule_key)
+            current = newest.get(row.rule_key)
             if current is None or row.version > current.version:
-                chosen[row.rule_key] = row
-        return chosen
+                newest[row.rule_key] = row
+        return {key: row for key, row in newest.items() if row.enabled}
 
 
 @dataclass

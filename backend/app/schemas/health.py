@@ -159,6 +159,14 @@ class BackfillRequest(StrictPayload):
     batch_size: int | None = Field(default=None, ge=1, le=50)
 
 
+class RuleEnabledRequest(StrictPayload):
+    """Turn one check on or off for this workspace. Nothing else about a rule is editable here —
+    severity and thresholds would each change what a signal *means*, which is a larger decision
+    than whether the check runs at all."""
+
+    enabled: bool
+
+
 class HealthRuleOut(ORMModel):
     id: uuid.UUID
     rule_key: str
