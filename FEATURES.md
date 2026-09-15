@@ -857,10 +857,13 @@ decision so a later reader does not "fix" it. Policy and commands:
 - **No real ad-account has ever been created.** A10.2 built the capability; rule 22 means building
   it is not permission to use it. Three prerequisites remain: billing on the target Business
   Manager, its remaining account quota, and an approval naming that BM.
-- **No scheduled health evaluation.** `app/commands/evaluate_health.py` exists and
-  `docker-compose.production.yml` runs `run_dispatcher`, but health is still recalculated only on
-  mutation and on request. An untouched account's evaluation ages and is then reported as
-  `unknown`/stale — correct, but staleness is surfaced rather than prevented.
+- ~~**No scheduled health evaluation.**~~ Built 2026-09-15: `health_sweep_pass()` runs inside the
+  existing dispatcher loop and re-evaluates accounts whose evaluation has aged past
+  `health_evaluation_stale_after_hours` — the same threshold the read path uses, so the sweep and
+  the badge agree by construction. `never_evaluated` and `stale` are counted separately (rule 28),
+  and an account nobody has ever assessed is taken first. **Off by default**
+  (`HEALTH_SWEEP_EVERY_N_PASSES=0`) — turning it on is a release decision. No migration. Verified
+  live the same day: two aged snapshots refreshed, zero Meta calls.
 - **Health backfill is synchronous and bounded** — maximum 50 accounts, enforced by
   `BackfillRequest.batch_size` (`ge=1, le=50`), verified 2026-09-14.
 - **Rule enable/disable has no UI.** The schema and engine support it; nothing in `frontend/src`
