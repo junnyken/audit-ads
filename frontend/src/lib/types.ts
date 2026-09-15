@@ -28,6 +28,16 @@ export interface Paged<T> {
   total_pages: number
 }
 
+/** How an account came to exist, when it came from a read-only discovery rather than from someone
+ * typing it in. Derived from the audit row the import wrote in the same transaction (rule 3), not
+ * from a column — `ad_accounts` has no origin field. Present on the detail response only. */
+export interface ImportProvenance {
+  discovery_run_id: string | null
+  business_manager_reference: string | null
+  source_edge: string | null
+  imported_at: string | null
+}
+
 export interface AdAccount {
   id: string
   display_name: string
@@ -59,6 +69,8 @@ export interface AdAccount {
   completed_item_count?: number
   has_browser_reference?: boolean
   has_proxy_reference?: boolean
+  /** Detail responses only; the list endpoint omits it. */
+  imported_from_discovery?: ImportProvenance | null
 }
 
 export interface ReadinessReason {

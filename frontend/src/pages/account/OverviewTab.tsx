@@ -2,7 +2,7 @@ import type { UseQueryResult } from '@tanstack/react-query'
 import { useMutation } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api } from '../../lib/api'
-import type { AdAccount, Readiness } from '../../lib/types'
+import type { AdAccount, ImportProvenance, Readiness } from '../../lib/types'
 import { Badge, Card, ErrorState, InlineNote, Skeleton } from '../../components/ui'
 import { READINESS_META, severityTone } from '../../lib/readiness'
 import { formatDateTime, formatRelative, humanise } from '../../lib/format'
@@ -12,6 +12,22 @@ const FRESHNESS_TEXT: Record<string, string> = {
   stale: 'Platform data has not been synced recently; treat figures as historical.',
   unknown:
     'This account has never been synced with an advertising platform. A1 stores operator-entered records only — nothing here was fetched from a platform.',
+}
+
+/** The `unknown` sentence above was written when every record in A1 was typed by hand, and A10.3's
+ * registry import made half of it false: an imported account's name and external id *were* fetched
+ * from a platform, by a read-only discovery. "Never synced" stays true — no figures or platform
+ * status have been pulled — which is why the wrong half survived: the sentence is half right.
+ *
+ * So the claim is made per record rather than per freshness status. Seen on a real screen on
+ * 2026-09-14 under an imported account. */
+export function freshnessText(status: string, imported: ImportProvenance | null | undefined): string {
+  if (status !== 'unknown' || !imported) return FRESHNESS_TEXT[status] ?? ''
+  return (
+    'This account has never been synced with an advertising platform — no figures or platform ' +
+    'status have been fetched for it. Its name and external ID came from a read-only discovery ' +
+    'of the Business Manager below, which is the only thing that was read.'
+  )
 }
 
 export default function OverviewTab({
@@ -126,8 +142,28 @@ export default function OverviewTab({
           </Row>
         </dl>
         <InlineNote>
-          {readiness.data ? FRESHNESS_TEXT[readiness.data.data_freshness.status] : ''}
+          {readiness.data
+            ? freshnessText(readiness.data.data_freshness.status, account.imported_from_discovery)
+            : ''}
         </InlineNote>
+        {account.imported_from_discovery && (
+          // Provenance was always in the Audit History tab, behind a raw action name and a JSON
+          // blob. Saying it here costs one sentence and answers the question an operator actually
+          // has in front of the record: where did this come from?
+          <p className="mt-2 text-[11.5px] text-ink-faint">
+            Added to the registry from a read-only discovery of Business Manager{' '}
+            <span className="font-mono">
+              {account.imported_from_discovery.business_manager_reference ?? 'not recorded'}
+            </span>
+            {account.imported_from_discovery.source_edge
+              ? `, returned by ${account.imported_from_discovery.source_edge}`
+              : ''}
+            {account.imported_from_discovery.imported_at
+              ? ` on ${formatDateTime(account.imported_from_discovery.imported_at)}`
+              : ''}
+            . Nothing in Meta was created or changed by that import.
+          </p>
+        )}
 
         {account.archived_at === null && (
           <form

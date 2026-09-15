@@ -3067,3 +3067,41 @@ the test now asserts every counter survives the round trip.
 2. I ran an ad-hoc `pytest` while a full regression was running on the same Postgres, producing
    four ERRORs that were false reds. The memory note about this exists precisely because it has
    happened before.
+
+## Import provenance on the account page (2026-09-15)
+
+**Regression before: backend exit 0.** After: **exit 0, 884 collected** (878 before, +6). ruff 0.
+Frontend **149 passed / 20 skipped** (145 before, +4), `tsc -b` 0, eslint 0, build 0.
+
+### The gap I reported was wrong; the one I found instead was a lie on screen
+
+I said the account page did not show where an imported account came from. It does — the Audit
+History tab lists `meta_discovery.ad_account_imported` with its metadata. What was actually wrong
+is a sentence `OverviewTab` showed under every never-synced account:
+
+> "A1 stores operator-entered records only — nothing here was fetched from a platform."
+
+False for the two accounts imported on 2026-09-14: their name and external id came from Meta's
+`owned_ad_accounts` edge. True when A1 shipped, false once A10.3's import shipped, and it survived
+because the *first* half — never synced — is still true. The operator's own screenshot from
+2026-09-14 shows it rendered under an imported account.
+
+The claim is now made per record. Provenance is derived from the audit row rather than stored:
+`ad_accounts` has no origin column, and rule 3 already guarantees the import wrote its audit row in
+the same transaction. Detail endpoint only — one lookup per row would be N+1 on a page of 200.
+
+### Three defects found while building it, two of them mine in this slice
+
+1. **A 500 on every account detail page.** `audit_logs.entity_id` is `String(64)`, not a UUID
+   column; comparing it to a `UUID` made Postgres refuse the whole query —
+   `operator does not exist: character varying = uuid`. Every other caller in this repo writes
+   `str(...)`. This broke the detail page for *all* accounts, not only imported ones, and nothing
+   but the new tests would have caught it before production.
+2. **A test-helper assumption that hid defect 1.** The import endpoint returns `ad_account_id`, not
+   `id` — it describes an import, not an account. `KeyError: 'id'` surfaced first and masked the
+   real error underneath.
+3. **My own verification script measured the wrong exit code.**
+   `npm run typecheck 2>&1 | tail -1; echo "TSC EXIT: $?"` reports `tail`'s status, not `tsc`'s, so
+   an earlier run printed `TSC EXIT: 0` while `tsc` was **red** (`TS6192`, an unused import in the
+   new test file). There is a memory note about exactly this trap and I walked into it again. This
+   run writes each command's output to a file and reads `$?` immediately after it.

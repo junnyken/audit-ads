@@ -10,6 +10,7 @@ from app.api.deps import Ctx, WriteCtx
 from app.core.enums import AssetType, EvaluationTrigger
 from app.models.entities import (
     AccountAssetLink,
+    AuditLog,
     BrowserProfileReference,
     Page,
     PaymentProfileReference,
@@ -32,6 +33,39 @@ _ASSET_LABEL_FIELDS = {
     AssetType.BROWSER_PROFILE: (BrowserProfileReference, "profile_reference"),
     AssetType.PROXY: (ProxyReference, "proxy_reference"),
 }
+
+
+def _import_provenance(session, workspace_id, ad_account_id) -> dict[str, Any] | None:
+    """How this account came to exist, when it came from a read-only discovery.
+
+    Derived from the audit log rather than stored on the row. `ad_accounts` has no origin column,
+    and adding one would duplicate a fact rule 3 already guarantees: the import wrote its audit row
+    in the same transaction as the account, and rule 2 means that row is permanent.
+
+    Nothing here is secret — a run id, a Business Manager id that is public in Business Settings,
+    and the name of a Graph edge.
+    """
+    row = session.execute(
+        sa.select(AuditLog)
+        .where(
+            AuditLog.workspace_id == workspace_id,
+            AuditLog.entity_type == "ad_account",
+            # entity_id is String(64), not a UUID column — comparing a UUID to it makes Postgres
+            # refuse the whole query. Every other caller in this codebase writes str(...) here.
+            AuditLog.entity_id == str(ad_account_id),
+            AuditLog.action == "meta_discovery.ad_account_imported",
+        )
+        .order_by(AuditLog.created_at.desc())
+    ).scalars().first()
+    if row is None:
+        return None
+    metadata = row.metadata_json or {}
+    return {
+        "discovery_run_id": metadata.get("discovery_run_id"),
+        "business_manager_reference": metadata.get("business_manager_reference"),
+        "source_edge": metadata.get("source_edge"),
+        "imported_at": row.created_at.isoformat() if row.created_at else None,
+    }
 
 
 def _serialize_account(account) -> dict[str, Any]:
@@ -120,7 +154,12 @@ def create_account(ctx: WriteCtx, payload: s.AdAccountCreate) -> dict[str, Any]:
 @router.get("/{ad_account_id}")
 def get_account(ctx: Ctx, ad_account_id: uuid.UUID) -> dict[str, Any]:
     service = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
-    return _serialize_account(service.get(ad_account_id))
+    account = service.get(ad_account_id)
+    data = _serialize_account(account)
+    # Detail only. One lookup per row would be N+1 on a page of two hundred accounts, and the list
+    # has no use for it.
+    data["imported_from_discovery"] = _import_provenance(ctx.session, ctx.workspace_id, account.id)
+    return data
 
 
 @router.patch("/{ad_account_id}")
