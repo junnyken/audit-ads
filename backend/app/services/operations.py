@@ -28,6 +28,11 @@ SAFE_SUMMARY_KEYS = frozenset(
     {
         "claimed", "sent", "failed_transient", "failed_final", "cancelled", "skipped",
         "due_remaining", "recovered", "workspaces", "passes",
+        # The health sweep's counters. `never_evaluated` and `stale` stay apart on purpose
+        # (rule 28): an account nobody has ever assessed is a different state from one whose
+        # assessment has aged, and a summary that added them would misdescribe the first sweep of
+        # a fresh workspace.
+        "never_evaluated", "stale", "evaluated", "failed",
         "size_bytes", "table_count", "revision", "checksum_algorithm", "database_label",
         "duration_seconds", "message_count", "transport",
     }

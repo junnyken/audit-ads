@@ -125,6 +125,18 @@ class Settings(BaseSettings):
     dispatcher_recovery_every_n_passes: int = 10
     #: A dispatcher with no recorded run for longer than this is reported stale.
     dispatcher_stale_after_minutes: int = 15
+    #: How often the dispatcher also re-evaluates health, counted in dispatch passes — the same
+    #: shape as `dispatcher_recovery_every_n_passes`, and for the same reason: one bounded loop in
+    #: one container, because the deployment targets here give no host-unit access.
+    #:
+    #: **Zero disables it, and zero is the default.** Health has always been recalculated on
+    #: mutation and on request; a sweep that switched itself on would change how a deployed system
+    #: behaves without anyone asking for it. Turning it on is a release decision.
+    health_sweep_every_n_passes: int = 0
+    #: Accounts per workspace per sweep. Bounded like every other pass here, so one large workspace
+    #: cannot monopolise a 4 vCPU host. What it could not reach is reported as `due_remaining`
+    #: rather than dropped silently.
+    health_sweep_batch: int = 10
     #: A backup older than this is reported stale (daily backup + 2h grace).
     backup_stale_after_hours: int = 26
 

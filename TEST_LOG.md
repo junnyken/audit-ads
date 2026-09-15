@@ -3016,3 +3016,54 @@ does not "fix" it.
 No credentials were exported, so no browser was opened and **no O2.1 scenario was executed on
 screen**. Registry re-measured at the end of this session: `business_managers` 1, `ad_accounts` 2 —
 unchanged, as nothing was imported.
+
+## Scheduled health evaluation (2026-09-15)
+
+**Regression before any change: backend exit 0.** After: **exit 0, 878 collected** (864 before,
++14). `ruff check .` clean. Frontend **145 passed / 20 skipped**, `tsc -b` 0, eslint 0, build 0 —
+untouched, no frontend file changed.
+
+### What was closed
+
+Health was recalculated on mutation and on request only, so an account nobody touched aged until
+it was honestly reported as stale — staleness was *surfaced*, never *prevented*. Measured on
+2026-09-15 before the change: the two registry accounts were last evaluated **2026-09-14
+06:15–06:16Z**, when they were imported, and nothing was scheduled to look again.
+
+`health_sweep_pass()` now runs inside the existing dispatcher loop — not a second container, for
+the reason the dispatcher's own docstring gives. Selection is by `last_evaluated_at` against
+`health_evaluation_stale_after_hours`, **the same threshold the read path uses**, so the sweep and
+the badge agree by construction. `HEALTH_SWEEP` is a new `OperationalRunKind`; `operational_runs.kind`
+is `varchar(32)` with no check constraint, so **no migration**.
+
+Rule 28 is in the data structure: `never_evaluated` and `stale` are separate counters, and an
+account nobody has ever assessed is taken first. Adding them would have made the first sweep of a
+fresh workspace report a large "stale" count that was not stale at all.
+
+**Off by default** (`health_sweep_every_n_passes = 0`), so a deployed system does not change
+behaviour because a version shipped. Two tests hold that: one asserts the default, one asserts the
+loop reads `0` as *off* rather than *every pass* — the trap a naive modulo falls into.
+
+### Verified live, and it found a defect the tests had missed
+
+One real sweep on the development database: `stale=2 evaluated=2 failed=0 due_remaining=0
+workspaces=1`, exit 0. Both snapshots moved from 2026-09-14 06:15 to **2026-09-15 06:58**,
+`freshness_status` back to `CURRENT`. **Zero Meta calls** — the sweep re-reads stored records.
+
+But the recorded run said `{due_remaining: 0, workspaces: 1}` and nothing else.
+`OperationalRunService.record()` passes the summary through `sanitise_summary()`, an **allowlist
+that drops unknown keys silently**. All four new counters were discarded, so the run history
+recorded a sweep that said nothing about what it had done.
+
+**The test passed anyway**, because it asserted only `summary_json["workspaces"] >= 1` — a key that
+happened to be allowlisted already. Fixed: the four counters were added to `SAFE_SUMMARY_KEYS`, and
+the test now asserts every counter survives the round trip.
+
+### Two mistakes of my own, recorded
+
+1. I queried `operational_runs` for `kind='health_sweep'`, got nothing, and briefly took it for a
+   missing record. The enum stores the member **NAME** (`HEALTH_SWEEP`) per this project's `_enum()`
+   convention — the query was wrong, not the code.
+2. I ran an ad-hoc `pytest` while a full regression was running on the same Postgres, producing
+   four ERRORs that were false reds. The memory note about this exists precisely because it has
+   happened before.

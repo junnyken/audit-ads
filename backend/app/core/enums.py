@@ -342,6 +342,9 @@ class OperationalRunKind(StrEnum):
     RESTORE_DRILL = "restore_drill"
     MIGRATION_RELEASE = "migration_release"
     TEST_SEND = "test_send"
+    #: A periodic health re-evaluation across accounts nothing has touched. Recorded like every
+    #: other infrastructure pass so "the sweep stopped" is a visible state rather than silence.
+    HEALTH_SWEEP = "health_sweep"
 
 
 class OperationalRunStatus(StrEnum):
