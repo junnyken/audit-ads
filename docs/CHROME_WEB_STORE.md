@@ -20,6 +20,8 @@ Soạn 2026-10-26 từ mã trong `extension/` và tài liệu chính thức tạ
 | B2 | `description` trong `manifest.json` dài **140 ký tự** (đếm bằng Python) | Giới hạn 132 ký tự cho trường tóm tắt của Store (xem 2.2, **[CHƯA KIỂM]** từ trang chính thức) — Store lấy trường này từ manifest, nên 140 có thể bị từ chối lúc tải gói lên | Rút gọn chuỗi manifest xuống ≤132. Gợi ý ở 2.2 |
 
 > **Cập nhật 2026-10-26 (sau khi soạn):** B1 và B2 **đã xử lý** trong mã. Có `extension/icons/icon-{16,32,48,128}.png` (vẽ bằng `extension/scripts/make-icons.py`), khoá `icons` và `action.default_icon` trong manifest, và `description` đã rút xuống 129 ký tự (thêm "spend"). `tests/manifest.test.ts` canh cả hai. Gói để tải lên Store là `extension/adsops-extension-0.2.0.zip`, có `manifest.json` ở gốc. `dist.zip` vẫn để thư mục `dist/` ở gốc, chỉ dùng cho "Load unpacked".
+>
+> **Cập nhật 2026-10-27 (S2):** bản **0.3.0** thêm một dòng "Trạng thái Meta" (mã `account_status` Meta trả, kèm thời điểm) vào popup và side panel; không đổi quyền, host permission hay dữ liệu gửi đi (extension chỉ **nhận** thêm một khối từ API). Gói tải lên Store nay là `extension/adsops-extension-0.3.0.zip`; gói 0.2.0 đã xoá. Mô tả/ảnh trên Store nên nhắc dòng mới trước khi nộp.
 
 Ngoài ra: **URL chính sách quyền riêng tư công khai (HTTPS) chưa có** — xem mục 9.
 

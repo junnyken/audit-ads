@@ -129,13 +129,15 @@ def list_accounts(
         ).all():
             active_links.setdefault(account_id, set()).add(asset_type)
 
-    # One bounded pair of queries for the whole page; no Meta call (S1 follow-up).
-    spend = spend_service.list_compact_spend(ctx.session, ctx.workspace_id, list(rows))
+    # One bounded pair of queries for the whole page; no Meta call (S1 follow-up). The same pair
+    # carries Meta's latest account status (S2) — no extra query per account.
+    reads = spend_service.list_compact_reads(ctx.session, ctx.workspace_id, list(rows))
 
     items: list[dict[str, Any]] = []
     for account in rows:
         data = _serialize_account(account)
-        data["spend"] = spend[account.id]
+        data["spend"] = reads[account.id]["spend"]
+        data["platform_status"] = reads[account.id]["platform_status"]
         result = evaluations.get(str(account.id))
         if result is not None:
             data["required_item_count"] = result.required_item_count
@@ -164,6 +166,10 @@ def get_account(ctx: Ctx, ad_account_id: uuid.UUID) -> dict[str, Any]:
     # Detail only. One lookup per row would be N+1 on a page of two hundred accounts, and the list
     # has no use for it.
     data["imported_from_discovery"] = _import_provenance(ctx.session, ctx.workspace_id, account.id)
+    # S2: Meta's latest account status, compact, from stored observations. Never calls Meta.
+    data["platform_status"] = spend_service.list_compact_reads(ctx.session, ctx.workspace_id, [account])[
+        account.id
+    ]["platform_status"]
     return data
 
 

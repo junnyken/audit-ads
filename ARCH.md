@@ -752,6 +752,65 @@ move readiness. `meta_graph_transport.py` is unchanged (rule 20).
 **Calls.** Two GETs per account read (+1 `me` per connection per sweep pass). Measured rate-limit
 behaviour: **none yet** — no live read has been made.
 
+### 4k. Meta account status, read-only (S2)
+
+**What it answers:** for each ad account, what `account_status` Meta last returned (with
+`disable_reason`), when, how fresh that is, and whether it differs from the status the team
+recorded. Design A of `docs/AUDIT_BEFORE_BUILD_ACCOUNT_STATUS.md`: interpret what S1 already
+stores. **No new GET, no new transport, no migration, no new setting.**
+
+```
+spend observation (sweep / refresh, §4j)   — observed_account_status / observed_disable_reason
+        ▼                                     are stored on every row, failed reads included
+spend_engine.assemble ─► SpendFacts.platform_status (PlatformStatusFacts)
+        │                  newest row WITH a code · previous different code · since · freshness
+        ▼
+HealthFacts.platform_status  ─► 4 rules (platform_status.py allowlist: code → state)
+        ▼
+sync (open / unchanged / supersede / resolve) ─► A3 alert ─► notification plan (unchanged)
+```
+
+**Vocabulary** (`services/platform_status.py`, pure, not a DB column): `PlatformAccountStatus`
+from an allowlist of Meta's documented codes (1, 2, 3, 7, 8, 9, 100, 101); every other present
+value — 201/202 (filter values), other numbers, non-digits, leading zeros, over-long — is
+`unknown`; a missing code is `None` ("not observed"). Only `"1"` is `active`. `BLOCKING` =
+disabled/closed/pending_closure (critical — `pending_closure` decided 2026-10-27), `PENDING` =
+unsettled/pending_settlement/in_grace_period/pending_risk_review (warning). `PlatformDisableReason`
+(16 Meta names + `unknown`) is explanatory only.
+
+**Facts.** `assemble_platform_status` runs inside `spend_engine.assemble` on the same observation
+list (no extra query in the usual path). The latest *coded* row may be a failed read — the node
+answered — which is deliberately different from `latest_success`. When the 21-day / 200-row window
+holds no coded row, `older_answers_any_age` fetches the newest one however old, in the **same single
+query** S1 used for "latest success however old" (`UNION ALL` of two `LIMIT 1`s), so a very old
+"disabled" reads `stale`, not "not observed". An account that is no longer observable keeps its last
+word with freshness `not_observable` (losing the reader is not a recovery).
+
+**Rules** (registry 14 → 18, all enabled by default, `source_type=provider_observation`):
+`platform_account_status_blocking` (critical, any age), `…_pending` (warning),
+`…_unrecognised` (attention, `data_quality`), `platform_vs_recorded_status_mismatch` (attention,
+only on a `current` observation; never compares a registry `unknown`/`warning`/`archived` or a Meta
+`unknown`). Evidence messages carry no timestamp, and the per-read keys (`observation_id`,
+`observed_at`, `observation_status`, `observation_failure_code`) and window-sliding keys
+(`previous_*`, `since_observed_at`) are in `VOLATILE_EVIDENCE_KEYS`, so the same code on every read
+is one unchanged signal; a different code or reason, or `current → stale`, supersedes once — alert
+updated, re-sent only if severity rises. Return to `1` resolves through the engine ("The source
+condition is no longer true."); a pending delivery is cancelled at dispatch; no recovery message
+(A3 v1).
+
+**Surfaces.** `GET …/spend` full block; compact block on list and detail items (list: still two
+queries for the whole page — one statement unions the newest-success and newest-coded `DISTINCT ON`s);
+`platform_status_counts` on `/spend/summary`; a block in the extension summary. Frontend colour lives
+only in `frontend/src/lib/platformStatus.ts`; **no state is `positive`**, `active` included, and
+every badge shows "per Meta · <time>". "Record Meta status in the registry" (owner/admin) opens the
+existing edit drawer pre-selecting `disabled`/`active` only; the person saves — health never writes
+`AdAccount.status`, readiness or preflight (rule 11).
+
+**Latency** is S1's: a healthy account is re-read once `SPEND_OBSERVATION_STALE_AFTER_HOURS` passes
+(default 26 h; production is to use 2 h for "≤ ~3 h", decided 2026-10-27, not yet applied), and only
+while the sweep runs. Behaviour of Meta toward a disabled account's node is **unmeasured** — no live
+read has been made.
+
 ## 5. Security model
 
 | Control | Implementation |

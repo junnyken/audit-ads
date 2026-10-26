@@ -71,6 +71,52 @@ Chrome Context Extension & Account Workspace Guard**, **A4 Stage A — Deploymen
 **A3 — Alert Center & Telegram Notification Delivery**, **A2 — Evidence-Based Account Health**
 and **A1 — Account Registry & Stability Readiness**.
 
+## S2 (built, never run against live Meta) — Meta account status monitoring, read-only
+
+Built 2026-10-27 in this workspace: backend, dashboard frontend and extension, with tests against
+the fake provider and fake transport only. **No live Meta read has been made**, nothing was sent to
+Telegram, nothing was deployed. Design A of `docs/AUDIT_BEFORE_BUILD_ACCOUNT_STATUS.md`; user
+decisions in its §7.
+
+- **Source:** the `account_status` / `disable_reason` codes S1 already stores on every spend
+  observation (failed reads included). No new Meta call, no new transport, no migration, no new
+  setting. Interpretation through an allowlist (`services/platform_status.py`): documented codes →
+  `active`/`disabled`/`unsettled`/`pending_risk_review`/`pending_settlement`/`in_grace_period`/
+  `pending_closure`/`closed`; any other present code → `unknown`; no code → "not observed". Only
+  `"1"` is ever `active`.
+- **Health rules** (registry 14 → 18, all on by default): `platform_account_status_blocking`
+  (critical: disabled, pending closure, closed — whatever the observation's age),
+  `platform_account_status_pending` (warning), `platform_account_status_unrecognised` (attention),
+  `platform_vs_recorded_status_mismatch` (attention, current observations only). A critical signal
+  goes through the existing alert/notification path (critical bypasses quiet hours by default);
+  returning to `1` closes it with the engine's usual wording, and there is no "recovered" message.
+- **API (additive):** `platform_status` on `GET /ad-accounts/{id}/spend`, a compact block on
+  `GET /ad-accounts` items and `GET /ad-accounts/{id}`, `platform_status_counts` on
+  `GET /spend/summary`, and a block in the extension summary. The list keeps its constant query
+  count.
+- **Dashboard:** "Meta status" column on Accounts (the old column is now "Recorded status"); a
+  second header badge on the account page; Overview tab rows "Recorded status" (was mislabelled
+  "Platform status"), "Meta status", "Disable reason", "Observed at"; an "Account status (code)"
+  column in the Spend tab history; a "Meta account status" counts card on Overview. Colours only in
+  `frontend/src/lib/platformStatus.ts`, and **no state is ever green** (§7, 6.3). "Record Meta
+  status in the registry" (owner/admin) opens the existing edit form — pre-selected only for
+  disabled/active — and nothing is saved until the person presses Save.
+- **Extension 0.3.0:** one "Meta status" line in the popup and side panel (VI + EN), no permission
+  change.
+
+**Not done / known limits:**
+
+- Unmeasured until a live read is looked at: whether Meta still answers the node of a disabled
+  account, whether `disable_reason` is always `0` while active, whether codes outside the table
+  occur, and the meaning of each `disable_reason` (the glosses are read from the names).
+- Detection latency is the spend read cadence: with the code default (26 h) a newly disabled
+  account is seen within ~27 h of the sweep running; production is to use
+  `SPEND_OBSERVATION_STALE_AFTER_HOURS=2` (decided 2026-10-27, **not applied** — production still
+  runs no dispatcher and holds no Meta credential as of the 2026-10-26 measurement).
+- No filter by Meta status on the Accounts list (the list filters server-side before paging; a
+  derived field needs its own design).
+- Wording is proposed, awaiting BA review (table in the audit doc §4b).
+
 ## S1 (backend built, never run against live Meta) — spend tracking, Meta read-only
 
 Measured 2026-10-26 in this workspace: backend code, migration and tests only. **No live Meta read

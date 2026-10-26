@@ -62,6 +62,16 @@ VOLATILE_EVIDENCE_KEYS = frozenset(
         # fact. Hashing it would supersede the signal, and audit it, on every single read.
         "amount_spent_raw",
         "spend_cap_used_ratio",
+        # S2: which observation said it, and when, changes on every read while Meta keeps
+        # returning the same code; the "previous"/"since" context slides with the lookback window.
+        # The code, its label, the disable reason and `spend_freshness` stay material.
+        "observation_id",
+        "observed_at",
+        "observation_status",
+        "observation_failure_code",
+        "previous_account_status_raw",
+        "previous_observed_at",
+        "since_observed_at",
     }
 )
 
@@ -540,6 +550,9 @@ class AccountHealthEvaluationService:
                 )
             ).scalars().all()
         )
+        # S1: stored observations only. Assembling them reads the database and server
+        # configuration (which connection could read), never the platform.
+        spend = build_spend_facts(self.session, self.workspace_id, account, now=now)
         return HealthFacts(
             account=account,
             readiness=readiness,
@@ -547,9 +560,9 @@ class AccountHealthEvaluationService:
             unresolved_events=[event for event in events if event.is_unresolved],
             now=now,
             manual_review_due_after_days=self.settings.readiness_manual_review_interval_days,
-            # S1: stored observations only. Assembling them reads the database and server
-            # configuration (which connection could read), never the platform.
-            spend=build_spend_facts(self.session, self.workspace_id, account, now=now),
+            spend=spend,
+            # S2: from the same stored observations — no extra read, no platform call.
+            platform_status=spend.platform_status,
         )
 
     # -------------------------------------------------------------------- evaluation

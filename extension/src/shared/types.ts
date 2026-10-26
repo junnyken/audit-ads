@@ -81,6 +81,18 @@ export interface SpendBlock {
   signal_open: boolean
 }
 
+/** S2. Meta's latest account status from stored observations. Absent/null: not observed. */
+export interface PlatformStatusBlock {
+  status: string
+  status_class: string
+  account_status_raw: string
+  disable_reason: string | null
+  disable_reason_raw: string | null
+  freshness: string
+  observed_at: string
+  observation_status: string
+}
+
 export interface ContextResolution {
   context_status: ContextStatus
   reason_code: string | null
@@ -92,6 +104,7 @@ export interface ContextResolution {
   health?: HealthBlock | null
   alerts?: AlertCounts | null
   spend?: SpendBlock | null
+  platform_status?: PlatformStatusBlock | null
   dashboard_paths?: Record<string, string> | null
   disclaimer?: string | null
   generated_at?: string | null

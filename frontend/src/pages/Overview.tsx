@@ -9,6 +9,7 @@ import { ALERT_SEVERITY_META, ALERT_STATUS_META, DELIVERY_STATUS_META, TRANSPORT
 import { formatRelative, humanise } from '../lib/format'
 import { useAuth } from '../hooks/useAuth'
 import SpendSummaryCard from '../components/SpendSummaryCard'
+import PlatformStatusSummaryCard from '../components/PlatformStatusSummaryCard'
 import { DiscoveryOverview } from '../components/meta/DiscoveryOverview'
 
 function useOverview() {
@@ -269,6 +270,8 @@ export default function Overview() {
       </section>
 
       <SpendSummaryCard />
+
+      <PlatformStatusSummaryCard />
 
       <DiscoveryOverview isOwner={user?.role === 'owner'} />
 

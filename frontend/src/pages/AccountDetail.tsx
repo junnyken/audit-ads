@@ -2,10 +2,11 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
-import type { AdAccount, Readiness } from '../lib/types'
+import type { AccountStatus, AdAccount, Readiness } from '../lib/types'
 import { Badge, ErrorState, Progress, Skeleton, Tabs } from '../components/ui'
 import { READINESS_META, accountStatusTone } from '../lib/readiness'
 import AccountFormDrawer from '../components/AccountFormDrawer'
+import PlatformStatusBadge from '../components/PlatformStatusBadge'
 import OverviewTab from './account/OverviewTab'
 import AssetsTab from './account/AssetsTab'
 import ReadinessTab from './account/ReadinessTab'
@@ -37,6 +38,12 @@ export default function AccountDetail() {
     setSearchParams(next, { replace: true })
   }
   const [editing, setEditing] = useState(false)
+  // S2: set only when the drawer is opened from "Record Meta status in the registry".
+  const [statusPrefill, setStatusPrefill] = useState<{ status: AccountStatus | null; note: string } | null>(null)
+  const closeDrawer = () => {
+    setEditing(false)
+    setStatusPrefill(null)
+  }
 
   const account = useQuery({
     queryKey: ['account', accountId],
@@ -103,6 +110,12 @@ export default function AccountDetail() {
             <Badge tone={meta.tone} dot title={meta.description}>
               {meta.label}
             </Badge>
+            {record.platform_status !== undefined && (
+              <span className="inline-flex items-center gap-1.5" data-testid="header-meta-status">
+                <span className="text-[11.5px] text-ink-faint">Meta:</span>
+                <PlatformStatusBadge value={record.platform_status} inline />
+              </span>
+            )}
           </div>
           <p className="mt-1 font-mono text-[11.5px] text-ink-faint">
             {record.external_account_id ?? 'No external ID recorded'}
@@ -165,7 +178,18 @@ export default function AccountDetail() {
 
       <Tabs tabs={TABS} active={tab} onChange={setTab} />
 
-      {tab === 'overview' && <OverviewTab account={record} readiness={readiness} onChanged={refresh} />}
+      {tab === 'overview' && (
+        <OverviewTab
+          account={record}
+          readiness={readiness}
+          onChanged={refresh}
+          onRecordMetaStatus={(status, note) => {
+            setStatusPrefill({ status, note })
+            setEditing(true)
+          }}
+          onOpenSpend={() => setTab('spend')}
+        />
+      )}
       {tab === 'assets' && <AssetsTab account={record} onChanged={refresh} />}
       {tab === 'readiness' && <ReadinessTab account={record} onChanged={refresh} />}
       {tab === 'health' && <HealthTab account={record} onChanged={refresh} />}
@@ -176,8 +200,10 @@ export default function AccountDetail() {
       <AccountFormDrawer
         open={editing}
         account={record}
-        onClose={() => setEditing(false)}
+        onClose={closeDrawer}
         onSaved={refresh}
+        statusSuggestion={statusPrefill?.status ?? null}
+        statusNote={statusPrefill?.note ?? null}
       />
     </div>
   )

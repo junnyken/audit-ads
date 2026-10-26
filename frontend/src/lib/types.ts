@@ -71,6 +71,9 @@ export interface AdAccount {
   has_proxy_reference?: boolean
   /** List responses only (S1 follow-up). Compact; the full view is `GET …/spend`. */
   spend?: AccountSpendCompact
+  /** S2. List and detail responses. Meta's latest account status, compact; `null` when no read
+   * has carried a status code. The full block is `SpendView.platform_status`. */
+  platform_status?: PlatformStatusCompact | null
   /** Detail responses only; the list endpoint omits it. */
   imported_from_discovery?: ImportProvenance | null
 }
@@ -1188,6 +1191,8 @@ export interface SpendView {
     min_days_required: number
   } | null
   baseline_days_available: number
+  /** S2. `null` when no observation carries an `account_status` code; absent on older backends. */
+  platform_status?: PlatformStatusView | null
   disclaimer: string
 }
 
@@ -1206,8 +1211,51 @@ export interface SpendSummary {
   generated_at: string
   total_accounts: number
   freshness_counts: Record<SpendFreshness, number>
+  /** S2. Counts per status class — never a score. `none`: no status code observed. */
+  platform_status_counts?: Record<PlatformStatusClass, number>
   accounts_unattributed: number
   currencies: SpendCurrencyGroup[]
   complete: boolean
+  disclaimer: string
+}
+
+// ---- S2 Meta account status ---------------------------------------------------------------
+// Meta's `account_status`, interpreted server-side through an allowlist. The raw code always
+// travels with it. Nothing here is a verdict about the account.
+
+export type PlatformAccountStatus =
+  | 'active'
+  | 'disabled'
+  | 'unsettled'
+  | 'pending_risk_review'
+  | 'pending_settlement'
+  | 'in_grace_period'
+  | 'pending_closure'
+  | 'closed'
+  | 'unknown'
+
+export type PlatformStatusClass = 'active' | 'blocking' | 'pending' | 'unknown' | 'none'
+
+export interface PlatformStatusCompact {
+  status: PlatformAccountStatus
+  account_status_raw: string
+  freshness: SpendFreshness
+  observed_at: string
+}
+
+export interface PlatformStatusView extends PlatformStatusCompact {
+  status_class: PlatformStatusClass
+  disable_reason: string | null
+  disable_reason_raw: string | null
+  observation_id: string
+  observation_status: 'succeeded' | 'failed'
+  failure_code: string | null
+  reader_source: string | null
+  previous: {
+    account_status_raw: string | null
+    status: PlatformAccountStatus | null
+    observed_at: string | null
+  } | null
+  since_observed_at: string | null
   disclaimer: string
 }

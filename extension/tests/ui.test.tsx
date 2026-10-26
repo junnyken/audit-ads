@@ -7,6 +7,9 @@ import PopupApp from '../src/popup/PopupApp'
 import SidePanelApp from '../src/sidepanel/SidePanelApp'
 import OptionsApp from '../src/options/OptionsApp'
 import type { ContextResolution } from '../src/shared/types'
+import { translate } from '../src/shared/i18n/translate'
+import { en } from '../src/shared/i18n/en'
+import type { TranslationKey } from '../src/shared/i18n/types'
 
 function renderPopup() {
   return render(
@@ -188,6 +191,76 @@ describe('popup', () => {
       })
       renderSidePanel()
       expect(await screen.findByText('No spend data for this account yet.')).toBeInTheDocument()
+    })
+  })
+
+  describe('Meta status line (S2)', () => {
+    const block = {
+      status: 'disabled',
+      status_class: 'blocking',
+      account_status_raw: '2',
+      disable_reason: 'risk_payment',
+      disable_reason_raw: '3',
+      freshness: 'current',
+      observed_at: new Date().toISOString(),
+      observation_status: 'succeeded',
+    }
+
+    async function line(value: ContextResolution['platform_status'], render_: () => unknown = renderSidePanel) {
+      stubWorker({
+        getConnection: { ok: true, data: CONNECTED },
+        getContext: { ok: true, data: { ...CONFIRMED, platform_status: value } },
+      })
+      render_()
+      return within(await screen.findByTestId('platform-status'))
+    }
+
+    it.each([
+      ['active', 'Active (Meta)'],
+      ['disabled', 'Disabled (Meta)'],
+      ['unsettled', 'Unsettled balance (Meta)'],
+      ['pending_risk_review', 'Pending risk review (Meta)'],
+      ['pending_settlement', 'Pending settlement (Meta)'],
+      ['in_grace_period', 'In grace period (Meta)'],
+      ['pending_closure', 'Pending closure (Meta)'],
+      ['closed', 'Closed (Meta)'],
+    ])('renders %s with its label and never success styling', async (status, label) => {
+      const view = await line({ ...block, status })
+      const badge = view.getByText(label)
+      expect(badge.className).not.toContain('positive')
+      expect(view.getByText(/as of/)).toBeInTheDocument()
+    })
+
+    it('shows an unrecognised code as unknown, never active', async () => {
+      const view = await line({ ...block, status: 'unknown', account_status_raw: '201' })
+      expect(view.getByText('Unrecognised status code 201').className).toContain('neutral')
+    })
+
+    it('treats a status this build does not know as unknown', async () => {
+      const view = await line({ ...block, status: 'something_new', account_status_raw: '555' })
+      expect(view.getByText('Unrecognised status code 555')).toBeInTheDocument()
+      expect(view.queryByText('Active (Meta)')).toBeNull()
+    })
+
+    it('shows a dash when no status was observed, and when an older backend sends none', async () => {
+      expect((await line(null)).getByText('—')).toBeInTheDocument()
+    })
+
+    it('says when the status is only the last word', async () => {
+      const view = await line({ ...block, freshness: 'stale' })
+      expect(view.getByText(/last status Meta returned, not recent/)).toBeInTheDocument()
+    })
+
+    it('renders in the popup too', async () => {
+      const view = await line(block, renderPopup)
+      expect(view.getByText('Disabled (Meta)').className).toContain('attention')
+    })
+
+    it('has Vietnamese wording for every key', () => {
+      expect(translate('vi', 'platformStatus.active')).toBe('Đang hoạt động (theo Meta)')
+      expect(translate('vi', 'platformStatus.unknown', { code: '201' })).toBe('Mã trạng thái lạ: 201')
+      for (const key of Object.keys(en).filter((k) => k.startsWith('platformStatus.')))
+        expect(translate('vi', key as TranslationKey)).not.toBe(translate('en', key as TranslationKey))
     })
   })
 

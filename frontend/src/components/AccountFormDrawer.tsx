@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError, query } from '../lib/api'
-import type { AdAccount, Paged, ReferenceRecord } from '../lib/types'
+import type { AccountStatus, AdAccount, Paged, ReferenceRecord } from '../lib/types'
 import { Drawer, ErrorState, Field, InlineNote } from './ui'
 
 interface FormState {
@@ -88,18 +88,26 @@ export default function AccountFormDrawer({
   account,
   onClose,
   onSaved,
+  statusSuggestion = null,
+  statusNote = null,
 }: {
   open: boolean
   account?: AdAccount | null
   onClose: () => void
   onSaved?: (account: AdAccount) => void
+  /** S2: a recorded status to pre-select when the drawer was opened from "Record Meta status in
+   * the registry". Only pre-selects — nothing is saved until the person presses Save (rule 11). */
+  statusSuggestion?: AccountStatus | null
+  /** S2: what Meta returned, shown above the status field when the drawer was opened that way. */
+  statusNote?: string | null
 }) {
   const queryClient = useQueryClient()
   const [form, setForm] = useState<FormState>(EMPTY)
 
   useEffect(() => {
-    setForm(account ? fromAccount(account) : EMPTY)
-  }, [account, open])
+    const base = account ? fromAccount(account) : EMPTY
+    setForm(account && statusSuggestion ? { ...base, status: statusSuggestion } : base)
+  }, [account, open, statusSuggestion])
 
   const businessManagers = useQuery({
     queryKey: ['business-managers', 'options'],
@@ -247,8 +255,16 @@ export default function AccountFormDrawer({
           <legend className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">
             Operational metadata
           </legend>
-          <Field label="Account status" required hint="Record what you observed. Leave as Unknown if you have not checked.">
-            <select className="input" value={form.status} onChange={(event) => set('status', event.target.value)}>
+          {statusNote && (
+            <p
+              className="rounded-md border border-line bg-surface-muted px-3 py-2 text-[12.5px] text-ink-muted"
+              data-testid="meta-status-note"
+            >
+              {statusNote}
+            </p>
+          )}
+          <Field label="Account status" required htmlFor="account-status" hint="Record what you observed. Leave as Unknown if you have not checked.">
+            <select id="account-status" className="input" value={form.status} onChange={(event) => set('status', event.target.value)}>
               <option value="unknown">Unknown</option>
               <option value="active">Active</option>
               <option value="warning">Warning</option>

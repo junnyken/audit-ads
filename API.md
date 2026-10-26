@@ -969,8 +969,8 @@ Field rules the UI must keep:
   `failure_code` when it is `failed`.
 - `currency_mismatch` is `null` when either side is unknown. Group/sort by `observed_currency`,
   never by `registry_currency`.
-- `account_status_raw` / `disable_reason_raw` are Meta's raw codes, stored for a later spec; S1
-  interprets neither.
+- `account_status_raw` / `disable_reason_raw` are Meta's raw codes. S1 stored them without
+  interpreting them; S2 interprets them in the separate `platform_status` block (below), never here.
 - `read_as` is filled by sweep reads (`identify()` once per connection per pass); manual refresh
   leaves it `null` so a refresh is exactly one provider read.
 
@@ -1036,3 +1036,83 @@ signals with `source_type: "provider_observation"`: `spend_observation_missing_o
 (attention, scopes `registry` / `insights`). Evaluation runs started by a read have
 `trigger_type: "spend_observation"` and `trigger_reference_id` = the observation id. Frontend
 `HealthCategory` must add `'spend'`.
+
+## Meta account status, read-only (S2)
+
+Interprets the `account_status` / `disable_reason` codes S1 already stores on every spend
+observation (failed reads included: the account node can answer while insights fail). **No new
+route, no new Meta call, no migration** — every block below is additive on an existing `GET`, is
+built from stored observations, and contacts no platform. Scope and roles are those of the
+carrying route (any role in scope reads; out of scope ⇒ `404`).
+
+`status` is one of `active` (1), `disabled` (2), `unsettled` (3), `pending_risk_review` (7),
+`pending_settlement` (8), `in_grace_period` (9), `pending_closure` (100), `closed` (101), or
+`unknown` — **any other present code**, including `201`/`202`, non-numeric values, `01` and
+over-long strings. Only `"1"` is ever `active`. A block is **`null` when no stored observation
+carries a code** ("status not observed" — not `unknown`, and never `active`). `freshness` is S1's
+four states measured from that observation's `observed_at`; a stale "disabled" is still
+"disabled". `status_class` is `blocking` (2/100/101), `pending` (3/7/8/9), `active`, or `unknown`.
+`disable_reason` is one of Meta's 16 names lower-cased (`none`, `ads_integrity_policy`, …,
+`compromised_ad_account`) or `unknown`; it explains, and never changes a severity. Nothing here may
+be rendered with success styling — `active` included (decided 2026-10-27).
+
+### `platform_status` on `GET /ad-accounts/{id}/spend` (and the refresh response)
+
+```json
+"platform_status": {
+  "status": "disabled", "status_class": "blocking",
+  "account_status_raw": "2",
+  "disable_reason": "risk_payment", "disable_reason_raw": "3",
+  "observed_at": "2026-10-27T03:00:00+00:00",
+  "observation_id": "c0f1…", "observation_status": "succeeded", "failure_code": null,
+  "reader_source": "server_default",
+  "freshness": "current",
+  "previous": {"account_status_raw": "1", "status": "active", "observed_at": "2026-10-26T01:00:00+00:00"},
+  "since_observed_at": "2026-10-27T03:00:00+00:00",
+  "disclaimer": "Trạng thái là mã Meta trả về cho reader đã nêu, tại thời điểm quan sát. Không phải quyết định của sản phẩm này, không bảo đảm tài khoản sẽ không bị hạn chế, và không thay cho việc kiểm tra trong Ads Manager."
+}
+```
+
+- Taken from the newest observation **that carries a code**, which may be a `failed` read
+  (`observation_status: "failed"`, `failure_code` set). If later reads are refused and carry no
+  code, this stays the last word and goes `stale`; show `latest_attempt.failure_code` beside it.
+- `previous` is the newest earlier observation with a *different* code inside the lookback
+  (21 days / 200 rows), or `null`. `since_observed_at` is the oldest consecutive observation with
+  the same code inside that window — "at least since".
+- An account whose only coded observation is older than the lookback is still found (one fallback
+  query, shared with S1's "latest success however old").
+
+### `platform_status` on `GET /ad-accounts` items and on `GET /ad-accounts/{id}`
+
+Compact: `{"status", "account_status_raw", "freshness", "observed_at"}` or `null`. The list builds
+it in the **same constant number of queries** as the S1 compact `spend` (one statement returns,
+per listed account, the newest successful observation and the newest coded observation — two
+`DISTINCT ON`s in a `UNION`); `spend` keeps its exact S1 shape. The detail response computes the
+same block for one account.
+
+### `platform_status_counts` on `GET /spend/summary`
+
+`{"active": n, "blocking": n, "pending": n, "unknown": n, "none": n}` — counts per class over the
+accounts in scope, `none` = no code observed. A count, never a score.
+
+### Extension (`POST /extension/context/resolve`, `GET /extension/accounts/{id}/summary`, `GET /ad-accounts/{id}/extension-summary`)
+
+`platform_status`: `{"status", "status_class", "account_status_raw", "disable_reason",
+"disable_reason_raw", "freshness", "observed_at", "observation_status"}` or `null`, beside
+`spend`. Optional in both response models, so an older extension ignores it.
+
+### Health changes
+
+Four rules (registry 14 → 18), all **enabled by default**, `source_type: "provider_observation"`,
+one signal per account per rule: `platform_account_status_blocking` (critical, `account_status`,
+scope `platform_status`), `platform_account_status_pending` (warning, `account_status`),
+`platform_account_status_unrecognised` (attention, `data_quality`) and
+`platform_vs_recorded_status_mismatch` (attention, `account_status`, scope `registry`). Evidence
+keys: `message`, `account_status_raw`, `platform_status`, `disable_reason_raw`, `disable_reason`,
+`spend_freshness`, `reader_source`, `source`, `observation_id`, `observed_at`,
+`observation_status`, `observation_failure_code`, `previous_account_status_raw`,
+`previous_observed_at`, `since_observed_at`, and `registry_status` on the mismatch rule. A critical
+signal derives a critical alert through the unchanged A3 path (critical bypasses quiet hours by
+default); return to `1` resolves the signal and the alert from the source, with no recovery
+message. No route writes `AdAccount.status` from Meta: recording Meta's status is the ordinary
+`PATCH /ad-accounts/{id}` a person submits.

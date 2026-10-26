@@ -6,6 +6,12 @@ const root = resolve(__dirname, '..')
 const manifest = JSON.parse(readFileSync(resolve(root, 'src/manifest.json'), 'utf8'))
 
 describe('manifest', () => {
+  it('carries the same version as package.json (0.3.0: the S2 Meta status line)', () => {
+    const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'))
+    expect(manifest.version).toBe(pkg.version)
+    expect(manifest.version).toBe('0.3.0')
+  })
+
   it('is Manifest V3', () => {
     expect(manifest.manifest_version).toBe(3)
     expect(manifest.background.type).toBe('module')

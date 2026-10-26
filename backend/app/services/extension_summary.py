@@ -23,7 +23,9 @@ from app.models.health import AccountHealthSignal
 from app.services.audit import AuditLogService
 from app.services.health_presenter import present_snapshot
 from app.services.health_service import AccountHealthSnapshotService
+from app.services.platform_status import status_class
 from app.services.rollup import ReadinessRollupService
+from app.services.spend_engine import SpendFacts
 from app.services.spend_service import build_spend_facts
 
 #: Enough to act on, few enough to read on a popup. The rest stay one click away in the app.
@@ -60,6 +62,7 @@ class ExtensionSummaryService:
             ).scalar()
 
         counts = self._alert_counts(account.id)
+        facts = build_spend_facts(self.session, self.workspace_id, account, now=now)
 
         return {
             "account": {
@@ -94,7 +97,10 @@ class ExtensionSummaryService:
                 "counts": health.get("counts", {}),
             },
             "alerts": counts,
-            "spend": self._spend_block(account, now),
+            "spend": self._spend_block(account, now, facts),
+            # S2: Meta's latest account status from the same stored observations. `None` when no
+            # read has carried a status code — never "active" by default.
+            "platform_status": self._platform_status_block(facts),
             "dashboard_paths": {
                 "account_detail": f"/accounts/{account.id}",
                 "account_health": f"/accounts/{account.id}?tab=health",
@@ -126,13 +132,28 @@ class ExtensionSummaryService:
             "info_count": by_severity.get(AlertSeverity.INFO, 0),
         }
 
-    def _spend_block(self, account: AdAccount, now: datetime) -> dict[str, Any]:
+    @staticmethod
+    def _platform_status_block(facts: SpendFacts) -> dict[str, Any] | None:
+        value = facts.platform_status
+        if value is None:
+            return None
+        return {
+            "status": value.status.value,
+            "status_class": status_class(value.status),
+            "account_status_raw": value.account_status_raw,
+            "disable_reason": value.disable_reason.value if value.disable_reason else None,
+            "disable_reason_raw": value.disable_reason_raw,
+            "freshness": value.freshness.value,
+            "observed_at": value.observed_at.isoformat(),
+            "observation_status": value.observation_status.value,
+        }
+
+    def _spend_block(self, account: AdAccount, now: datetime, facts: SpendFacts) -> dict[str, Any]:
         """S1 viewport: stored observations only, never a provider call (`build_spend_facts`).
 
         A day Meta returned no row for has `spend_raw: None` — never "0". Money stays the raw
         string Meta returned; there is no total and no cross-currency sum.
         """
-        facts = build_spend_facts(self.session, self.workspace_id, account, now=now)
         complete = None
         if facts.latest_complete_day is not None:
             entry = facts.day(facts.latest_complete_day)

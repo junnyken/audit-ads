@@ -49,6 +49,27 @@ export const SPEND_FRESHNESS_UNKNOWN: { label: TranslationKey; tone: Tone } = {
   tone: 'neutral',
 }
 
+/**
+ * S2 — Meta's account status. Deliberately has no `positive` tone, "active" included (decided
+ * 2026-10-27): it is the code Meta returned at one moment, not a statement about the account, so
+ * it is neutral and always shown with its observation time. Anything unrecognised is the neutral
+ * "unrecognised code" label — never active.
+ */
+export const PLATFORM_STATUS_META: Record<string, { label: TranslationKey; tone: Tone }> = {
+  active: { label: 'platformStatus.active', tone: 'neutral' },
+  disabled: { label: 'platformStatus.disabled', tone: 'attention' },
+  pending_closure: { label: 'platformStatus.pendingClosure', tone: 'attention' },
+  closed: { label: 'platformStatus.closed', tone: 'attention' },
+  unsettled: { label: 'platformStatus.unsettled', tone: 'caution' },
+  pending_risk_review: { label: 'platformStatus.pendingRiskReview', tone: 'caution' },
+  pending_settlement: { label: 'platformStatus.pendingSettlement', tone: 'caution' },
+  in_grace_period: { label: 'platformStatus.inGracePeriod', tone: 'caution' },
+}
+export const PLATFORM_STATUS_UNKNOWN: { label: TranslationKey; tone: Tone } = {
+  label: 'platformStatus.unknown',
+  tone: 'neutral',
+}
+
 export const CONTEXT_META: Record<string, { label: TranslationKey; tone: Tone; hint: TranslationKey }> = {
   confirmed: {
     label: 'presentation.context.confirmed.label',

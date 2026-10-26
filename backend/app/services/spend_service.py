@@ -194,6 +194,48 @@ def latest_success_any_age(
     ).scalars().first()
 
 
+def older_answers_any_age(
+    session: Session,
+    workspace_id: uuid.UUID,
+    ad_account_id: uuid.UUID,
+    *,
+    success: bool,
+    status: bool,
+) -> list[AdAccountSpendObservation]:
+    """The newest successful read and/or the newest read carrying an `account_status` code (S2),
+    however old, in a single query. The status answer may come from a failed read: the node
+    answered even though insights did not (`meta_real_provider.read_account_spend`)."""
+    base = sa.select(AdAccountSpendObservation.id).where(
+        AdAccountSpendObservation.workspace_id == workspace_id,
+        AdAccountSpendObservation.ad_account_id == ad_account_id,
+        AdAccountSpendObservation.archived_at.is_(None),
+    )
+    newest = (AdAccountSpendObservation.observed_at.desc(), AdAccountSpendObservation.id.desc())
+    parts = []
+    if success:
+        parts.append(
+            base.where(AdAccountSpendObservation.status == SpendObservationStatus.SUCCEEDED)
+            .order_by(*newest)
+            .limit(1)
+            .subquery()
+        )
+    if status:
+        parts.append(
+            base.where(AdAccountSpendObservation.observed_account_status.is_not(None))
+            .order_by(*newest)
+            .limit(1)
+            .subquery()
+        )
+    if not parts:
+        return []
+    ids = sa.union_all(*(sa.select(part.c.id) for part in parts)) if len(parts) > 1 else sa.select(parts[0].c.id)
+    return list(
+        session.execute(
+            sa.select(AdAccountSpendObservation).where(AdAccountSpendObservation.id.in_(ids))
+        ).scalars().all()
+    )
+
+
 def build_spend_facts(
     session: Session,
     workspace_id: uuid.UUID,
@@ -208,10 +250,18 @@ def build_spend_facts(
     if reader is ...:
         reader = resolve_spend_connection(session, workspace_id, account, settings)
     rows = recent_observations(session, workspace_id, account.id, now=now)
-    if not any(row.status == SpendObservationStatus.SUCCEEDED for row in rows):
-        older = latest_success_any_age(session, workspace_id, account.id)
-        if older is not None:
-            rows.append(older)
+    need_success = not any(row.status == SpendObservationStatus.SUCCEEDED for row in rows)
+    need_status = not any(row.observed_account_status is not None for row in rows)
+    if need_success or need_status:
+        # One query, however many of the two answers are missing from the window — so a very old
+        # account still reports `stale` rather than "never" for spend (S1) and for status (S2).
+        seen = {row.id for row in rows}
+        for older in older_answers_any_age(
+            session, workspace_id, account.id, success=need_success, status=need_status
+        ):
+            if older.id not in seen:
+                rows.append(older)
+                seen.add(older.id)
     return assemble(
         observable=reader is not None,
         observations=[_view(row) for row in rows],
@@ -227,19 +277,33 @@ def build_spend_facts(
     )
 
 
-def list_compact_spend(
+def compact_platform_status(status_facts) -> dict | None:
+    """The compact S2 block a list row, the extension and the account detail carry."""
+    if status_facts is None:
+        return None
+    return {
+        "status": status_facts.status.value,
+        "account_status_raw": status_facts.account_status_raw,
+        "freshness": status_facts.freshness.value,
+        "observed_at": status_facts.observed_at.isoformat(),
+    }
+
+
+def list_compact_reads(
     session: Session,
     workspace_id: uuid.UUID,
     accounts: Sequence[AdAccount],
     *,
     now: datetime | None = None,
 ) -> dict[uuid.UUID, dict]:
-    """The compact spend summary for a page of accounts, in a constant number of queries.
+    """Compact spend (S1) and compact platform status (S2) for a page of accounts, in a constant
+    number of queries: `{account_id: {"spend": {...}, "platform_status": {...} | None}}`.
 
-    Two queries however many accounts there are: the workspace's reader connections, and the
-    newest successful observation of every listed account (`DISTINCT ON`, however old). Freshness
-    and the latest complete day come from the same `assemble` the spend view uses, fed that one
-    observation, so the list and the detail cannot disagree. Never calls a provider.
+    Two queries however many accounts there are: the workspace's reader connections, and one
+    statement returning, per listed account, the newest successful observation and the newest
+    observation carrying an `account_status` code (each `DISTINCT ON`, however old; often the same
+    row). Freshness and the latest complete day come from the same `assemble` the spend view uses,
+    so the list and the detail cannot disagree. Never calls a provider.
 
     `latest_complete_day.spend_raw` is `None` when Meta returned no row for that day — never "0".
     """
@@ -249,33 +313,49 @@ def list_compact_spend(
     now = now or datetime.now(UTC)
     readers = _connections_by_business(session, workspace_id, settings)
     ids = [account.id for account in accounts]
-    latest = {
-        row.ad_account_id: row
-        for row in session.execute(
-            sa.select(AdAccountSpendObservation)
-            .where(
-                AdAccountSpendObservation.workspace_id == workspace_id,
-                AdAccountSpendObservation.ad_account_id.in_(ids),
-                AdAccountSpendObservation.archived_at.is_(None),
-                AdAccountSpendObservation.status == SpendObservationStatus.SUCCEEDED,
+    scoped = (
+        AdAccountSpendObservation.workspace_id == workspace_id,
+        AdAccountSpendObservation.ad_account_id.in_(ids),
+        AdAccountSpendObservation.archived_at.is_(None),
+    )
+    newest = (
+        AdAccountSpendObservation.ad_account_id,
+        AdAccountSpendObservation.observed_at.desc(),
+        AdAccountSpendObservation.id.desc(),
+    )
+    latest_success = (
+        sa.select(AdAccountSpendObservation.id)
+        .where(*scoped, AdAccountSpendObservation.status == SpendObservationStatus.SUCCEEDED)
+        .distinct(AdAccountSpendObservation.ad_account_id)
+        .order_by(*newest)
+        .subquery()
+    )
+    latest_status = (
+        sa.select(AdAccountSpendObservation.id)
+        .where(*scoped, AdAccountSpendObservation.observed_account_status.is_not(None))
+        .distinct(AdAccountSpendObservation.ad_account_id)
+        .order_by(*newest)
+        .subquery()
+    )
+    rows_by_account: dict[uuid.UUID, list[AdAccountSpendObservation]] = {}
+    for row in session.execute(
+        sa.select(AdAccountSpendObservation).where(
+            AdAccountSpendObservation.id.in_(
+                sa.union(sa.select(latest_success.c.id), sa.select(latest_status.c.id))
             )
-            .distinct(AdAccountSpendObservation.ad_account_id)
-            .order_by(
-                AdAccountSpendObservation.ad_account_id,
-                AdAccountSpendObservation.observed_at.desc(),
-                AdAccountSpendObservation.id.desc(),
-            )
-        ).scalars().all()
-    }
+        )
+    ).scalars().all():
+        rows_by_account.setdefault(row.ad_account_id, []).append(row)
+
     result: dict[uuid.UUID, dict] = {}
     for account in accounts:
         reader = None
         if account.archived_at is None and canonical_external_id(account.external_account_id):
             reader = readers.get(_account_business_id(account))
-        row = latest.get(account.id)
+        views = [_view(row) for row in rows_by_account.get(account.id, [])]
         facts = assemble(
             observable=reader is not None,
-            observations=[_view(row)] if row is not None else [],
+            observations=views,
             now=now,
             stale_after_hours=settings.spend_observation_stale_after_hours,
         )
@@ -288,11 +368,28 @@ def list_compact_spend(
                     "spend_raw": entry.spend_raw if entry.has_row else None,
                 }
         result[account.id] = {
-            "freshness": facts.freshness.value,
-            "observed_currency": facts.observed_currency,
-            "latest_complete_day": day,
+            "spend": {
+                "freshness": facts.freshness.value,
+                "observed_currency": facts.observed_currency,
+                "latest_complete_day": day,
+            },
+            "platform_status": compact_platform_status(facts.platform_status),
         }
     return result
+
+
+def list_compact_spend(
+    session: Session,
+    workspace_id: uuid.UUID,
+    accounts: Sequence[AdAccount],
+    *,
+    now: datetime | None = None,
+) -> dict[uuid.UUID, dict]:
+    """The compact spend summary alone (S1 shape), from `list_compact_reads`."""
+    return {
+        key: value["spend"]
+        for key, value in list_compact_reads(session, workspace_id, accounts, now=now).items()
+    }
 
 
 def _iso_date(value: str | None) -> date | None:

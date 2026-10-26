@@ -319,8 +319,8 @@ def test_backfill_is_owner_confirmed_and_bounded(api):
 
 def test_rules_endpoint_lists_the_versioned_registry(api):
     rules = api.get("/api/v1/account-health/rules").json()
-    # 10 A2 rules + the 4 S1 spend rules.
-    assert len(rules) == 14
+    # 10 A2 rules + the 4 S1 spend rules + the 4 S2 platform-status rules.
+    assert len(rules) == 18
     keys = {rule["rule_key"] for rule in rules}
     assert "account_restricted_status" in keys and "manual_review_due_or_stale" in keys
     for rule in rules:

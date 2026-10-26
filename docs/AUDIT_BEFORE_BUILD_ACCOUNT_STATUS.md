@@ -569,3 +569,60 @@ Chốt ngày 2026-10-27:
 | 6.8 | **Bật sẵn cả 4 luật** khi deploy |
 | 6.4–6.6 | Chưa hỏi riêng, áp đề xuất: có nhắc chiều ngược (`attention`); nút ghi nhận để trống với mã chờ/closed; giữ mặc định Telegram, không gửi tin "đã hồi phục" |
 | 6.7 | Chủ dự án đã duyệt bật sweep trên production ngày 2026-10-26 (nói chung cho cả S1). Thực hiện sau khi push và deploy |
+
+---
+
+## 8. Bản build (bước 4–6, 2026-10-27)
+
+Đã làm theo thiết kế A và §7. Không gọi Meta, không gửi Telegram, không deploy, không migration,
+không commit. Kết quả test thật: `TEST_LOG.md` mục "S2".
+
+### 8a. Lệch so với bản nháp — và vì sao
+
+| Chỗ | Bản nháp nói | Bản build làm | Vì sao |
+|---|---|---|---|
+| Badge `active` | xanh khi `current` (§4b UI) | **không bao giờ xanh**, tone trung tính, luôn kèm "per Meta · <thời điểm>" | §7 6.3 ghi đè |
+| `message` của evidence | có `{observed_at}` | **không có thời điểm**; thời điểm nằm ở `evidence.observed_at` (volatile) và `signal.observed_at` (→ dòng "observed" của tin Telegram) | `message` không thể volatile (luật khác dùng chung khoá này); có thời điểm thì mỗi lượt đọc là một lần supersede + audit |
+| Khoá volatile | `previous_*`, `since_observed_at` | thêm `observation_id`, `observed_at`, `observation_status`, `observation_failure_code` | các khoá này đổi **mỗi lượt đọc** dù mã không đổi; không volatile thì tín hiệu bị supersede mỗi lần (yêu cầu "không supersede mỗi lần đọc") |
+| `resolution_guidance` | "…not a statement that the account is safe…" | "…not a statement that the account is **in good standing** or will stay active." | chữ "account is safe" khớp regex chặn khẳng định an toàn của `test_no_health_response_claims_safety_or_approval` (quét cả `/account-health/rules`); nghĩa giữ nguyên — **BA duyệt** |
+| `PlatformStatusFacts.registry_status` | có trường | luật đối chiếu đọc thẳng `facts.account.status` | cùng một giá trị, bớt một bản sao |
+| Mã `"01"`, `"+1"`, `"1.0"` | (không nói) | `unknown` | "chỉ `1` mới ra `active`" — đoán `01` = 1 là một đường từ mã lạ ra `active` |
+| Tài khoản **hết** observable nhưng có mã cũ | bảng §4b dòng 1 ghi `None` (dòng ấy giả định chưa từng có quan sát) | giữ **lần cuối Meta nói**, `freshness=not_observable`; `blocking` vẫn nổ, `mismatch` không | mất reader không phải hồi phục (rule 4/28). Chưa từng có quan sát thì vẫn `None` đúng như bảng |
+| Khối API `platform_status` đầy đủ | 11 trường | thêm `status_class`, `failure_code`, `reader_source` | để UI hiện "lượt đọc chi tiêu lỗi: <code>" và nguồn reader mà không cần gọi thêm |
+| Truy vấn dự phòng "mã cũ hơn cửa sổ" | một query riêng `latest_status_answer_any_age` | gộp với query S1 "lần thành công gần nhất bất kể tuổi" thành **một** query (`older_answers_any_age`, `UNION ALL` hai `LIMIT 1`) | không tăng số query cho tài khoản chưa từng đọc |
+| Lọc theo trạng thái Meta trên Accounts | có | **không làm** | danh sách lọc + phân trang ở server trước khi tính khối; lọc theo trường suy diễn cần thiết kế riêng → follow-up |
+| Category luật `unrecognised` | `data_quality` | `data_quality` (giữ đúng bảng §4b) | ba luật còn lại `account_status` |
+
+### 8b. Câu chữ đã đặt — BA duyệt
+
+Dashboard bằng tiếng Anh (theo quy ước hiện có); extension có VI + EN. Mọi chuỗi dưới đây là
+**đề xuất**, DEV đặt, BA chốt.
+
+| Nơi | EN (đã đặt) | VI (extension) |
+|---|---|---|
+| Nhãn trạng thái (dashboard + extension) | Active (Meta) · Disabled (Meta) · Unsettled balance (Meta) · Pending risk review (Meta) · Pending settlement (Meta) · In grace period (Meta) · Pending closure (Meta) · Closed (Meta) | Đang hoạt động (theo Meta) · Bị vô hiệu hoá (theo Meta) · Chưa thanh toán (theo Meta) · Đang xét duyệt rủi ro (theo Meta) · Chờ tất toán (theo Meta) · Trong thời gian ân hạn (theo Meta) · Chờ đóng (theo Meta) · Đã đóng (theo Meta) |
+| Mã lạ | Unrecognised status code {code} | Mã trạng thái lạ: {code} |
+| Không có mã | "—" (title: Status not observed…) | "—" (title: Chưa quan sát được trạng thái) |
+| Bối cảnh cạnh badge | per Meta · {relative time} [· last word, not recent / · last word, no reader now] | lúc {time} [· trạng thái Meta trả gần nhất, không còn mới] |
+| Nhãn dòng / cột | Meta status · Recorded status (cột & hàng cũ, trước là "Status"/"Platform status") · Disable reason · Observed at · Account status (code) (Spend tab) · Status history (Spend tab) | Trạng thái Meta |
+| Nút | Record Meta status in the registry (tooltip: Opens the edit form. Nothing is saved until you press Save.) | — |
+| Ghi chú trong drawer | Meta returned account_status {code} ({label}) at {time}. Check it in Ads Manager, then choose the recorded status yourself. | — |
+| Card Overview | Meta account status · Not operable: n · Pending: n · Unrecognised code: n · Not observed: n · Active (Meta): n | — |
+| Lý do vô hiệu | tên Meta nguyên văn + gloss từ tên, vd `RISK_PAYMENT — payment (3)`, `ADS_AFC_REVIEW — review (Meta gives no detail)` | — |
+| Luật `blocking` name / next step | Meta reports the account as not operable / Open the account in Ads Manager / Business Settings, read Meta's notice, and record what you find as an account event. | — |
+| … message (→ `Reason:` của tin) | Meta returned account_status {code} ({label}) for this account; disable reason: {REASON (n) \| not returned \| unrecognised code n}. [+ This is the last status Meta returned; no read carrying a status is recent.] | — |
+| Luật `pending` name / next step | Meta reports a pending payment or review state / Check billing or the review notice in Ads Manager, and record what you find as an account event. | — |
+| Luật `unrecognised` name | Meta returned a status code this product does not recognise | — |
+| Luật `mismatch` name / next step | Meta's status differs from the recorded status / Compare both, then update the recorded status if Meta is right — with a note. This product never changes the record by itself. | — |
+| `resolution_guidance` (3 luật đầu) | Closes automatically when the latest Meta observation no longer shows this state. This is not a statement that the account is in good standing or will stay active. | — |
+| `disclaimer` của khối API | (giữ nguyên câu VI ở §4b) | |
+
+### 8c. Follow-up (không làm trong S2)
+
+- Lọc Accounts theo trạng thái Meta (§8a).
+- `AssetReconciliationStatus.METADATA_MISMATCH` + nhãn `DiscoverySection.tsx:30` vẫn là từ vựng chết.
+- `entities.py:34` docstring `_enum` vẫn nói "VARCHAR + CHECK" (cùng lỗi `ARCH.md:80-81`) — tệp không chạm.
+- Extension vẫn không render trạng thái **người ghi** (`account.status`).
+- Bộ đếm sweep "bao nhiêu tài khoản đang bị khoá" (G9) — cần sửa `SAFE_SUMMARY_KEYS`.
+- Đặt `SPEND_OBSERVATION_STALE_AFTER_HOURS=2` trên production (§7 6.1) — việc vận hành, chưa làm; production vẫn chưa có dispatcher/credential (đo 2026-10-26).
+- Mọi mục **[CHƯA KIỂM]** §2f — ghi vào `TEST_LOG.md` ở lần đọc thật đầu tiên có người xem.

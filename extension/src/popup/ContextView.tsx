@@ -10,12 +10,43 @@ import {
   DISCLAIMER_KEY,
   FRESHNESS_META,
   HEALTH_META,
+  PLATFORM_STATUS_META,
+  PLATFORM_STATUS_UNKNOWN,
   READINESS_META,
   SPEND_FRESHNESS_META,
   SPEND_FRESHNESS_UNKNOWN,
   toneClass,
 } from '../shared/presentation'
-import type { ContextResolution, SpendDay } from '../shared/types'
+import type { ContextResolution, PlatformStatusBlock, SpendDay } from '../shared/types'
+
+/**
+ * S2: one line for Meta's latest account status. Never success-styled, always with its time, and
+ * "—" when no read has carried a status code — a missing status is not "active".
+ */
+export function PlatformStatusLine({ value }: { value: PlatformStatusBlock | null | undefined }) {
+  const { t } = useLanguage()
+  if (!value) {
+    return (
+      <span className="faint" title={t('platformStatus.none')} data-testid="platform-status">
+        —
+      </span>
+    )
+  }
+  const meta = PLATFORM_STATUS_META[value.status] ?? PLATFORM_STATUS_UNKNOWN
+  const label = PLATFORM_STATUS_META[value.status]
+    ? t(meta.label)
+    : t(PLATFORM_STATUS_UNKNOWN.label, { code: value.account_status_raw })
+  return (
+    <span data-testid="platform-status">
+      <span className={toneClass(meta.tone)}>{label}</span>
+      <span className="faint">
+        {' '}
+        {t('platformStatus.observedAt', { time: new Date(value.observed_at).toLocaleString() })}
+        {value.freshness !== 'current' && ` · ${t('platformStatus.lastWord')}`}
+      </span>
+    </span>
+  )
+}
 
 export function StatusBadge({ status }: { status: string }) {
   const { t } = useLanguage()
@@ -73,6 +104,10 @@ export function OperationalState({ context }: { context: ContextResolution }) {
         <dt>{t('contextView.health')}</dt>
         <dd>
           <span className={toneClass(healthMeta.tone)}>{t(healthMeta.label)}</span>
+        </dd>
+        <dt>{t('platformStatus.label')}</dt>
+        <dd>
+          <PlatformStatusLine value={context.platform_status} />
         </dd>
         <dt>{t('contextView.dataFreshness')}</dt>
         <dd>

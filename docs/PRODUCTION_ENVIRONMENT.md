@@ -89,7 +89,7 @@ Names and descriptions only. Real values live in a file outside git — see §3.
 | `DISPATCHER_RECOVERY_EVERY_N_PASSES` | no | `10` | |
 | `RUN_DISPATCHER_IN_API` | Vibe Host only | unset | Exactly `true` starts the dispatcher beside uvicorn in the API container (`backend/start.sh`). Vibe Host has no separate dispatcher container: a project cannot override the start command, and a second project cannot read the stack's database secrets. Leave unset wherever `docker-compose.production.yml`'s `dispatcher` service runs, or every pass runs twice |
 | `SPEND_SWEEP_EVERY_N_PASSES` | no | `0` (off) | S1. With a 60 s interval, `60` means one spend pass an hour. Turning it on in production is a separate, named approval (rule 22) |
-| `SPEND_OBSERVATION_STALE_AFTER_HOURS` | no | `26` | S1. An account is read again only once its last read is older than this. Set `2` with an hourly pass so every account is read about once an hour |
+| `SPEND_OBSERVATION_STALE_AFTER_HOURS` | no | `26` | S1. An account is read again only once its last read is older than this. Set `2` with an hourly pass so every account is read about once an hour. **S2 (decided 2026-10-27): production uses `2`**, which bounds how late a newly disabled account is seen to about 3 hours; the code default stays 26 (≈ 27 h) |
 | `META_ACCESS_TOKEN` / `META_BUSINESS_ID` | for any Meta read | empty | **Server-side only** (rule 40). Without them every account is `not_observable` and the spend sweep reads nothing |
 | `ALLOW_TEST_SEND` | no | `false` | Armed for one approved verification, then turned off again |
 

@@ -6,6 +6,7 @@ import type { AdAccount, Paged, ReferenceRecord } from '../lib/types'
 import { Badge, EmptyState, ErrorState, Progress, Skeleton } from '../components/ui'
 import AccountFormDrawer from '../components/AccountFormDrawer'
 import AccountSpendCell from '../components/AccountSpendCell'
+import PlatformStatusBadge from '../components/PlatformStatusBadge'
 import { READINESS_META, accountStatusTone } from '../lib/readiness'
 import { formatDateTime, formatRelative, humanise } from '../lib/format'
 
@@ -99,7 +100,7 @@ export default function Accounts() {
         </div>
         <Select label="Readiness" value={filters.readiness_status} onChange={(value) => update({ readiness_status: value })}
           options={[['', 'Any'], ['operationally_ready', 'Operationally ready'], ['ready_with_warnings', 'Ready with warnings'], ['not_ready', 'Not ready'], ['unknown', 'Unknown']]} />
-        <Select label="Status" value={filters.status} onChange={(value) => update({ status: value })}
+        <Select label="Recorded status" value={filters.status} onChange={(value) => update({ status: value })}
           options={[['', 'Any'], ['unknown', 'Unknown'], ['active', 'Active'], ['warning', 'Warning'], ['restricted', 'Restricted'], ['disabled', 'Disabled']]} />
         <Select label="Type" value={filters.account_type} onChange={(value) => update({ account_type: value })}
           options={[['', 'Any'], ['business_manager', 'Business Manager'], ['personal_reference', 'Personal reference'], ['unknown', 'Unknown']]} />
@@ -154,7 +155,7 @@ export default function Accounts() {
       ) : (
         <>
           <div className="card table-scroll">
-            <table className="w-full min-w-[1200px] border-collapse">
+            <table className="w-full min-w-[1320px] border-collapse">
               <thead className="bg-surface-muted">
                 <tr>
                   <th className="th w-8">
@@ -164,7 +165,8 @@ export default function Accounts() {
                   <th className="th">External ID</th>
                   <th className="th">Type</th>
                   <th className="th">BM / Personal reference</th>
-                  <th className="th">Status</th>
+                  <th className="th" title="The status your team recorded in this registry">Recorded status</th>
+                  <th className="th" title="The latest account_status code Meta returned, and when">Meta status</th>
                   <th className="th">Readiness</th>
                   <th className="th">Checklist</th>
                   <th className="th">Spend</th>
@@ -214,6 +216,9 @@ export default function Accounts() {
                       </td>
                       <td className="td">
                         <Badge tone={accountStatusTone(account.status)}>{humanise(account.status)}</Badge>
+                      </td>
+                      <td className="td">
+                        <PlatformStatusBadge value={account.platform_status} />
                       </td>
                       <td className="td">
                         <Badge tone={meta.tone} dot title={meta.description}>

@@ -24,8 +24,15 @@ from app.core.enums import (
     SignalSeverity,
 )
 from app.models.entities import AccountEvent, AdAccount, ReadinessChecklistItem
+from app.services.platform_status import (
+    BLOCKING,
+    PENDING,
+    PlatformAccountStatus,
+    disable_reason_text,
+    status_label,
+)
 from app.services.readiness import ReadinessResult
-from app.services.spend_engine import SpendFacts, amount_text, parse_amount
+from app.services.spend_engine import PlatformStatusFacts, SpendFacts, amount_text, parse_amount
 
 ENGINE_VERSION = "a2-v1"
 
@@ -65,6 +72,10 @@ class HealthFacts:
     #: during it, so "Recalculate health" still contacts no advertising platform. `None` means
     #: the spend facts were not assembled at all, and every spend rule then stays silent.
     spend: SpendFacts | None = None
+    #: S2. Meta's latest account status, taken from `spend.platform_status` — the same stored
+    #: observations, no extra read. `None`: no observation carries a status code, and every
+    #: platform-status rule then stays silent (rule 4: missing is never positive, nor negative).
+    platform_status: PlatformStatusFacts | None = None
 
     @property
     def critical_events(self) -> list[AccountEvent]:
@@ -633,6 +644,172 @@ def _spend_currency_mismatch(facts: HealthFacts) -> list[SignalCandidate]:
     return candidates
 
 
+# -------------------------------------------------------------------- platform status (S2)
+#: Recorded statuses the mismatch rule compares. `unknown` (nobody checked), `warning` (the
+#: recorder's own judgement) and `archived` are never compared: they are not a claim Meta's code
+#: can contradict.
+_COMPARABLE_REGISTRY = (AccountStatus.ACTIVE, AccountStatus.RESTRICTED, AccountStatus.DISABLED)
+
+_FRESHNESS_SENTENCE = {
+    "stale": " This is the last status Meta returned; no read carrying a status is recent.",
+    "not_observable": (
+        " No connection can read this account any more; this is the last status Meta returned."
+    ),
+}
+
+
+def _platform_candidate(
+    facts: HealthFacts,
+    value: PlatformStatusFacts,
+    *,
+    rule_key: str,
+    scope: str,
+    severity: SignalSeverity,
+    category: HealthCategory,
+    message: str,
+    extra: dict | None = None,
+) -> SignalCandidate:
+    """One candidate per rule per account. The evidence is an allowlist of Meta's codes and their
+    labels, the observation they came from and when — never a raw provider payload (rule 26)."""
+    return SignalCandidate(
+        rule_key=rule_key,
+        rule_version=1,
+        scope=scope,
+        severity=severity,
+        category=category,
+        # A platform observation, never an operator-recorded fact: the UI prints this source.
+        source_type=HealthSourceType.PROVIDER_OBSERVATION,
+        source_entity_type="ad_account_spend_observation",
+        source_entity_id=value.observation_id,
+        evidence={
+            "message": message,
+            "account_status_raw": value.account_status_raw,
+            "platform_status": value.status.value,
+            "disable_reason_raw": value.disable_reason_raw,
+            "disable_reason": value.disable_reason.value if value.disable_reason else None,
+            "spend_freshness": value.freshness.value,
+            "reader_source": value.reader_source,
+            "source": "Meta read-only observation (ad account node)",
+            # Volatile (see `VOLATILE_EVIDENCE_KEYS`): they move on every read, or as the lookback
+            # window slides, while the condition stays the same.
+            "observation_id": value.observation_id,
+            "observed_at": _iso(_aware(value.observed_at)),
+            "observation_status": value.observation_status.value,
+            "observation_failure_code": value.failure_code,
+            "previous_account_status_raw": value.previous_account_status_raw,
+            "previous_observed_at": _iso(_aware(value.previous_observed_at)),
+            "since_observed_at": _iso(_aware(value.since_observed_at)),
+            **(extra or {}),
+        },
+        observed_at=_aware(value.observed_at) or facts.now,
+    )
+
+
+def _status_sentence(value: PlatformStatusFacts) -> str:
+    return (
+        f"Meta returned account_status {value.account_status_raw} ({status_label(value.status)}) "
+        f"for this account; disable reason: "
+        f"{disable_reason_text(value.disable_reason, value.disable_reason_raw)}."
+        + _FRESHNESS_SENTENCE.get(value.freshness.value, "")
+    )
+
+
+def _platform_blocking(facts: HealthFacts) -> list[SignalCandidate]:
+    value = facts.platform_status
+    # Whatever its age: an old "disabled" is still the last thing Meta said, and old is not
+    # recovered (rules 4 and 28). The evidence carries the freshness.
+    if value is None or value.status not in BLOCKING:
+        return []
+    return [
+        _platform_candidate(
+            facts,
+            value,
+            rule_key="platform_account_status_blocking",
+            scope="platform_status",
+            severity=SignalSeverity.CRITICAL,
+            category=HealthCategory.ACCOUNT_STATUS,
+            message=_status_sentence(value),
+        )
+    ]
+
+
+def _platform_pending(facts: HealthFacts) -> list[SignalCandidate]:
+    value = facts.platform_status
+    if value is None or value.status not in PENDING:
+        return []
+    return [
+        _platform_candidate(
+            facts,
+            value,
+            rule_key="platform_account_status_pending",
+            scope="platform_status",
+            severity=SignalSeverity.WARNING,
+            category=HealthCategory.ACCOUNT_STATUS,
+            message=_status_sentence(value),
+        )
+    ]
+
+
+def _platform_unrecognised(facts: HealthFacts) -> list[SignalCandidate]:
+    value = facts.platform_status
+    if value is None or value.status != PlatformAccountStatus.UNKNOWN:
+        return []
+    return [
+        _platform_candidate(
+            facts,
+            value,
+            rule_key="platform_account_status_unrecognised",
+            scope="platform_status",
+            severity=SignalSeverity.ATTENTION,
+            category=HealthCategory.DATA_QUALITY,
+            message=(
+                f"Meta returned account_status {value.account_status_raw[:16]!r}, a code this "
+                "product does not recognise, so the account's status on Meta is unknown."
+                + _FRESHNESS_SENTENCE.get(value.freshness.value, "")
+            ),
+        )
+    ]
+
+
+def _platform_vs_recorded(facts: HealthFacts) -> list[SignalCandidate]:
+    value = facts.platform_status
+    # Only a current observation may prompt a change to the record: old data must not drive it.
+    if value is None or not value.is_current or value.status == PlatformAccountStatus.UNKNOWN:
+        return []
+    recorded = facts.account.status
+    if recorded not in _COMPARABLE_REGISTRY:
+        return []
+    meta_not_active = value.status in BLOCKING or value.status in PENDING
+    differs = (
+        value.status == PlatformAccountStatus.ACTIVE
+        and recorded in (AccountStatus.RESTRICTED, AccountStatus.DISABLED)
+    ) or (meta_not_active and recorded == AccountStatus.ACTIVE)
+    if not differs:
+        return []
+    return [
+        _platform_candidate(
+            facts,
+            value,
+            rule_key="platform_vs_recorded_status_mismatch",
+            scope="registry",
+            severity=SignalSeverity.ATTENTION,
+            category=HealthCategory.ACCOUNT_STATUS,
+            message=(
+                f"Meta returned account_status {value.account_status_raw} "
+                f"({status_label(value.status)}), but the recorded account status is "
+                f"{recorded.value}."
+            ),
+            extra={"registry_status": recorded.value},
+        )
+    ]
+
+
+_PLATFORM_RESOLUTION = (
+    "Closes automatically when the latest Meta observation no longer shows this state. This is "
+    "not a statement that the account is in good standing or will stay active."
+)
+
+
 HEALTH_RULES_V1: tuple[HealthRule, ...] = (
     HealthRule(
         rule_key="account_restricted_status",
@@ -862,6 +1039,91 @@ HEALTH_RULES_V1: tuple[HealthRule, ...] = (
         recommended_next_step="Confirm the account currency in Ads Manager and correct the registry record if it is wrong.",
         resolution_guidance="Closes automatically once the currencies agree.",
         evaluate=_spend_currency_mismatch,
+    ),
+    HealthRule(
+        rule_key="platform_account_status_blocking",
+        version=1,
+        name="Meta reports the account as not operable",
+        description=(
+            "Critical signal while the latest account_status Meta returned is disabled (2), "
+            "pending closure (100) or closed (101) — whatever the age of that observation."
+        ),
+        category=HealthCategory.ACCOUNT_STATUS,
+        default_severity=SignalSeverity.CRITICAL,
+        applicability="Accounts with at least one stored observation carrying an account_status code.",
+        input_facts=(
+            "ad_account_spend_observation.observed_account_status",
+            "ad_account_spend_observation.observed_disable_reason",
+        ),
+        why_it_matters="While Meta reports this state the account cannot run ads.",
+        recommended_next_step=(
+            "Open the account in Ads Manager / Business Settings, read Meta's notice, and record "
+            "what you find as an account event."
+        ),
+        resolution_guidance=_PLATFORM_RESOLUTION,
+        evaluate=_platform_blocking,
+    ),
+    HealthRule(
+        rule_key="platform_account_status_pending",
+        version=1,
+        name="Meta reports a pending payment or review state",
+        description=(
+            "Warning while the latest account_status Meta returned is unsettled (3), pending risk "
+            "review (7), pending settlement (8) or in grace period (9)."
+        ),
+        category=HealthCategory.ACCOUNT_STATUS,
+        default_severity=SignalSeverity.WARNING,
+        applicability="Accounts with at least one stored observation carrying an account_status code.",
+        input_facts=("ad_account_spend_observation.observed_account_status",),
+        why_it_matters="Meta reports something outstanding on billing or review for this account.",
+        recommended_next_step=(
+            "Check billing or the review notice in Ads Manager, and record what you find as an "
+            "account event."
+        ),
+        resolution_guidance=_PLATFORM_RESOLUTION,
+        evaluate=_platform_pending,
+    ),
+    HealthRule(
+        rule_key="platform_account_status_unrecognised",
+        version=1,
+        name="Meta returned a status code this product does not recognise",
+        description=(
+            "Attention signal while the latest account_status Meta returned is not on the "
+            "documented allowlist (for example 201, 202, or a non-numeric value)."
+        ),
+        category=HealthCategory.DATA_QUALITY,
+        default_severity=SignalSeverity.ATTENTION,
+        applicability="Accounts with at least one stored observation carrying an account_status code.",
+        input_facts=("ad_account_spend_observation.observed_account_status",),
+        why_it_matters="An unrecognised code is not a good state: the account's status on Meta is unknown.",
+        recommended_next_step="Check the account's status in Ads Manager and record what you find as an account event.",
+        resolution_guidance=_PLATFORM_RESOLUTION,
+        evaluate=_platform_unrecognised,
+    ),
+    HealthRule(
+        rule_key="platform_vs_recorded_status_mismatch",
+        version=1,
+        name="Meta's status differs from the recorded status",
+        description=(
+            "Attention signal when a current Meta observation and the recorded account status "
+            "disagree: Meta active while the record says restricted or disabled, or Meta not "
+            "active while the record says active. Unknown, warning and archived records are not "
+            "compared."
+        ),
+        category=HealthCategory.ACCOUNT_STATUS,
+        default_severity=SignalSeverity.ATTENTION,
+        applicability="Accounts with a current observation carrying a recognised account_status code.",
+        input_facts=("ad_account_spend_observation.observed_account_status", "ad_account.status"),
+        why_it_matters="Readiness and preflight read the recorded status, so a record Meta contradicts can mislead them.",
+        recommended_next_step=(
+            "Compare both, then update the recorded status if Meta is right — with a note. This "
+            "product never changes the record by itself."
+        ),
+        resolution_guidance=(
+            "Closes automatically when the two agree, or when the Meta observation is no longer "
+            "current."
+        ),
+        evaluate=_platform_vs_recorded,
     ),
 )
 

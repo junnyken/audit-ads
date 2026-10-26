@@ -24,6 +24,12 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.core.enums import SpendFreshness, SpendObservationStatus
+from app.services.platform_status import (
+    PlatformAccountStatus,
+    PlatformDisableReason,
+    interpret_account_status,
+    interpret_disable_reason,
+)
 
 #: How many complete days the facts carry. The baseline needs at most 7 before the latest day.
 SPEND_HISTORY_DAYS = 14
@@ -136,6 +142,84 @@ class DayValue:
         return parse_amount(self.spend_raw) if self.has_row else None
 
 
+@dataclass(frozen=True)
+class PlatformStatusFacts:
+    """S2. What Meta last said about the account's status, and since when. Pure.
+
+    Built from the newest observation that **carries a status code**, whether or not that read
+    succeeded: the node answering is Meta speaking, even when the insights half of the read failed.
+    That is deliberately different from `SpendFacts.latest_success`, and `observation_status` says
+    which kind of row it was.
+
+    `previous_*` and `since_observed_at` are for the person reading, never an input to a rule; both
+    are bounded by the lookback window, so `since_observed_at` is "at least since".
+    """
+
+    observation_id: str
+    observed_at: datetime
+    observation_status: SpendObservationStatus
+    account_status_raw: str
+    status: PlatformAccountStatus
+    disable_reason_raw: str | None
+    disable_reason: PlatformDisableReason | None
+    #: The four S1 freshness states, measured from `observed_at` of this observation.
+    freshness: SpendFreshness
+    reader_source: str | None = None
+    previous_account_status_raw: str | None = None
+    previous_status: PlatformAccountStatus | None = None
+    previous_observed_at: datetime | None = None
+    since_observed_at: datetime | None = None
+    failure_code: str | None = None
+
+    @property
+    def is_current(self) -> bool:
+        return self.freshness == SpendFreshness.CURRENT
+
+
+def _status_key(raw: str | None) -> str | None:
+    return None if raw is None else str(raw).strip()
+
+
+def assemble_platform_status(
+    ordered: Sequence[ObservationView], *, observable: bool, now: datetime, stale_after_hours: int
+) -> PlatformStatusFacts | None:
+    """`ordered` newest first. `None` when no observation carries an `account_status` code."""
+    coded = [o for o in ordered if o.account_status_raw is not None]
+    if not coded:
+        return None
+    latest = coded[0]
+    status = interpret_account_status(latest.account_status_raw)
+    if status is None:  # pragma: no cover - `coded` excludes None
+        return None
+    key = _status_key(latest.account_status_raw)
+    since = latest.observed_at
+    previous: ObservationView | None = None
+    for observation in coded[1:]:
+        if _status_key(observation.account_status_raw) == key:
+            since = observation.observed_at
+            continue
+        previous = observation
+        break
+    return PlatformStatusFacts(
+        observation_id=latest.id,
+        observed_at=latest.observed_at,
+        observation_status=latest.status,
+        account_status_raw=str(latest.account_status_raw),
+        status=status,
+        disable_reason_raw=latest.disable_reason_raw,
+        disable_reason=interpret_disable_reason(latest.disable_reason_raw),
+        freshness=derive_freshness(
+            observable=observable, latest_success=latest, now=now, stale_after_hours=stale_after_hours
+        ),
+        reader_source=latest.reader_source,
+        previous_account_status_raw=previous.account_status_raw if previous else None,
+        previous_status=interpret_account_status(previous.account_status_raw) if previous else None,
+        previous_observed_at=previous.observed_at if previous else None,
+        since_observed_at=since,
+        failure_code=None if latest.succeeded else latest.failure_code,
+    )
+
+
 @dataclass
 class SpendFacts:
     """Everything a spend rule or the spend API may read about one account."""
@@ -160,6 +244,8 @@ class SpendFacts:
     change_ratio_threshold: float = 0.5
     change_min_amounts: dict[str, float] = field(default_factory=dict)
     cap_ratio_threshold: float = 0.9
+    #: S2. Meta's latest account status, from the same observations. `None`: no code observed.
+    platform_status: PlatformStatusFacts | None = None
 
     @property
     def observed_currency(self) -> str | None:
@@ -298,6 +384,9 @@ def assemble(
         change_ratio_threshold=change_ratio_threshold,
         change_min_amounts=dict(change_min_amounts or {}),
         cap_ratio_threshold=cap_ratio_threshold,
+        platform_status=assemble_platform_status(
+            ordered, observable=observable, now=now, stale_after_hours=stale_after_hours
+        ),
     )
     if latest_success is None:
         return facts

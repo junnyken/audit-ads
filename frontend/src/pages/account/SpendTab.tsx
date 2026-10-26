@@ -240,6 +240,9 @@ export default function SpendTab({ account }: { account: AdAccount }) {
                     <th className="th">Observed at</th>
                     <th className="th">Result</th>
                     <th className="th">Trigger</th>
+                    <th className="th" title="The account_status code Meta returned on this read">
+                      Account status (code)
+                    </th>
                     <th className="th">Detail</th>
                   </tr>
                 </thead>
@@ -253,6 +256,13 @@ export default function SpendTab({ account }: { account: AdAccount }) {
                         </Badge>
                       </td>
                       <td className="td text-[12px]">{item.trigger.replace(/_/g, ' ')}</td>
+                      <td className="td text-[12px]" data-testid="history-status-code">
+                        {item.account_status_raw === null ? (
+                          <span className="text-ink-faint" title="Meta returned no status on this read">—</span>
+                        ) : (
+                          <span className="font-mono">{item.account_status_raw}</span>
+                        )}
+                      </td>
                       <td className="td text-[12px]">
                         {item.status === 'failed' ? (
                           <>

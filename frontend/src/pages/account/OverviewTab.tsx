@@ -1,11 +1,14 @@
 import type { UseQueryResult } from '@tanstack/react-query'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api } from '../../lib/api'
-import type { AdAccount, ImportProvenance, Readiness } from '../../lib/types'
+import type { AccountStatus, AdAccount, ImportProvenance, Readiness, SpendView } from '../../lib/types'
 import { Badge, Card, ErrorState, InlineNote, Skeleton } from '../../components/ui'
-import { READINESS_META, severityTone } from '../../lib/readiness'
+import PlatformStatusBadge from '../../components/PlatformStatusBadge'
+import { READINESS_META, accountStatusTone, severityTone } from '../../lib/readiness'
+import { disableReasonText, platformStatusBadge, recordedStatusSuggestion } from '../../lib/platformStatus'
 import { formatDateTime, formatRelative, humanise } from '../../lib/format'
+import { useAuth } from '../../hooks/useAuth'
 
 const FRESHNESS_TEXT: Record<string, string> = {
   current: 'Platform data was synced recently.',
@@ -34,11 +37,24 @@ export default function OverviewTab({
   account,
   readiness,
   onChanged,
+  onRecordMetaStatus,
+  onOpenSpend,
 }: {
   account: AdAccount
   readiness: UseQueryResult<Readiness>
   onChanged: () => void
+  /** S2: opens the existing edit drawer, optionally pre-selecting a recorded status. Never saves. */
+  onRecordMetaStatus?: (status: AccountStatus | null, note: string) => void
+  onOpenSpend?: () => void
 }) {
+  const { user } = useAuth()
+  const canRecord = user?.role === 'owner' || user?.role === 'admin'
+  // S2: the full platform-status block lives on the spend view (stored observations only).
+  const spend = useQuery({
+    queryKey: ['spend', account.id],
+    queryFn: () => api.get<SpendView>(`/api/v1/ad-accounts/${account.id}/spend`),
+  })
+  const platform = spend.data?.platform_status ?? null
   const [note, setNote] = useState('')
   const recordReview = useMutation({
     mutationFn: () =>
@@ -60,7 +76,52 @@ export default function OverviewTab({
             <span className="font-mono">{account.external_account_id ?? '—'}</span>
           </Row>
           <Row label="Account type">{humanise(account.account_type)}</Row>
-          <Row label="Platform status">{humanise(account.status)}</Row>
+          <Row label="Recorded status">
+            <Badge tone={accountStatusTone(account.status)}>{humanise(account.status)}</Badge>
+          </Row>
+          <Row label="Meta status">
+            {spend.isLoading ? (
+              <span className="text-ink-faint">…</span>
+            ) : spend.isError ? (
+              <span className="text-ink-faint">Could not load</span>
+            ) : (
+              <PlatformStatusBadge value={platform} inline />
+            )}
+          </Row>
+          {platform && (
+            <>
+              <Row label="Disable reason">
+                <span className="font-mono text-[12px]">
+                  {disableReasonText(platform.disable_reason, platform.disable_reason_raw)}
+                </span>
+              </Row>
+              <Row label="Observed at">
+                {formatDateTime(platform.observed_at)}
+                {platform.observation_status === 'failed' && (
+                  <span className="text-ink-muted">
+                    {' '}
+                    · the spend read failed ({platform.failure_code ?? 'unknown'}); the account
+                    node still answered
+                  </span>
+                )}
+                {platform.previous?.account_status_raw && (
+                  <span className="block text-[11.5px] text-ink-faint">
+                    Before: code {platform.previous.account_status_raw} at{' '}
+                    {formatDateTime(platform.previous.observed_at)}
+                  </span>
+                )}
+              </Row>
+            </>
+          )}
+          {spend.data && spend.data.latest_attempt?.status === 'failed' && platform && (
+            <Row label="Latest read">
+              <span className="text-ink-muted">
+                Failed ({spend.data.latest_attempt.failure_code ?? 'unknown'}) at{' '}
+                {formatDateTime(spend.data.latest_attempt.observed_at)} — the status above is the
+                last one Meta returned.
+              </span>
+            </Row>
+          )}
           <Row label="Country / currency">
             {[account.country, account.currency].filter(Boolean).join(' / ') || '—'}
           </Row>
@@ -68,6 +129,31 @@ export default function OverviewTab({
           <Row label="Tags">{account.tags.length ? account.tags.join(', ') : '—'}</Row>
           <Row label="Created">{formatDateTime(account.created_at)}</Row>
         </dl>
+        {platform && <InlineNote>{platform.disclaimer}</InlineNote>}
+        <div className="mt-2 flex flex-wrap gap-2">
+          {onOpenSpend && (
+            <button type="button" className="btn-ghost" onClick={onOpenSpend}>
+              Status history (Spend tab)
+            </button>
+          )}
+          {canRecord && account.archived_at === null && platform && onRecordMetaStatus && (
+            <button
+              type="button"
+              className="btn-secondary"
+              title="Opens the edit form. Nothing is saved until you press Save."
+              onClick={() =>
+                onRecordMetaStatus(
+                  recordedStatusSuggestion(platform.status),
+                  `Meta returned account_status ${platform.account_status_raw} (${
+                    platformStatusBadge(platform).label
+                  }) at ${formatDateTime(platform.observed_at)}. Check it in Ads Manager, then choose the recorded status yourself.`,
+                )
+              }
+            >
+              Record Meta status in the registry
+            </button>
+          )}
+        </div>
       </Card>
 
       <Card title="Ownership mapping">

@@ -3291,3 +3291,43 @@ Not committed. Real output:
 - Known difference: the list uses only the newest successful read, the detail view may fill the
   latest day from an older read if the newest read's window did not cover it; normal reads always do.
 - NOT done: no browser click-through against a live backend.
+
+## 2026-10-27 - S2: Meta account status monitoring, read-only (backend + dashboard + extension 0.3.0)
+
+Design A of `docs/AUDIT_BEFORE_BUILD_ACCOUNT_STATUS.md` (§7 decisions applied; deviations §8a).
+Not committed. **No live Meta read was made**, no Telegram message was sent, nothing was deployed,
+no migration was added. Every test ran against the fake provider and the fake notification
+transport; `conftest.py` still forces `META_ACCESS_TOKEN` empty. Real output:
+
+- Backend, full suite, one session (`.venv/bin/python -m pytest -q`, junit count): **1130 passed,
+  0 failed, 0 errors, 0 skipped** in 1554.6 s. `ruff check .`: All checks passed.
+  - New: `test_s2_platform_status_mapping.py` 64, `test_s2_platform_status_rules.py` 41 (one test
+    per row of the §4b degradation table, named `test_row_…`), `test_s2_platform_status_api.py` 16,
+    `test_s2_platform_status_transitions.py` 11 — 132 in all.
+  - Registry pins moved 14 → 18 in `test_health_api.py`, `test_health_engine.py`,
+    `test_s1_spend_rules.py`.
+  - Transitions pinned through the real engine: `"1"` → nothing; `"2"` → open critical signal,
+    critical alert, one `PENDING` delivery with `critical_bypass=true` under all-day quiet hours;
+    same code three times → one signal, one delivery; `"2"→"101"` → superseded, alert open, still
+    one delivery; `current → stale` → one supersede, no new delivery, still critical; `"2"→"1"` →
+    signal `resolved` (`resolved_by` null, "The source condition is no longer true."), alert
+    `resolved`, the pending delivery `cancelled` at dispatch, fake transport sent **nothing**;
+    three `permission_missing` reads after `"2"` → critical kept (stale) + spend attention;
+    mismatch opens beside blocking and resolves when the record is edited; `AdAccount.status`
+    never written; one `spend_sweep_pass` opens the signal and the `OperationalRun` keeps its shape.
+  - `GET /ad-accounts?page_size=200`: **12 queries with 2 accounts, 12 with 12 accounts** (the S1
+    test, unchanged, still asserts equality). No provider call from any `GET`.
+- Frontend: `npx vitest run` 20 files passed + 1 skipped (live), **207 passed**, 20 skipped
+  (31 new in `src/test/platform-status.test.tsx`: no `positive` tone for any state or class,
+  `active` neutral at every freshness, unknown/unlisted codes → "Unrecognised status code N",
+  missing → "—", Accounts "Meta status" + "Recorded status" columns, Overview-tab rows, the record
+  button calls back with `disabled`/`active` only and never PATCHes, the drawer pre-selects and
+  saves only on Save, Spend-tab code column, Overview counts card). `npm run typecheck`, `npm run
+  build`, `npx eslint .`: clean.
+- Extension: `npm test` 5 files, **74 passed** (13 new: label per state without `positive`,
+  unknown/unlisted code, "—" when missing, stale note, popup, VI wording; manifest version =
+  package version = 0.3.0). `npm run lint`, `npm run typecheck`, `npm run build`: clean;
+  `dist/manifest.json` 0.3.0, permissions unchanged. `dist.zip` (rooted at `dist/`) and
+  `adsops-extension-0.3.0.zip` (manifest at root, 25 entries) rebuilt; the 0.2.0 store zip deleted.
+- NOT done: no live Meta read (every §2f **[CHƯA KIỂM]** item is still open), no browser
+  click-through against a live backend, no deploy.

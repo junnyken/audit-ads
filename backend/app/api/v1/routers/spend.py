@@ -27,8 +27,15 @@ from app.schemas.common import page_response
 from app.services import spend_service
 from app.services.base import require_active
 from app.services.health_service import AccountHealthEvaluationService
+from app.services.platform_status import PLATFORM_STATUS_DISCLAIMER, status_class
 from app.services.registry import AdAccountRegistryService
-from app.services.spend_engine import SPEND_DISCLAIMER, DayValue, SpendFacts, amount_text
+from app.services.spend_engine import (
+    SPEND_DISCLAIMER,
+    DayValue,
+    PlatformStatusFacts,
+    SpendFacts,
+    amount_text,
+)
 
 router = APIRouter(tags=["spend"])
 
@@ -68,6 +75,40 @@ def _observation_out(row: AdAccountSpendObservation) -> dict[str, Any]:
         "window_since": row.window_since.isoformat() if row.window_since else None,
         "window_until": row.window_until.isoformat() if row.window_until else None,
         "daily": list(row.daily_json or []),
+    }
+
+
+def platform_status_out(value: PlatformStatusFacts | None) -> dict[str, Any] | None:
+    """S2. Meta's latest account status as stored — `None` when no observation carries a code.
+
+    Interpreted through the allowlist in `platform_status.py`; the raw code always travels with
+    the interpretation so nobody has to trust the mapping blindly.
+    """
+    if value is None:
+        return None
+    return {
+        "status": value.status.value,
+        "status_class": status_class(value.status),
+        "account_status_raw": value.account_status_raw,
+        "disable_reason": value.disable_reason.value if value.disable_reason else None,
+        "disable_reason_raw": value.disable_reason_raw,
+        "observed_at": _iso(value.observed_at),
+        "observation_id": value.observation_id,
+        "observation_status": value.observation_status.value,
+        "failure_code": value.failure_code,
+        "reader_source": value.reader_source,
+        "freshness": value.freshness.value,
+        "previous": (
+            {
+                "account_status_raw": value.previous_account_status_raw,
+                "status": value.previous_status.value if value.previous_status else None,
+                "observed_at": _iso(value.previous_observed_at),
+            }
+            if value.previous_account_status_raw is not None
+            else None
+        ),
+        "since_observed_at": _iso(value.since_observed_at),
+        "disclaimer": PLATFORM_STATUS_DISCLAIMER,
     }
 
 
@@ -127,6 +168,7 @@ def spend_payload(ctx, account: AdAccount, *, now: datetime | None = None) -> di
             else None
         ),
         "baseline_days_available": len(baseline_days),
+        "platform_status": platform_status_out(facts.platform_status),
         "disclaimer": SPEND_DISCLAIMER,
     }
 
@@ -224,6 +266,8 @@ def spend_summary(ctx: Ctx) -> dict[str, Any]:
     accounts = list(ctx.session.execute(stmt).scalars().unique().all())
 
     freshness_counts = {state.value: 0 for state in SpendFreshness}
+    # S2: counts per status class, never a score. `none` is "no status code observed".
+    platform_status_counts = {key: 0 for key in ("active", "blocking", "pending", "unknown", "none")}
     groups: dict[str, dict[str, Any]] = {}
     unattributed = 0
 
@@ -244,6 +288,9 @@ def spend_summary(ctx: Ctx) -> dict[str, Any]:
     for account in accounts:
         facts: SpendFacts = spend_service.build_spend_facts(ctx.session, ctx.workspace_id, account, now=now)
         freshness_counts[facts.freshness.value] += 1
+        platform_status_counts[
+            status_class(facts.platform_status.status if facts.platform_status else None)
+        ] += 1
         currency = facts.observed_currency
         if currency is None:
             # Never read successfully (or Meta named no currency): it cannot be attributed to any
@@ -289,6 +336,7 @@ def spend_summary(ctx: Ctx) -> dict[str, Any]:
         "generated_at": now.isoformat(),
         "total_accounts": len(accounts),
         "freshness_counts": freshness_counts,
+        "platform_status_counts": platform_status_counts,
         "accounts_unattributed": unattributed,
         "currencies": currencies,
         "complete": unattributed == 0 and all(item["complete"] for item in currencies),
