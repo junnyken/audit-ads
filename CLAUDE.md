@@ -1,7 +1,9 @@
 # AdsOps Control Center — agent instructions
 
 Governing process: `MINI_SPEC_PLAYBOOK.md`. Read it, plus `FEATURES.md`, `ARCH.md`, `API.md` and
-`TEST_LOG.md`, before changing code. Current release: O1.1 (connection discovery workspace) and the
+`TEST_LOG.md`, before changing code. Current release: S1 (spend tracking: read-only spend
+observations, four spend health rules, a sweep that is off by default, the Spend tab, and the
+extension's spend card, 0.2.0), on O1.1 (connection discovery workspace) and the
 per-Business-Manager reader credential, on A10/A10.1/A10.2/A10.3 (real Meta reads, one guarded
 write capability, authority gate, registry import), A9 (team seats), A6-A8, A5 (Chrome extension),
 A4 Stage A, A3, A2, A1.
@@ -18,6 +20,9 @@ not copy these forward — re-measure them at the moment you write about them.
 | No real Telegram message ever sent | 2026-09-14 | `notification_deliveries`: 6 rows, all `SKIPPED`; no `SENT` row exists |
 | No real ad account ever created | 2026-09-14 | every `meta_*_batch` / `*_batch_items` table is 0 rows |
 | CI green | 2026-09-14 | run `34819289771` on `b2f3fd6`: 2 jobs, every step success, 341s |
+| Production runs no dispatcher, holds no Meta credential | 2026-10-26 | Vibe Host (`vays3`) `get_stack`: the `audit-ads` stack contains only the api project. `list_env` on `audit-ads-backend` shows no `META_*` and no `RUN_DISPATCHER_IN_API` variable. So no scheduled sweep has ever run in production, and every Meta read so far was made from a local dev stack |
+| Production frontend still unreachable | 2026-10-26 | `audit-ads-app.cmc-1…` serves the platform catch-all (404). The project's newer URL `audit-ads-app.vibe1.tinhgon.xyz` resolves, but TLS fails: the certificate does not name that host |
+| Local dev database was rebuilt empty | 2026-10-26 | The old `adsops-db` container was gone. The new one holds 0 users, 0 BMs, 0 ad accounts. The 2026-09-14 rows above describe a database that no longer exists |
 | Extension never published | **not verifiable here** | no Chrome Web Store listing can be checked from this workspace; it rests on the operator's word |
 | Production schema at head | **not re-verifiable here** | the production database is internal-only. Last confirmed 2026-09-12 by a `migration complete` log line. The **local** dev database is at `0015_a10_3_conn_bm` (measured 2026-09-14) |
 

@@ -116,7 +116,6 @@ deployed, and the frontend is not built yet. Design and decisions: `docs/AUDIT_B
   `attention` signal (and an `info` alert) until it is read once — by design (§4b table row 2).
 - The dispatcher process needs the `META_*` reader settings to read anything; production env for
   it is not configured here (`docs/PRODUCTION_ENVIRONMENT.md` not updated by this backend slice).
-- Frontend (Spend tab, Accounts column, Overview cards, `lib/spend.ts`) not built.
 
 
 **S1 dashboard frontend (2026-10-26, mocked-API tests only, not clicked through live):** account
@@ -124,9 +123,12 @@ detail has a "Spend" tab (freshness badge, raw latest observation, daily table w
 without a row, incomplete-day block, baseline, backend disclaimer, latest failed attempt, owner-only
 Refresh with 403/409 handling, paginated observation history); Overview has a per-currency spend
 card (no cross-currency total, `complete:false` shown). `SPEND_FRESHNESS_META` in
-`frontend/src/lib/readiness.ts` has no positive tone. **Not built:** a spend column on the Accounts
-list - `GET /ad-accounts` carries no spend data and per-row calls would be N+1; needs a backend
-follow-up.
+`frontend/src/lib/readiness.ts` has no positive tone.
+
+**S1 Accounts list spend column (2026-10-27, mocked-API tests only):** `GET /ad-accounts` items
+carry a compact `spend` object (`freshness`, `observed_currency`, `latest_complete_day`), built for
+the whole page in two queries (`spend_service.list_compact_spend`); the Accounts table has a
+"Spend" column (freshness badge + raw latest complete-day spend, "—" when Meta returned no row).
 
 ## Shipped in A9 — Team Seats, BM/Ad-Account Assignment & Device Session Security
 

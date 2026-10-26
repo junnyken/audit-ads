@@ -936,6 +936,22 @@ Example after one successful read (values illustrative):
 }
 ```
 
+### `spend` on `GET /ad-accounts` items (S1 follow-up)
+
+Each item of the list carries a compact, additive `spend` object so the Accounts table needs no
+per-row call. It is built for the whole page in a constant number of queries (reader connections +
+one `DISTINCT ON` for the newest successful observation of every listed account); the list never
+contacts Meta. Freshness and the day come from the same engine as `GET …/spend`.
+
+```json
+"spend": {"freshness": "current", "observed_currency": "VND",
+          "latest_complete_day": {"date": "2026-10-25", "spend_raw": "1600000"}}
+```
+
+`freshness` is the same four states. `latest_complete_day` is `null` when there is no successful
+read or no usable timezone; `spend_raw` is `null` when Meta returned no row for that day (never
+`"0"`). Detail (`GET /ad-accounts/{id}`) does not carry it — use `GET …/spend`.
+
 Field rules the UI must keep:
 
 - `daily[]` holds **only complete local days that have an insights row**, newest first, at most 14.

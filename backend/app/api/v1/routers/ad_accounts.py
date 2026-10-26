@@ -19,6 +19,7 @@ from app.models.entities import (
 )
 from app.schemas import registry as s
 from app.schemas.common import page_response
+from app.services import spend_service
 from app.services.base import get_or_404
 from app.services.health_triggers import trigger_health
 from app.services.links import AssetLinkService
@@ -128,9 +129,13 @@ def list_accounts(
         ).all():
             active_links.setdefault(account_id, set()).add(asset_type)
 
+    # One bounded pair of queries for the whole page; no Meta call (S1 follow-up).
+    spend = spend_service.list_compact_spend(ctx.session, ctx.workspace_id, list(rows))
+
     items: list[dict[str, Any]] = []
     for account in rows:
         data = _serialize_account(account)
+        data["spend"] = spend[account.id]
         result = evaluations.get(str(account.id))
         if result is not None:
             data["required_item_count"] = result.required_item_count

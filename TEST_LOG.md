@@ -3273,3 +3273,21 @@ Frontend only (`frontend/`); backend untouched, no backend pytest run. Real outp
   `npx eslint .`: clean.
 - NOT done: no browser click-through against a live backend; the tab was verified only against
   mocked API responses.
+
+
+## 2026-10-27 - S1 follow-up: spend column on the Accounts list
+
+Additive `spend` on `GET /ad-accounts` items (`spend_service.list_compact_spend`) + "Spend" column.
+Not committed. Real output:
+
+- `pytest tests/test_s1_accounts_list_spend.py`: 7 passed. `tests/test_s1_spend_api.py`,
+  `test_registry_api.py`, `test_a9_session_registry.py`, `test_a7_account_operations.py`: 65 passed.
+  Full suite not run by this slice. `ruff check .`: clean.
+- Query count for one `GET /ad-accounts?page_size=200`: 12 queries with 2 accounts, 12 with 12
+  accounts (test asserts equality). Spend adds 2 of them; no provider call (fake provider recorded none).
+- `npx vitest run`: 19 files passed + 1 skipped, 176 passed, 20 skipped (9 new in
+  `src/test/accounts-spend.test.tsx`). `npm run typecheck`, `npm run build` (`index-QK_5VgC6.js`),
+  `npx eslint .`: clean.
+- Known difference: the list uses only the newest successful read, the detail view may fill the
+  latest day from an older read if the newest read's window did not cover it; normal reads always do.
+- NOT done: no browser click-through against a live backend.

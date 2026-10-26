@@ -5,6 +5,7 @@ import { api, query } from '../lib/api'
 import type { AdAccount, Paged, ReferenceRecord } from '../lib/types'
 import { Badge, EmptyState, ErrorState, Progress, Skeleton } from '../components/ui'
 import AccountFormDrawer from '../components/AccountFormDrawer'
+import AccountSpendCell from '../components/AccountSpendCell'
 import { READINESS_META, accountStatusTone } from '../lib/readiness'
 import { formatDateTime, formatRelative, humanise } from '../lib/format'
 
@@ -153,7 +154,7 @@ export default function Accounts() {
       ) : (
         <>
           <div className="card table-scroll">
-            <table className="w-full min-w-[1100px] border-collapse">
+            <table className="w-full min-w-[1200px] border-collapse">
               <thead className="bg-surface-muted">
                 <tr>
                   <th className="th w-8">
@@ -166,6 +167,7 @@ export default function Accounts() {
                   <th className="th">Status</th>
                   <th className="th">Readiness</th>
                   <th className="th">Checklist</th>
+                  <th className="th">Spend</th>
                   <th className="th">Last manual review</th>
                   <th className="th">Browser ref</th>
                   <th className="th">Proxy ref</th>
@@ -220,6 +222,9 @@ export default function Accounts() {
                       </td>
                       <td className="td">
                         <Progress value={account.completed_item_count ?? 0} total={account.required_item_count ?? 0} />
+                      </td>
+                      <td className="td">
+                        <AccountSpendCell spend={account.spend} />
                       </td>
                       <td className="td whitespace-nowrap text-[12px] text-ink-muted">
                         {account.last_manual_review_at ? formatRelative(account.last_manual_review_at) : 'never'}

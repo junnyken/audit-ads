@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 
@@ -224,6 +225,74 @@ def build_spend_facts(
         change_min_amounts=settings.spend_change_min_amount_json,
         cap_ratio_threshold=settings.spend_cap_ratio_threshold,
     )
+
+
+def list_compact_spend(
+    session: Session,
+    workspace_id: uuid.UUID,
+    accounts: Sequence[AdAccount],
+    *,
+    now: datetime | None = None,
+) -> dict[uuid.UUID, dict]:
+    """The compact spend summary for a page of accounts, in a constant number of queries.
+
+    Two queries however many accounts there are: the workspace's reader connections, and the
+    newest successful observation of every listed account (`DISTINCT ON`, however old). Freshness
+    and the latest complete day come from the same `assemble` the spend view uses, fed that one
+    observation, so the list and the detail cannot disagree. Never calls a provider.
+
+    `latest_complete_day.spend_raw` is `None` when Meta returned no row for that day — never "0".
+    """
+    if not accounts:
+        return {}
+    settings = get_settings()
+    now = now or datetime.now(UTC)
+    readers = _connections_by_business(session, workspace_id, settings)
+    ids = [account.id for account in accounts]
+    latest = {
+        row.ad_account_id: row
+        for row in session.execute(
+            sa.select(AdAccountSpendObservation)
+            .where(
+                AdAccountSpendObservation.workspace_id == workspace_id,
+                AdAccountSpendObservation.ad_account_id.in_(ids),
+                AdAccountSpendObservation.archived_at.is_(None),
+                AdAccountSpendObservation.status == SpendObservationStatus.SUCCEEDED,
+            )
+            .distinct(AdAccountSpendObservation.ad_account_id)
+            .order_by(
+                AdAccountSpendObservation.ad_account_id,
+                AdAccountSpendObservation.observed_at.desc(),
+                AdAccountSpendObservation.id.desc(),
+            )
+        ).scalars().all()
+    }
+    result: dict[uuid.UUID, dict] = {}
+    for account in accounts:
+        reader = None
+        if account.archived_at is None and canonical_external_id(account.external_account_id):
+            reader = readers.get(_account_business_id(account))
+        row = latest.get(account.id)
+        facts = assemble(
+            observable=reader is not None,
+            observations=[_view(row)] if row is not None else [],
+            now=now,
+            stale_after_hours=settings.spend_observation_stale_after_hours,
+        )
+        day = None
+        if facts.latest_complete_day is not None:
+            entry = facts.day(facts.latest_complete_day)
+            if entry is not None:
+                day = {
+                    "date": entry.day.isoformat(),
+                    "spend_raw": entry.spend_raw if entry.has_row else None,
+                }
+        result[account.id] = {
+            "freshness": facts.freshness.value,
+            "observed_currency": facts.observed_currency,
+            "latest_complete_day": day,
+        }
+    return result
 
 
 def _iso_date(value: str | None) -> date | None:

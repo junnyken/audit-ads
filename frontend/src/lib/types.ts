@@ -69,6 +69,8 @@ export interface AdAccount {
   completed_item_count?: number
   has_browser_reference?: boolean
   has_proxy_reference?: boolean
+  /** List responses only (S1 follow-up). Compact; the full view is `GET …/spend`. */
+  spend?: AccountSpendCompact
   /** Detail responses only; the list endpoint omits it. */
   imported_from_discovery?: ImportProvenance | null
 }
@@ -1110,6 +1112,13 @@ export interface AccessPreview {
 // unverified, so nothing in the UI parses, divides, rounds or adds these values.
 
 export type SpendFreshness = 'current' | 'stale' | 'never_observed' | 'not_observable'
+
+export interface AccountSpendCompact {
+  freshness: SpendFreshness
+  observed_currency: string | null
+  /** `spend_raw` is null when Meta returned no row for that day — never "0". */
+  latest_complete_day: { date: string; spend_raw: string | null } | null
+}
 
 export interface SpendDailyRaw {
   date_start: string
