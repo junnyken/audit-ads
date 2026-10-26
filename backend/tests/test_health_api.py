@@ -319,11 +319,15 @@ def test_backfill_is_owner_confirmed_and_bounded(api):
 
 def test_rules_endpoint_lists_the_versioned_registry(api):
     rules = api.get("/api/v1/account-health/rules").json()
-    assert len(rules) == 10
+    # 10 A2 rules + the 4 S1 spend rules.
+    assert len(rules) == 14
     keys = {rule["rule_key"] for rule in rules}
     assert "account_restricted_status" in keys and "manual_review_due_or_stale" in keys
     for rule in rules:
-        assert rule["version"] >= 1 and rule["enabled"] is True
+        # S1: `spend_cap_approaching` is seeded off until the first live read confirms the units
+        # of amount_spent/spend_cap; every other rule starts on, as before.
+        expected = rule["rule_key"] != "spend_cap_approaching"
+        assert rule["version"] >= 1 and rule["enabled"] is expected, rule["rule_key"]
         assert rule["why_it_matters"] and rule["recommended_next_step"]
 
 

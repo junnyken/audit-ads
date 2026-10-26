@@ -22,6 +22,12 @@ export default defineConfig({
       closeBundle() {
         mkdirSync(out, { recursive: true })
         copyFileSync(resolve(src, 'manifest.json'), resolve(out, 'manifest.json'))
+        // Icons are drawn by `scripts/make-icons.py` and copied as-is, at the paths the manifest names.
+        mkdirSync(resolve(out, 'icons'), { recursive: true })
+        for (const size of [16, 32, 48, 128]) {
+          const name = `icons/icon-${size}.png`
+          copyFileSync(resolve(__dirname, name), resolve(out, name))
+        }
       },
     },
   ],

@@ -1,11 +1,12 @@
 # Health rules — version 1 (`a2-v1`)
 
-Ten typed rules, evaluated in this order. Each is a Python function in a fixed registry
+Ten typed rules from A2, plus four spend rules added by S1 (2026-10-26), evaluated in this order. Each is a Python function in a fixed registry
 (`backend/app/services/health_rules.py`); there is no user-authored rule code, no expression
 parser and nothing evaluated from a string.
 
-Every rule reads only A1 facts already stored in this product. No rule contacts an advertising
-platform, and no rule predicts platform enforcement.
+Every rule reads only facts already stored in this product — A1 records, and since S1 spend
+observations that were read from Meta and stored *before* evaluation. No rule contacts an
+advertising platform, and no rule predicts platform enforcement.
 
 | # | `rule_key` | Category | Severity | Fires when | Closes when |
 |---|---|---|---|---|---|
@@ -19,6 +20,14 @@ platform, and no rule predicts platform enforcement.
 | 8 | `readiness_unknown` | data_quality | attention | A1 readiness is `unknown` | Readiness resolves to any other state |
 | 9 | `manual_review_due_or_stale` | operations | warning | The last manual review is missing, or older than the configured interval | A manual review is recorded within the interval |
 | 10 | `account_data_stale_or_unknown` | data_quality | **unknown** if the account has no checklist at all, otherwise attention | Required health inputs are missing (no checklist items, or readiness never evaluated) | The inputs exist |
+| 11 | `spend_observation_missing_or_stale` | spend | attention | The account can be read (production connection + reader) and spend was never read successfully, the latest success is older than `SPEND_OBSERVATION_STALE_AFTER_HOURS` (26), or the last 3 reads failed | A successful read lands inside the window |
+| 12 | `spend_change_vs_baseline` | spend | warning | Current read, known timezone, a row for the latest complete local day, ≥5 earlier complete days with rows; \|Δ\| vs their median ≥ 50% **and** ≥ the currency minimum (VND 500 000, USD 20; no minimum ⇒ never). One signal per day | The latest complete day is back in range, or there is no longer enough data |
+| 13 | `spend_cap_approaching` | spend | warning | `amount_spent / spend_cap` (raw Meta values, cap > 0) ≥ 0.9 on a current read. **Seeded disabled** until the first live read confirms the units | Ratio below 0.9 or cap removed |
+| 14 | `spend_currency_mismatch` | spend | attention | Meta's currency ≠ the registry currency, or insights rows disagree with the account node | The currencies agree |
+
+Spend signals carry `source_type = provider_observation`. Missing data never fires a spend rule
+(no row ≠ 0; no timezone ⇒ no "yesterday"; no baseline ⇒ no comparison), and no spend rule raises
+`unknown` — rule 10 remains the only one that may. Details: `ARCH.md` §4j.
 
 ## Interactions
 

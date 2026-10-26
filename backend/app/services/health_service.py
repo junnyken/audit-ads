@@ -49,12 +49,21 @@ from app.services.health_rules import (
     SignalCandidate,
 )
 from app.services.rollup import ReadinessRollupService
+from app.services.spend_service import build_spend_facts
 
 logger = logging.getLogger(__name__)
 
 #: Evidence keys that move without the underlying fact changing. Excluded from the material
 #: hash so an unrelated edit to an account does not supersede a signal that says the same thing.
-VOLATILE_EVIDENCE_KEYS = frozenset({"recorded_at"})
+VOLATILE_EVIDENCE_KEYS = frozenset(
+    {
+        "recorded_at",
+        # S1: amount spent moves on every read while "the cap is nearly reached" stays the same
+        # fact. Hashing it would supersede the signal, and audit it, on every single read.
+        "amount_spent_raw",
+        "spend_cap_used_ratio",
+    }
+)
 
 
 def evidence_hash(evidence: dict[str, Any]) -> str:
@@ -92,7 +101,7 @@ class HealthRuleRegistryService:
                 name=rule.name,
                 description=rule.description,
                 category=rule.category,
-                enabled=True,
+                enabled=rule.enabled_by_default,
                 severity=rule.default_severity,
                 source_requirements_json={"input_facts": list(rule.input_facts)},
                 condition_config_json=dict(rule.condition_config),
@@ -538,6 +547,9 @@ class AccountHealthEvaluationService:
             unresolved_events=[event for event in events if event.is_unresolved],
             now=now,
             manual_review_due_after_days=self.settings.readiness_manual_review_interval_days,
+            # S1: stored observations only. Assembling them reads the database and server
+            # configuration (which connection could read), never the platform.
+            spend=build_spend_facts(self.session, self.workspace_id, account, now=now),
         )
 
     # -------------------------------------------------------------------- evaluation

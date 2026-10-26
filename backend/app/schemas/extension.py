@@ -89,6 +89,7 @@ class ContextResolveResponse(BaseModel):
     readiness: dict[str, Any] | None = None
     health: dict[str, Any] | None = None
     alerts: dict[str, int] | None = None
+    spend: dict[str, Any] | None = None
     dashboard_paths: dict[str, str] | None = None
     disclaimer: str | None = None
     generated_at: datetime | None = None
@@ -99,6 +100,7 @@ class ExtensionSummaryResponse(BaseModel):
     readiness: dict[str, Any]
     health: dict[str, Any]
     alerts: dict[str, int]
+    spend: dict[str, Any]
     dashboard_paths: dict[str, str]
     disclaimer: str
     generated_at: datetime

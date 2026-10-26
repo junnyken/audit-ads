@@ -11,6 +11,15 @@ describe('manifest', () => {
     expect(manifest.background.type).toBe('module')
   })
 
+  it('fits the Chrome Web Store listing: a 128px icon that exists, a summary of at most 132 characters', () => {
+    expect(manifest.description.length).toBeLessThanOrEqual(132)
+    expect(manifest.icons['128']).toBe('icons/icon-128.png')
+    const named = [...Object.values(manifest.icons), ...Object.values(manifest.action.default_icon)]
+    for (const path of named as string[]) {
+      expect(existsSync(resolve(root, path)), path).toBe(true)
+    }
+  })
+
   it('never asks for a broad host permission', () => {
     const hosts: string[] = manifest.host_permissions ?? []
     expect(hosts).not.toContain('<all_urls>')

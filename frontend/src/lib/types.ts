@@ -241,7 +241,12 @@ export type HealthStatus =
 export type FreshnessStatus = 'current' | 'stale' | 'unknown' | 'not_applicable'
 export type SignalSeverity = 'unknown' | 'attention' | 'warning' | 'critical'
 export type SignalStatus = 'open' | 'acknowledged' | 'resolved' | 'expired' | 'superseded'
-export type HealthCategory = 'account_status' | 'operations' | 'readiness' | 'data_quality'
+export type HealthCategory =
+  | 'account_status'
+  | 'operations'
+  | 'readiness'
+  | 'data_quality'
+  | 'spend'
 
 export interface HealthReason {
   code: string
@@ -1098,4 +1103,102 @@ export interface AccessPreview {
   is_owner: boolean
   business_manager_ids: string[]
   ad_account_ids: string[]
+}
+
+// ---- S1 spend tracking -------------------------------------------------------------------
+// Money is always the string Meta returned. The units of amount_spent / spend_cap / balance are
+// unverified, so nothing in the UI parses, divides, rounds or adds these values.
+
+export type SpendFreshness = 'current' | 'stale' | 'never_observed' | 'not_observable'
+
+export interface SpendDailyRaw {
+  date_start: string
+  date_stop: string
+  spend: string
+  account_currency: string | null
+}
+
+export interface SpendObservation {
+  id: string
+  observed_at: string
+  status: 'succeeded' | 'failed'
+  trigger: string
+  failure_code: string | null
+  failure_summary: string | null
+  meta_connection_id: string | null
+  reader_source: string | null
+  read_as: { external_id: string | null; name: string | null } | null
+  currency: string | null
+  timezone_name: string | null
+  account_status_raw: string | null
+  disable_reason_raw: string | null
+  amount_spent_raw: string | null
+  spend_cap_raw: string | null
+  balance_raw: string | null
+  window_since: string | null
+  window_until: string | null
+  daily: SpendDailyRaw[]
+}
+
+export interface SpendDay {
+  date: string
+  spend_raw: string
+  currency: string | null
+  observation_id: string
+  observed_at: string
+}
+
+export interface SpendView {
+  ad_account_id: string
+  freshness: SpendFreshness
+  observable: boolean
+  reader_source: string | null
+  meta_connection_id: string | null
+  stale_after_hours: number
+  registry_currency: string | null
+  observed_currency: string | null
+  currency_mismatch: boolean | null
+  insights_currency_conflict: boolean
+  missing_input: string | null
+  latest_observation: SpendObservation | null
+  latest_attempt: {
+    id: string
+    observed_at: string
+    status: 'succeeded' | 'failed'
+    failure_code: string | null
+    failure_summary: string | null
+  } | null
+  latest_complete_day: string | null
+  daily: SpendDay[]
+  days_without_row: string[]
+  today_partial: (SpendDay & { label: string }) | null
+  baseline: {
+    median_raw: string
+    currency: string | null
+    days_used: string[]
+    min_days_required: number
+  } | null
+  baseline_days_available: number
+  disclaimer: string
+}
+
+export interface SpendCurrencyGroup {
+  currency: string
+  total_raw: string | null
+  days: string[]
+  accounts_included: number
+  accounts_without_row: number
+  accounts_not_current: number
+  accounts_currency_conflict: number
+  complete: boolean
+}
+
+export interface SpendSummary {
+  generated_at: string
+  total_accounts: number
+  freshness_counts: Record<SpendFreshness, number>
+  accounts_unattributed: number
+  currencies: SpendCurrencyGroup[]
+  complete: boolean
+  disclaimer: string
 }

@@ -8,6 +8,7 @@ import { FRESHNESS_META, HEALTH_META } from '../lib/health'
 import { ALERT_SEVERITY_META, ALERT_STATUS_META, DELIVERY_STATUS_META, TRANSPORT_NOT_CONFIGURED } from '../lib/alerts'
 import { formatRelative, humanise } from '../lib/format'
 import { useAuth } from '../hooks/useAuth'
+import SpendSummaryCard from '../components/SpendSummaryCard'
 import { DiscoveryOverview } from '../components/meta/DiscoveryOverview'
 
 function useOverview() {
@@ -266,6 +267,8 @@ export default function Overview() {
           </>
         )}
       </section>
+
+      <SpendSummaryCard />
 
       <DiscoveryOverview isOwner={user?.role === 'owner'} />
 

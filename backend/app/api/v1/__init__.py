@@ -15,6 +15,7 @@ from app.api.v1.routers import (
     readiness,
     references,
     security_sessions,
+    spend,
     system,
     team,
 )
@@ -38,3 +39,4 @@ api_router.include_router(account_operations.router)
 api_router.include_router(meta_operations.router)
 api_router.include_router(security_sessions.router)
 api_router.include_router(team.router)
+api_router.include_router(spend.router)

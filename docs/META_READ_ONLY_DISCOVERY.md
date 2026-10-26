@@ -250,8 +250,18 @@ side as though they were one.
 
 ## Bounds
 
-Every call is explicit — a person pressed a button. There is no timer, no page-load trigger and
-no automatic retry. Reading the latest run makes no provider call at all.
+Every **discovery** call is explicit — a person pressed a button. There is no timer, no page-load
+trigger and no automatic retry. Reading the latest run makes no provider call at all.
+
+**Since S1 (2026-10-26) this is no longer true of every Meta call the product makes.** The spend
+sweep (`python -m app.commands.run_dispatcher`, `spend_sweep_pass`) reads `act_<id>` and
+`act_<id>/insights` on the dispatcher's cadence for accounts whose spend observation is missing or
+stale. It is **off by default** (`SPEND_SWEEP_EVERY_N_PASSES=0`), bounded (`SPEND_SWEEP_BATCH`
+accounts per workspace per pass, two GETs each), GET-only, and it stops reading through a connection
+on its first `rate_limited` — no sleep, no retry. Switching it on in production is a release decision
+with a named approver, recorded in `TEST_LOG.md` (rule 22; `docs/AUDIT_BEFORE_BUILD_SPEND.md` §6.7).
+It shares the same per-ad-account rate-limit budget as discovery. `POST /ad-accounts/{id}/spend/refresh`
+is the other S1 read, and is human-initiated like discovery.
 
 Each edge is capped at 10 pages of 100 items. Hitting the cap sets `truncated`, which makes
 coverage `partial`: a bounded read is not a full inventory. Pagination follows Meta's

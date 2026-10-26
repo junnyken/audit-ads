@@ -25,6 +25,7 @@ from app.core.enums import (
 )
 from app.models.entities import AccountEvent, AdAccount, ReadinessChecklistItem
 from app.services.readiness import ReadinessResult
+from app.services.spend_engine import SpendFacts, amount_text, parse_amount
 
 ENGINE_VERSION = "a2-v1"
 
@@ -60,6 +61,10 @@ class HealthFacts:
     unresolved_events: list[AccountEvent]
     now: datetime
     manual_review_due_after_days: int
+    #: S1. Assembled from stored observations before evaluation — never read from the platform
+    #: during it, so "Recalculate health" still contacts no advertising platform. `None` means
+    #: the spend facts were not assembled at all, and every spend rule then stays silent.
+    spend: SpendFacts | None = None
 
     @property
     def critical_events(self) -> list[AccountEvent]:
@@ -97,6 +102,10 @@ class HealthRule:
     resolution_guidance: str
     evaluate: Callable[[HealthFacts], list[SignalCandidate]]
     condition_config: dict = field(default_factory=dict)
+    #: Whether the seeded global definition starts enabled. Only `spend_cap_approaching` starts
+    #: off: its inputs' units are unverified until the first live read has been looked at, and
+    #: switching it on is then one `PATCH /account-health/rules/{key}` by the owner.
+    enabled_by_default: bool = True
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -394,6 +403,236 @@ def _data_stale_or_unknown(facts: HealthFacts) -> list[SignalCandidate]:
     return []
 
 
+# ------------------------------------------------------------------------------ spend (S1)
+#: Every spend signal names where its fact came from: a platform read through a named reader,
+#: stored before evaluation. A spend signal must never look like an operator-recorded fact.
+_SPEND_SOURCE = HealthSourceType.PROVIDER_OBSERVATION
+
+
+def _spend_candidate(
+    facts: HealthFacts,
+    *,
+    rule_key: str,
+    scope: str,
+    severity: SignalSeverity,
+    evidence: dict,
+    observed_at: datetime | None,
+    observation_id: str | None,
+) -> SignalCandidate:
+    return SignalCandidate(
+        rule_key=rule_key,
+        rule_version=1,
+        scope=scope,
+        severity=severity,
+        category=HealthCategory.SPEND,
+        source_type=_SPEND_SOURCE,
+        source_entity_type="ad_account_spend_observation" if observation_id else "ad_account",
+        source_entity_id=observation_id or str(facts.account.id),
+        evidence={
+            **evidence,
+            "source": "Meta read-only spend observation",
+            "reader_source": facts.spend.reader_source if facts.spend else None,
+        },
+        observed_at=_aware(observed_at) or facts.now,
+    )
+
+
+def _spend_missing_or_stale(facts: HealthFacts) -> list[SignalCandidate]:
+    spend = facts.spend
+    if spend is None or not spend.observable:
+        # Nothing can read this account, so there is nothing to be late about. Health says so on
+        # screen through the `not_observable` freshness; it is not a finding about the account.
+        return []
+    latest = spend.latest_success
+    attempt = spend.latest_attempt
+    failures = spend.consecutive_failures
+    if spend.freshness.value == "never_observed":
+        message = (
+            "Spend has never been read successfully for this account."
+            if attempt is None or failures == 0
+            else "Every spend read for this account has failed so far."
+        )
+    elif spend.freshness.value == "stale":
+        message = (
+            f"The latest successful spend read is older than {spend.stale_after_hours} hours."
+        )
+    elif failures >= 3:
+        message = "The last three spend reads for this account failed."
+    else:
+        return []
+    return [
+        _spend_candidate(
+            facts,
+            rule_key="spend_observation_missing_or_stale",
+            scope="spend_observation",
+            severity=SignalSeverity.ATTENTION,
+            evidence={
+                "message": message,
+                "spend_freshness": spend.freshness.value,
+                "last_successful_observed_at": _iso(_aware(latest.observed_at)) if latest else None,
+                "latest_failure_code": (
+                    attempt.failure_code if attempt is not None and not attempt.succeeded else None
+                ),
+                "consecutive_failed_reads": min(failures, 3),
+                "stale_after_hours": spend.stale_after_hours,
+            },
+            observed_at=attempt.observed_at if attempt else None,
+            observation_id=attempt.id if attempt else None,
+        )
+    ]
+
+
+def _spend_change_vs_baseline(facts: HealthFacts) -> list[SignalCandidate]:
+    spend = facts.spend
+    if spend is None or not spend.observable or not spend.is_current:
+        return []
+    if not spend.timezone_usable or spend.latest_complete_day is None:
+        # No timezone, no "yesterday". Not fired — and not reported as fine either.
+        return []
+    if spend.insights_currency_conflict:
+        return []
+    latest = spend.day(spend.latest_complete_day)
+    if latest is None or not latest.has_row or latest.amount is None:
+        # No row is not zero (rule 4). Only a row with a small number can be a drop.
+        return []
+    currency = spend.observed_currency or (latest.currency or "").upper() or None
+    minimum = spend.min_amount_for(currency)
+    if minimum is None:
+        # No minimum configured for this currency: the rule stays silent rather than treating
+        # every small wobble in an unconfigured currency as a change worth a warning.
+        return []
+    median = spend.baseline_median()
+    if median is None:
+        return []
+
+    amount = latest.amount
+    delta = amount - median
+    if abs(delta) < minimum:
+        return []
+    ratio = (abs(delta) / median) if median > 0 else None
+    if ratio is not None and ratio < parse_amount(str(spend.change_ratio_threshold)):
+        return []
+
+    baseline = spend.baseline_days()
+    direction = "increase" if delta > 0 else "decrease"
+    return [
+        _spend_candidate(
+            facts,
+            rule_key="spend_change_vs_baseline",
+            scope=f"day:{latest.day.isoformat()}",
+            severity=SignalSeverity.WARNING,
+            evidence={
+                "message": (
+                    f"Spend on {latest.day.isoformat()} ({amount_text(amount)} {currency}) is a "
+                    f"{direction} versus the median of the previous {len(baseline)} complete "
+                    f"days ({amount_text(median)} {currency})."
+                ),
+                "day": latest.day.isoformat(),
+                "spend": latest.spend_raw,
+                "currency": currency,
+                "direction": direction,
+                "baseline_median": amount_text(median),
+                "baseline_day_count": len(baseline),
+                "baseline_days": [d.day.isoformat() for d in baseline],
+                "change_ratio": amount_text(round(ratio, 4)) if ratio is not None else None,
+                "change_ratio_threshold": str(spend.change_ratio_threshold),
+                "change_min_amount": amount_text(minimum),
+                "timezone_name": spend.latest_success.timezone_name if spend.latest_success else None,
+            },
+            observed_at=latest.observed_at,
+            observation_id=latest.observation_id,
+        )
+    ]
+
+
+def _spend_cap_approaching(facts: HealthFacts) -> list[SignalCandidate]:
+    spend = facts.spend
+    if spend is None or not spend.observable or not spend.is_current:
+        return []
+    latest = spend.latest_success
+    if latest is None or spend.insights_currency_conflict:
+        return []
+    spent = parse_amount(latest.amount_spent_raw)
+    cap = parse_amount(latest.spend_cap_raw)
+    if spent is None or cap is None or cap <= 0:
+        # An empty, zero or unparseable cap is not a cap this rule can measure against.
+        return []
+    ratio = spent / cap
+    threshold = parse_amount(str(spend.cap_ratio_threshold))
+    if threshold is None or ratio < threshold:
+        return []
+    return [
+        _spend_candidate(
+            facts,
+            rule_key="spend_cap_approaching",
+            scope="spend_cap",
+            severity=SignalSeverity.WARNING,
+            evidence={
+                "message": (
+                    "Amount spent has reached the configured share of the account spend cap "
+                    "(raw values as Meta returned them when this signal opened)."
+                ),
+                "spend_cap_raw": latest.spend_cap_raw,
+                "spend_cap_ratio_threshold": str(spend.cap_ratio_threshold),
+                # Volatile: they move on every read without the condition changing, so they are
+                # kept out of the material hash (see `VOLATILE_EVIDENCE_KEYS`).
+                "amount_spent_raw": latest.amount_spent_raw,
+                "spend_cap_used_ratio": amount_text(round(ratio, 4)),
+            },
+            observed_at=latest.observed_at,
+            observation_id=latest.id,
+        )
+    ]
+
+
+def _spend_currency_mismatch(facts: HealthFacts) -> list[SignalCandidate]:
+    spend = facts.spend
+    if spend is None or not spend.observable or spend.latest_success is None:
+        return []
+    observed = spend.observed_currency
+    candidates: list[SignalCandidate] = []
+    registry = (facts.account.currency or "").upper() or None
+    if observed and registry and observed != registry:
+        candidates.append(
+            _spend_candidate(
+                facts,
+                rule_key="spend_currency_mismatch",
+                scope="registry",
+                severity=SignalSeverity.ATTENTION,
+                evidence={
+                    "message": (
+                        "The currency Meta reports for this account differs from the currency "
+                        "recorded in the registry."
+                    ),
+                    "observed_currency": observed,
+                    "registry_currency": registry,
+                },
+                observed_at=spend.latest_success.observed_at,
+                observation_id=spend.latest_success.id,
+            )
+        )
+    if spend.insights_currency_conflict:
+        candidates.append(
+            _spend_candidate(
+                facts,
+                rule_key="spend_currency_mismatch",
+                scope="insights",
+                severity=SignalSeverity.ATTENTION,
+                evidence={
+                    "message": (
+                        "Meta's daily spend rows report a currency different from the account's "
+                        "own currency, so spend amounts for this account are not compared."
+                    ),
+                    "observed_currency": observed,
+                    "insights_currencies": sorted(spend.insights_currencies),
+                },
+                observed_at=spend.latest_success.observed_at,
+                observation_id=spend.latest_success.id,
+            )
+        )
+    return candidates
+
+
 HEALTH_RULES_V1: tuple[HealthRule, ...] = (
     HealthRule(
         rule_key="account_restricted_status",
@@ -537,6 +776,92 @@ HEALTH_RULES_V1: tuple[HealthRule, ...] = (
         recommended_next_step="Recalculate readiness for the account so the checklist and readiness state exist.",
         resolution_guidance="Closes automatically once the inputs are available.",
         evaluate=_data_stale_or_unknown,
+    ),
+    HealthRule(
+        rule_key="spend_observation_missing_or_stale",
+        version=1,
+        name="Spend has not been read recently",
+        description=(
+            "Attention signal when an account that can be read has never had a successful spend "
+            "read, its latest successful read is stale, or its last three reads failed."
+        ),
+        category=HealthCategory.SPEND,
+        default_severity=SignalSeverity.ATTENTION,
+        applicability="Non-archived accounts whose Business Manager has a production Meta connection with a reader.",
+        input_facts=("ad_account_spend_observation.observed_at", "ad_account_spend_observation.status"),
+        why_it_matters="Without a current read, the spend shown for this account may no longer match what Meta reports.",
+        recommended_next_step=(
+            "Open the account's Spend tab and read the failure code, then check the account in Ads "
+            "Manager. An owner can request one read with \"Đọc lại từ Meta\"."
+        ),
+        resolution_guidance="Closes automatically once a successful spend read lands inside the freshness window.",
+        evaluate=_spend_missing_or_stale,
+    ),
+    HealthRule(
+        rule_key="spend_change_vs_baseline",
+        version=1,
+        name="Daily spend changed sharply versus its baseline",
+        description=(
+            "Warning when the latest complete day's spend differs from the median of at least the "
+            "configured number of earlier complete days by the configured ratio and by the "
+            "configured minimum amount for that currency."
+        ),
+        category=HealthCategory.SPEND,
+        default_severity=SignalSeverity.WARNING,
+        applicability=(
+            "Accounts with a current spend read, a known timezone, an insights row for the latest "
+            "complete day, enough baseline days, and a minimum amount configured for the currency."
+        ),
+        input_facts=("ad_account_spend_observation.daily_json", "ad_account_spend_observation.observed_timezone_name"),
+        why_it_matters="A sudden rise or drop in daily spend is often the first visible sign that delivery changed.",
+        recommended_next_step=(
+            "Open Ads Manager and compare the named day's spend with the days before it; record "
+            "what you find as an account event."
+        ),
+        resolution_guidance=(
+            "Closes automatically when the latest complete day is no longer outside the range, or "
+            "when there is no longer enough data to compare."
+        ),
+        evaluate=_spend_change_vs_baseline,
+    ),
+    HealthRule(
+        rule_key="spend_cap_approaching",
+        version=1,
+        name="Amount spent is close to the spend cap",
+        description=(
+            "Warning when amount_spent / spend_cap, both as Meta returned them, reaches the "
+            "configured ratio. Starts disabled: the units of these fields are confirmed at the "
+            "first live read, after which the owner turns this check on."
+        ),
+        category=HealthCategory.SPEND,
+        default_severity=SignalSeverity.WARNING,
+        applicability="Accounts with a current spend read carrying a positive, parseable spend cap.",
+        input_facts=("ad_account_spend_observation.amount_spent_raw", "ad_account_spend_observation.spend_cap_raw"),
+        why_it_matters="When the cap is reached, the account stops delivering until the cap is raised or reset.",
+        recommended_next_step=(
+            "Check the account spending limit in Ads Manager's billing settings and decide there "
+            "whether it needs changing."
+        ),
+        resolution_guidance="Closes automatically once the ratio falls below the threshold or the cap is removed.",
+        evaluate=_spend_cap_approaching,
+        enabled_by_default=False,
+    ),
+    HealthRule(
+        rule_key="spend_currency_mismatch",
+        version=1,
+        name="Spend currency does not match",
+        description=(
+            "Attention signal when the currency Meta reports differs from the registry's currency, "
+            "or Meta's daily rows report a different currency from the account node."
+        ),
+        category=HealthCategory.SPEND,
+        default_severity=SignalSeverity.ATTENTION,
+        applicability="Accounts with at least one successful spend read.",
+        input_facts=("ad_account_spend_observation.observed_currency", "ad_account.currency"),
+        why_it_matters="Spend is only ever grouped by currency; a wrong currency would put an amount in the wrong group.",
+        recommended_next_step="Confirm the account currency in Ads Manager and correct the registry record if it is wrong.",
+        resolution_guidance="Closes automatically once the currencies agree.",
+        evaluate=_spend_currency_mismatch,
     ),
 )
 

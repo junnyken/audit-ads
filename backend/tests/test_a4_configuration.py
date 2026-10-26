@@ -162,6 +162,26 @@ def test_the_api_image_does_not_migrate_on_start():
         assert "alembic" not in line, line
 
 
+def test_the_start_script_keeps_the_dockerfile_guarantees():
+    """The CMD moved into `start.sh`, so the guards on the CMD must follow it there.
+
+    No migration on start (A4 §5.16), no proxy-header trust (see test_rate_limit), and the
+    in-container dispatcher only on the exact opt-in value.
+    """
+    script = (REPO / "backend" / "start.sh").read_text()
+    commands = "\n".join(
+        line for line in script.splitlines() if not line.lstrip().startswith("#")
+    )
+    assert "alembic" not in commands
+    assert "--proxy-headers" not in commands
+    assert "--forwarded-allow-ips" not in commands
+    assert '"${RUN_DISPATCHER_IN_API:-}" = "true"' in commands
+    assert "exec uvicorn app.main:app" in commands
+    dockerfile = (REPO / "backend" / "Dockerfile").read_text()
+    assert 'CMD ["./start.sh"]' in dockerfile
+    assert "COPY --chmod=0755 start.sh" in dockerfile
+
+
 def test_production_compose_pins_explicit_image_tags():
     compose = (REPO / "docker-compose.production.yml").read_text()
     assert ":latest" not in compose

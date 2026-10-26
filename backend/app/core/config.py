@@ -140,6 +140,37 @@ class Settings(BaseSettings):
     #: A backup older than this is reported stale (daily backup + 2h grace).
     backup_stale_after_hours: int = 26
 
+    # ---- S1 spend tracking (Meta, read-only) ------------------------------------------
+    #: How often the dispatcher also reads spend from Meta, counted in dispatch passes.
+    #:
+    #: **Zero disables it, and zero is the default.** This is the first path in the product that
+    #: calls Meta without a person pressing a button. Turning it on in production is a release
+    #: decision with a named approver (rule 22, `docs/AUDIT_BEFORE_BUILD_SPEND.md` §6.7) — not a
+    #: default anyone drifts past. `python -m app.commands.run_dispatcher --spend-sweep` runs one
+    #: pass by hand first.
+    spend_sweep_every_n_passes: int = 0
+    #: Accounts per workspace per spend sweep. Two GETs per account, so this bounds the calls one
+    #: pass can spend. What it could not reach is reported as `due_remaining`.
+    spend_sweep_batch: int = 10
+    #: A successful spend observation older than this is `stale`. It is also what makes an account
+    #: due for the sweep, so the sweep and the badge agree by construction. Lower it to read each
+    #: account more often; the default re-reads about once a day.
+    spend_observation_stale_after_hours: int = 26
+    #: `spend_change_vs_baseline` needs at least this many complete days with an insights row
+    #: before the latest complete day; fewer means no baseline, and the rule does not fire.
+    spend_baseline_min_days: int = 5
+    #: Relative change versus the baseline median, in both directions (0.5 = ±50%).
+    spend_change_ratio_threshold: float = 0.5
+    #: The absolute change that must also be reached, per currency, in that currency's units as
+    #: Meta's insights report them. A currency with no entry here never fires the rule — an
+    #: unconfigured minimum is not a minimum of zero. Decided 2026-10-26: VND 500 000 / USD 20.
+    #: `SPEND_CHANGE_MIN_AMOUNT_JSON={"VND": 500000, "USD": 20}`
+    spend_change_min_amount_json: dict[str, float] = Field(
+        default_factory=lambda: {"VND": 500000, "USD": 20}
+    )
+    #: `spend_cap_approaching` fires when amount_spent / spend_cap reaches this ratio.
+    spend_cap_ratio_threshold: float = 0.9
+
     # ---- A5 Chrome context extension ------------------------------------------------
     #: Extension tokens are short-lived on purpose: they live in browser storage, so a stolen
     #: one should stop working in hours rather than the 12 hours a dashboard session gets.

@@ -78,8 +78,11 @@ Conventions:
 - Every domain table has `created_at`, `updated_at`, `archived_at`. Nothing is hard-deleted.
 - `audit_logs` is the single exception: append-only, no `archived_at`, no update or delete path.
   An immutable record that can be archived is not immutable.
-- Enums are `VARCHAR + CHECK` (`native_enum=False`), which is portable and lets a value be added
-  with a constraint change instead of an `ALTER TYPE`.
+- Enums are `native_enum=False`, which compiles to a plain `VARCHAR(48)` **with no CHECK
+  constraint** under SQLAlchemy 2.0.36 (corrected 2026-10-26: this line used to say "VARCHAR +
+  CHECK"; `docs/AUDIT_BEFORE_BUILD_SPEND.md` §2b compiled the DDL and found none, and no migration
+  declares `create_constraint`). A new value therefore needs no migration — S1 relies on this — and
+  the allowlist lives in the Python enum, enforced on write by `validate_strings=True`.
 - `sa.Uuid` and `sa.JSON` keep the schema portable, so the same migration is verifiable
   anywhere.
 
@@ -673,6 +676,81 @@ available. This one carries nothing in a request body at all.
 
 **The slice grants no access by itself.** Someone still has to create a system user inside the
 second Business Manager and generate its token in Business Settings.
+
+### 4j. Spend tracking, Meta read-only (S1)
+
+**What it answers:** for each ad account, per day in the account's own timezone, how much Meta
+reports was spent, in which currency, how fresh that number is, and whether it moved sharply
+against its recent baseline or is approaching the account's spend cap. Not performance reporting,
+not campaign budgets, not a forecast. Design A of `docs/AUDIT_BEFORE_BUILD_SPEND.md`.
+
+```
+dispatcher (cadence, OFF by default)          POST /ad-accounts/{id}/spend/refresh (owner)
+        │ spend_sweep_pass                                  │
+        └──────────────┬────────────────────────────────────┘
+                       ▼
+     spend_service.resolve_spend_connection  ── not_observable? stop, call nothing
+                       ▼
+     provider.read_account_spend  (real: GET act_<id> + GET act_<id>/insights; never POST)
+                       ▼
+     ad_account_spend_observations  (append-only; failed reads too, with failure_code)
+                       ▼
+     evaluate_account_safe(trigger=spend_observation)  ── SAVEPOINT, rule 15/21
+                       ▼
+     HealthFacts.spend ← spend_service.build_spend_facts (DB only) → 4 spend rules
+```
+
+**Who can be read.** An account is observable only with an external id, a Business Manager, a
+non-archived **`production`** connection whose Business Manager (its own reference, else
+`META_BUSINESS_ID` — `spend_service.connection_business_id` is the single statement of that
+precedence and `meta_operations._business_id_for` delegates to it) matches, and a reader credential
+from `resolve_reader`. Several qualifying connections for one BM: a connection naming the BM wins,
+then the oldest. Fake and sandbox connections are **not** observable — a number no platform reported
+must never appear as observed spend. `spend_service.provider_for_connection` is the single seam for
+the provider; tests replace it, nothing in the suite can build the real one.
+
+**Freshness, four states, never collapsed (rule 28):** `current` (a success within
+`SPEND_OBSERVATION_STALE_AFTER_HOURS`, default 26), `stale`, `never_observed` (observable, no
+success yet), `not_observable`. None of them is a "good" state.
+
+**Days.** Pure logic in `services/spend_engine.py`. A day is Meta's `date_start` in the account's
+`timezone_name`; nothing is converted to UTC. A day is *complete* in an observation only if that
+observation was taken after the day ended locally; the newest such observation decides the day —
+including deciding it has no row. The latest complete day is "yesterday" as seen from the latest
+successful observation. A complete day without an insights row is `has_row=False`: never zero,
+never summed, never in a baseline. Today's running day is carried apart as `today_partial` and no
+rule reads it. No `timezone_name` (or one `zoneinfo` does not know) ⇒ no day-based answer at all,
+`missing_input=timezone_name`.
+
+**Rules** (`health_rules.py`, category `spend`, source `provider_observation`, registry 10 → 14):
+
+| Rule | Severity | Fires when |
+|---|---|---|
+| `spend_observation_missing_or_stale` | attention | observable and `never_observed`, or `stale`, or the last 3 reads failed |
+| `spend_change_vs_baseline` | warning | current read, known timezone, a row for the latest complete day, baseline = median of the ≤7 most recent earlier complete days with rows (≥ `SPEND_BASELINE_MIN_DAYS`=5), \|Δ\|/median ≥ 0.5 **and** \|Δ\| ≥ the currency's minimum (`SPEND_CHANGE_MIN_AMOUNT_JSON`, default VND 500000 / USD 20; no entry ⇒ never fires). One signal per day (`scope=day:YYYY-MM-DD`) |
+| `spend_cap_approaching` | warning | `amount_spent_raw / spend_cap_raw ≥ 0.9`, both parseable, cap > 0. **Seeded disabled** (`HealthRule.enabled_by_default=False`): the fields' units are confirmed at the first live read, then the owner enables it with the existing `PATCH /account-health/rules/{key}` |
+| `spend_currency_mismatch` | attention | Meta's currency ≠ registry currency (`scope=registry`), or insights rows disagree with the node (`scope=insights`) |
+
+Contradictory currencies suppress both amount rules. No spend rule emits `unknown`; not firing never
+produces `clear_signals` by itself. `amount_spent_raw` and `spend_cap_used_ratio` are in
+`VOLATILE_EVIDENCE_KEYS`, so a cap signal is not superseded (and audited) on every read while the
+condition is unchanged.
+
+**The sweep** (`run_dispatcher.spend_sweep_pass`, `--spend-sweep` for one pass by hand). Due =
+observable and (`never_observed` or `stale`). Order: never attempted first, then oldest attempt —
+so a permanently failing account cannot starve the rest. `SPEND_SWEEP_BATCH` accounts per
+workspace. `identify()` once per connection per pass for `read_as`. A `rate_limited` read stops that
+connection for the rest of the pass (remaining accounts → `due_remaining`); no sleep, no retry.
+Each workspace commits with one audit row `spend.observations_recorded` (counters + account ids).
+One `OperationalRun(kind=spend_sweep)` per pass with `never_observed, stale, observed, failed,
+rate_limited, not_observable, due_remaining, workspaces`; `PARTIAL` if anything failed or was
+limited. `failed` excludes `rate_limited`, which has its own counter.
+
+**Not written by S1:** `AdAccount.last_synced_at`, `currency`, `timezone` — a spend read must not
+move readiness. `meta_graph_transport.py` is unchanged (rule 20).
+
+**Calls.** Two GETs per account read (+1 `me` per connection per sweep pass). Measured rate-limit
+behaviour: **none yet** — no live read has been made.
 
 ## 5. Security model
 

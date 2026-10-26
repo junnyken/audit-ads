@@ -71,6 +71,63 @@ Chrome Context Extension & Account Workspace Guard**, **A4 Stage A — Deploymen
 **A3 — Alert Center & Telegram Notification Delivery**, **A2 — Evidence-Based Account Health**
 and **A1 — Account Registry & Stability Readiness**.
 
+## S1 (backend built, never run against live Meta) — spend tracking, Meta read-only
+
+Measured 2026-10-26 in this workspace: backend code, migration and tests only. **No live Meta read
+has been made** with this code, the sweep has never run outside the test suite, nothing was
+deployed, and the frontend is not built yet. Design and decisions: `docs/AUDIT_BEFORE_BUILD_SPEND.md`
+(design A, §4b; user decisions §7).
+
+- **Observation table** `ad_account_spend_observations` (migration `0016_s1_spend_observations`):
+  append-only, `archived_at`, one row per read including failed reads with `failure_code`. Stores
+  Meta's currency, timezone, raw `account_status`/`disable_reason`, raw `amount_spent`/`spend_cap`/
+  `balance` strings, the daily insights rows exactly as returned, the requested window, and
+  `reader_source` (a name, never a credential). Never `funding_source*`. Never writes back to
+  `AdAccount` (`last_synced_at`, `currency`, `timezone` untouched).
+- **Provider:** `read_account_spend()` on the real provider (GET `act_<id>` + GET
+  `act_<id>/insights`, `time_increment=1`, window = last 8 local days) and on the fake provider
+  (answers only what a test staged; unstaged ⇒ `not_configured`, never an invented number).
+  `meta_graph_transport.py` unchanged.
+- **Who can be read:** external id + Business Manager + a `production` connection for that BM +
+  a configured reader. Otherwise `not_observable`. Fake/sandbox connections are not observable.
+- **Freshness:** `current` / `stale` / `never_observed` / `not_observable`, never merged.
+- **Spend sweep** in the dispatcher, **off by default** (`SPEND_SWEEP_EVERY_N_PASSES=0`), bounded
+  (`SPEND_SWEEP_BATCH`), stops a connection on `rate_limited`, records an `OperationalRun`
+  (`spend_sweep`) and one audit row per workspace per pass; `--spend-sweep` runs one pass by hand.
+  **The first Meta read in the product that is not human-initiated** — enabling it in production
+  needs the owner's separate approval (not given).
+- **Health rules** (registry 10 → 14, category `spend`): `spend_observation_missing_or_stale`
+  (attention), `spend_change_vs_baseline` (warning; ±50% vs median of ≥5 complete days **and** ≥
+  VND 500 000 / USD 20; other currencies never fire), `spend_cap_approaching` (warning, ≥90%,
+  **seeded disabled** until the first live read confirms the units), `spend_currency_mismatch`
+  (attention). Facts come from stored observations only, so "Recalculate health" still contacts no
+  platform. Today's incomplete day never feeds a rule.
+- **API:** `GET /ad-accounts/{id}/spend`, `GET …/spend/observations`, `POST …/spend/refresh`
+  (owner only, one read, audited), `GET /spend/summary` (per currency, `complete:false` when an
+  account is missing, no grand total). Shapes in `API.md`.
+
+**Not done / known limits:**
+
+- No live read: units of `amount_spent`/`spend_cap`/`balance`, whether insights omit a no-delivery
+  day or return a zero row, the `time_range`/`time_increment` parameter behaviour, rate-limit
+  headroom and whether Graph `v21.0` is still served are all **unverified**.
+- Consequence worth knowing before deploying: once deployed, every account under a Business Manager
+  that has a `production` connection and a reader becomes `never_observed` and raises an
+  `attention` signal (and an `info` alert) until it is read once — by design (§4b table row 2).
+- The dispatcher process needs the `META_*` reader settings to read anything; production env for
+  it is not configured here (`docs/PRODUCTION_ENVIRONMENT.md` not updated by this backend slice).
+- Frontend (Spend tab, Accounts column, Overview cards, `lib/spend.ts`) not built.
+
+
+**S1 dashboard frontend (2026-10-26, mocked-API tests only, not clicked through live):** account
+detail has a "Spend" tab (freshness badge, raw latest observation, daily table with "—" for days
+without a row, incomplete-day block, baseline, backend disclaimer, latest failed attempt, owner-only
+Refresh with 403/409 handling, paginated observation history); Overview has a per-currency spend
+card (no cross-currency total, `complete:false` shown). `SPEND_FRESHNESS_META` in
+`frontend/src/lib/readiness.ts` has no positive tone. **Not built:** a spend column on the Accounts
+list - `GET /ad-accounts` carries no spend data and per-row calls would be N+1; needs a backend
+follow-up.
+
 ## Shipped in A9 — Team Seats, BM/Ad-Account Assignment & Device Session Security
 
 **Step 2 — session architecture (2026-09-09):** dashboard sessions were pure stateless JWT with
@@ -725,7 +782,7 @@ any of them.
 | Cookie/session-based automation, browser automation of any kind | Every action goes through the official API only, gated on a capability check the API itself answered |
 | Blind retry on a timed-out create/share | Ambiguous side effect — could double-create an account or double-grant access. `unknown` + reconciliation instead |
 | Retry on permission/billing/policy/invalid-request failures | Retrying a request the server already durably rejected accomplishes nothing except noise |
-| A combined multi-currency spend total anywhere | No spend source exists in this build; the field is `None`, never summed, never fabricated as zero |
+| A combined multi-currency spend total anywhere | Still excluded. *Updated 2026-10-26 (S1):* a spend source now exists — `ad_account_spend_observations`, read from Meta — but spend is only ever totalled **per currency** (`GET /spend/summary`), never across currencies, never converted, and a day with no insights row is never a zero |
 | Self-granting a role above what the API actually authorizes | The API's own permission model is the only authority on what role is valid |
 
 ## Deliberately excluded from A6

@@ -50,6 +50,7 @@ from app.models.preflight import (
     PreflightEvaluationRun,
     PreflightFinding,
 )
+from app.models.spend import AdAccountSpendObservation
 from app.models.team import (
     DeviceSession,
     MemberAdAccountAssignment,
@@ -104,4 +105,5 @@ __all__ = [
     "BusinessManagerDiscoveryRun",
     "DiscoveredAdAccountObservation",
     "DiscoveredPixelObservation",
+    "AdAccountSpendObservation",
 ]

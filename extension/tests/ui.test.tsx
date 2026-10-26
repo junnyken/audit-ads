@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { installChromeStub } from './setup'
 import { LanguageProvider } from '../src/shared/i18n'
@@ -111,6 +111,84 @@ describe('popup', () => {
     expect(await screen.findByText('Warning')).toBeInTheDocument()
     expect(await screen.findByText('Warning: 2')).toBeInTheDocument()
     expect(await screen.findByText(/Payment method review is due/)).toBeInTheDocument()
+  })
+
+  describe('spend block', () => {
+    const withSpend = (spend: ContextResolution['spend']): ContextResolution => ({ ...CONFIRMED, spend })
+    const base = {
+      freshness: 'current',
+      observable: true,
+      currency: 'VND',
+      currency_conflict: false,
+      observed_at: new Date().toISOString(),
+      latest_complete_day: { date: '2026-10-25', spend_raw: '1600000' },
+      today_partial: { date: '2026-10-26', spend_raw: '77', label: 'incomplete_day' },
+      signal_open: false,
+    }
+
+    async function show(spend: ContextResolution['spend'], render_: () => unknown = renderSidePanel) {
+      stubWorker({
+        getConnection: { ok: true, data: CONNECTED },
+        getContext: { ok: true, data: withSpend(spend) },
+      })
+      render_()
+      return within(await screen.findByTestId('spend-state'))
+    }
+
+    it('shows raw amounts with the observed currency in the side panel and the popup', async () => {
+      const panel = await show(base)
+      expect(panel.getByText(/1600000 VND/)).toBeInTheDocument()
+      expect(panel.getByText('77 VND')).toBeInTheDocument()
+      expect(panel.getByText('No open signal')).toBeInTheDocument()
+    })
+
+    it('renders the popup too', async () => {
+      const popup = await show({ ...base, signal_open: true }, renderPopup)
+      expect(popup.getByText('Open')).toBeInTheDocument()
+    })
+
+    it('never uses success styling for freshness and never shows 0 for missing data', async () => {
+      const panel = await show({
+        ...base,
+        freshness: 'never_observed',
+        observed_at: null,
+        latest_complete_day: null,
+        today_partial: null,
+      })
+      const badge = panel.getByText('Never read')
+      expect(badge.className).not.toContain('positive')
+      expect(panel.queryByText(/^0/)).toBeNull()
+      expect(panel.getAllByText('—').length).toBeGreaterThanOrEqual(3)
+    })
+
+    it('shows a day without a row as a dash, not zero', async () => {
+      const panel = await show({
+        ...base,
+        latest_complete_day: { date: '2026-10-25', spend_raw: null },
+        today_partial: null,
+      })
+      expect(panel.getByText(/Meta returned no row/)).toBeInTheDocument()
+      expect(panel.queryByText(/\b0 VND/)).toBeNull()
+    })
+
+    it('current freshness uses info tone, not positive', async () => {
+      expect((await show(base)).getByText('Recent').className).toContain('info')
+    })
+
+    it('hides amounts when currencies conflict', async () => {
+      const panel = await show({ ...base, currency_conflict: true })
+      expect(panel.queryByText(/1600000/)).toBeNull()
+      expect(panel.getByText(/Currencies conflict/)).toBeInTheDocument()
+    })
+
+    it('says nothing is known when an older backend sends no spend block', async () => {
+      stubWorker({
+        getConnection: { ok: true, data: CONNECTED },
+        getContext: { ok: true, data: CONFIRMED },
+      })
+      renderSidePanel()
+      expect(await screen.findByText('No spend data for this account yet.')).toBeInTheDocument()
+    })
   })
 
   it('refuses to guess when the context is not confirmed', async () => {

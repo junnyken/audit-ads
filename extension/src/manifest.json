@@ -1,8 +1,14 @@
 {
   "manifest_version": 3,
   "name": "AdsOps Control Center",
-  "version": "0.1.0",
-  "description": "Shows the readiness, health and open alerts of the ad account you are looking at. Read-only: it changes nothing on any advertising platform.",
+  "version": "0.2.0",
+  "description": "Shows readiness, health, spend and open alerts for the ad account you are viewing. Read-only: changes nothing on any ad platform.",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "minimum_chrome_version": "114",
   "permissions": [
     "storage",
@@ -34,6 +40,11 @@
   ],
   "action": {
     "default_title": "AdsOps Control Center",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png"
+    },
     "default_popup": "popup/popup.html"
   },
   "side_panel": {

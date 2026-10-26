@@ -15,9 +15,12 @@ permission produces "no, and here is why", not an optimistic guess.
 """
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.core.enums import BusinessAuthority
 from app.services.extension_context import canonical_external_id
@@ -27,6 +30,7 @@ from app.services.meta_provider import (
     CapabilityCheck,
     CreateAccountRequest,
     CreateAccountResult,
+    DailySpend,
     DiscoveredAsset,
     EdgeOutcome,
     MetaBusinessProvider,
@@ -37,6 +41,7 @@ from app.services.meta_provider import (
     ShareAccessResult,
     SharePixelRequest,
     SharePixelResult,
+    SpendRead,
 )
 
 #: Re-exported so existing imports of `meta_real_provider.MetaWriteNotEnabled` keep working.
@@ -73,6 +78,44 @@ PIXEL_EDGES: tuple[str, ...] = ("adspixels",)
 #: Allowlisted fields only. The raw row never leaves this module.
 AD_ACCOUNT_FIELDS = "id,account_id,name,account_status,currency,timezone_name"
 PIXEL_FIELDS = "id,name"
+
+#: S1. The ad account node fields a spend read asks for. Allowlisted and fixed.
+#:
+#: **Never `funding_source_details`, `funding_source`, or anything else describing a payment
+#: method** — A1 keeps payment data out of this product (`PaymentProfileReference` is a label
+#: only), and a test pins that no field here contains "funding". `account_status` and
+#: `disable_reason` are read because they come in the same GET; S1 stores them raw and no rule
+#: reads them.
+SPEND_ACCOUNT_FIELDS = (
+    "account_id,currency,timezone_name,account_status,disable_reason,amount_spent,spend_cap,balance"
+)
+#: S1. Daily insights fields. `time_increment=1` splits the window into one row per day;
+#: whether Meta omits a day without delivery or returns a zero row is **not verified** — both
+#: shapes are handled, and an omitted day is never turned into zero.
+SPEND_INSIGHTS_FIELDS = "spend,account_currency,date_start,date_stop"
+#: One page is enough for a window this short; the cap keeps the read bounded regardless.
+SPEND_INSIGHTS_LIMIT = "100"
+
+
+def _local_today(timezone_name: str | None, now: datetime) -> tuple[Any, bool]:
+    """`(date, timezone_was_usable)`. An unusable timezone falls back to the UTC date for the
+    *request window only*; the observation keeps whatever Meta sent, and every rule that needs a
+    local day refuses to guess from it."""
+    reference = now if now.tzinfo else now.replace(tzinfo=UTC)
+    if timezone_name:
+        try:
+            return reference.astimezone(ZoneInfo(timezone_name)).date(), True
+        except (ZoneInfoNotFoundError, ValueError):
+            pass
+    return reference.astimezone(UTC).date(), False
+
+
+def _raw(value: Any) -> str | None:
+    """Keep Meta's value as text, exactly. `None` stays `None` — never an empty-string zero."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text[:32] or None
 
 #: Bounded by construction: at most `MAX_PAGES * PAGE_SIZE` items per edge. Hitting the cap sets
 #: `truncated`, which makes the discovery incomplete — a bounded read is not a full inventory.
@@ -356,6 +399,94 @@ class RealMetaBusinessProvider(MetaBusinessProvider):
                 )
         return collected, EdgeOutcome(
             edge, ok=True, pages_read=pages, items=len(collected), truncated=True
+        )
+
+    # ------------------------------------------------------------------ spend (S1)
+
+    def read_account_spend(
+        self, external_account_id: str, *, now: datetime, window_days: int = 8
+    ) -> SpendRead:
+        """Two GETs and nothing else: the `act_<id>` node, then its daily insights.
+
+        Read-only like every other reader here; the transport underneath cannot write anything
+        but one ad-account create, and this method never calls `post`. No retry: a refusal is
+        reported once with its code, and the caller decides what that means for the pass.
+        """
+        account_id = canonical_external_id(external_account_id)
+        if not account_id or not account_id.isdigit():
+            # Never sent. A non-numeric id cannot be a Meta ad account, and asking would spend a
+            # call to learn that.
+            return SpendRead(
+                ok=False,
+                failure_code=MetaFailureCode.INVALID_REQUEST,
+                failure_summary="The ad account reference is not a usable Meta id.",
+            )
+
+        node = self.transport.get(f"act_{account_id}", {"fields": SPEND_ACCOUNT_FIELDS})
+        if not node.ok:
+            return SpendRead(
+                ok=False,
+                failure_code=node.failure_code or MetaFailureCode.UNKNOWN_ERROR,
+                failure_summary=node.failure_summary,
+                rate_limit_header=node.rate_limit_header,
+            )
+        payload = node.payload
+        timezone_name = _raw(payload.get("timezone_name"))
+        currency = _raw(payload.get("currency"))
+        today, _ = _local_today(timezone_name, now)
+        since = today - timedelta(days=max(1, window_days) - 1)
+        base = {
+            "currency": currency[:3] if currency else None,
+            "timezone_name": timezone_name,
+            "account_status_raw": _raw(payload.get("account_status")),
+            "disable_reason_raw": _raw(payload.get("disable_reason")),
+            "amount_spent_raw": _raw(payload.get("amount_spent")),
+            "spend_cap_raw": _raw(payload.get("spend_cap")),
+            "balance_raw": _raw(payload.get("balance")),
+            "window_since": since.isoformat(),
+            "window_until": today.isoformat(),
+        }
+
+        insights = self.transport.get(
+            f"act_{account_id}/insights",
+            {
+                "fields": SPEND_INSIGHTS_FIELDS,
+                "level": "account",
+                "time_increment": "1",
+                "time_range": json.dumps(
+                    {"since": since.isoformat(), "until": today.isoformat()}, separators=(",", ":")
+                ),
+                "limit": SPEND_INSIGHTS_LIMIT,
+            },
+        )
+        if not insights.ok:
+            # The node answered, and what it said is kept — but this is not a successful read:
+            # without the daily rows there is no spend to report.
+            return SpendRead(
+                ok=False,
+                failure_code=insights.failure_code or MetaFailureCode.UNKNOWN_ERROR,
+                failure_summary=insights.failure_summary,
+                rate_limit_header=insights.rate_limit_header or node.rate_limit_header,
+                **base,
+            )
+
+        daily: list[DailySpend] = []
+        for row in insights.payload.get("data", []) or []:
+            if not isinstance(row, dict) or not row.get("date_start"):
+                continue
+            daily.append(
+                DailySpend(
+                    date_start=str(row["date_start"])[:10],
+                    date_stop=str(row.get("date_stop") or row["date_start"])[:10],
+                    spend=_raw(row.get("spend")),
+                    account_currency=(_raw(row.get("account_currency")) or None),
+                )
+            )
+        return SpendRead(
+            ok=True,
+            daily=tuple(daily),
+            rate_limit_header=insights.rate_limit_header or node.rate_limit_header,
+            **base,
         )
 
     # ----------------------------------------------------------------- write

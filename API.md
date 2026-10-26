@@ -405,9 +405,19 @@ route**, cannot create an account, and cannot mint another extension session.
 | `GET` | `/ad-accounts/{id}/extension-summary` | either | What the extension sees, readable from the dashboard |
 
 `context_status` is `confirmed`, `ambiguous`, `unknown` or `unsupported_page`. Only `confirmed`
-carries `account`, `readiness`, `health`, `alerts` and `dashboard_paths`; the others carry a
+carries `account`, `readiness`, `health`, `alerts`, `spend` and `dashboard_paths`; the others carry a
 `reason_code` (`account_not_registered`, `multiple_registered_matches`, `no_account_id_on_page`,
 `account_archived`, `unsupported_page`) and nothing else.
+
+**`spend` (S1, additive).** A `confirmed` context and both summary routes also carry a compact
+`spend` block, built from stored spend observations only (`build_spend_facts`): no Meta call, and
+the dashboard `…/spend` routes stay refused (`401`) for an extension token. Fields: `freshness`
+(`current` | `stale` | `never_observed` | `not_observable`, never merged), `observable`,
+`currency` (observed, else `null`), `currency_conflict`, `observed_at`,
+`latest_complete_day` (`{date, spend_raw}` or `null`; `spend_raw` is `null` when Meta returned no
+row for that day, never `"0"`), `today_partial` (`{date, spend_raw, label: "incomplete_day"}` or
+`null`) and `signal_open` (an open/acknowledged `spend`-category health signal exists). Money is
+Meta's raw string; nothing is converted or summed.
 
 Readiness, health and alerts are three separate values, as everywhere else. Resolving is
 read-only: it evaluates readiness with `persist=False` and cannot rewrite stored state.
@@ -842,3 +852,171 @@ answer another workspace's record gives. The owner is unaffected: no filter, no 
 The UI for all of this lives at `/team` (owner-only) and `/security-devices` (any member),
 both reached from Settings rather than the main nav. Verified in real Chromium —
 `backend/scripts/a9_live_verify.py`, 20/20, screenshots in `docs/evidence/A9-LIVE/`.
+
+## Spend tracking, Meta read-only (S1)
+
+All four routes follow the A1 conventions: bearer dashboard session, workspace from the membership,
+A9 resource scope through `AdAccountRegistryService.get()` (out of scope or another workspace ⇒
+`404`). **Money is always a string exactly as Meta returned it** (`*_raw`, `spend_raw`,
+`median_raw`, `total_raw`): the units of `amount_spent`/`spend_cap`/`balance` are unverified, so
+nothing is divided, converted or rounded, and nothing is ever summed across currencies. Only
+`POST …/spend/refresh` contacts Meta; every `GET` reads stored observations.
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/api/v1/ad-accounts/{id}/spend` | Current spend view for one account. Any role in scope |
+| `GET` | `/api/v1/ad-accounts/{id}/spend/observations?page&page_size` | Every recorded read, newest first, failed ones included. `page_size` ≤ 100 |
+| `POST` | `/api/v1/ad-accounts/{id}/spend/refresh` | **Owner only** (`403` otherwise). One provider read (2 GETs), no retry, observation + audit `spend.observation_refreshed` in one transaction, then a health evaluation. `409 conflict` if the account is not observable, `409 entity_archived` if archived. Subject to the general rate limit. Returns the same body as `GET …/spend` |
+| `GET` | `/api/v1/spend/summary` | Freshness counts and per-currency totals for each account's latest complete day. No grand total |
+| `GET` | `/api/v1/operations/runs?kind=spend_sweep` | Already existed (A4); sweep passes appear here |
+
+`freshness` is one of `current`, `stale`, `never_observed`, `not_observable` — four states, never
+merged (rule 28). None of them may be rendered with success styling.
+
+### `GET /ad-accounts/{id}/spend`
+
+Example after one successful read (values illustrative):
+
+```json
+{
+  "ad_account_id": "8b7c…",
+  "freshness": "current",
+  "observable": true,
+  "reader_source": "server_default",
+  "meta_connection_id": "41d2…",
+  "stale_after_hours": 26,
+  "registry_currency": "VND",
+  "observed_currency": "VND",
+  "currency_mismatch": false,
+  "insights_currency_conflict": false,
+  "missing_input": null,
+  "latest_observation": {
+    "id": "c0f1…",
+    "observed_at": "2026-10-25T19:00:00+00:00",
+    "status": "succeeded",
+    "trigger": "manual_refresh",
+    "failure_code": null,
+    "failure_summary": null,
+    "meta_connection_id": "41d2…",
+    "reader_source": "server_default",
+    "read_as": {"external_id": null, "name": null},
+    "currency": "VND",
+    "timezone_name": "Asia/Ho_Chi_Minh",
+    "account_status_raw": "1",
+    "disable_reason_raw": "0",
+    "amount_spent_raw": "123456700",
+    "spend_cap_raw": "200000000",
+    "balance_raw": "0",
+    "window_since": "2026-10-19",
+    "window_until": "2026-10-26",
+    "daily": [
+      {"date_start": "2026-10-25", "date_stop": "2026-10-25", "spend": "1600000", "account_currency": "VND"}
+    ]
+  },
+  "latest_attempt": {
+    "id": "c0f1…", "observed_at": "2026-10-25T19:00:00+00:00",
+    "status": "succeeded", "failure_code": null, "failure_summary": null
+  },
+  "latest_complete_day": "2026-10-25",
+  "daily": [
+    {"date": "2026-10-25", "spend_raw": "1600000", "currency": "VND",
+     "observation_id": "c0f1…", "observed_at": "2026-10-25T19:00:00+00:00"},
+    {"date": "2026-10-24", "spend_raw": "1000000", "currency": "VND",
+     "observation_id": "c0f1…", "observed_at": "2026-10-25T19:00:00+00:00"}
+  ],
+  "days_without_row": ["2026-10-21"],
+  "today_partial": {"date": "2026-10-26", "spend_raw": "77", "currency": "VND",
+                    "observation_id": "c0f1…", "observed_at": "2026-10-25T19:00:00+00:00",
+                    "label": "incomplete_day"},
+  "baseline": {"median_raw": "1000000", "currency": "VND",
+               "days_used": ["2026-10-24", "2026-10-23", "2026-10-22", "2026-10-20", "2026-10-19"],
+               "min_days_required": 5},
+  "baseline_days_available": 5,
+  "disclaimer": "Chi tiêu là số Meta trả về cho reader đã nêu, tại thời điểm quan sát. Không phải hoá đơn, không phải số đã đối soát, và không nói gì về việc tài khoản có bị hạn chế hay không."
+}
+```
+
+Field rules the UI must keep:
+
+- `daily[]` holds **only complete local days that have an insights row**, newest first, at most 14.
+  A complete day Meta returned no row for is in `days_without_row` and renders as "—", **never 0**.
+  A row Meta sent with `"0"` is a real zero.
+- `latest_complete_day` is "yesterday" in `latest_observation.timezone_name`, as seen from the latest
+  successful read — not from the viewer's clock. `null` when there is no successful read or the
+  timezone is missing/unknown (then `missing_input` is `"timezone_name"` and `daily` is empty).
+- `today_partial` is the still-running local day, labelled `incomplete_day`. No rule reads it.
+- `baseline` is `null` when fewer than `min_days_required` earlier complete days have rows;
+  `baseline_days_available` says how many there are.
+- `latest_observation` is the latest **successful** read (it can be old when `freshness` is
+  `stale`; it can also exist while `freshness` is `not_observable`, if the connection was removed
+  after reads were taken). `latest_attempt` is the newest read of any status — show its
+  `failure_code` when it is `failed`.
+- `currency_mismatch` is `null` when either side is unknown. Group/sort by `observed_currency`,
+  never by `registry_currency`.
+- `account_status_raw` / `disable_reason_raw` are Meta's raw codes, stored for a later spec; S1
+  interprets neither.
+- `read_as` is filled by sweep reads (`identify()` once per connection per pass); manual refresh
+  leaves it `null` so a refresh is exactly one provider read.
+
+`not_observable` example: `{"freshness": "not_observable", "observable": false, "reader_source":
+null, "meta_connection_id": null, "latest_observation": null, "latest_attempt": null,
+"latest_complete_day": null, "daily": [], "days_without_row": [], "today_partial": null,
+"baseline": null, "baseline_days_available": 0, …}`. `never_observed` is the same shape with
+`observable: true`, a `reader_source`, and possibly a failed `latest_attempt`.
+
+### `GET /ad-accounts/{id}/spend/observations`
+
+`page_response` envelope (`items`, `page`, `page_size`, `total`, `total_pages`). Each item is the
+`latest_observation` shape above. A failed item has `status: "failed"`, a `failure_code`
+(`MetaFailureCode` value: `permission_missing`, `token_expired`, `rate_limited`, `timeout`,
+`provider_server_error`, `invalid_request`, `not_configured`, `unknown_error`, …), a safe
+`failure_summary`, and `daily: []`.
+
+### `POST /ad-accounts/{id}/spend/refresh`
+
+No body. `200` with the `GET …/spend` body. `409` body for an unreadable account:
+`{"error": {"code": "conflict", "message": "This account cannot be read: …", "details": {"freshness": "not_observable"}, …}}`
+(the standard error envelope). A Meta refusal is **not** an HTTP error: the call returns `200`, the
+observation is `failed` with its code, and `freshness` keeps reflecting the last success.
+
+### `GET /spend/summary`
+
+```json
+{
+  "generated_at": "2026-10-26T02:00:00+00:00",
+  "total_accounts": 5,
+  "freshness_counts": {"current": 3, "stale": 0, "never_observed": 1, "not_observable": 1},
+  "accounts_unattributed": 2,
+  "currencies": [
+    {"currency": "USD", "total_raw": "12.25", "days": ["2026-10-25"],
+     "accounts_included": 1, "accounts_without_row": 0, "accounts_not_current": 0,
+     "accounts_currency_conflict": 0, "complete": true},
+    {"currency": "VND", "total_raw": "3000.5", "days": ["2026-10-25"],
+     "accounts_included": 2, "accounts_without_row": 0, "accounts_not_current": 0,
+     "accounts_currency_conflict": 0, "complete": true}
+  ],
+  "complete": false,
+  "disclaimer": "Chi tiêu là số Meta trả về …"
+}
+```
+
+- One group per **observed** currency. Each account contributes its own latest complete local day
+  (`days` lists the distinct dates summed — normally one). `total_raw` is `null` when no account in
+  the group has a row.
+- A group is `complete: false` when any account of that currency is stale (`accounts_not_current`),
+  has no row for its latest complete day or no usable timezone (`accounts_without_row`), or has
+  contradictory currencies (`accounts_currency_conflict`). Its sum is still shown.
+- `accounts_unattributed` counts accounts with no successful read naming a currency
+  (`never_observed`, `not_observable`). The top-level `complete` is `false` whenever it is non-zero
+  or any group is incomplete. **There is no field that adds currencies together.**
+- Scope: a non-owner's summary covers only their assigned accounts.
+
+### Health changes
+
+Four new rules appear in `GET /account-health/rules` (registry 10 → 14), `category: "spend"`,
+signals with `source_type: "provider_observation"`: `spend_observation_missing_or_stale`
+(attention), `spend_change_vs_baseline` (warning, one signal per day, `scope` `day:YYYY-MM-DD`),
+`spend_cap_approaching` (warning, **`enabled: false` until turned on**), `spend_currency_mismatch`
+(attention, scopes `registry` / `insights`). Evaluation runs started by a read have
+`trigger_type: "spend_observation"` and `trigger_reference_id` = the observation id. Frontend
+`HealthCategory` must add `'spend'`.

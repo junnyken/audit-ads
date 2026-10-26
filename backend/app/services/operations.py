@@ -33,6 +33,9 @@ SAFE_SUMMARY_KEYS = frozenset(
         # assessment has aged, and a summary that added them would misdescribe the first sweep of
         # a fresh workspace.
         "never_evaluated", "stale", "evaluated", "failed",
+        # S1 spend sweep. `never_observed` and `stale` stay apart for the same reason as above;
+        # `not_observable` counts accounts nothing can read, which are never due at all.
+        "never_observed", "observed", "rate_limited", "not_observable",
         "size_bytes", "table_count", "revision", "checksum_algorithm", "database_label",
         "duration_seconds", "message_count", "transport",
     }

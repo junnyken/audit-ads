@@ -21,6 +21,12 @@ os.environ.setdefault("PUBLIC_APP_URL", "https://adsops.example.com")
 # that have nothing to do with what is being tested. The limiter has its own tests, which
 # build an app with it switched on.
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
+# S1: a developer's `backend/.env` can hold a real Meta reader token, and `Settings` reads that
+# file. An environment variable outranks it, so these are assigned outright (not setdefault):
+# no test may ever find a credential that would let the real provider reach Meta. Tests that
+# need a configured credential set a fake one themselves.
+os.environ["META_ACCESS_TOKEN"] = ""
+os.environ["META_ACCESS_TOKENS_BY_BUSINESS"] = "{}"
 
 import pytest  # noqa: E402
 import sqlalchemy as sa  # noqa: E402
@@ -35,6 +41,7 @@ from app.main import create_app  # noqa: E402
 from app.models.entities import User, Workspace, WorkspaceMember  # noqa: E402
 from app.services.meta_provider import reset_fake_provider  # noqa: E402
 from app.services.notification_transport import reset_fake_transport  # noqa: E402
+from tests.s1_spend_helpers import spend_env  # noqa: E402,F401 - S1 fixture, shared
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

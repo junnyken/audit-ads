@@ -3159,3 +3159,117 @@ The first full run after the change ended `exit 1` with two ERRORs in `test_a9_t
 necessary but not sufficient: it could still have been a cross-test interaction. A second full run
 ended **exit 0 with no errors**, which is what settles it. The node's disk was at 100% and load
 average ~8 throughout.
+
+## S1 — spend tracking, Meta read-only: backend (2026-10-26)
+
+Backend slice of `docs/AUDIT_BEFORE_BUILD_SPEND.md` design A. Frontend not built in this session.
+
+**Environment.** Workspace host; Python venv `backend/.venv`; PostgreSQL 16-alpine in a fresh local
+Docker container `adsops-db` on `localhost:5434` (the old one no longer existed; recreated per
+README, databases `adsops` and `adsops_test`). No API server was started.
+
+### What was NOT done (rule 41)
+
+- **No live Meta read.** Nothing in this session called Meta. Every spend read in tests went
+  through the fake provider via `spend_service.provider_for_connection`, or through a scripted
+  transport for the real provider. Units of `amount_spent`/`spend_cap`/`balance`, insights'
+  handling of no-delivery days, `time_range`/`time_increment` behaviour, rate-limit headroom and
+  whether Graph `v21.0` still answers: **all unverified**.
+- The spend sweep has never run outside pytest. `SPEND_SWEEP_EVERY_N_PASSES` stays `0`; enabling
+  it in production is not approved (§6.7).
+- No Telegram send, no deploy, no production migration.
+
+### 1. Backend tests — PASS
+
+```
+$ .venv/bin/python -m pytest          # one session, nothing else on the database
+981 passed in 1181.82s (0:19:41)      exit 0
+```
+
+After that run, one more S1 test was added and `daily_json` was routed through the redactor; the
+five S1 files were then re-run on their own:
+
+```
+$ .venv/bin/python -m pytest tests/test_s1_spend_{api,sweep,rules,provider,migration}.py
+88 passed in 73.15s
+```
+
+| File | Tests | Covers |
+|---|---|---|
+| `test_s1_spend_rules.py` | 36 | Every row of the §4b degradation table; UTC container vs `Asia/Ho_Chi_Minh` both sides of local midnight; baseline/ratio/minimum per currency; today's partial day never feeds a rule; cap ≥90%; currency mismatch; no `unknown` severity, no score, no `funding` |
+| `test_s1_spend_provider.py` | 17 | Real provider: exactly two GETs, allowlisted fields, no `funding`, raw strings kept, no-row day not inserted, each failure code → failed read with no retry, non-numeric id refused without a call, transport unchanged. Fake: never invents spend |
+| `test_s1_spend_sweep.py` | 17 | Off by default; loop runs it only with a cadence; `--spend-sweep` one pass; no credential ⇒ all `not_observable`, 0 provider calls; fake/sandbox not observable; never-observed before stale; batch + `due_remaining`; no starvation; failed read recorded and pass continues; `rate_limited` stops that connection only; run counters ⊆ `SAFE_SUMMARY_KEYS`; evaluation trigger points at the observation; one audit row per workspace; registry never written |
+| `test_s1_spend_api.py` | 16 | Shapes; strings for money; no-row days apart; failed observations listed; refresh = exactly one read + audit with the real actor; owner-only (admin/viewer 403); not-observable 409; archived 409; health re-evaluated, recalculate makes no read; cross-workspace 404; out-of-scope member 404; summary per currency, no grand total, `complete:false`; no `funding`/credential in payloads; redactor on stored rows |
+| `test_s1_spend_migration.py` | 2 | Head is `0016_s1_spend_observations`; downgrade to `0015` removes exactly that table; upgrade restores it |
+
+Pre-existing tests changed: `test_health_engine.py` and `test_health_api.py` pinned the registry at
+10 rules → now 14; the rules endpoint test now expects `spend_cap_approaching` to be seeded
+`enabled: false`. No other pre-existing test was edited.
+
+Note: the first, unrelated baseline run of this session was contaminated — a second pytest
+process was started on the same database while it ran (the session fixture drops the schema), and
+it was killed. It is not reported as a result.
+
+### 2. Lint — PASS
+
+```
+$ .venv/bin/ruff check .
+All checks passed!
+```
+
+### 3. Migration on a clean database — PASS
+
+The pytest session itself builds `adsops_test` from an empty schema. Separately, on the freshly
+created `adsops` database:
+
+```
+alembic upgrade head      0001 … → 0016_s1_spend_observations (head)
+alembic downgrade -1      → 0015_a10_3_conn_bm
+alembic upgrade head      → 0016_s1_spend_observations (head)     47 tables in public
+```
+
+### 4. Found while doing this
+
+- `backend/.env` in this workspace carries a real `META_ACCESS_TOKEN`, and `Settings` reads it
+  during pytest (`conftest.py` does not override it). Any test that built the real provider
+  against a `production` connection would make a live call. The S1 tests clear or replace it
+  explicitly; the wider suite is unchanged. Worth a conftest-level override as a follow-up.
+
+## S1 — spend in the Chrome extension (v0.2.0), 2026-10-26
+
+Scope: additive `spend` block on the extension summary/resolve responses; side panel and popup
+render it (VI + EN). No permission, host permission or new route changed.
+
+Extension (`extension/`), real output:
+
+- `npm test`: 5 files, **58 tests passed** (7 new in `tests/ui.test.tsx`: amounts with currency,
+  popup render, never success styling / no `0` for missing data, null day shown as dash, currency
+  conflict hides amounts, older backend without `spend`).
+- `npm run lint`: clean. `npm run typecheck`: clean.
+- `npm run build`: popup/options/sidepanel/service-worker + content script built; `manifest.json`
+  version 0.2.0, permissions and host_permissions unchanged.
+- `extension/dist.zip` rebuilt (`zip -r dist.zip dist`, 21 entries, 79,204 bytes).
+
+Backend: `backend/tests/test_s1_extension_spend.py` written (8 tests: `not_observable`,
+`never_observed`, current with raw strings + open signal + zero provider reads, null day,
+context resolve, dashboard twin, extension token 401 on all four dashboard spend routes,
+foreign/unauthenticated). **NOT RUN** here: another pytest run was using the shared test DB.
+Run: `test_s1_extension_spend.py`, `test_a5_extension_api.py`, `test_a5_extension_context.py`,
+`test_s1_spend_api.py`.
+
+## S1 dashboard frontend (spend tab, Overview card) — 2026-10-26
+
+Frontend only (`frontend/`); backend untouched, no backend pytest run. Real output:
+
+- `npx vitest run`: 18 files passed + 1 skipped (live), **167 tests passed**, 20 skipped
+  (live). 13 new in `src/test/spend.test.tsx`: no `positive` tone for any spend freshness state and
+  no emerald/green class on the rendered badge for each of the 4 states; never_observed and stale
+  keep different labels; "—" for a day without a row while a real `"0"` row renders `0 VND`;
+  `today_partial` shown separately as "Incomplete day"; latest failed attempt code + summary;
+  Refresh hidden for a non-owner; 403, 409 `conflict` and 409 `entity_archived` messages; a 200
+  carrying a failed observation shown as failed; summary shows one row per currency, no combined
+  total, `complete:false` explicit, freshness counts and unattributed accounts.
+- `npm run typecheck` (`tsc -b`): clean. `npm run build`: built (`index-BLkjRdnp.js`, 490.86 kB).
+  `npx eslint .`: clean.
+- NOT done: no browser click-through against a live backend; the tab was verified only against
+  mocked API responses.

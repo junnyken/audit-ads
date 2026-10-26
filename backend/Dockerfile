@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY alembic.ini ./
 COPY alembic ./alembic
 COPY app ./app
+COPY --chmod=0755 start.sh ./start.sh
 
 # Stamped by the release process so a running container can say which commit it is.
 ARG RELEASE_VERSION=unknown
@@ -44,5 +45,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 #
 # The forwarded chain is still honoured, but in one place that knows how many hops to expect:
 # `app/core/rate_limit.py`, via RATE_LIMIT_TRUSTED_PROXY_HOPS, counting from the RIGHT.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", \
-     "--no-server-header"]
+#
+# The uvicorn command itself lives in `start.sh`, which can also start the dispatcher beside it
+# on a platform with no separate dispatcher container (RUN_DISPATCHER_IN_API; see the script).
+CMD ["./start.sh"]

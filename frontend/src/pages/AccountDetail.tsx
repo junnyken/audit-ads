@@ -10,6 +10,7 @@ import OverviewTab from './account/OverviewTab'
 import AssetsTab from './account/AssetsTab'
 import ReadinessTab from './account/ReadinessTab'
 import HealthTab from './account/HealthTab'
+import SpendTab from './account/SpendTab'
 import EventsTab from './account/EventsTab'
 import AuditTab from './account/AuditTab'
 
@@ -18,6 +19,7 @@ const TABS = [
   { key: 'assets', label: 'Assets & References' },
   { key: 'readiness', label: 'Readiness' },
   { key: 'health', label: 'Health' },
+  { key: 'spend', label: 'Spend' },
   { key: 'events', label: 'Events' },
   { key: 'audit', label: 'Audit History' },
 ]
@@ -167,6 +169,7 @@ export default function AccountDetail() {
       {tab === 'assets' && <AssetsTab account={record} onChanged={refresh} />}
       {tab === 'readiness' && <ReadinessTab account={record} onChanged={refresh} />}
       {tab === 'health' && <HealthTab account={record} onChanged={refresh} />}
+      {tab === 'spend' && <SpendTab account={record} />}
       {tab === 'events' && <EventsTab account={record} onChanged={refresh} />}
       {tab === 'audit' && <AuditTab account={record} />}
 

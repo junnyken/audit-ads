@@ -175,6 +175,9 @@ class HealthCategory(StrEnum):
     OPERATIONS = "operations"
     READINESS = "readiness"
     DATA_QUALITY = "data_quality"
+    #: S1. Signals derived from a stored spend observation. Its own group so the UI can show
+    #: spend checks apart from operator-recorded facts.
+    SPEND = "spend"
 
 
 class HealthSourceType(StrEnum):
@@ -185,6 +188,10 @@ class HealthSourceType(StrEnum):
     READINESS_ENGINE = "readiness_engine"
     CHECKLIST_ITEM = "checklist_item"
     EVALUATION_ENGINE = "evaluation_engine"
+    #: S1. A fact read from an advertising platform through a named reader and stored as an
+    #: observation before evaluation. The reverse of the rule above also holds: platform data
+    #: must never look like a manual observation.
+    PROVIDER_OBSERVATION = "provider_observation"
 
 
 class HealthFreshness(StrEnum):
@@ -206,6 +213,9 @@ class EvaluationTrigger(StrEnum):
     SCHEDULED_RECALCULATE = "scheduled_recalculate"
     RULE_CHANGE = "rule_change"
     BACKFILL = "backfill"
+    #: S1. Evaluation caused by a newly stored spend observation; `trigger_reference_id` is the
+    #: observation id.
+    SPEND_OBSERVATION = "spend_observation"
 
 
 class EvaluationRunStatus(StrEnum):
@@ -345,6 +355,9 @@ class OperationalRunKind(StrEnum):
     #: A periodic health re-evaluation across accounts nothing has touched. Recorded like every
     #: other infrastructure pass so "the sweep stopped" is a visible state rather than silence.
     HEALTH_SWEEP = "health_sweep"
+    #: S1. A bounded, rate-limit-aware pass that reads spend from Meta for accounts whose spend
+    #: observation is missing or stale. Off by default; switching it on is a release decision.
+    SPEND_SWEEP = "spend_sweep"
 
 
 class OperationalRunStatus(StrEnum):
@@ -504,7 +517,12 @@ class MetaBatchItemStatus(StrEnum):
 
 class DiscoveryTrigger(StrEnum):
     """How a discovery run started. `scheduled_reconciliation` is deliberately absent: A10.1
-    only runs when a person asks, so there is no code path that could start one on a timer."""
+    only runs when a person asks, so there is no code path that could start one on a timer.
+
+    S1 (2026-10-26) changed the wider premise, not this one: discovery is still only ever started
+    by a person, but "every Meta call is human-initiated" is no longer true of the product. The
+    spend sweep (`run_dispatcher.spend_sweep_pass`, `OperationalRunKind.SPEND_SWEEP`) reads spend
+    on a cadence — off by default, bounded, GET-only, stopping on `rate_limited`."""
 
     MANUAL = "manual"
     INTERNAL_TEST = "internal_test"
@@ -647,3 +665,36 @@ class AssignmentStatus(StrEnum):
     ACTIVE = "active"
     REVOKED = "revoked"
     EXPIRED = "expired"
+
+
+class SpendFreshness(StrEnum):
+    """S1. How current an account's spend observation is. Four states, never collapsed (rule 28).
+
+    * `current` — a successful observation inside `spend_observation_stale_after_hours`;
+    * `stale` — a successful observation exists, but it is older than that;
+    * `never_observed` — the account can be read, and no read has ever succeeded;
+    * `not_observable` — no Business Manager, no production connection or no reader credential,
+      so nothing in this product can read it at all.
+
+    None of them is a "good" state: spend is a number, not a verdict.
+    """
+
+    CURRENT = "current"
+    STALE = "stale"
+    NEVER_OBSERVED = "never_observed"
+    NOT_OBSERVABLE = "not_observable"
+
+
+class SpendObservationStatus(StrEnum):
+    """S1. A failed read is recorded too, with its failure code — absence of a row is not
+    evidence that nothing was attempted."""
+
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class SpendObservationTrigger(StrEnum):
+    """S1. Why a spend read happened: the sweep, or a person pressing refresh."""
+
+    SCHEDULED_SWEEP = "scheduled_sweep"
+    MANUAL_REFRESH = "manual_refresh"

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 
 from app.core.enums import BusinessAuthority, CoverageStatus
@@ -284,6 +285,56 @@ class AssetDiscovery:
         return None
 
 
+@dataclass(frozen=True)
+class DailySpend:
+    """One insights row, exactly as Meta returned it. S1.
+
+    Strings, not numbers: the unit has not been verified against a live response, and parsing
+    here would bake an assumption into stored evidence. A day Meta returned no row for has no
+    `DailySpend` at all — the absence is the evidence, never an inserted zero (rule 4).
+    """
+
+    date_start: str
+    date_stop: str
+    spend: str | None
+    account_currency: str | None = None
+
+    def as_dict(self) -> dict[str, str | None]:
+        return {
+            "date_start": self.date_start,
+            "date_stop": self.date_stop,
+            "spend": self.spend,
+            "account_currency": self.account_currency,
+        }
+
+
+@dataclass(frozen=True)
+class SpendRead:
+    """The result of reading one ad account's spend. S1.
+
+    `ok=False` always carries a `failure_code`. Whatever was read before the failure is kept —
+    a node read that answered is real data even when the insights read after it did not — but an
+    unsuccessful read is never used as current spend.
+    """
+
+    ok: bool
+    failure_code: MetaFailureCode | None = None
+    failure_summary: str | None = None
+    currency: str | None = None
+    timezone_name: str | None = None
+    account_status_raw: str | None = None
+    disable_reason_raw: str | None = None
+    amount_spent_raw: str | None = None
+    spend_cap_raw: str | None = None
+    balance_raw: str | None = None
+    daily: tuple[DailySpend, ...] = ()
+    #: The insights window requested, in the account's local dates (ISO `YYYY-MM-DD`).
+    window_since: str | None = None
+    window_until: str | None = None
+    #: Observability only — nothing in this build throttles itself on it.
+    rate_limit_header: str | None = None
+
+
 def _count_from(assets: list[DiscoveredAsset], edge: str) -> int:
     """How many of these assets that edge produced.
 
@@ -343,6 +394,17 @@ class MetaBusinessProvider:
     def share_pixel_access(self, request: SharePixelRequest) -> SharePixelResult:  # pragma: no cover
         raise NotImplementedError
 
+    def read_account_spend(
+        self, external_account_id: str, *, now: datetime, window_days: int = 8
+    ) -> SpendRead:  # pragma: no cover - interface
+        """S1. Read one ad account's spend: its node (currency, timezone, raw cap/spent/balance)
+        and its daily insights for the last `window_days` local days, today included.
+
+        Read-only. Never requests anything describing a payment method. A failure is a
+        `SpendRead(ok=False)` with a code, never an exception and never a fabricated zero.
+        """
+        raise NotImplementedError
+
     def reconcile_create(self, idempotency_key: str) -> CreateAccountResult | None:  # pragma: no cover
         """Out-of-band "did this actually happen?" check for an item stuck `unknown` after a
         timeout — distinct from calling `create_ad_account` again, which mini-spec A7
@@ -385,6 +447,26 @@ class FakeMetaBusinessProvider(MetaBusinessProvider):
     #: Every provider method a test caused, in order, as `(method, argument)`. A10.1 asserts
     #: against this that a discovery run never reached a write method.
     calls: list[tuple[str, str]] = field(default_factory=list)
+    #: S1. Spend reads staged per canonical external account id, consumed in order.
+    _staged_spend: dict[str, list[SpendRead]] = field(default_factory=dict)
+
+    def queue_spend_result(self, external_account_id: str, result: SpendRead) -> None:
+        self._staged_spend.setdefault(external_account_id, []).append(result)
+
+    def read_account_spend(
+        self, external_account_id: str, *, now: datetime, window_days: int = 8
+    ) -> SpendRead:
+        """Answers only what a test staged. Unstaged, it refuses with `not_configured`: a fake
+        that invented spend would put a number on a screen that no platform ever reported."""
+        self.calls.append(("read_account_spend", external_account_id))
+        staged = self._staged_spend.get(external_account_id)
+        if staged:
+            return staged.pop(0)
+        return SpendRead(
+            ok=False,
+            failure_code=MetaFailureCode.NOT_CONFIGURED,
+            failure_summary="The fake provider has no spend staged for this account.",
+        )
 
     def queue_create_result(self, result: CreateAccountResult) -> None:
         self._staged_create.append(result)
@@ -550,5 +632,6 @@ def reset_fake_provider() -> FakeMetaBusinessProvider:
     _FAKE_PROVIDER.discovered_pixels.clear()
     _FAKE_PROVIDER._staged_ad_account_discovery.clear()
     _FAKE_PROVIDER._staged_pixel_discovery.clear()
+    _FAKE_PROVIDER._staged_spend.clear()
     _FAKE_PROVIDER.calls.clear()
     return _FAKE_PROVIDER

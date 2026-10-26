@@ -12,7 +12,7 @@ import { EVENT_LABEL, GUARD_CHECKLIST, READ_ONLY_NOTE_KEY } from '../shared/pres
 import { ask } from '../shared/messaging'
 import { dashboardLink, useConnection, useContext } from '../shared/useExtension'
 import type { ExtensionEventType } from '../shared/types'
-import { AccountIdentity, Disclaimer, OperationalState, UnresolvedContext } from '../popup/ContextView'
+import { AccountIdentity, Disclaimer, OperationalState, SpendState, UnresolvedContext } from '../popup/ContextView'
 
 export default function SidePanelApp() {
   const { t } = useLanguage()
@@ -58,6 +58,7 @@ export default function SidePanelApp() {
         <>
           <AccountIdentity context={context} />
           <OperationalState context={context} />
+          <SpendState context={context} />
           <WorkspaceGuard accountId={account.id} onRecorded={() => void refresh()} />
           <QuickActions accountId={account.id} onRecorded={() => void refresh()} />
           <div className="row">

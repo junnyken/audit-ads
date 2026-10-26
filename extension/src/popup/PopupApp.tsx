@@ -2,7 +2,7 @@ import { useLanguage } from '../shared/i18n'
 import { LanguageToggle } from '../shared/LanguageToggle'
 import { READ_ONLY_NOTE_KEY } from '../shared/presentation'
 import { dashboardLink, useConnection, useContext } from '../shared/useExtension'
-import { AccountIdentity, Disclaimer, OperationalState, UnresolvedContext } from './ContextView'
+import { AccountIdentity, Disclaimer, OperationalState, SpendState, UnresolvedContext } from './ContextView'
 
 export default function PopupApp() {
   const { t } = useLanguage()
@@ -53,6 +53,7 @@ export default function PopupApp() {
         <>
           <AccountIdentity context={context} />
           <OperationalState context={context} />
+          <SpendState context={context} />
           <div className="row">
             <button
               type="button"

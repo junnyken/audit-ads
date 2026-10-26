@@ -11,9 +11,11 @@ import {
   FRESHNESS_META,
   HEALTH_META,
   READINESS_META,
+  SPEND_FRESHNESS_META,
+  SPEND_FRESHNESS_UNKNOWN,
   toneClass,
 } from '../shared/presentation'
-import type { ContextResolution } from '../shared/types'
+import type { ContextResolution, SpendDay } from '../shared/types'
 
 export function StatusBadge({ status }: { status: string }) {
   const { t } = useLanguage()
@@ -130,6 +132,63 @@ export function OperationalState({ context }: { context: ContextResolution }) {
           </ul>
         </>
       )}
+    </div>
+  )
+}
+
+/** Money is Meta's raw string plus the observed currency. A missing value is "—", never 0. */
+function amountText(day: SpendDay | null, currency: string | null): string {
+  if (!day || day.spend_raw === null || day.spend_raw === undefined || day.spend_raw === '') return '—'
+  return currency ? `${day.spend_raw} ${currency}` : day.spend_raw
+}
+
+export function SpendState({ context }: { context: ContextResolution }) {
+  const { t } = useLanguage()
+  const spend = context.spend
+  // Older backends send no spend block: say nothing is known rather than render zeros.
+  if (!spend) {
+    return (
+      <div className="card" data-testid="spend-state">
+        <h2>{t('spend.title')}</h2>
+        <p className="muted">{t('spend.unavailable')}</p>
+      </div>
+    )
+  }
+  const meta = SPEND_FRESHNESS_META[spend.freshness] ?? SPEND_FRESHNESS_UNKNOWN
+  const hideAmounts = spend.currency_conflict
+  const complete = hideAmounts ? null : spend.latest_complete_day
+  const partial = hideAmounts ? null : spend.today_partial
+  return (
+    <div className="card" data-testid="spend-state">
+      <h2>{t('spend.title')}</h2>
+      <dl className="kv">
+        <dt>{t('spend.freshness')}</dt>
+        <dd>
+          <span className={toneClass(meta.tone)}>{t(meta.label)}</span>
+        </dd>
+        <dt>{t('spend.lastCompleteDay')}</dt>
+        <dd>
+          {amountText(complete, spend.currency)}
+          {spend.latest_complete_day && <span className="faint"> ({spend.latest_complete_day.date})</span>}
+          {spend.latest_complete_day && spend.latest_complete_day.spend_raw === null && !hideAmounts && (
+            <span className="faint"> — {t('spend.noRow')}</span>
+          )}
+        </dd>
+        <dt>{t('spend.todayPartial')}</dt>
+        <dd>{amountText(partial, spend.currency)}</dd>
+        <dt>{t('spend.observedAt')}</dt>
+        <dd>{spend.observed_at ? new Date(spend.observed_at).toLocaleString() : '—'}</dd>
+        <dt>{t('spend.signal')}</dt>
+        <dd>
+          {spend.signal_open ? (
+            <span className={toneClass('caution')}>{t('spend.signal.open')}</span>
+          ) : (
+            <span className={toneClass('neutral')}>{t('spend.signal.none')}</span>
+          )}
+        </dd>
+      </dl>
+      {hideAmounts && <p className="notice">{t('spend.conflict')}</p>}
+      <p className="faint">{t('spend.note')}</p>
     </div>
   )
 }

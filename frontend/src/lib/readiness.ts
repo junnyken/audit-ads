@@ -1,4 +1,4 @@
-import type { EvidenceStatus, ReadinessStatus, ReviewStatus } from './types'
+import type { EvidenceStatus, ReadinessStatus, ReviewStatus, SpendFreshness } from './types'
 
 export type Tone = 'positive' | 'caution' | 'attention' | 'info' | 'neutral' | 'muted'
 
@@ -127,3 +127,35 @@ export function severityTone(severity: string): Tone {
 
 export const READINESS_DISCLAIMER =
   'Readiness is an internal operational state derived from recorded evidence. It is not a platform approval, and it is not a guarantee against restriction.'
+
+/**
+ * Spend freshness (S1). Describes how recent the stored Meta read is, never how the account is
+ * doing — so NO state here is `positive`. `current` only means the last read is recent enough to
+ * trust the number's age; it is neutral. `never_observed` (nothing was ever read) and `stale`
+ * (a read exists but is old) are different states and must never be merged (rule 28).
+ */
+export const SPEND_FRESHNESS_META: Record<
+  SpendFreshness,
+  { label: string; tone: Tone; description: string }
+> = {
+  current: {
+    label: 'Current',
+    tone: 'neutral',
+    description: 'The latest successful Meta read is within the configured freshness window.',
+  },
+  stale: {
+    label: 'Stale',
+    tone: 'caution',
+    description: 'A successful read exists, but it is older than the freshness window.',
+  },
+  never_observed: {
+    label: 'Never observed',
+    tone: 'neutral',
+    description: 'No successful spend read has ever been recorded for this account.',
+  },
+  not_observable: {
+    label: 'Not observable',
+    tone: 'muted',
+    description: 'No connection can read this account, so spend cannot be observed.',
+  },
+}

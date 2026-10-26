@@ -16,13 +16,15 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from app.core.enums import AlertSeverity, AlertStatus
+from app.core.enums import AlertSeverity, AlertStatus, HealthCategory, SignalStatus
 from app.models.alerts import Alert
 from app.models.entities import AdAccount, BusinessManager
+from app.models.health import AccountHealthSignal
 from app.services.audit import AuditLogService
 from app.services.health_presenter import present_snapshot
 from app.services.health_service import AccountHealthSnapshotService
 from app.services.rollup import ReadinessRollupService
+from app.services.spend_service import build_spend_facts
 
 #: Enough to act on, few enough to read on a popup. The rest stay one click away in the app.
 MAX_REASONS = 3
@@ -92,6 +94,7 @@ class ExtensionSummaryService:
                 "counts": health.get("counts", {}),
             },
             "alerts": counts,
+            "spend": self._spend_block(account, now),
             "dashboard_paths": {
                 "account_detail": f"/accounts/{account.id}",
                 "account_health": f"/accounts/{account.id}?tab=health",
@@ -121,4 +124,47 @@ class ExtensionSummaryService:
             "critical_count": by_severity.get(AlertSeverity.CRITICAL, 0),
             "warning_count": by_severity.get(AlertSeverity.WARNING, 0),
             "info_count": by_severity.get(AlertSeverity.INFO, 0),
+        }
+
+    def _spend_block(self, account: AdAccount, now: datetime) -> dict[str, Any]:
+        """S1 viewport: stored observations only, never a provider call (`build_spend_facts`).
+
+        A day Meta returned no row for has `spend_raw: None` — never "0". Money stays the raw
+        string Meta returned; there is no total and no cross-currency sum.
+        """
+        facts = build_spend_facts(self.session, self.workspace_id, account, now=now)
+        complete = None
+        if facts.latest_complete_day is not None:
+            entry = facts.day(facts.latest_complete_day)
+            complete = {
+                "date": facts.latest_complete_day.isoformat(),
+                "spend_raw": entry.spend_raw if entry is not None and entry.has_row else None,
+            }
+        partial = None
+        if facts.today_partial is not None and facts.today_partial.has_row:
+            partial = {
+                "date": facts.today_partial.day.isoformat(),
+                "spend_raw": facts.today_partial.spend_raw,
+                "label": "incomplete_day",
+            }
+        signal_open = self.session.execute(
+            sa.select(sa.func.count())
+            .select_from(AccountHealthSignal)
+            .where(
+                AccountHealthSignal.workspace_id == self.workspace_id,
+                AccountHealthSignal.ad_account_id == account.id,
+                AccountHealthSignal.category == HealthCategory.SPEND,
+                AccountHealthSignal.status.in_((SignalStatus.OPEN, SignalStatus.ACKNOWLEDGED)),
+                AccountHealthSignal.archived_at.is_(None),
+            )
+        ).scalar_one()
+        return {
+            "freshness": facts.freshness.value,
+            "observable": facts.observable,
+            "currency": facts.observed_currency,
+            "currency_conflict": facts.insights_currency_conflict,
+            "observed_at": facts.latest_success.observed_at.isoformat() if facts.latest_success else None,
+            "latest_complete_day": complete,
+            "today_partial": partial,
+            "signal_open": int(signal_open) > 0,
         }

@@ -64,6 +64,23 @@ export interface AlertCounts {
   info_count: number
 }
 
+export interface SpendDay {
+  date: string
+  /** Meta's raw amount string, or null when Meta returned no row. Never coerced to 0. */
+  spend_raw: string | null
+}
+
+export interface SpendBlock {
+  freshness: string
+  observable: boolean
+  currency: string | null
+  currency_conflict: boolean
+  observed_at: string | null
+  latest_complete_day: SpendDay | null
+  today_partial: (SpendDay & { label: string }) | null
+  signal_open: boolean
+}
+
 export interface ContextResolution {
   context_status: ContextStatus
   reason_code: string | null
@@ -74,6 +91,7 @@ export interface ContextResolution {
   readiness?: ReadinessBlock | null
   health?: HealthBlock | null
   alerts?: AlertCounts | null
+  spend?: SpendBlock | null
   dashboard_paths?: Record<string, string> | null
   disclaimer?: string | null
   generated_at?: string | null

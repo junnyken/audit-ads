@@ -34,6 +34,7 @@ from app.services.meta_discovery import MetaDiscoveryService, ReconciliationRow
 from app.services.meta_pixel_share import DraftPixelShareItem, PixelShareBatchService
 from app.services.meta_provider import DiscoveredAsset, get_fake_provider
 from app.services.meta_real_provider import READER_NONE, build_real_provider, resolve_reader
+from app.services.spend_service import connection_business_id
 
 #: A9 permission matrix (§6): "Manage Meta connections/capabilities" and "Queue A7/A8 external
 #: operation" are owner-only by default — Admin only "if role capability exists", and A9
@@ -53,7 +54,7 @@ def _business_id_for(connection: MetaConnection) -> str:
     places deciding it is how a card ends up headed "Triều Shop" while listing another business's
     accounts — which is exactly what happened before this column existed.
     """
-    return (connection.business_manager_reference or "").strip() or get_settings().meta_business_id
+    return connection_business_id(connection)
 
 
 def _provider_for(connection: MetaConnection):
@@ -380,8 +381,10 @@ def run_discovery(ctx: OwnerCtx, connection_id: uuid.UUID) -> dict[str, Any]:
     """Read the configured Business Manager, then its ad accounts and Pixels. Read-only.
 
     Only ever runs because an operator asked: there is no timer, no page-load trigger and no
-    retry, so every call against a real Business Manager's rate-limit budget is one a person
-    chose to spend.
+    retry, so every discovery call against a real Business Manager's rate-limit budget is one a
+    person chose to spend. (Since S1 this is no longer true of *every* Meta call: the spend sweep
+    reads on a cadence that is off by default — see `run_dispatcher.spend_sweep_pass`. It shares
+    the same budget, which is why it stops on the first `rate_limited`.)
     """
     connection = get_or_404(ctx.session, MetaConnection, connection_id, ctx.workspace_id, label="Meta connection")
     service = _discovery_service(ctx, connection)

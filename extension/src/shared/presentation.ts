@@ -34,6 +34,21 @@ export const FRESHNESS_META: Record<string, { label: TranslationKey; tone: Tone 
   not_applicable: { label: 'presentation.freshness.notApplicable.label', tone: 'neutral' },
 }
 
+/**
+ * Spend freshness. Deliberately has no `positive` tone: a recent read says the number is
+ * recent, not that the account is fine. Anything unrecognised is neutral "unknown".
+ */
+export const SPEND_FRESHNESS_META: Record<string, { label: TranslationKey; tone: Tone }> = {
+  current: { label: 'spend.freshness.current', tone: 'info' },
+  stale: { label: 'spend.freshness.stale', tone: 'caution' },
+  never_observed: { label: 'spend.freshness.neverObserved', tone: 'neutral' },
+  not_observable: { label: 'spend.freshness.notObservable', tone: 'neutral' },
+}
+export const SPEND_FRESHNESS_UNKNOWN: { label: TranslationKey; tone: Tone } = {
+  label: 'spend.freshness.unknown',
+  tone: 'neutral',
+}
+
 export const CONTEXT_META: Record<string, { label: TranslationKey; tone: Tone; hint: TranslationKey }> = {
   confirmed: {
     label: 'presentation.context.confirmed.label',
