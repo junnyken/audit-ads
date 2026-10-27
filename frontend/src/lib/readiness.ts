@@ -38,22 +38,28 @@ export const READINESS_META: Record<
   },
 }
 
+/**
+ * How each tone is painted. Since U1a the values are design-token classes (`tone-*`, declared in
+ * `src/index.css` from the variables in `src/tokens.css`), not raw palette classes: the colours
+ * live in one stylesheet for light and dark, while the decision of WHICH state gets WHICH tone
+ * still lives here and in the `*_META` maps beside it. A state's tone never depends on the theme.
+ */
 export const TONE_CLASS: Record<Tone, string> = {
-  positive: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-  caution: 'bg-amber-50 text-amber-900 border-amber-200',
-  attention: 'bg-rose-50 text-rose-800 border-rose-200',
-  info: 'bg-sky-50 text-sky-900 border-sky-200',
-  neutral: 'bg-slate-100 text-slate-700 border-slate-300',
-  muted: 'bg-surface-sunken text-ink-faint border-line',
+  positive: 'tone-positive',
+  caution: 'tone-caution',
+  attention: 'tone-attention',
+  info: 'tone-info',
+  neutral: 'tone-neutral',
+  muted: 'tone-muted',
 }
 
 export const TONE_DOT: Record<Tone, string> = {
-  positive: 'bg-emerald-500',
-  caution: 'bg-amber-500',
-  attention: 'bg-rose-500',
-  info: 'bg-sky-500',
-  neutral: 'bg-slate-400',
-  muted: 'bg-line-strong',
+  positive: 'tone-dot-positive',
+  caution: 'tone-dot-caution',
+  attention: 'tone-dot-attention',
+  info: 'tone-dot-info',
+  neutral: 'tone-dot-neutral',
+  muted: 'tone-dot-muted',
 }
 
 export function accountStatusTone(status: string): Tone {

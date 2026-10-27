@@ -1,93 +1,96 @@
-import { NavLink, Outlet } from 'react-router-dom'
 import { useState } from 'react'
+import { Outlet } from 'react-router-dom'
+import { Menu } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
-import { READINESS_DISCLAIMER } from '../lib/readiness'
+import { useI18n } from '../i18n'
+import { Button } from './primitives/button'
+import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from './primitives/sheet'
+import { TooltipProvider } from './primitives/tooltip'
+import { BrandMark } from './shell/BrandMark'
+import { LanguageToggle } from './shell/LanguageToggle'
+import { SidebarNav } from './shell/SidebarNav'
+import { ThemeToggle } from './shell/ThemeToggle'
+import { UserMenu } from './shell/UserMenu'
 
-// MINI-SPEC A7 core nav: "Overview, Business Managers, Ad Accounts, Assets, Operations,
-// Alerts, Settings" — Readiness/Account Health/Preflight/Audit Log/System Status are hidden,
-// not deleted (still reachable by URL, still fully working) so the main nav stays compact.
-const NAV = [
-  { to: '/', label: 'Overview', end: true },
-  { to: '/accounts', label: 'Accounts' },
-  { to: '/business-managers', label: 'Business Managers' },
-  { to: '/assets', label: 'Assets' },
-  { to: '/operations', label: 'Operations' },
-  // A10.1 promoted this from a Settings link: reading the configured Business Manager is a
-  // daily workflow now, not a one-off configuration step, and it was only reachable from
-  // Settings and from inside a wizard.
-  { to: '/meta-connections', label: 'Meta connection' },
-  { to: '/alerts', label: 'Alerts' },
-  { to: '/settings', label: 'Settings' },
-]
-
+/**
+ * App shell (U1a): 240px sidebar with seven navigation groups, 52px header, one disclaimer.
+ * At 768px and below the sidebar is replaced by a Sheet (Radix Dialog: focus trap, Esc, focus
+ * returns to the menu button). Routes are unchanged; see components/shell/nav.ts.
+ *
+ * The desktop/mobile switch is CSS only (`min-[769px]`), so jsdom tests see both trees' markup
+ * exactly as a browser's DOM would, minus the closed Sheet which is not mounted until opened.
+ */
 export default function AppShell() {
-  const { user, signOut } = useAuth()
+  const { user } = useAuth()
+  const { t } = useI18n()
   const [navOpen, setNavOpen] = useState(false)
 
   return (
-    <div className="min-h-screen lg:flex">
-      <aside
-        className={`${navOpen ? 'block' : 'hidden'} border-b border-line bg-surface lg:block lg:w-56 lg:shrink-0 lg:border-b-0 lg:border-r`}
+    <TooltipProvider delayDuration={300}>
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:bg-brand focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-brand-fg"
       >
-        <div className="hidden items-center gap-2 px-4 py-4 lg:flex">
-          <span className="grid h-7 w-7 place-items-center rounded bg-brand text-[12px] font-bold text-white">
-            AO
-          </span>
-          <span className="text-[13px] font-semibold leading-tight">
-            AdsOps
-            <span className="block text-[11px] font-normal text-ink-faint">Control Center</span>
-          </span>
-        </div>
-        <nav className="flex flex-col gap-0.5 px-2 pb-3">
-          {NAV.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              onClick={() => setNavOpen(false)}
-              className={({ isActive }) =>
-                `rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors ${
-                  isActive ? 'bg-brand-light text-brand-dark' : 'text-ink-muted hover:bg-surface-muted'
-                }`
-              }
-            >
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
-      </aside>
+        {t('shell.skipToContent')}
+      </a>
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between gap-3 border-b border-line bg-surface px-4 py-2.5">
-          <button
-            type="button"
-            className="btn-secondary lg:hidden"
-            onClick={() => setNavOpen((open) => !open)}
-            aria-expanded={navOpen}
+      <div className="min-h-screen min-[769px]:flex">
+        <aside className="hidden w-sidebar shrink-0 border-r border-line bg-surface min-[769px]:block">
+          <div className="sticky top-0 flex h-screen flex-col overflow-y-auto">
+            <div className="flex h-header shrink-0 items-center px-4">
+              <BrandMark />
+            </div>
+            <SidebarNav />
+          </div>
+        </aside>
+
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="sticky top-0 z-10 flex h-header shrink-0 items-center gap-2 border-b border-line bg-surface px-3 min-[769px]:px-6">
+            <div className="min-[769px]:hidden">
+              <Sheet open={navOpen} onOpenChange={setNavOpen}>
+                <SheetTrigger asChild>
+                  <Button variant="ghost" size="icon" aria-label={t('shell.openMenu')}>
+                    <Menu className="h-5 w-5" aria-hidden="true" />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="left" closeLabel={t('shell.closeMenu')}>
+                  <SheetTitle className="sr-only">{t('shell.menuTitle')}</SheetTitle>
+                  <SheetDescription className="sr-only">{t('shell.mainNavLabel')}</SheetDescription>
+                  <div className="flex h-header shrink-0 items-center px-4">
+                    <BrandMark />
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-y-auto">
+                    <SidebarNav onNavigate={() => setNavOpen(false)} />
+                  </div>
+                </SheetContent>
+              </Sheet>
+            </div>
+
+            <div className="min-w-0 flex-1 truncate text-sm text-ink-muted" title={user?.workspace.name}>
+              <span className="sr-only">{t('shell.workspace')}: </span>
+              {user?.workspace.name}
+            </div>
+
+            <div className="flex items-center gap-1">
+              <ThemeToggle />
+              <LanguageToggle />
+              <UserMenu />
+            </div>
+          </header>
+
+          <main
+            id="main-content"
+            tabIndex={-1}
+            className="min-w-0 flex-1 px-4 py-5 outline-none min-[769px]:px-6"
           >
-            Menu
-          </button>
-          <div className="min-w-0 truncate text-[12.5px] text-ink-muted">
-            {user?.workspace.name}
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="hidden text-[12px] text-ink-muted sm:inline">
-              {user?.email} · {user?.role}
-            </span>
-            <button type="button" className="btn-secondary" onClick={signOut}>
-              Sign out
-            </button>
-          </div>
-        </header>
+            <Outlet />
+          </main>
 
-        <main className="min-w-0 flex-1 px-4 py-5">
-          <Outlet />
-        </main>
-
-        <footer className="border-t border-line bg-surface px-4 py-2.5 text-[11.5px] text-ink-faint">
-          {READINESS_DISCLAIMER}
-        </footer>
+          <footer className="border-t border-line bg-surface px-4 py-3 text-xs text-ink-faint min-[769px]:px-6">
+            {t('shell.disclaimer')}
+          </footer>
+        </div>
       </div>
-    </div>
+    </TooltipProvider>
   )
 }
