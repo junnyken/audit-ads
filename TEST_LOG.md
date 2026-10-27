@@ -3342,7 +3342,10 @@ only against the test database `adsops_test` (asserted by `test_o3_migration.py`
 `adsops` was not migrated or downgraded. Real output:
 
 - Backend, full suite, one session (`.venv/bin/python -m pytest -q`, junit count):
-  **1199 passed, 0 failed, 0 errors, 0 skipped** in 1708.7 s, exit 0. `ruff check .`: All checks passed.
+  **1199 passed, 0 failed, 0 errors, 0 skipped** in 1708.7 s, exit 0 (finished 13:36). Re-run once more
+  14:05–14:35, after another session's pytest had shared `adsops_test` between ~13:45 and ~14:10 and
+  with no other pytest process running: **1199 passed, 0 failed, 0 errors, 0 skipped** in 1780.5 s,
+  exit 0. `ruff check .`: All checks passed.
   - An earlier full run with `-p no:logging` collected the same 1199 tests: 1194 passed, 0 failed,
     5 **errors** — all `fixture 'caplog' not found` in `test_a4_configuration.py` /
     `test_startup_migration.py`, caused by that flag disabling the logging plugin, not by O3. Those
