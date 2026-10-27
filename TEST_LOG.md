@@ -3331,3 +3331,42 @@ transport; `conftest.py` still forces `META_ACCESS_TOKEN` empty. Real output:
   `adsops-extension-0.3.0.zip` (manifest at root, 25 entries) rebuilt; the 0.2.0 store zip deleted.
 - NOT done: no live Meta read (every §2f **[CHƯA KIỂM]** item is still open), no browser
   click-through against a live backend, no deploy.
+
+## Session 2026-10-27 — U1a (design tokens, app shell, grouped Vietnamese nav, i18n scaffold)
+
+Scope: `docs/AUDIT_BEFORE_BUILD_U1_UI.md` slice U1a only. No API, route, queryKey or enum changed;
+page bodies other than Login are untouched (still English, restyled by U1b–U1d).
+
+- Dashboard `npx vitest run`: **284 passed, 20 skipped** (26 files; 25 passed, 1 skipped = the live
+  file). Baseline at `c7f01ea` was 207 passed, 20 skipped, so **+77 new tests**:
+  `tone-classes` 43 (TONE_CLASS/TONE_DOT are exactly `tone-*`; every tone defined in light, dark
+  and follow-OS blocks; no `positive` for readiness unknown/not_ready, health unknown, health
+  freshness, spend freshness, every Meta status/class; WCAG contrast computed from the token
+  values for tone text and body text, both themes), `no-raw-palette` 3 (allowlist frozen at the 24
+  files that already used raw palette; fails on a new offender or a stale entry), `i18n.parity` 13
+  (same keys and placeholders vi/en, no empty string, vi default, vi-VN `27/10/2026 09:15`,
+  "chưa từng"/"vừa xong", disclaimer makes no guarantee), `theme` 7 (system/light/dark, persisted
+  `adsops.theme`, storage throwing, badge tone unchanged across themes), `appshell` 11 (7 groups,
+  15 links, every route in `App.tsx` reachable from the menu incl. the 5 A7-hidden ones,
+  `aria-current`, skip link, one disclaimer, user menu, VI→EN switch, Sheet opens/Esc closes/focus
+  returns/closes on navigate, every shell button has an accessible name, axe: 0 violations on the
+  shell and on Login with colour-contrast rule disabled because jsdom has no layout/colours).
+- `npm run typecheck` (`tsc -b`), `npx eslint .`: clean. `npm run build`: succeeds.
+- Bundle (vite build, before = `c7f01ea` built from `git archive`): JS 499.77 kB → 701.52 kB
+  (gzip 129.78 → 188.37 kB); CSS 25.02 kB → 42.50 kB (gzip 5.03 → 10.14 kB); plus self-hosted font
+  files (Be Vietnam Pro 8 woff2 ≈ 21–22 kB each for latin, similar for vietnamese; JetBrains Mono
+  variable woff2 ≈ 40 kB). Browsers fetch only the woff2 they need and only the subsets the page
+  uses. The JS jump is larger than the spec's estimate of Radix 40–60 kB gz: it is +58 kB gz in
+  total; not investigated further (follow-up: check lucide tree-shaking, code-split).
+- Test-environment finding: rendering any Radix popper content (dropdown menu, tooltip) with the
+  real `@floating-ui/react-dom` in this jsdom never returns — reproduced with a bare
+  `<Popper.Content>`, with two Radix versions, with and without ResizeObserver. `src/test/setup.ts`
+  therefore replaces `useFloating` with a fixed placement, and `vitest.config.ts` inlines
+  `@radix-ui`/`@floating-ui` so the mock applies. Consequence: **menu/tooltip positioning is not
+  covered by any test**. The cause was not found.
+- NOT done / NOT verified: no click-through by a person; no screenshots; no check of the font
+  rendering or Vietnamese diacritics in a real Chrome; no screen reader; menu positioning and the
+  sticky sidebar/header layout at 375/768/1280 px untested; dark mode never looked at; the
+  `prefers-color-scheme` follow-OS CSS block only checked by reading; production frontend is not
+  reachable so nothing deployed. Wording is `[ĐỀ XUẤT — chờ duyệt]` (BA review pending).
+- Packages and licences: `docs/ui/LICENSES.md` (class-variance-authority is Apache-2.0, not MIT).

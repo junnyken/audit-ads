@@ -1,11 +1,29 @@
+@import '@fontsource/be-vietnam-pro/vietnamese-400.css';
+@import '@fontsource/be-vietnam-pro/vietnamese-500.css';
+@import '@fontsource/be-vietnam-pro/vietnamese-600.css';
+@import '@fontsource/be-vietnam-pro/vietnamese-700.css';
+@import '@fontsource/be-vietnam-pro/latin-400.css';
+@import '@fontsource/be-vietnam-pro/latin-500.css';
+@import '@fontsource/be-vietnam-pro/latin-600.css';
+@import '@fontsource/be-vietnam-pro/latin-700.css';
+@import '@fontsource-variable/jetbrains-mono/wght.css';
+@import './tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   html { -webkit-text-size-adjust: 100%; }
-  body { @apply bg-surface-muted text-ink font-sans text-[13.5px] antialiased; }
-  :focus-visible { @apply outline-none ring-2 ring-brand ring-offset-1; }
+  body { @apply bg-surface-muted text-ink font-sans text-sm antialiased; }
+  :focus-visible { @apply outline-none ring-2 ring-brand ring-offset-2 ring-offset-surface-muted; }
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
 
 @layer components {
@@ -14,8 +32,8 @@
     @apply inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-[13px]
            font-medium border transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
   }
-  .btn-primary { @apply btn bg-brand text-white border-brand hover:bg-brand-dark; }
-  .btn-secondary { @apply btn bg-surface text-ink border-line-strong hover:bg-surface-muted; }
+  .btn-primary { @apply btn bg-brand text-brand-fg border-brand hover:bg-brand-dark hover:border-brand-dark; }
+  .btn-secondary { @apply btn bg-surface text-ink border-line-strong hover:bg-surface-sunken; }
   .btn-ghost { @apply btn bg-transparent border-transparent text-ink-muted hover:bg-surface-sunken; }
   .input {
     @apply w-full rounded-md border border-line-strong bg-surface px-2.5 py-1.5 text-[13px]
@@ -26,4 +44,22 @@
   .td { @apply px-3 py-2 align-middle border-t border-line; }
   /* Wide content scrolls inside its own container; the page body never scrolls sideways. */
   .table-scroll { @apply w-full overflow-x-auto; }
+
+  /*
+   * The six tones (U1 §10b). Which state gets which tone is decided in src/lib/readiness.ts and
+   * nowhere else; this block only paints them. Light/dark values live in tokens.css, so a badge
+   * keeps its meaning when the theme changes.
+   */
+  .tone-positive { @apply bg-tone-positive-bg text-tone-positive-fg border-tone-positive-border; }
+  .tone-caution { @apply bg-tone-caution-bg text-tone-caution-fg border-tone-caution-border; }
+  .tone-attention { @apply bg-tone-attention-bg text-tone-attention-fg border-tone-attention-border; }
+  .tone-info { @apply bg-tone-info-bg text-tone-info-fg border-tone-info-border; }
+  .tone-neutral { @apply bg-tone-neutral-bg text-tone-neutral-fg border-tone-neutral-border; }
+  .tone-muted { @apply bg-tone-muted-bg text-tone-muted-fg border-tone-muted-border; }
+  .tone-dot-positive { @apply bg-tone-positive-fg; }
+  .tone-dot-caution { @apply bg-tone-caution-fg; }
+  .tone-dot-attention { @apply bg-tone-attention-fg; }
+  .tone-dot-info { @apply bg-tone-info-fg; }
+  .tone-dot-neutral { @apply bg-tone-neutral-fg; }
+  .tone-dot-muted { @apply bg-tone-muted-fg; }
 }
