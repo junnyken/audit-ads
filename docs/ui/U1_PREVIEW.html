@@ -1,0 +1,1117 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Bản xem trước AdsOps U1</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   U1 — token đề xuất (giá trị = docs/AUDIT_BEFORE_BUILD_U1_UI.md §10)
+   Bố cục: trang tài liệu một cột; mỗi màn hình mẫu nằm trong một "khung app"
+   (sidebar 240 + header 52 + vùng cuộn) để thấy token trong ngữ cảnh thật.
+   Bản xem trước này dùng Google Fonts; sản phẩm tự host (CSP font-src 'self').
+   ============================================================ */
+:root{
+  --bg:#f4f6f9; --surface:#ffffff; --surface-2:#eef1f5; --border:#dde3ea; --border-strong:#c6cfda;
+  --fg:#121a2b; --fg-muted:#4b5767; --fg-faint:#5b6980;
+  --brand:#1f5fbf; --brand-hover:#184f9f; --brand-fg:#ffffff; --brand-text:#1a4f9e; --brand-soft:#e7eefb; --ring:#1f5fbf;
+  --pos-bg:#e6f6ee; --pos-fg:#0f6b43; --pos-bd:#a9dfc2;
+  --cau-bg:#fff5dc; --cau-fg:#7a4b00; --cau-bd:#f1d48a;
+  --att-bg:#fdeaea; --att-fg:#9b1c1c; --att-bd:#f3b4b4;
+  --inf-bg:#e8f3fd; --inf-fg:#0b4f86; --inf-bd:#a8cff0;
+  --neu-bg:#eceff4; --neu-fg:#3b4656; --neu-bd:#cdd5df;
+  --mut-bg:#f4f6f9; --mut-fg:#5c6878; --mut-bd:#dde3ea;
+  --overlay:rgb(18 26 43 / .32);
+  --shadow-pop:0 4px 12px rgb(10 18 36 / .10); --shadow-sheet:0 16px 40px rgb(10 18 36 / .24);
+  --font-sans:"Be Vietnam Pro",system-ui,"Segoe UI",Roboto,sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  --r-sm:4px; --r-md:6px; --r-lg:8px; --r-xl:12px;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0c1220; --surface:#131b2c; --surface-2:#1a2438; --border:#273246; --border-strong:#344158;
+    --fg:#e7ecf3; --fg-muted:#a7b2c3; --fg-faint:#8491a6;
+    --brand:#6ea0ec; --brand-hover:#88b3f3; --brand-fg:#0c1220; --brand-text:#8fb8f5; --brand-soft:#19284a; --ring:#6ea0ec;
+    --pos-bg:#0f2b22; --pos-fg:#6fd3a3; --pos-bd:#1f5a42;
+    --cau-bg:#332607; --cau-fg:#f3c86b; --cau-bd:#6b5213;
+    --att-bg:#3a1518; --att-fg:#f29a9a; --att-bd:#7a2a2e;
+    --inf-bg:#0f2740; --inf-fg:#86bff0; --inf-bd:#1f4d78;
+    --neu-bg:#1f2a3d; --neu-fg:#c2cbd8; --neu-bd:#3a4860;
+    --mut-bg:#161f30; --mut-fg:#95a2b6; --mut-bd:#273246;
+    --overlay:rgb(0 0 0 / .55);
+    --shadow-pop:0 4px 12px rgb(0 0 0 / .35); --shadow-sheet:0 16px 40px rgb(0 0 0 / .5);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"], .scheme-dark{
+  --bg:#0c1220; --surface:#131b2c; --surface-2:#1a2438; --border:#273246; --border-strong:#344158;
+  --fg:#e7ecf3; --fg-muted:#a7b2c3; --fg-faint:#8491a6;
+  --brand:#6ea0ec; --brand-hover:#88b3f3; --brand-fg:#0c1220; --brand-text:#8fb8f5; --brand-soft:#19284a; --ring:#6ea0ec;
+  --pos-bg:#0f2b22; --pos-fg:#6fd3a3; --pos-bd:#1f5a42;
+  --cau-bg:#332607; --cau-fg:#f3c86b; --cau-bd:#6b5213;
+  --att-bg:#3a1518; --att-fg:#f29a9a; --att-bd:#7a2a2e;
+  --inf-bg:#0f2740; --inf-fg:#86bff0; --inf-bd:#1f4d78;
+  --neu-bg:#1f2a3d; --neu-fg:#c2cbd8; --neu-bd:#3a4860;
+  --mut-bg:#161f30; --mut-fg:#95a2b6; --mut-bd:#273246;
+  --overlay:rgb(0 0 0 / .55);
+  --shadow-pop:0 4px 12px rgb(0 0 0 / .35); --shadow-sheet:0 16px 40px rgb(0 0 0 / .5);
+  color-scheme:dark;
+}
+.scheme-light{
+  --bg:#f4f6f9; --surface:#ffffff; --surface-2:#eef1f5; --border:#dde3ea; --border-strong:#c6cfda;
+  --fg:#121a2b; --fg-muted:#4b5767; --fg-faint:#5b6980;
+  --brand:#1f5fbf; --brand-hover:#184f9f; --brand-fg:#ffffff; --brand-text:#1a4f9e; --brand-soft:#e7eefb; --ring:#1f5fbf;
+  --pos-bg:#e6f6ee; --pos-fg:#0f6b43; --pos-bd:#a9dfc2;
+  --cau-bg:#fff5dc; --cau-fg:#7a4b00; --cau-bd:#f1d48a;
+  --att-bg:#fdeaea; --att-fg:#9b1c1c; --att-bd:#f3b4b4;
+  --inf-bg:#e8f3fd; --inf-fg:#0b4f86; --inf-bd:#a8cff0;
+  --neu-bg:#eceff4; --neu-fg:#3b4656; --neu-bd:#cdd5df;
+  --mut-bg:#f4f6f9; --mut-fg:#5c6878; --mut-bd:#dde3ea;
+  --overlay:rgb(18 26 43 / .32);
+  --shadow-pop:0 4px 12px rgb(10 18 36 / .10); --shadow-sheet:0 16px 40px rgb(10 18 36 / .24);
+  color-scheme:light;
+}
+
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:400 14px/1.45 var(--font-sans);font-variant-numeric:tabular-nums}
+h1,h2,h3,h4{margin:0;line-height:1.3;text-wrap:balance}
+p{margin:0}
+a{color:var(--brand-text)}
+button{font:inherit;color:inherit}
+code,.mono{font-family:var(--font-mono);font-size:.93em}
+:focus-visible{outline:2px solid var(--ring);outline-offset:2px}
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
+
+/* ---------- khung tài liệu ---------- */
+.wrap{max-width:1240px;margin:0 auto;padding-block:24px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:30;background:var(--surface);border-bottom:1px solid var(--border)}
+.topbar__in{max-width:1240px;margin:0 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-block:10px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.topbar__name{font-weight:600;font-size:16px}
+.topbar nav{display:flex;gap:4px;flex-wrap:wrap;margin-inline:auto}
+.topbar nav a{color:var(--fg-muted);text-decoration:none;font-size:13px;padding:5px 9px;border-radius:var(--r-md)}
+.topbar nav a:hover{background:var(--surface-2);color:var(--fg)}
+.seg-ctl{display:inline-flex;border:1px solid var(--border);border-radius:9999px;overflow:hidden;background:var(--surface)}
+.seg-ctl button{border:0;background:transparent;padding:5px 10px;font-size:12px;font-weight:600;color:var(--fg-faint);cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.seg-ctl button[aria-pressed="true"]{background:var(--brand);color:var(--brand-fg)}
+.doc-sec{display:grid;gap:16px;margin-top:40px}
+.doc-sec > h2{font-size:24px;font-weight:600}
+.doc-sec > p.lead{color:var(--fg-muted);max-width:70ch}
+.doc-h3{font-size:18px;font-weight:600;margin-top:8px}
+.rule-list{display:grid;gap:8px;padding-left:20px;margin:0;color:var(--fg-muted)}
+.rule-list li::marker{color:var(--fg-faint)}
+.sample-chip{display:inline-flex;align-items:center;gap:6px;background:var(--cau-bg);color:var(--cau-fg);border:1px solid var(--cau-bd);border-radius:9999px;padding:2px 10px;font-size:12px;font-weight:600}
+.cols-2{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.kv-note{font-size:12px;color:var(--fg-faint)}
+
+/* ---------- swatch & token ---------- */
+.swatch-panel{background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:var(--r-lg);padding:16px;display:grid;gap:12px}
+.swatch-panel h4{font-size:14px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
+.sw-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px}
+.sw{border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden;background:var(--surface);min-width:0}
+.sw__c{height:40px;border-bottom:1px solid var(--border)}
+.sw__t{padding:6px 8px;font-size:11px;line-height:1.35;color:var(--fg-muted)}
+.sw__t b{display:block;color:var(--fg);font-weight:600;font-size:12px}
+.tone-row{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,2fr) auto;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--border)}
+.tone-row:first-child{border-top:0}
+.tone-row .use{font-size:12px;color:var(--fg-muted)}
+@media (max-width:640px){.tone-row{grid-template-columns:1fr}}
+.type-row{display:grid;grid-template-columns:120px minmax(0,1fr);gap:16px;align-items:baseline;padding:10px 0;border-top:1px solid var(--border)}
+.type-row:first-child{border-top:0}
+.type-row .meta{font-size:12px;color:var(--fg-faint);font-family:var(--font-mono)}
+.type-row .sample{min-width:0;overflow-wrap:anywhere}
+@media (max-width:480px){.type-row{grid-template-columns:1fr;gap:2px}}
+.space-strip{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap}
+.space-strip .b{background:var(--brand-soft);border:1px solid var(--brand);border-radius:2px}
+.space-strip .lbl{font-size:11px;color:var(--fg-faint);text-align:center;font-family:var(--font-mono)}
+.radius-strip{display:flex;gap:16px;flex-wrap:wrap}
+.radius-strip .r{width:64px;height:48px;border:1px solid var(--border-strong);background:var(--surface);display:grid;place-items:center;font-size:11px;color:var(--fg-faint);font-family:var(--font-mono)}
+.shadow-strip{display:flex;gap:24px;flex-wrap:wrap;padding:12px 0}
+.shadow-strip .s{width:140px;height:64px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);display:grid;place-items:center;font-size:12px;color:var(--fg-muted)}
+.icon-strip{display:flex;flex-wrap:wrap;gap:12px}
+.icon-strip span{display:inline-flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;color:var(--fg-faint);width:64px;font-family:var(--font-mono)}
+
+/* ---------- primitives (component U1) ---------- */
+.ic{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.ic--16{width:16px;height:16px}.ic--24{width:24px;height:24px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:36px;padding:0 12px;border-radius:var(--r-md);border:1px solid var(--border-strong);background:var(--surface);color:var(--fg);font-weight:500;font-size:14px;cursor:pointer;transition:background .15s ease-out,border-color .15s ease-out;white-space:nowrap;text-decoration:none}
+.btn:hover{background:var(--surface-2)}
+.btn--primary{background:var(--brand);border-color:var(--brand);color:var(--brand-fg)}
+.btn--primary:hover{background:var(--brand-hover);border-color:var(--brand-hover)}
+.btn--ghost{border-color:transparent;background:transparent;color:var(--fg-muted)}
+.btn--ghost:hover{background:var(--surface-2);color:var(--fg)}
+.btn--icon{width:36px;padding:0}
+.btn--sm{height:30px;padding:0 10px;font-size:13px}.btn--sm.btn--icon{width:30px}
+.btn[disabled],.btn[aria-disabled="true"]{opacity:.55;cursor:not-allowed}
+.badge{display:inline-flex;align-items:center;gap:5px;border:1px solid;border-radius:9999px;padding:1px 8px;font-size:12px;line-height:18px;font-weight:500;white-space:nowrap;vertical-align:middle;font-family:var(--font-sans)}
+.amt{font-family:var(--font-mono);font-weight:500;font-variant-numeric:tabular-nums}
+.badge .dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+.badge--pos{background:var(--pos-bg);color:var(--pos-fg);border-color:var(--pos-bd)}
+.badge--cau{background:var(--cau-bg);color:var(--cau-fg);border-color:var(--cau-bd)}
+.badge--att{background:var(--att-bg);color:var(--att-fg);border-color:var(--att-bd)}
+.badge--inf{background:var(--inf-bg);color:var(--inf-fg);border-color:var(--inf-bd)}
+.badge--neu{background:var(--neu-bg);color:var(--neu-fg);border-color:var(--neu-bd)}
+.badge--mut{background:var(--mut-bg);color:var(--mut-fg);border-color:var(--mut-bd)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);min-width:0}
+.card__hd{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border)}
+.card__hd h3{font-size:16px;font-weight:600}
+.card__hd .sub{font-size:12px;color:var(--fg-faint);font-weight:400;display:block}
+.card__bd{padding:16px;display:grid;gap:12px}
+.card__ft{padding:10px 16px;border-top:1px solid var(--border);font-size:12px;color:var(--fg-faint)}
+.muted{color:var(--fg-muted)}.faint{color:var(--fg-faint)}
+.t-xs{font-size:12px;line-height:16px}.t-2xs{font-size:11px;line-height:16px}
+.ovl{font-size:11px;line-height:16px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--fg-faint)}
+.num{text-align:right;font-family:var(--font-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.link{color:var(--brand-text);text-decoration:none;font-weight:500}
+.link:hover{text-decoration:underline}
+.input{height:36px;border:1px solid var(--border-strong);border-radius:var(--r-md);background:var(--surface);color:var(--fg);padding:0 10px;font:inherit;min-width:0}
+.input--search{display:flex;align-items:center;gap:8px;color:var(--fg-faint);flex:1 1 240px}
+.input--search span{color:var(--fg-faint)}
+.select{display:inline-flex;align-items:center;gap:6px;height:36px;border:1px solid var(--border-strong);border-radius:var(--r-md);background:var(--surface);padding:0 8px 0 10px;font-size:14px;white-space:nowrap}
+.select .k{color:var(--fg-faint)}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--surface-2);border-radius:var(--r-sm);padding:2px 8px;font-size:12px;color:var(--fg-muted)}
+.note{border:1px solid var(--border);background:var(--surface-2);border-radius:var(--r-md);padding:10px 12px;font-size:13px;color:var(--fg-muted);display:flex;gap:10px;align-items:flex-start}
+.note .ic{margin-top:1px;color:var(--fg-faint)}
+.note--att{background:var(--att-bg);border-color:var(--att-bd);color:var(--att-fg)}.note--att .ic{color:var(--att-fg)}
+.note--cau{background:var(--cau-bg);border-color:var(--cau-bd);color:var(--cau-fg)}.note--cau .ic{color:var(--cau-fg)}
+.note--inf{background:var(--inf-bg);border-color:var(--inf-bd);color:var(--inf-fg)}.note--inf .ic{color:var(--inf-fg)}
+.dl{display:grid;grid-template-columns:minmax(0,160px) minmax(0,1fr);gap:8px 16px;margin:0;font-size:14px}
+.dl dt{color:var(--fg-faint)}.dl dd{margin:0;min-width:0;overflow-wrap:anywhere}
+@media (max-width:480px){.dl{grid-template-columns:1fr;gap:2px}.dl dd{margin-bottom:8px}}
+.prog{display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
+.prog .bar{width:64px;height:6px;border-radius:9999px;background:var(--surface-2);overflow:hidden}
+.prog .bar i{display:block;height:100%;background:var(--neu-fg);border-radius:9999px}
+.prog .bar i.is-full{background:var(--pos-fg)}
+.prog .v{font-size:12px;color:var(--fg-muted);font-family:var(--font-mono)}
+.skl{background:var(--surface-2);border-radius:var(--r-sm);height:14px;animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.55}}
+
+/* ---------- khung app ---------- */
+.frame{position:relative;border:1px solid var(--border-strong);border-radius:var(--r-lg);overflow:hidden;background:var(--bg)}
+.frame__tag{position:absolute;top:8px;right:8px;z-index:6;display:inline-flex;align-items:center;gap:6px;background:var(--cau-bg);color:var(--cau-fg);border:1px solid var(--cau-bd);border-radius:9999px;padding:2px 9px;font-size:11px;font-weight:600}
+.app{display:grid;grid-template-columns:240px minmax(0,1fr)}
+.sb{background:var(--surface);border-right:1px solid var(--border);padding:12px 8px 16px;display:grid;gap:14px;align-content:start}
+.sb__brand{display:flex;align-items:center;gap:10px;padding:4px 10px 8px}
+.sb__logo{width:30px;height:30px;border-radius:var(--r-md);background:var(--brand);color:var(--brand-fg);display:grid;place-items:center}
+.sb__brand b{display:block;font-size:14px;line-height:1.2}
+.sb__brand small{display:block;font-size:11px;color:var(--fg-faint)}
+.sb__grp{display:grid;gap:2px}
+.sb__grp > .ovl{padding:4px 10px 2px;display:flex;justify-content:space-between;align-items:center}
+.sb__item{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:var(--r-md);color:var(--fg-muted);font-weight:500;font-size:14px;text-decoration:none}
+.sb__item:hover{background:var(--surface-2);color:var(--fg)}
+.sb__item[aria-current="page"]{background:var(--brand-soft);color:var(--brand-text)}
+.sb__item .cnt{margin-left:auto;font-size:11px;font-family:var(--font-mono);color:var(--fg-faint)}
+.main{min-width:0;display:grid;grid-template-rows:auto 1fr auto}
+.hd{min-height:52px;display:flex;align-items:center;gap:10px;padding:8px 16px;background:var(--surface);border-bottom:1px solid var(--border);flex-wrap:wrap}
+.hd .only-mobile{display:none}
+.hd .ws{display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:14px}
+.hd .grow{flex:1 1 160px;min-width:0}
+.hd .input--search{height:34px;flex:1 1 180px;max-width:360px}
+.hd .user{display:inline-flex;align-items:center;gap:8px;font-size:13px}
+.hd .user b{display:block;font-weight:600;font-size:13px;line-height:1.2}
+.hd .user small{display:block;font-size:11px;color:var(--fg-faint)}
+.hd .avatar{width:28px;height:28px;border-radius:50%;background:var(--brand-soft);color:var(--brand-text);display:grid;place-items:center;font-size:12px;font-weight:600}
+.pg{padding:20px 16px 24px;display:grid;gap:24px;align-content:start}
+.pg__hd{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.pg__hd h1{font-size:20px;font-weight:600}
+.pg__hd .sub{font-size:13px;color:var(--fg-muted);margin-top:2px}
+.pg__hd .acts{display:flex;gap:8px;flex-wrap:wrap}
+.ft{padding:10px 16px;border-top:1px solid var(--border);background:var(--surface);font-size:12px;color:var(--fg-faint);display:flex;gap:8px;align-items:flex-start}
+@media (min-width:1024px){.pg{padding:24px}.pg__hd h1{font-size:24px}}
+@media (max-width:900px){.app{grid-template-columns:1fr}.sb{display:none}.hd .only-mobile{display:inline-flex}}
+
+/* ---------- dashboard ---------- */
+.sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.sec-h h2{font-size:16px;font-weight:600}
+.sec-h .sub{font-size:12px;color:var(--fg-faint)}
+.kpis{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.kpi{position:relative;display:grid;gap:4px;padding:14px 16px 14px 18px;text-align:left;cursor:pointer;transition:border-color .15s ease-out}
+.kpi:hover{border-color:var(--border-strong)}
+.kpi::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:0 2px 2px 0;background:var(--neu-fg)}
+.kpi--att::before{background:var(--att-fg)}.kpi--cau::before{background:var(--cau-fg)}
+.kpi .lbl{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--fg-muted);font-weight:500}
+.kpi .lbl .ic{width:16px;height:16px}
+.kpi--att .lbl .ic{color:var(--att-fg)}.kpi--cau .lbl .ic{color:var(--cau-fg)}
+.kpi .val{font-size:30px;line-height:36px;font-weight:600;font-variant-numeric:tabular-nums}
+.kpi .hint{font-size:12px;color:var(--fg-faint)}
+.dist{display:grid;gap:10px}
+.dist__top{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline}
+.dist__top b{font-size:14px;font-weight:600}
+.seg{display:flex;height:10px;gap:2px;border-radius:9999px;overflow:hidden}
+.seg i{display:block;height:100%}
+.seg .pos{background:var(--pos-fg)}.seg .cau{background:var(--cau-fg)}.seg .att{background:var(--att-fg)}.seg .neu{background:var(--neu-fg)}.seg .inf{background:var(--inf-fg)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px;color:var(--fg-muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:8px;height:8px;border-radius:2px;display:inline-block}
+.legend .pos{background:var(--pos-fg)}.legend .cau{background:var(--cau-fg)}.legend .att{background:var(--att-fg)}.legend .neu{background:var(--neu-fg)}.legend .inf{background:var(--inf-fg)}.legend .mut{background:var(--mut-fg)}
+.legend b{font-family:var(--font-mono);font-weight:500;color:var(--fg)}
+.grid-2{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.grid-3{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+.list{list-style:none;margin:0;padding:0;display:grid}
+.list li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid var(--border);min-width:0}
+.list li:first-child{border-top:0;padding-top:0}
+.list .nm{min-width:0;display:grid}
+.list .nm a{font-weight:500;color:var(--brand-text);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.list .nm small{font-size:12px;color:var(--fg-faint);font-family:var(--font-mono)}
+.list .rt{display:flex;align-items:center;gap:8px;flex:none;flex-wrap:wrap;justify-content:flex-end}
+
+/* ---------- bảng ---------- */
+.scroll-x{overflow-x:auto;max-width:100%}
+.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:14px}
+.tbl th{position:sticky;top:0;z-index:1;background:var(--surface-2);text-align:left;font-size:11px;line-height:16px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--fg-faint);padding:8px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
+.tbl td{padding:8px 12px;border-bottom:1px solid var(--border);vertical-align:middle;min-height:40px}
+.tbl tbody tr:hover td{background:var(--surface-2)}
+.tbl tbody tr:last-child td{border-bottom:0}
+.tbl th.num,.tbl td.num{text-align:right}
+.tbl .cell-title{display:grid;gap:1px;min-width:180px}
+.tbl .cell-title a{font-weight:500;color:var(--brand-text);text-decoration:none}
+.tbl .cell-title small{font-size:12px;color:var(--fg-faint)}
+.tbl .cell-title small.mono{font-family:var(--font-mono)}
+.tbl .sub{display:block;font-size:12px;color:var(--fg-faint);margin-top:2px;white-space:nowrap;font-family:var(--font-sans)}
+.tbl .sub.mono{font-family:var(--font-mono)}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.toolbar .spacer{flex:1 1 auto}
+.chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--fg-faint)}
+.pager{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--fg-muted)}
+.pager .btns{display:flex;gap:6px}
+@media (max-width:640px){
+  .tbl--cards,.tbl--cards tbody{display:block;width:100%}
+  .tbl--cards thead{display:none}
+  .tbl--cards tbody tr{display:grid;grid-template-columns:1fr;gap:4px;padding:12px 14px;border-bottom:1px solid var(--border)}
+  .tbl--cards tbody tr:last-child{border-bottom:0}
+  .tbl--cards td{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:3px 0;border:0;min-height:0;min-width:0;white-space:normal;font-family:var(--font-sans)}
+  .tbl--cards td::before{content:attr(data-label);color:var(--fg-faint);font-size:12px;flex:none;font-family:var(--font-sans);padding-top:2px}
+  .tbl--cards td > *{min-width:0;text-align:right}
+  .tbl--cards td > span:not(.prog):not(.badge){display:flex;flex-direction:column;align-items:flex-end;gap:2px}
+  .tbl--cards td .sub{white-space:normal;margin-top:0}
+  .tbl--cards td .badge{white-space:normal;text-align:left}
+  .tbl--cards td.is-title{display:block;padding-bottom:6px}
+  .tbl--cards td.is-title::before,.tbl--cards td.is-act::before{display:none}
+  .tbl--cards td.is-title > *{text-align:left}
+  .tbl--cards td.is-title .cell-title{display:grid;align-items:start}
+  .tbl--cards td.is-act{justify-content:flex-end}
+  .tbl--cards .cell-title{min-width:0}
+  .tbl--cards tbody tr:hover td{background:transparent}
+}
+
+/* ---------- chi tiết ---------- */
+.crumbs{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--fg-faint);flex-wrap:wrap}
+.crumbs a{color:var(--fg-muted);text-decoration:none}
+.det-hd{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:16px}
+.det-hd .id{display:grid;gap:6px;min-width:0}
+.det-hd h1{font-size:20px;font-weight:600}
+.det-hd .badges{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.det-hd .meta{font-size:13px;color:var(--fg-muted);display:flex;gap:12px;flex-wrap:wrap}
+.det-hd .meta code{color:var(--fg)}
+.det-hd .acts{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);overflow-x:auto}
+.tab{flex:none;border:0;background:transparent;padding:10px 12px;font-size:14px;font-weight:500;color:var(--fg-muted);border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer;display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
+.tab[aria-selected="true"]{color:var(--brand-text);border-bottom-color:var(--brand)}
+.tab .cnt{font-size:11px;font-family:var(--font-mono);background:var(--surface-2);border-radius:9999px;padding:0 6px;color:var(--fg-muted)}
+.fresh{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--fg-muted)}
+.partial{display:inline-flex;align-items:center;gap:8px;border:1px dashed var(--border-strong);border-radius:var(--r-md);padding:6px 10px;font-size:13px}
+
+/* ---------- trạng thái ---------- */
+.state{display:grid;gap:8px;justify-items:center;text-align:center;padding:32px 20px;border:1px dashed var(--border-strong);border-radius:var(--r-lg);background:var(--surface)}
+.state .ic{color:var(--fg-faint)}
+.state h4{font-size:16px;font-weight:600}
+.state p{font-size:13px;color:var(--fg-muted);max-width:40ch}
+.state .acts{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:4px}
+.err{border:1px solid var(--att-bd);background:var(--att-bg);color:var(--att-fg);border-radius:var(--r-lg);padding:14px 16px;display:grid;gap:6px;font-size:13px}
+.err h4{font-size:15px;font-weight:600;display:flex;gap:8px;align-items:center}
+.err .steps{display:grid;gap:3px}
+.err .steps span b{font-weight:600}
+.err code{background:rgb(255 255 255 / .35);padding:0 4px;border-radius:3px}
+.err .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+.err .btn{background:var(--surface);color:var(--fg);border-color:var(--att-bd)}
+.noperm{border:1px solid var(--border);background:var(--surface);border-radius:var(--r-lg);padding:14px 16px;display:grid;gap:6px;font-size:13px}
+.noperm h4{font-size:15px;font-weight:600;display:flex;gap:8px;align-items:center}
+.noperm .ic{color:var(--fg-faint)}
+.state-grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+.state-grid > div{display:grid;gap:8px;align-content:start}
+.state-grid .cap{font-size:12px;color:var(--fg-faint);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+
+/* ---------- tiện ích ---------- */
+.ext-grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(300px,380px));justify-content:start}
+.ext{background:var(--surface);color:var(--fg);border:1px solid var(--border-strong);border-radius:var(--r-lg);overflow:hidden;font-size:13px;line-height:1.45}
+.ext__chrome{display:flex;align-items:center;justify-content:space-between;background:var(--surface-2);padding:6px 10px;font-size:11px;color:var(--fg-faint);border-bottom:1px solid var(--border)}
+.ext__bd{padding:12px 14px;display:grid;gap:10px}
+.ext h1{font-size:15px;font-weight:600}
+.ext h2{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--fg-faint);font-weight:600;margin-top:2px}
+.ext .card__bd{padding:10px 12px;gap:8px}
+.ext .dl{grid-template-columns:minmax(0,112px) minmax(0,1fr);gap:5px 10px;font-size:13px}
+.ext .btn{height:32px;font-size:13px}
+.ext .chk{display:flex;gap:8px;align-items:flex-start;font-size:13px}
+.ext .chk i{width:16px;height:16px;border:1px solid var(--border-strong);border-radius:var(--r-sm);flex:none;margin-top:2px;background:var(--surface)}
+.ext .chk i.on{background:var(--brand);border-color:var(--brand);position:relative}
+.ext .chk i.on::after{content:"";position:absolute;left:4px;top:1px;width:5px;height:9px;border:solid var(--brand-fg);border-width:0 2px 2px 0;transform:rotate(45deg)}
+.ext textarea{width:100%;min-height:52px;border:1px solid var(--border-strong);border-radius:var(--r-md);background:var(--surface);color:var(--fg);font:inherit;padding:6px 8px;resize:vertical}
+.ext .reasons{margin:0;padding-left:16px;color:var(--fg-muted);font-size:12.5px;display:grid;gap:2px}
+.ext .faint{font-size:12px}
+.ext .lang{display:inline-flex;border:1px solid var(--border);border-radius:9999px;overflow:hidden}
+.ext .lang span{padding:1px 8px;font-size:11px;font-weight:600;color:var(--fg-faint)}
+.ext .lang span.on{background:var(--brand);color:var(--brand-fg)}
+
+/* ---------- ghi chú cuối ---------- */
+.check-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.check-tbl th,.check-tbl td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+.check-tbl th{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--fg-faint)}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-menu" viewBox="0 0 24 24"><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+    <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-chev-d" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-dash" viewBox="0 0 24 24"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" x2="16" y1="12" y2="12"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></symbol>
+    <symbol id="i-building" viewBox="0 0 24 24"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+    <symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></symbol>
+    <symbol id="i-columns" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-listchecks" viewBox="0 0 24 24"><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></symbol>
+    <symbol id="i-clipboard" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></symbol>
+    <symbol id="i-scroll" viewBox="0 0 24 24"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></symbol>
+    <symbol id="i-package" viewBox="0 0 24 24"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></symbol>
+    <symbol id="i-server" viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></symbol>
+    <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></symbol>
+    <symbol id="i-archive" viewBox="0 0 24 24"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></symbol>
+    <symbol id="i-arrow-l" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></symbol>
+  </defs>
+</svg>
+
+<header class="topbar">
+  <div class="topbar__in">
+    <span class="topbar__name">Bản xem trước AdsOps U1</span>
+    <span class="sample-chip"><svg class="ic ic--16" aria-hidden="true"><use href="#i-info"/></svg>Dữ liệu mẫu</span>
+    <nav aria-label="Mục trong trang">
+      <a href="#token">Token</a><a href="#chu">Chữ</a><a href="#tong-quan">Tổng quan</a><a href="#tai-khoan">Tài khoản</a><a href="#chi-tiet">Chi tiết</a><a href="#trang-thai">Trạng thái</a><a href="#tien-ich">Tiện ích</a><a href="#ghi-chu">Ghi chú</a>
+    </nav>
+    <div class="seg-ctl" role="group" aria-label="Chủ đề màu">
+      <button type="button" data-theme-opt="system" aria-pressed="true"><svg class="ic ic--16" aria-hidden="true"><use href="#i-monitor"/></svg>Hệ thống</button>
+      <button type="button" data-theme-opt="light" aria-pressed="false"><svg class="ic ic--16" aria-hidden="true"><use href="#i-sun"/></svg>Sáng</button>
+      <button type="button" data-theme-opt="dark" aria-pressed="false"><svg class="ic ic--16" aria-hidden="true"><use href="#i-moon"/></svg>Tối</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="doc-sec" id="gioi-thieu" style="margin-top:8px">
+    <h2>MINI-SPEC U1 · hệ thống giao diện &amp; làm mới thị giác</h2>
+    <p class="lead">Một tệp tĩnh, không cần build. Mọi con số, tên tài khoản, mã <code>act_…</code> ở đây đều là <strong>dữ liệu mẫu</strong>, bịa cho mục đích xem bố cục. Mọi câu chữ tiếng Việt là <strong>[ĐỀ XUẤT — chờ duyệt]</strong>, BA chốt trong tệp i18n. Spec đầy đủ: <code>docs/AUDIT_BEFORE_BUILD_U1_UI.md</code>.</p>
+    <div class="cols-2">
+      <div class="card"><div class="card__hd"><h3>Luật hiển thị được giữ nguyên</h3></div><div class="card__bd">
+        <ul class="rule-list">
+          <li><strong>Không bao giờ xanh lá</strong>: <em>Không xác định</em>, <em>Chưa sẵn sàng</em>, mọi <em>trạng thái Meta</em> (kể cả "Đang hoạt động (theo Meta)"), mọi <em>độ mới</em> số liệu. Chúng là xám, vàng hoặc đỏ.</li>
+          <li><strong>Không 0 thay cho chưa biết</strong>: ô chưa đọc ghi "Chưa có dữ liệu"; ngày Meta không trả dòng ghi "—".</li>
+          <li><strong>Số tiền Meta giữ nguyên văn</strong> (chuỗi + mã tiền tệ), căn phải, chữ đều chiều rộng; không cộng chéo tiền tệ; không biểu đồ trong U1.</li>
+          <li><strong>Mức sẵn sàng ≠ Sức khoẻ</strong>; không có điểm số, không có "%" cho hai khái niệm này.</li>
+          <li>Không câu nào nói "an toàn", "sẽ được duyệt", "không thể bị hạn chế".</li>
+          <li>Tiện ích chỉ ghi nhận; không làm, không chặn gì trong Ads Manager.</li>
+        </ul>
+      </div></div>
+      <div class="card"><div class="card__hd"><h3>Thay đổi chính so với hiện tại</h3></div><div class="card__bd">
+        <ul class="rule-list">
+          <li>Giao diện tiếng Việt (EN phụ) qua lớp i18n giống tiện ích; không còn enum thô như <code>ready_with_warnings</code>.</li>
+          <li>Token màu sáng/tối một nơi; 93 chỗ màu rải trong 25 tệp dồn về 6 tone.</li>
+          <li>Thang chữ 8 bậc thay 10 cỡ tuỳ ý; font Be Vietnam Pro (tự host) thay "Inter" chưa từng được nạp.</li>
+          <li>Tổng quan: 4 ô "Cần xử lý hôm nay" trước, phân bố sau, chi tiết cuối (thay 18 ô đồng hạng).</li>
+          <li>Bảng tài khoản: 8 cột mặc định + "Cột", hàng thành thẻ trên điện thoại (thay 15 cột / 1320px).</li>
+          <li>Nav 7 nhóm có icon, khôi phục 5 trang đang bị ẩn; một disclaimer mỗi trang.</li>
+          <li>Đủ 5 trạng thái: tải, rỗng, lỗi 4 phần, <em>không có quyền</em> (không còn biến mất im lặng), một phần dữ liệu.</li>
+        </ul>
+      </div></div>
+    </div>
+  </section>
+
+  <!-- ===================== TOKEN ===================== -->
+  <section class="doc-sec" id="token">
+    <h2>1 · Token màu</h2>
+    <p class="lead">Cùng một bộ tên cho dashboard (Tailwind đọc biến CSS) và tiện ích (CSS thuần). Hai cột dưới đây được ép sáng/tối để so cạnh nhau; phần còn lại của trang theo công tắc ở trên.</p>
+    <div class="cols-2">
+      <div class="swatch-panel scheme-light">
+        <h4>Sáng <span class="kv-note">tương phản chữ/nền tính bằng script, ≥ 4,5:1</span></h4>
+        <div class="sw-grid">
+          <div class="sw"><div class="sw__c" style="background:var(--bg)"></div><div class="sw__t"><b>--bg</b>#f4f6f9</div></div>
+          <div class="sw"><div class="sw__c" style="background:var(--surface)"></div><div class="sw__t"><b>--surface</b>#ffffff</div></div>
+          <div class="sw"><div class="sw__c" style="background:var(--surface-2)"></div><div class="sw__t"><b>--surface-2</b>#eef1f5</div></div>
+          <div class="sw"><div class="sw__c" style="background:var(--border)"></div><div class="sw__t"><b>--border</b>#dde3ea</div></div>
+          <div class="sw"><div class="sw__c" style="background:var(--fg)"></div><div class="sw__t"><b>--fg</b>#121a2b · 17,4:1</div></div>
+          <div class="sw"><div class="sw__c" style="background:var(--fg-muted)"></div><div class="sw__t"><b>--fg-muted</b>#4b5767 · 7,4:1</div></div>
+          <div class="sw"><div class="sw__c" style="background:var(--fg-faint)"></div><div class="sw__t"><b>--fg-faint</b>#5b6980 · 4,6:1</div></div>
+          <div class="sw"><div class="sw__c" style="background:var(--brand)"></div><div class="sw__t"><b>--brand</b>#1f5fbf · chữ trắng 6,1:1</div></div>
+          <div class="sw"><div class="sw__c" style="background:var(--brand-text)"></div><div class="sw__t"><b>--brand-text</b>#1a4f9e · 7,9:1</div></div>
+          <div class="sw"><div class="sw__c" style="background:var(--brand-soft)"></div><div class="sw__t"><b>--brand-soft</b>#e7eefb</div></div>
+        </div>
+      </div>
+      <div class="swatch-panel scheme-dark">
+        <h4>Tối <span class="kv-note">chọn riêng từng giá trị, không tự đảo</span></h4>
+        <div class="sw-grid">
+          <div class="sw"><div class="sw__c" style="background:var(--bg)"></div><div class="sw__t"><b>--bg</b>#0c1220</div></div>
+          <div class="sw"><div class="sw__c" style="background:var(--surface)"></div><div class="sw__t"><b>--surface</b>#131b2c</div></div>
+          <div class="sw"><div class="sw__c" style="background:var(--surface-2)"></div><div class="sw__t"><b>--surface-2</b>#1a2438</div></div>
+          <div class="sw"><div class="sw__c" style="background:var(--border)"></div><div class="sw__t"><b>--border</b>#273246</div></div>
+          <div class="sw"><div class="sw__c" style="background:var(--fg)"></div><div class="sw__t"><b>--fg</b>#e7ecf3 · 14,5:1</div></div>
+          <div class="sw"><div class="sw__c" style="background:var(--fg-muted)"></div><div class="sw__t"><b>--fg-muted</b>#a7b2c3 · 8,0:1</div></div>
+          <div class="sw"><div class="sw__c" style="background:var(--fg-faint)"></div><div class="sw__t"><b>--fg-faint</b>#8491a6 · 5,4:1</div></div>
+          <div class="sw"><div class="sw__c" style="background:var(--brand)"></div><div class="sw__t"><b>--brand</b>#6ea0ec · chữ tối 7,0:1</div></div>
+          <div class="sw"><div class="sw__c" style="background:var(--brand-text)"></div><div class="sw__t"><b>--brand-text</b>#8fb8f5 · 8,5:1</div></div>
+          <div class="sw"><div class="sw__c" style="background:var(--brand-soft)"></div><div class="sw__t"><b>--brand-soft</b>#19284a</div></div>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="doc-h3">Sáu tone — ánh xạ 1-1 với <code>Tone</code> hiện có, không thêm tone</h3>
+    <div class="cols-2">
+      <div class="card scheme-light" style="padding:4px 16px">
+        <div class="tone-row"><span class="badge badge--pos"><svg class="ic ic--16" aria-hidden="true"><use href="#i-check"/></svg>Sẵn sàng vận hành</span><span class="use">positive · chỉ <code>operationally_ready</code>, <code>clear_signals</code>, <code>resolved</code>, <code>sent</code>, <code>verified</code></span><span class="mono t-xs">5,9:1</span></div>
+        <div class="tone-row"><span class="badge badge--cau"><svg class="ic ic--16" aria-hidden="true"><use href="#i-clock"/></svg>Sẵn sàng, có cảnh báo</span><span class="use">caution · <code>warning</code>, <code>stale</code>, Meta chờ xử lý, <code>acknowledged</code></span><span class="mono t-xs">6,8:1</span></div>
+        <div class="tone-row"><span class="badge badge--att"><svg class="ic ic--16" aria-hidden="true"><use href="#i-alert"/></svg>Chưa sẵn sàng</span><span class="use">attention · <code>not_ready</code>, <code>critical</code>, Meta vô hiệu/đóng, <code>open</code>, gửi thất bại</span><span class="mono t-xs">7,0:1</span></div>
+        <div class="tone-row"><span class="badge badge--inf">Cần chú ý</span><span class="use">info · <code>attention_needed</code>, hoãn do giờ yên lặng, ngày chưa đủ</span><span class="mono t-xs">7,5:1</span></div>
+        <div class="tone-row"><span class="badge badge--neu">Không xác định</span><span class="use">neutral · <strong><code>unknown</code></strong>, <strong>Đang hoạt động (theo Meta)</strong>, <strong>độ mới "Còn mới"</strong>, chưa từng đọc</span><span class="mono t-xs">8,3:1</span></div>
+        <div class="tone-row"><span class="badge badge--mut">Đã lưu trữ</span><span class="use">muted · <code>archived</code>, không áp dụng, không thể đọc, "—"</span><span class="mono t-xs">5,2:1</span></div>
+      </div>
+      <div class="card scheme-dark" style="padding:4px 16px">
+        <div class="tone-row"><span class="badge badge--pos"><svg class="ic ic--16" aria-hidden="true"><use href="#i-check"/></svg>Sẵn sàng vận hành</span><span class="use">positive</span><span class="mono t-xs">8,3:1</span></div>
+        <div class="tone-row"><span class="badge badge--cau"><svg class="ic ic--16" aria-hidden="true"><use href="#i-clock"/></svg>Sẵn sàng, có cảnh báo</span><span class="use">caution</span><span class="mono t-xs">9,4:1</span></div>
+        <div class="tone-row"><span class="badge badge--att"><svg class="ic ic--16" aria-hidden="true"><use href="#i-alert"/></svg>Chưa sẵn sàng</span><span class="use">attention</span><span class="mono t-xs">7,6:1</span></div>
+        <div class="tone-row"><span class="badge badge--inf">Cần chú ý</span><span class="use">info</span><span class="mono t-xs">7,8:1</span></div>
+        <div class="tone-row"><span class="badge badge--neu">Không xác định</span><span class="use">neutral · unknown, Meta active, độ mới</span><span class="mono t-xs">8,8:1</span></div>
+        <div class="tone-row"><span class="badge badge--mut">Đã lưu trữ</span><span class="use">muted</span><span class="mono t-xs">6,4:1</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== CHỮ ===================== -->
+  <section class="doc-sec" id="chu">
+    <h2>2 · Chữ, khoảng cách, bo góc, bóng, icon</h2>
+    <p class="lead">Be Vietnam Pro cho toàn bộ giao diện (thiết kế cho dấu tiếng Việt), JetBrains Mono chỉ cho mã và số tiền thô. Chuỗi thử dấu chồng ở mọi cỡ, kể cả cỡ nhỏ nhất trong badge.</p>
+    <div class="card" style="padding:4px 16px">
+      <div class="type-row"><span class="meta">text-3xl · 30/36 · 600</span><span class="sample" style="font-size:30px;line-height:36px;font-weight:600">Quyết định, Thiết lập, Nhượng quyền, Ướt · 1.250</span></div>
+      <div class="type-row"><span class="meta">text-2xl · 24/32 · 600</span><span class="sample" style="font-size:24px;line-height:32px;font-weight:600">Quyết định, Thiết lập, Nhượng quyền, Ướt</span></div>
+      <div class="type-row"><span class="meta">text-xl · 20/28 · 600</span><span class="sample" style="font-size:20px;line-height:28px;font-weight:600">Quyết định, Thiết lập, Nhượng quyền, Ướt</span></div>
+      <div class="type-row"><span class="meta">text-lg · 18/26 · 600</span><span class="sample" style="font-size:18px;line-height:26px;font-weight:600">Quyết định, Thiết lập, Nhượng quyền, Ướt</span></div>
+      <div class="type-row"><span class="meta">text-base · 16/24 · 600</span><span class="sample" style="font-size:16px;line-height:24px;font-weight:600">Quyết định, Thiết lập, Nhượng quyền, Ướt</span></div>
+      <div class="type-row"><span class="meta">text-sm · 14/20 · body</span><span class="sample" style="font-size:14px;line-height:20px">Quyết định, Thiết lập, Nhượng quyền, Ướt — Tài khoản quảng cáo này đang được theo dõi; số liệu là của Meta trả về lúc 09:15.</span></div>
+      <div class="type-row"><span class="meta">text-xs · 12/16</span><span class="sample" style="font-size:12px;line-height:16px;color:var(--fg-muted)">Quyết định, Thiết lập, Nhượng quyền, Ướt · đọc lúc 27/10/2026 09:15 · 2 giờ trước</span></div>
+      <div class="type-row"><span class="meta">text-2xs · 11/16 · 600 · hoa</span><span class="sample ovl">Quyết định, Thiết lập, Nhượng quyền, Ướt</span></div>
+      <div class="type-row"><span class="meta">badge · 12/18</span><span class="sample"><span class="badge badge--cau">Sẵn sàng, có cảnh báo</span> <span class="badge badge--neu">Đang hoạt động (theo Meta)</span> <span class="badge badge--att">Bị vô hiệu hoá (theo Meta)</span> <span class="badge badge--mut">Ướt, Ấm, Ổn</span></span></div>
+      <div class="type-row"><span class="meta">mono · 14 / 12</span><span class="sample"><code>act_1029384756</code> · <code>2150000 VND</code> · <code>86.42 USD</code> · <span class="t-xs mono">req_8f3a2c91</span></span></div>
+    </div>
+
+    <div class="cols-2">
+      <div class="card"><div class="card__hd"><h3>Khoảng cách (bội số 4)</h3></div><div class="card__bd">
+        <div class="space-strip">
+          <div><div class="b" style="width:4px;height:4px"></div><div class="lbl">4</div></div>
+          <div><div class="b" style="width:8px;height:8px"></div><div class="lbl">8</div></div>
+          <div><div class="b" style="width:12px;height:12px"></div><div class="lbl">12</div></div>
+          <div><div class="b" style="width:16px;height:16px"></div><div class="lbl">16</div></div>
+          <div><div class="b" style="width:24px;height:24px"></div><div class="lbl">24</div></div>
+          <div><div class="b" style="width:32px;height:32px"></div><div class="lbl">32</div></div>
+          <div><div class="b" style="width:40px;height:40px"></div><div class="lbl">40</div></div>
+        </div>
+        <p class="t-xs muted">Gutter trang 16 / 24 · thẻ 16 · mục 24 · ô bảng 8×12, hàng ≥ 40 · header 52 · sidebar 240.</p>
+        <h4 class="ovl">Bo góc</h4>
+        <div class="radius-strip">
+          <div class="r" style="border-radius:4px">4 sm</div><div class="r" style="border-radius:6px">6 md</div><div class="r" style="border-radius:8px">8 lg</div><div class="r" style="border-radius:12px">12 xl</div><div class="r" style="border-radius:9999px">badge</div>
+        </div>
+        <h4 class="ovl">Bóng &amp; lớp</h4>
+        <div class="shadow-strip">
+          <div class="s">thẻ · viền, z 0</div>
+          <div class="s" style="box-shadow:var(--shadow-pop)">popover · z 20</div>
+          <div class="s" style="box-shadow:var(--shadow-sheet)">sheet/dialog · z 40</div>
+        </div>
+      </div></div>
+      <div class="card"><div class="card__hd"><h3>Icon · Lucide, một nét 1,75px, 16/20/24</h3></div><div class="card__bd">
+        <div class="icon-strip">
+          <span><svg class="ic" aria-hidden="true"><use href="#i-dash"/></svg>tổng quan</span>
+          <span><svg class="ic" aria-hidden="true"><use href="#i-wallet"/></svg>tài khoản</span>
+          <span><svg class="ic" aria-hidden="true"><use href="#i-building"/></svg>BM</span>
+          <span><svg class="ic" aria-hidden="true"><use href="#i-package"/></svg>tài sản</span>
+          <span><svg class="ic" aria-hidden="true"><use href="#i-activity"/></svg>sức khoẻ</span>
+          <span><svg class="ic" aria-hidden="true"><use href="#i-listchecks"/></svg>sẵn sàng</span>
+          <span><svg class="ic" aria-hidden="true"><use href="#i-bell"/></svg>cảnh báo</span>
+          <span><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg>preflight</span>
+          <span><svg class="ic" aria-hidden="true"><use href="#i-wrench"/></svg>vận hành</span>
+          <span><svg class="ic" aria-hidden="true"><use href="#i-link"/></svg>Meta</span>
+          <span><svg class="ic" aria-hidden="true"><use href="#i-users"/></svg>đội</span>
+          <span><svg class="ic" aria-hidden="true"><use href="#i-phone"/></svg>thiết bị</span>
+          <span><svg class="ic" aria-hidden="true"><use href="#i-scroll"/></svg>kiểm toán</span>
+          <span><svg class="ic" aria-hidden="true"><use href="#i-settings"/></svg>cài đặt</span>
+          <span><svg class="ic" aria-hidden="true"><use href="#i-server"/></svg>hệ thống</span>
+          <span><svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg>làm mới</span>
+          <span><svg class="ic" aria-hidden="true"><use href="#i-alert"/></svg>chú ý</span>
+          <span><svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg>quyền</span>
+          <span><svg class="ic" aria-hidden="true"><use href="#i-columns"/></svg>cột</span>
+          <span><svg class="ic" aria-hidden="true"><use href="#i-more"/></svg>thêm</span>
+        </div>
+        <p class="t-xs muted">Nút chỉ có icon luôn kèm <code>aria-label</code> và tooltip. Không emoji, không ký tự "✕ → ▶".</p>
+        <div class="toolbar">
+          <button class="btn btn--primary" type="button"><svg class="ic ic--16" aria-hidden="true"><use href="#i-plus"/></svg>Đăng ký tài khoản</button>
+          <button class="btn" type="button"><svg class="ic ic--16" aria-hidden="true"><use href="#i-refresh"/></svg>Làm mới</button>
+          <button class="btn btn--ghost" type="button">Huỷ</button>
+          <button class="btn btn--icon" type="button" aria-label="Thêm hành động"><svg class="ic" aria-hidden="true"><use href="#i-more"/></svg></button>
+          <button class="btn" type="button" disabled>Vô hiệu</button>
+        </div>
+      </div></div>
+    </div>
+  </section>
+
+  <!-- ===================== TỔNG QUAN ===================== -->
+  <section class="doc-sec" id="tong-quan">
+    <h2>3 · Màn Tổng quan (khuôn T1)</h2>
+    <p class="lead">Thứ bậc: <strong>cần xử lý</strong> → <strong>phân bố</strong> → <strong>nguồn &amp; độ mới</strong> → chi tiết. Mọi số đều từ ba endpoint tóm tắt đã có; không có API mới. Sidebar ẩn dưới 900px (mở bằng Sheet).</p>
+    <div class="frame">
+      <span class="frame__tag">Dữ liệu mẫu</span>
+      <div class="app">
+        <aside class="sb" aria-label="Điều hướng chính">
+          <div class="sb__brand"><span class="sb__logo"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg></span><span><b>AdsOps</b><small>Control Center</small></span></div>
+          <div class="sb__grp"><a class="sb__item" href="#tong-quan" aria-current="page"><svg class="ic" aria-hidden="true"><use href="#i-dash"/></svg>Tổng quan</a></div>
+          <div class="sb__grp"><span class="ovl">Tài khoản <svg class="ic ic--16" aria-hidden="true"><use href="#i-chev-d"/></svg></span>
+            <a class="sb__item" href="#tai-khoan"><svg class="ic" aria-hidden="true"><use href="#i-wallet"/></svg>Tài khoản quảng cáo<span class="cnt">24</span></a>
+            <a class="sb__item" href="#tong-quan"><svg class="ic" aria-hidden="true"><use href="#i-building"/></svg>Business Manager</a>
+            <a class="sb__item" href="#tong-quan"><svg class="ic" aria-hidden="true"><use href="#i-package"/></svg>Tài sản</a>
+          </div>
+          <div class="sb__grp"><span class="ovl">Theo dõi <svg class="ic ic--16" aria-hidden="true"><use href="#i-chev-d"/></svg></span>
+            <a class="sb__item" href="#tong-quan"><svg class="ic" aria-hidden="true"><use href="#i-activity"/></svg>Sức khoẻ tài khoản<span class="cnt">3</span></a>
+            <a class="sb__item" href="#tong-quan"><svg class="ic" aria-hidden="true"><use href="#i-listchecks"/></svg>Mức sẵn sàng</a>
+            <a class="sb__item" href="#tong-quan"><svg class="ic" aria-hidden="true"><use href="#i-bell"/></svg>Cảnh báo<span class="cnt">2</span></a>
+            <a class="sb__item" href="#tong-quan"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg>Kiểm tra trước khi chạy</a>
+          </div>
+          <div class="sb__grp"><a class="sb__item" href="#tong-quan"><svg class="ic" aria-hidden="true"><use href="#i-wrench"/></svg>Vận hành</a><a class="sb__item" href="#tong-quan"><svg class="ic" aria-hidden="true"><use href="#i-link"/></svg>Kết nối Meta</a></div>
+          <div class="sb__grp"><span class="ovl">Đội &amp; bảo mật <svg class="ic ic--16" aria-hidden="true"><use href="#i-chev-r"/></svg></span></div>
+          <div class="sb__grp"><span class="ovl">Hệ thống <svg class="ic ic--16" aria-hidden="true"><use href="#i-chev-r"/></svg></span></div>
+        </aside>
+        <div class="main">
+          <header class="hd">
+            <button class="btn btn--icon btn--ghost only-mobile" type="button" aria-label="Mở menu"><svg class="ic" aria-hidden="true"><use href="#i-menu"/></svg></button>
+            <span class="ws">Đội Ads — mẫu <svg class="ic ic--16" aria-hidden="true" style="color:var(--fg-faint)"><use href="#i-chev-d"/></svg></span>
+            <label class="input input--search" for="q1"><svg class="ic ic--16" aria-hidden="true"><use href="#i-search"/></svg><span>Tìm tài khoản, mã, BM…</span><input id="q1" class="sr-only" type="search" aria-label="Tìm nhanh"></label>
+            <span class="grow"></span>
+            <button class="btn btn--icon btn--ghost" type="button" aria-label="Chủ đề màu"><svg class="ic" aria-hidden="true"><use href="#i-sun"/></svg></button>
+            <button class="btn btn--icon btn--ghost" type="button" aria-label="Cảnh báo đang mở: 2"><svg class="ic" aria-hidden="true"><use href="#i-bell"/></svg></button>
+            <span class="seg-ctl" role="group" aria-label="Ngôn ngữ"><button type="button" aria-pressed="true">VI</button><button type="button" aria-pressed="false">EN</button></span>
+            <span class="user"><span class="avatar" aria-hidden="true">NT</span><span><b>Nguyễn T.</b><small>Chủ workspace</small></span><svg class="ic ic--16" aria-hidden="true" style="color:var(--fg-faint)"><use href="#i-chev-d"/></svg></span>
+          </header>
+          <div class="pg">
+            <div class="pg__hd">
+              <div><h1>Tổng quan</h1><p class="sub">24 tài khoản đang theo dõi · 3 đã lưu trữ · cập nhật 2 phút trước</p></div>
+              <div class="acts"><button class="btn" type="button"><svg class="ic ic--16" aria-hidden="true"><use href="#i-refresh"/></svg>Tính lại sức khoẻ</button></div>
+            </div>
+
+            <section style="display:grid;gap:12px">
+              <div class="sec-h"><h2>Cần xử lý hôm nay</h2><span class="sub">bấm một ô để mở danh sách đã lọc</span></div>
+              <div class="kpis">
+                <button class="card kpi kpi--att" type="button"><span class="lbl"><svg class="ic" aria-hidden="true"><use href="#i-alert"/></svg>Chưa sẵn sàng</span><span class="val">5</span><span class="hint">mức sẵn sàng · 24 tài khoản</span></button>
+                <button class="card kpi kpi--att" type="button"><span class="lbl"><svg class="ic" aria-hidden="true"><use href="#i-activity"/></svg>Tín hiệu nghiêm trọng đang mở</span><span class="val">3</span><span class="hint">sức khoẻ · 2 tài khoản bị vô hiệu theo Meta</span></button>
+                <button class="card kpi kpi--att" type="button"><span class="lbl"><svg class="ic" aria-hidden="true"><use href="#i-bell"/></svg>Cảnh báo nghiêm trọng chưa xử lý</span><span class="val">2</span><span class="hint">đang mở · chưa ai ghi nhận</span></button>
+                <button class="card kpi kpi--cau" type="button"><span class="lbl"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg>Thông báo gửi thất bại</span><span class="val">1</span><span class="hint">Telegram · đã hết lượt thử lại</span></button>
+              </div>
+            </section>
+
+            <div class="grid-2">
+              <div class="card"><div class="card__hd"><h3>Mức sẵn sàng<span class="sub">trạng thái vận hành nội bộ, từ hồ sơ đội đã ghi</span></h3><a class="link t-xs" href="#tai-khoan">Mở danh sách</a></div>
+                <div class="card__bd dist">
+                  <div class="seg" role="img" aria-label="Sẵn sàng vận hành 9, có cảnh báo 6, chưa sẵn sàng 5, không xác định 4"><i class="pos" style="width:37.5%"></i><i class="cau" style="width:25%"></i><i class="att" style="width:20.8%"></i><i class="neu" style="width:16.7%"></i></div>
+                  <div class="legend"><span><i class="pos"></i>Sẵn sàng vận hành <b>9</b></span><span><i class="cau"></i>Sẵn sàng, có cảnh báo <b>6</b></span><span><i class="att"></i>Chưa sẵn sàng <b>5</b></span><span><i class="neu"></i>Không xác định <b>4</b></span><span><i class="mut"></i>Đã lưu trữ <b>3</b> (ngoài thanh)</span></div>
+                </div>
+              </div>
+              <div class="card"><div class="card__hd"><h3>Sức khoẻ<span class="sub">câu hỏi khác với mức sẵn sàng; không gộp</span></h3><a class="link t-xs" href="#tong-quan">Mở sức khoẻ</a></div>
+                <div class="card__bd dist">
+                  <div class="seg" role="img" aria-label="Nghiêm trọng 3, cảnh báo 5, cần chú ý 2, không xác định 8, không phát hiện vấn đề 6"><i class="att" style="width:12.5%"></i><i class="cau" style="width:20.8%"></i><i class="inf" style="width:8.3%"></i><i class="neu" style="width:33.3%"></i><i class="pos" style="width:25%"></i></div>
+                  <div class="legend"><span><i class="att"></i>Nghiêm trọng <b>3</b></span><span><i class="cau"></i>Cảnh báo <b>5</b></span><span><i class="inf"></i>Cần chú ý <b>2</b></span><span><i class="neu"></i>Không xác định <b>8</b></span><span><i class="pos"></i>Không phát hiện vấn đề <b>6</b></span></div>
+                  <p class="note"><svg class="ic ic--16" aria-hidden="true"><use href="#i-info"/></svg><span><strong>4</strong> tài khoản có dữ liệu cũ nên được báo là <em>không xác định</em>, không phải <em>không phát hiện vấn đề</em>. "Không phát hiện vấn đề" chỉ nói về các kiểm tra đã cấu hình.</span></p>
+                </div>
+              </div>
+            </div>
+
+            <div class="grid-2">
+              <div class="card"><div class="card__hd"><h3>Nguồn &amp; độ mới</h3></div>
+                <div class="card__bd">
+                  <dl class="dl">
+                    <dt>Đánh giá sức khoẻ gần nhất</dt><dd>35 phút trước · <span class="muted">2 tài khoản chưa từng đánh giá</span></dd>
+                    <dt>Thông báo gửi thành công gần nhất</dt><dd><span class="badge badge--neu">Chưa từng</span> <span class="t-xs faint">Telegram chưa cấu hình người nhận</span></dd>
+                    <dt>Độ mới số liệu chi tiêu</dt><dd class="legend"><span><span class="badge badge--neu">Còn mới</span><b>12</b></span><span><span class="badge badge--cau">Đã cũ</span><b>4</b></span><span><span class="badge badge--neu">Chưa từng đọc</span><b>6</b></span><span><span class="badge badge--mut">Không thể đọc</span><b>2</b></span></dd>
+                    <dt>Trạng thái Meta trả về gần nhất</dt><dd class="legend"><span><span class="badge badge--att">Không hoạt động</span><b>2</b></span><span><span class="badge badge--cau">Chờ xử lý</span><b>1</b></span><span><span class="badge badge--neu">Đang hoạt động (theo Meta)</span><b>12</b></span><span><span class="badge badge--mut">Chưa quan sát</span><b>9</b></span></dd>
+                  </dl>
+                </div>
+                <div class="card__ft">Mã trạng thái đúng như Meta trả về tại từng lần đọc. Không phải nhận định của sản phẩm; không thay cho việc kiểm tra trong Ads Manager.</div>
+              </div>
+              <div class="card"><div class="card__hd"><h3>Chi tiêu ngày đầy đủ gần nhất<span class="sub">theo tiền tệ · nguyên văn Meta trả về · không cộng chéo</span></h3></div>
+                <div class="scroll-x"><table class="tbl">
+                  <thead><tr><th>Tiền tệ</th><th class="num">Tổng (nguyên văn)</th><th>Ngày</th><th class="num">Tài khoản</th><th>Độ phủ</th></tr></thead>
+                  <tbody>
+                    <tr><td><strong>VND</strong></td><td class="num">48350000 VND</td><td class="mono t-xs">26/10/2026</td><td class="num">10</td><td><span class="partial"><span class="badge badge--cau">Thiếu</span><span class="t-xs muted">3/13 không tính: 2 số liệu cũ, 1 không có dòng</span></span></td></tr>
+                    <tr><td><strong>USD</strong></td><td class="num">412.80 USD</td><td class="mono t-xs">26/10/2026</td><td class="num">3</td><td><span class="badge badge--neu">Đầy đủ</span></td></tr>
+                  </tbody>
+                </table></div>
+                <div class="card__ft">8 tài khoản chưa có lần đọc thành công nên không nằm trong dòng tiền tệ nào.</div>
+              </div>
+            </div>
+
+            <div class="grid-3">
+              <div class="card"><div class="card__hd"><h3>Cần rà soát thủ công</h3><a class="link t-xs" href="#tai-khoan">Xem tất cả</a></div>
+                <div class="card__bd"><ul class="list">
+                  <li><span class="nm"><a href="#chi-tiet">Nội thất Phúc An</a><small>act_2048576001</small></span><span class="rt"><span class="badge badge--att">Bị vô hiệu hoá (theo Meta)</span></span></li>
+                  <li><span class="nm"><a href="#chi-tiet">Điện máy Hùng Vương</a><small>act_5566778899</small></span><span class="rt"><span class="badge badge--att">Bị hạn chế (đội ghi nhận)</span></span></li>
+                  <li><span class="nm"><a href="#chi-tiet">Khoá học Ánh Dương</a><small>act_3391827465</small></span><span class="rt"><span class="badge badge--cau">Chờ xét duyệt rủi ro (theo Meta)</span></span></li>
+                  <li><span class="nm"><a href="#chi-tiet">Du lịch Sao Mai</a><small>act_6677889900</small></span><span class="rt"><span class="prog" title="0 trên 9 mục bắt buộc"><span class="bar"><i style="width:0%"></i></span><span class="v">0/9</span></span></span></li>
+                </ul></div></div>
+              <div class="card"><div class="card__hd"><h3>Thay đổi gần đây</h3></div>
+                <div class="card__bd"><ul class="list">
+                  <li><span class="nm"><a href="#chi-tiet">Mỹ phẩm Lan Chi</a><small>rà soát thủ công</small></span><span class="rt"><span class="badge badge--cau">Sẵn sàng, có cảnh báo</span><span class="t-xs faint">2 giờ trước</span></span></li>
+                  <li><span class="nm"><a href="#chi-tiet">Thời trang Bảo Ngọc</a><small>bằng chứng được xác minh</small></span><span class="rt"><span class="badge badge--pos">Sẵn sàng vận hành</span><span class="t-xs faint">5 giờ trước</span></span></li>
+                  <li><span class="nm"><a href="#chi-tiet">Khoá học Ánh Dương</a><small>sửa hồ sơ</small></span><span class="rt"><span class="badge badge--neu">Không xác định</span><span class="t-xs faint">hôm qua</span></span></li>
+                </ul></div></div>
+              <div class="card"><div class="card__hd"><h3>Hoạt động kiểm toán</h3><a class="link t-xs" href="#tong-quan">Nhật ký</a></div>
+                <div class="card__bd"><ul class="list">
+                  <li><span class="nm"><span>Cập nhật tài khoản</span><small>t.nguyen · 2 giờ trước</small></span><span class="rt"><code class="t-xs">ad_account.updated</code></span></li>
+                  <li><span class="nm"><span>Làm mới chi tiêu</span><small>hệ thống · 2 giờ trước</small></span><span class="rt"><code class="t-xs">spend.refreshed</code></span></li>
+                  <li><span class="nm"><span>Ghi nhận cảnh báo</span><small>h.pham · hôm qua</small></span><span class="rt"><code class="t-xs">alert.acknowledged</code></span></li>
+                </ul></div></div>
+            </div>
+          </div>
+          <footer class="ft"><svg class="ic ic--16" aria-hidden="true"><use href="#i-info"/></svg><span>Mức sẵn sàng và sức khoẻ là trạng thái vận hành nội bộ, suy ra từ bằng chứng đã ghi. Không phải phê duyệt của nền tảng và không đảm bảo tài khoản sẽ không bị hạn chế.</span></footer>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== TÀI KHOẢN ===================== -->
+  <section class="doc-sec" id="tai-khoan">
+    <h2>4 · Danh sách tài khoản (khuôn T2)</h2>
+    <p class="lead">8 cột mặc định; cột phụ (loại, tham chiếu trình duyệt/proxy, lần rà soát) bật qua "Cột". Dưới 640px mỗi hàng thành một thẻ. Ô "Chi tiêu" và "Trạng thái Meta" đi qua đủ trạng thái; không ô nào hiện 0 thay cho chưa biết.</p>
+    <div class="frame">
+      <span class="frame__tag">Dữ liệu mẫu</span>
+      <div class="app">
+        <aside class="sb" aria-label="Điều hướng chính">
+          <div class="sb__brand"><span class="sb__logo"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg></span><span><b>AdsOps</b><small>Control Center</small></span></div>
+          <div class="sb__grp"><a class="sb__item" href="#tong-quan"><svg class="ic" aria-hidden="true"><use href="#i-dash"/></svg>Tổng quan</a></div>
+          <div class="sb__grp"><span class="ovl">Tài khoản <svg class="ic ic--16" aria-hidden="true"><use href="#i-chev-d"/></svg></span>
+            <a class="sb__item" href="#tai-khoan" aria-current="page"><svg class="ic" aria-hidden="true"><use href="#i-wallet"/></svg>Tài khoản quảng cáo<span class="cnt">24</span></a>
+            <a class="sb__item" href="#tai-khoan"><svg class="ic" aria-hidden="true"><use href="#i-building"/></svg>Business Manager</a>
+            <a class="sb__item" href="#tai-khoan"><svg class="ic" aria-hidden="true"><use href="#i-package"/></svg>Tài sản</a>
+          </div>
+          <div class="sb__grp"><span class="ovl">Theo dõi <svg class="ic ic--16" aria-hidden="true"><use href="#i-chev-r"/></svg></span></div>
+          <div class="sb__grp"><a class="sb__item" href="#tai-khoan"><svg class="ic" aria-hidden="true"><use href="#i-wrench"/></svg>Vận hành</a><a class="sb__item" href="#tai-khoan"><svg class="ic" aria-hidden="true"><use href="#i-link"/></svg>Kết nối Meta</a></div>
+          <div class="sb__grp"><span class="ovl">Đội &amp; bảo mật <svg class="ic ic--16" aria-hidden="true"><use href="#i-chev-r"/></svg></span></div>
+          <div class="sb__grp"><span class="ovl">Hệ thống <svg class="ic ic--16" aria-hidden="true"><use href="#i-chev-r"/></svg></span></div>
+        </aside>
+        <div class="main">
+          <header class="hd">
+            <button class="btn btn--icon btn--ghost only-mobile" type="button" aria-label="Mở menu"><svg class="ic" aria-hidden="true"><use href="#i-menu"/></svg></button>
+            <span class="ws">Đội Ads — mẫu <svg class="ic ic--16" aria-hidden="true" style="color:var(--fg-faint)"><use href="#i-chev-d"/></svg></span>
+            <span class="grow"></span>
+            <button class="btn btn--icon btn--ghost" type="button" aria-label="Chủ đề màu"><svg class="ic" aria-hidden="true"><use href="#i-sun"/></svg></button>
+            <button class="btn btn--icon btn--ghost" type="button" aria-label="Cảnh báo đang mở: 2"><svg class="ic" aria-hidden="true"><use href="#i-bell"/></svg></button>
+            <span class="user"><span class="avatar" aria-hidden="true">NT</span><span><b>Nguyễn T.</b><small>Chủ workspace</small></span></span>
+          </header>
+          <div class="pg">
+            <div class="pg__hd">
+              <div><h1>Tài khoản quảng cáo</h1><p class="sub">24 bản ghi · lọc theo URL, chia sẻ được</p></div>
+              <div class="acts"><button class="btn" type="button"><svg class="ic ic--16" aria-hidden="true"><use href="#i-columns"/></svg>Cột</button><button class="btn btn--primary" type="button"><svg class="ic ic--16" aria-hidden="true"><use href="#i-plus"/></svg>Đăng ký tài khoản</button></div>
+            </div>
+            <div class="toolbar">
+              <label class="input input--search" for="q2"><svg class="ic ic--16" aria-hidden="true"><use href="#i-search"/></svg><span>Tên, mã, chủ sở hữu, BM, thẻ…</span><input id="q2" class="sr-only" type="search" aria-label="Tìm tài khoản"></label>
+              <span class="select"><span class="k">Mức sẵn sàng</span>Tất cả<svg class="ic ic--16" aria-hidden="true"><use href="#i-chev-d"/></svg></span>
+              <span class="select"><span class="k">Trạng thái Meta</span>Tất cả<svg class="ic ic--16" aria-hidden="true"><use href="#i-chev-d"/></svg></span>
+              <span class="select"><span class="k">Business Manager</span>Tất cả<svg class="ic ic--16" aria-hidden="true"><use href="#i-chev-d"/></svg></span>
+              <button class="btn" type="button"><svg class="ic ic--16" aria-hidden="true"><use href="#i-filter"/></svg>Bộ lọc khác <span class="chip">2</span></button>
+              <span class="spacer"></span>
+              <span class="select"><span class="k">Sắp xếp</span>Cập nhật mới nhất<svg class="ic ic--16" aria-hidden="true"><use href="#i-chev-d"/></svg></span>
+            </div>
+            <div class="chips">Đang lọc: <span class="chip">Loại: Business Manager <svg class="ic" style="width:12px;height:12px" aria-hidden="true"><use href="#i-x"/></svg></span><span class="chip">Có tham chiếu trình duyệt <svg class="ic" style="width:12px;height:12px" aria-hidden="true"><use href="#i-x"/></svg></span><a class="link" href="#tai-khoan">Xoá bộ lọc</a></div>
+
+            <div class="card"><div class="scroll-x">
+              <table class="tbl tbl--cards">
+                <thead><tr>
+                  <th>Tài khoản</th><th>Đội ghi nhận</th><th>Trạng thái Meta</th><th>Mức sẵn sàng</th><th>Checklist</th><th class="num">Chi tiêu · ngày đầy đủ gần nhất</th><th>Cập nhật</th><th><span class="sr-only">Hành động</span></th>
+                </tr></thead>
+                <tbody>
+                  <tr>
+                    <td class="is-title"><span class="cell-title"><a href="#chi-tiet">Mỹ phẩm Lan Chi</a><small class="mono">act_1029384756</small><small>BM Trung tâm (mẫu)</small></span></td>
+                    <td data-label="Đội ghi nhận"><span class="badge badge--cau">Cảnh báo</span></td>
+                    <td data-label="Trạng thái Meta"><span><span class="badge badge--neu">Đang hoạt động (theo Meta)</span><span class="sub">2 giờ trước</span></span></td>
+                    <td data-label="Mức sẵn sàng"><span class="badge badge--cau"><span class="dot"></span>Sẵn sàng, có cảnh báo</span></td>
+                    <td data-label="Checklist"><span class="prog" title="7 trên 9 mục bắt buộc"><span class="bar"><i style="width:78%"></i></span><span class="v">7/9</span></span></td>
+                    <td class="num" data-label="Chi tiêu"><span><b class="amt">2150000 VND</b><span class="sub"><span class="badge badge--neu">Còn mới</span> 26/10</span></span></td>
+                    <td data-label="Cập nhật"><span class="t-xs muted">2 giờ trước</span></td>
+                    <td class="is-act"><button class="btn btn--icon btn--ghost btn--sm" type="button" aria-label="Hành động cho Mỹ phẩm Lan Chi"><svg class="ic ic--16" aria-hidden="true"><use href="#i-more"/></svg></button></td>
+                  </tr>
+                  <tr>
+                    <td class="is-title"><span class="cell-title"><a href="#chi-tiet">Nội thất Phúc An</a><small class="mono">act_2048576001</small><small>BM Trung tâm (mẫu)</small></span></td>
+                    <td data-label="Đội ghi nhận"><span class="badge badge--pos">Đang hoạt động</span> <span class="t-2xs faint">Q7</span></td>
+                    <td data-label="Trạng thái Meta"><span><span class="badge badge--att"><svg class="ic ic--16" aria-hidden="true"><use href="#i-alert"/></svg>Bị vô hiệu hoá (theo Meta)</span><span class="sub mono">ADS_INTEGRITY_POLICY · 40 phút trước</span></span></td>
+                    <td data-label="Mức sẵn sàng"><span class="badge badge--att"><span class="dot"></span>Chưa sẵn sàng</span></td>
+                    <td data-label="Checklist"><span class="prog" title="9 trên 9 mục bắt buộc"><span class="bar"><i class="is-full" style="width:100%"></i></span><span class="v">9/9</span></span></td>
+                    <td class="num" data-label="Chi tiêu"><span><b class="amt">385000 VND</b><span class="sub"><span class="badge badge--neu">Còn mới</span> 26/10</span></span></td>
+                    <td data-label="Cập nhật"><span class="t-xs muted">40 phút trước</span></td>
+                    <td class="is-act"><button class="btn btn--icon btn--ghost btn--sm" type="button" aria-label="Hành động cho Nội thất Phúc An"><svg class="ic ic--16" aria-hidden="true"><use href="#i-more"/></svg></button></td>
+                  </tr>
+                  <tr>
+                    <td class="is-title"><span class="cell-title"><a href="#chi-tiet">Khoá học Ánh Dương</a><small class="mono">act_3391827465</small><small>BM Miền Bắc (mẫu)</small></span></td>
+                    <td data-label="Đội ghi nhận"><span class="badge badge--neu">Không xác định</span></td>
+                    <td data-label="Trạng thái Meta"><span><span class="badge badge--cau"><svg class="ic ic--16" aria-hidden="true"><use href="#i-clock"/></svg>Chờ xét duyệt rủi ro (theo Meta)</span><span class="sub">5 giờ trước</span></span></td>
+                    <td data-label="Mức sẵn sàng"><span class="badge badge--neu"><span class="dot"></span>Không xác định</span></td>
+                    <td data-label="Checklist"><span class="prog" title="3 trên 9 mục bắt buộc"><span class="bar"><i style="width:33%"></i></span><span class="v">3/9</span></span></td>
+                    <td class="num" data-label="Chi tiêu"><span><b class="amt">1120000 VND</b><span class="sub"><span class="badge badge--cau">Đã cũ</span> 24/10 · đọc 31 giờ trước</span></span></td>
+                    <td data-label="Cập nhật"><span class="t-xs muted">hôm qua</span></td>
+                    <td class="is-act"><button class="btn btn--icon btn--ghost btn--sm" type="button" aria-label="Hành động cho Khoá học Ánh Dương"><svg class="ic ic--16" aria-hidden="true"><use href="#i-more"/></svg></button></td>
+                  </tr>
+                  <tr>
+                    <td class="is-title"><span class="cell-title"><a href="#chi-tiet">Thời trang Bảo Ngọc</a><small class="mono">act_4455667788</small><small>Tham chiếu cá nhân</small></span></td>
+                    <td data-label="Đội ghi nhận"><span class="badge badge--pos">Đang hoạt động</span> <span class="t-2xs faint">Q7</span></td>
+                    <td data-label="Trạng thái Meta"><span class="faint" title="Chưa quan sát: chưa lần đọc nào mang mã trạng thái">—</span></td>
+                    <td data-label="Mức sẵn sàng"><span class="badge badge--pos"><span class="dot"></span>Sẵn sàng vận hành</span></td>
+                    <td data-label="Checklist"><span class="prog" title="9 trên 9 mục bắt buộc"><span class="bar"><i class="is-full" style="width:100%"></i></span><span class="v">9/9</span></span></td>
+                    <td class="num" data-label="Chi tiêu"><span><span class="muted" style="font-family:var(--font-sans)">Chưa có dữ liệu</span><span class="sub"><span class="badge badge--neu">Chưa từng đọc</span></span></span></td>
+                    <td data-label="Cập nhật"><span class="t-xs muted">5 giờ trước</span></td>
+                    <td class="is-act"><button class="btn btn--icon btn--ghost btn--sm" type="button" aria-label="Hành động cho Thời trang Bảo Ngọc"><svg class="ic ic--16" aria-hidden="true"><use href="#i-more"/></svg></button></td>
+                  </tr>
+                  <tr>
+                    <td class="is-title"><span class="cell-title"><a href="#chi-tiet">Điện máy Hùng Vương</a><small class="mono">act_5566778899</small><small>BM Miền Bắc (mẫu)</small></span></td>
+                    <td data-label="Đội ghi nhận"><span class="badge badge--att">Bị hạn chế</span></td>
+                    <td data-label="Trạng thái Meta"><span><span class="badge badge--neu">Mã trạng thái lạ: 12</span><span class="sub">1 ngày trước</span></span></td>
+                    <td data-label="Mức sẵn sàng"><span class="badge badge--att"><span class="dot"></span>Chưa sẵn sàng</span></td>
+                    <td data-label="Checklist"><span class="prog" title="5 trên 9 mục bắt buộc"><span class="bar"><i style="width:56%"></i></span><span class="v">5/9</span></span></td>
+                    <td class="num" data-label="Chi tiêu"><span><span class="muted" style="font-family:var(--font-sans)">Không có kết nối đọc</span><span class="sub"><span class="badge badge--mut">Không thể đọc</span></span></span></td>
+                    <td data-label="Cập nhật"><span class="t-xs muted">3 ngày trước</span></td>
+                    <td class="is-act"><button class="btn btn--icon btn--ghost btn--sm" type="button" aria-label="Hành động cho Điện máy Hùng Vương"><svg class="ic ic--16" aria-hidden="true"><use href="#i-more"/></svg></button></td>
+                  </tr>
+                  <tr>
+                    <td class="is-title"><span class="cell-title"><a href="#chi-tiet">Du lịch Sao Mai</a><small class="mono">act_6677889900</small><small>BM Trung tâm (mẫu)</small></span></td>
+                    <td data-label="Đội ghi nhận"><span class="badge badge--neu">Không xác định</span></td>
+                    <td data-label="Trạng thái Meta"><span><span class="badge badge--neu">Đang hoạt động (theo Meta)</span><span class="sub">3 ngày trước · không còn mới</span></span></td>
+                    <td data-label="Mức sẵn sàng"><span class="badge badge--neu"><span class="dot"></span>Không xác định</span></td>
+                    <td data-label="Checklist"><span class="prog" title="0 trên 9 mục bắt buộc"><span class="bar"><i style="width:0%"></i></span><span class="v">0/9</span></span></td>
+                    <td class="num" data-label="Chi tiêu"><span><b class="amt">—</b> <span class="faint" style="font-family:var(--font-sans)">Meta không trả dòng</span><span class="sub"><span class="badge badge--neu">Còn mới</span> 26/10</span></span></td>
+                    <td data-label="Cập nhật"><span class="t-xs muted">3 ngày trước</span></td>
+                    <td class="is-act"><button class="btn btn--icon btn--ghost btn--sm" type="button" aria-label="Hành động cho Du lịch Sao Mai"><svg class="ic ic--16" aria-hidden="true"><use href="#i-more"/></svg></button></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div></div>
+            <div class="pager"><span>Trang 1/4 · 25 dòng mỗi trang · "—" nghĩa là Meta không trả dòng cho ngày đó, không phải 0.</span><span class="btns"><button class="btn btn--sm" type="button" disabled>Trước</button><button class="btn btn--sm" type="button">Sau</button></span></div>
+          </div>
+          <footer class="ft"><svg class="ic ic--16" aria-hidden="true"><use href="#i-info"/></svg><span>Trạng thái Meta là mã Meta trả về tại thời điểm đọc, luôn kèm giờ. "Đang hoạt động (theo Meta)" không phải lời khẳng định tài khoản sẽ giữ được trạng thái đó.</span></footer>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== CHI TIẾT ===================== -->
+  <section class="doc-sec" id="chi-tiet">
+    <h2>5 · Chi tiết tài khoản · tab Chi tiêu (khuôn T3)</h2>
+    <p class="lead">Thẻ đầu trang gom tên, ba badge (đội ghi nhận · mức sẵn sàng · Meta kèm giờ), mã, BM, checklist và hành động. Tab đồng bộ URL <code>?tab=spend</code>. Số tiền giữ nguyên văn, căn phải; ngày không có dòng là "—".</p>
+    <div class="frame">
+      <span class="frame__tag">Dữ liệu mẫu</span>
+      <div class="app">
+        <aside class="sb" aria-label="Điều hướng chính">
+          <div class="sb__brand"><span class="sb__logo"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg></span><span><b>AdsOps</b><small>Control Center</small></span></div>
+          <div class="sb__grp"><a class="sb__item" href="#tong-quan"><svg class="ic" aria-hidden="true"><use href="#i-dash"/></svg>Tổng quan</a></div>
+          <div class="sb__grp"><span class="ovl">Tài khoản <svg class="ic ic--16" aria-hidden="true"><use href="#i-chev-d"/></svg></span>
+            <a class="sb__item" href="#tai-khoan" aria-current="page"><svg class="ic" aria-hidden="true"><use href="#i-wallet"/></svg>Tài khoản quảng cáo<span class="cnt">24</span></a>
+            <a class="sb__item" href="#chi-tiet"><svg class="ic" aria-hidden="true"><use href="#i-building"/></svg>Business Manager</a>
+            <a class="sb__item" href="#chi-tiet"><svg class="ic" aria-hidden="true"><use href="#i-package"/></svg>Tài sản</a>
+          </div>
+          <div class="sb__grp"><span class="ovl">Theo dõi <svg class="ic ic--16" aria-hidden="true"><use href="#i-chev-r"/></svg></span></div>
+          <div class="sb__grp"><a class="sb__item" href="#chi-tiet"><svg class="ic" aria-hidden="true"><use href="#i-wrench"/></svg>Vận hành</a><a class="sb__item" href="#chi-tiet"><svg class="ic" aria-hidden="true"><use href="#i-link"/></svg>Kết nối Meta</a></div>
+          <div class="sb__grp"><span class="ovl">Đội &amp; bảo mật <svg class="ic ic--16" aria-hidden="true"><use href="#i-chev-r"/></svg></span></div>
+          <div class="sb__grp"><span class="ovl">Hệ thống <svg class="ic ic--16" aria-hidden="true"><use href="#i-chev-r"/></svg></span></div>
+        </aside>
+        <div class="main">
+          <header class="hd">
+            <button class="btn btn--icon btn--ghost only-mobile" type="button" aria-label="Mở menu"><svg class="ic" aria-hidden="true"><use href="#i-menu"/></svg></button>
+            <span class="ws">Đội Ads — mẫu <svg class="ic ic--16" aria-hidden="true" style="color:var(--fg-faint)"><use href="#i-chev-d"/></svg></span>
+            <span class="grow"></span>
+            <button class="btn btn--icon btn--ghost" type="button" aria-label="Chủ đề màu"><svg class="ic" aria-hidden="true"><use href="#i-sun"/></svg></button>
+            <button class="btn btn--icon btn--ghost" type="button" aria-label="Cảnh báo đang mở: 2"><svg class="ic" aria-hidden="true"><use href="#i-bell"/></svg></button>
+            <span class="user"><span class="avatar" aria-hidden="true">NT</span><span><b>Nguyễn T.</b><small>Chủ workspace</small></span></span>
+          </header>
+          <div class="pg">
+            <nav class="crumbs" aria-label="Đường dẫn"><a href="#tai-khoan">Tài khoản quảng cáo</a><svg class="ic ic--16" aria-hidden="true"><use href="#i-chev-r"/></svg><span>Mỹ phẩm Lan Chi</span></nav>
+            <div class="card det-hd">
+              <div class="id">
+                <div class="badges"><h1>Mỹ phẩm Lan Chi</h1></div>
+                <div class="badges">
+                  <span class="badge badge--cau">Đội ghi nhận: Cảnh báo</span>
+                  <span class="badge badge--cau"><span class="dot"></span>Sẵn sàng, có cảnh báo</span>
+                  <span class="badge badge--neu">Meta: Đang hoạt động (theo Meta)</span><span class="t-xs faint">quan sát 27/10/2026 09:15 · 2 giờ trước</span>
+                </div>
+                <div class="meta"><span>Mã: <code>act_1029384756</code></span><span>BM Trung tâm (mẫu)</span><span>VN / VND · Asia/Ho_Chi_Minh</span><span class="prog" title="7 trên 9 mục bắt buộc"><span class="bar"><i style="width:78%"></i></span><span class="v">7/9 mục bắt buộc</span></span></div>
+              </div>
+              <div class="acts">
+                <button class="btn" type="button"><svg class="ic ic--16" aria-hidden="true"><use href="#i-refresh"/></svg>Tính lại mức sẵn sàng</button>
+                <button class="btn btn--primary" type="button"><svg class="ic ic--16" aria-hidden="true"><use href="#i-pencil"/></svg>Sửa</button>
+                <button class="btn btn--icon" type="button" aria-label="Thêm hành động: lưu trữ"><svg class="ic" aria-hidden="true"><use href="#i-more"/></svg></button>
+              </div>
+            </div>
+            <div class="tabs" role="tablist" aria-label="Mục chi tiết tài khoản">
+              <button class="tab" role="tab" type="button" aria-selected="false">Tổng quan</button>
+              <button class="tab" role="tab" type="button" aria-selected="false">Tài sản &amp; tham chiếu</button>
+              <button class="tab" role="tab" type="button" aria-selected="false">Mức sẵn sàng <span class="cnt">7/9</span></button>
+              <button class="tab" role="tab" type="button" aria-selected="false">Sức khoẻ <span class="cnt">1</span></button>
+              <button class="tab" role="tab" type="button" aria-selected="true">Chi tiêu</button>
+              <button class="tab" role="tab" type="button" aria-selected="false">Sự kiện</button>
+              <button class="tab" role="tab" type="button" aria-selected="false">Lịch sử kiểm toán</button>
+            </div>
+
+            <div class="grid-2">
+              <div class="card"><div class="card__hd"><h3>Độ mới số liệu</h3><button class="btn btn--sm" type="button"><svg class="ic ic--16" aria-hidden="true"><use href="#i-refresh"/></svg>Làm mới từ Meta</button></div>
+                <div class="card__bd">
+                  <div class="fresh"><span class="badge badge--neu">Còn mới</span><span>Đọc qua: <strong>BM trung tâm</strong></span><span>Còn mới trong 6 giờ sau lần đọc thành công</span></div>
+                  <p class="t-xs muted">"Còn mới" chỉ nói số liệu còn đủ mới để tin vào tuổi của nó; không nói gì về tình trạng tài khoản.</p>
+                  <p class="note note--cau"><svg class="ic ic--16" aria-hidden="true"><use href="#i-alert"/></svg><span><strong>Lần đọc gần nhất thất bại</strong> · 27/10/2026 11:02 · <code>permission_missing</code> — số liệu dưới đây là của lần đọc thành công trước đó (09:15).</span></p>
+                </div>
+              </div>
+              <div class="card"><div class="card__hd"><h3>Quan sát gần nhất<span class="sub">nguyên văn Meta trả về · đơn vị chưa được xác minh</span></h3></div>
+                <div class="card__bd">
+                  <dl class="dl">
+                    <dt>Đọc lúc</dt><dd>27/10/2026 09:15</dd>
+                    <dt>Tiền tệ · múi giờ</dt><dd>VND · Asia/Ho_Chi_Minh</dd>
+                    <dt>Đã chi (nguyên văn)</dt><dd class="num" style="text-align:left">48350000 VND</dd>
+                    <dt>Hạn mức chi (nguyên văn)</dt><dd class="faint">— <span class="t-xs" style="font-family:var(--font-sans)">Meta không trả giá trị</span></dd>
+                    <dt>Số dư (nguyên văn)</dt><dd class="num" style="text-align:left">1250000 VND</dd>
+                  </dl>
+                </div>
+              </div>
+            </div>
+
+            <div class="grid-2">
+              <div class="card"><div class="card__hd"><h3>Chi tiêu theo ngày đầy đủ<span class="sub">ngày đầy đủ gần nhất: 26/10/2026</span></h3></div>
+                <div class="scroll-x"><table class="tbl">
+                  <thead><tr><th>Ngày</th><th class="num">Chi tiêu (nguyên văn)</th><th>Ghi chú</th></tr></thead>
+                  <tbody>
+                    <tr><td class="mono">26/10/2026</td><td class="num">2150000 VND</td><td></td></tr>
+                    <tr><td class="mono">25/10/2026</td><td class="num">1980000 VND</td><td></td></tr>
+                    <tr><td class="mono">24/10/2026</td><td class="num faint">—</td><td class="t-xs faint">Meta không trả dòng · không phải 0</td></tr>
+                    <tr><td class="mono">23/10/2026</td><td class="num">2210000 VND</td><td></td></tr>
+                    <tr><td class="mono">22/10/2026</td><td class="num">2040000 VND</td><td></td></tr>
+                    <tr><td class="mono">21/10/2026</td><td class="num">1870000 VND</td><td></td></tr>
+                    <tr><td class="mono">20/10/2026</td><td class="num faint">—</td><td class="t-xs faint">Meta không trả dòng · không phải 0</td></tr>
+                  </tbody>
+                </table></div>
+                <div class="card__bd" style="padding-top:12px">
+                  <p class="note note--inf"><svg class="ic ic--16" aria-hidden="true"><use href="#i-info"/></svg><span><strong>Hôm nay (chưa đủ ngày)</strong> · <code>27/10/2026</code> · <code>640000 VND</code> — vẫn đang chạy, không dùng cho luật nào.</span></p>
+                  <p class="t-xs muted">Chưa có biểu đồ: số tiền được giữ nguyên dạng chuỗi Meta trả về (quyết định S1). Xem câu hỏi Q5.</p>
+                </div>
+              </div>
+              <div style="display:grid;gap:16px;align-content:start">
+                <div class="card"><div class="card__hd"><h3>Đường cơ sở</h3></div><div class="card__bd"><p>Trung vị của <strong>5</strong> ngày đầy đủ trước đó: <code>2040000 VND</code></p><p class="t-xs muted">Dùng cho luật "chi tiêu tăng bất thường"; ngày không có dòng không được tính.</p></div></div>
+                <div class="card"><div class="card__hd"><h3>Lịch sử lần đọc</h3></div>
+                  <div class="scroll-x"><table class="tbl">
+                    <thead><tr><th>Lúc</th><th>Kết quả</th><th>Kích hoạt</th><th>Mã trạng thái</th></tr></thead>
+                    <tbody>
+                      <tr><td class="t-xs" style="white-space:nowrap">27/10 11:02</td><td><span class="badge badge--att">Thất bại</span></td><td>Quét theo lịch</td><td class="mono">1</td></tr>
+                      <tr><td class="t-xs" style="white-space:nowrap">27/10 09:15</td><td><span class="badge badge--neu">Đã đọc</span></td><td>Làm mới thủ công</td><td class="mono">1</td></tr>
+                      <tr><td class="t-xs" style="white-space:nowrap">26/10 21:00</td><td><span class="badge badge--neu">Đã đọc</span></td><td>Quét theo lịch</td><td class="mono">1</td></tr>
+                      <tr><td class="t-xs" style="white-space:nowrap">26/10 09:00</td><td><span class="badge badge--neu">Đã đọc</span></td><td>Quét theo lịch</td><td class="faint" title="Lần đọc này không mang mã trạng thái">—</td></tr>
+                    </tbody>
+                  </table></div>
+                  <div class="card__ft">Trang 1/3</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <footer class="ft"><svg class="ic ic--16" aria-hidden="true"><use href="#i-info"/></svg><span>Số liệu chi tiêu là của Meta trả về, chỉ đọc; không phải sổ sách kế toán và không được cộng gộp giữa các tiền tệ.</span></footer>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== TRẠNG THÁI ===================== -->
+  <section class="doc-sec" id="trang-thai">
+    <h2>6 · Năm trạng thái dữ liệu</h2>
+    <p class="lead">Mỗi màn hình có dữ liệu phải có đủ năm trạng thái này. Lỗi theo mẫu bốn phần: chuyện gì → vì sao → làm gì tiếp → mã tham chiếu. "Không có quyền" thay cho việc để tính năng biến mất im lặng.</p>
+    <div class="state-grid">
+      <div><span class="cap">Đang tải</span>
+        <div class="card" style="padding:16px;display:grid;gap:10px"><div class="skl" style="width:40%;height:18px"></div><div class="skl" style="width:100%"></div><div class="skl" style="width:92%"></div><div class="skl" style="width:96%"></div><div class="skl" style="width:60%"></div></div>
+        <p class="kv-note">Skeleton cùng số cột/hàng với bảng thật; <code>aria-busy</code>; không spinner toàn trang.</p>
+      </div>
+      <div><span class="cap">Rỗng</span>
+        <div class="state"><svg class="ic ic--24" aria-hidden="true"><use href="#i-inbox"/></svg><h4>Chưa có tài khoản nào được đăng ký</h4><p>Bắt đầu bằng cách thêm một Business Manager hoặc một tham chiếu tài khoản cá nhân, rồi đăng ký tài khoản quảng cáo đầu tiên.</p><div class="acts"><button class="btn" type="button">Thêm Business Manager</button><button class="btn btn--primary" type="button"><svg class="ic ic--16" aria-hidden="true"><use href="#i-plus"/></svg>Đăng ký tài khoản</button></div></div>
+        <p class="kv-note">Biến thể khi đang lọc: "Không có tài khoản nào khớp bộ lọc" + nút "Xoá bộ lọc".</p>
+      </div>
+      <div><span class="cap">Lỗi</span>
+        <div class="err" role="alert">
+          <h4><svg class="ic" aria-hidden="true"><use href="#i-alert"/></svg>Không tải được danh sách tài khoản</h4>
+          <div class="steps"><span><b>Vì sao:</b> máy chủ không phản hồi trong 10 giây.</span><span><b>Làm gì tiếp:</b> thử lại; nếu vẫn lỗi, xem Trạng thái hệ thống.</span><span><b>Mã tham chiếu:</b> <code>req_8f3a2c91</code></span></div>
+          <div class="acts"><button class="btn btn--sm" type="button"><svg class="ic ic--16" aria-hidden="true"><use href="#i-refresh"/></svg>Thử lại</button><a class="btn btn--sm" href="#trang-thai">Trạng thái hệ thống</a></div>
+        </div>
+        <p class="kv-note">Không bao giờ hiện stack trace hay phản hồi thô (rule 26).</p>
+      </div>
+      <div><span class="cap">Không có quyền</span>
+        <div class="noperm">
+          <h4><svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg>Chỉ chủ workspace mới làm mới được chi tiêu</h4>
+          <p class="muted">Bạn vẫn xem được số liệu đã đọc và lịch sử lần đọc. Cần làm mới ngay? Nhờ chủ workspace: <strong>Nguyễn T.</strong></p>
+          <div><button class="btn btn--sm" type="button" aria-disabled="true" title="Chỉ chủ workspace mới làm mới được chi tiêu"><svg class="ic ic--16" aria-hidden="true"><use href="#i-refresh"/></svg>Làm mới từ Meta</button></div>
+        </div>
+        <p class="kv-note">Nút vẫn hiện, vô hiệu kèm lý do (§6.6). Quyền vẫn kiểm ở máy chủ (403).</p>
+      </div>
+      <div><span class="cap">Một phần dữ liệu</span>
+        <div class="card"><div class="card__hd"><h3>Chi tiêu · VND</h3></div><div class="card__bd">
+          <p><span class="num" style="font-size:20px;font-weight:600">48350000 VND</span> <span class="t-xs faint">ngày 26/10/2026 · 10 tài khoản</span></p>
+          <p class="note note--cau"><svg class="ic ic--16" aria-hidden="true"><use href="#i-alert"/></svg><span><strong>Tổng chưa đầy đủ.</strong> Thiếu 3/13 tài khoản: 2 có số liệu cũ, 1 Meta không trả dòng. Không có số nào được ước tính thay vào.</span></p>
+        </div></div>
+        <p class="kv-note">Nguồn nào lỗi thì nói rõ nguồn đó; không để trống im lặng, không điền 0.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== TIỆN ÍCH ===================== -->
+  <section class="doc-sec" id="tien-ich">
+    <h2>7 · Side panel tiện ích Chrome (khuôn T8)</h2>
+    <p class="lead">Cùng giá trị token, CSS thuần, dark theo hệ điều hành. Nội dung giữ nguyên (đã tiếng Việt từ 0.3.0): ngữ cảnh, trạng thái vận hành, chi tiêu, danh sách kiểm trước khi đổi chiến dịch, ghi nhận sự kiện. Độ mới "Còn mới" đổi từ xanh sang xám cho khớp dashboard.</p>
+    <div class="ext-grid">
+      <div class="ext scheme-light">
+        <div class="ext__chrome"><span>Side panel · 360px · sáng</span><span class="mono">0.3.1</span></div>
+        <div class="ext__bd">
+          <div class="dist__top"><h1>Ngữ cảnh tài khoản</h1><span class="toolbar" style="gap:6px"><span class="lang"><span class="on">VI</span><span>EN</span></span><button class="btn btn--icon btn--ghost btn--sm" type="button" aria-label="Làm mới"><svg class="ic ic--16" aria-hidden="true"><use href="#i-refresh"/></svg></button></span></div>
+          <div class="card"><div class="card__bd">
+            <div class="dist__top"><strong>Mỹ phẩm Lan Chi</strong><span class="badge badge--pos"><svg class="ic ic--16" aria-hidden="true"><use href="#i-check"/></svg>Đã xác nhận</span></div>
+            <dl class="dl"><dt>Mã tài khoản</dt><dd class="mono">act_1029384756</dd><dt>Business Manager</dt><dd>BM Trung tâm (mẫu)</dd><dt>Chủ sở hữu</dt><dd>Nguyễn T.</dd><dt>Trang</dt><dd>Quản lý chiến dịch</dd></dl>
+          </div></div>
+          <div class="card"><div class="card__bd">
+            <dl class="dl">
+              <dt>Mức sẵn sàng</dt><dd><span class="badge badge--cau">Sẵn sàng, có cảnh báo</span></dd>
+              <dt>Tình trạng</dt><dd><span class="badge badge--cau">Cảnh báo</span></dd>
+              <dt>Trạng thái Meta</dt><dd><span class="badge badge--neu">Đang hoạt động (theo Meta)</span> <span class="faint">lúc 09:15</span></dd>
+              <dt>Độ mới dữ liệu</dt><dd><span class="badge badge--neu">Mới cập nhật</span></dd>
+              <dt>Cảnh báo đang mở</dt><dd><span class="badge badge--cau">Cảnh báo: 1</span></dd>
+            </dl>
+            <h2>Lý do về mức độ sẵn sàng</h2>
+            <ul class="reasons"><li>Một sự kiện cảnh báo chưa được xử lý: thay đổi phương thức thanh toán.</li></ul>
+          </div></div>
+          <div class="card"><div class="card__bd">
+            <h2 style="margin-top:0">Chi tiêu (Meta, chỉ đọc)</h2>
+            <dl class="dl"><dt>Độ mới của số liệu</dt><dd><span class="badge badge--neu">Còn mới</span></dd><dt>Ngày đầy đủ gần nhất</dt><dd class="mono">2150000 VND <span class="faint" style="font-family:var(--font-sans)">(26/10/2026)</span></dd><dt>Hôm nay (chưa đủ ngày)</dt><dd class="mono">640000 VND</dd><dt>Tín hiệu chi tiêu</dt><dd><span class="badge badge--neu">Không có tín hiệu mở</span></dd></dl>
+            <p class="faint">Là số Meta trả về, không phải sổ sách; không cộng gộp giữa các tiền tệ.</p>
+          </div></div>
+          <div class="card"><div class="card__bd">
+            <h2 style="margin-top:0">Trước khi thay đổi cài đặt chiến dịch</h2>
+            <label class="chk"><i class="on"></i><span>Ngữ cảnh đã được xác nhận đúng theo mã tài khoản</span></label>
+            <label class="chk"><i class="on"></i><span>Tôi đã xem xét mức độ sẵn sàng của tài khoản</span></label>
+            <label class="chk"><i></i><span>Tôi đã xem xét các cảnh báo nghiêm trọng đang mở</span></label>
+            <label class="chk"><i></i><span>Tôi đã ghi lại lý do thực hiện thay đổi này</span></label>
+            <label style="display:grid;gap:4px;font-size:12px;color:var(--fg-muted)"><span>Vì sao bạn thực hiện thay đổi này?</span><textarea id="r1" placeholder="Sẽ được ghi vào dòng thời gian tài khoản và nhật ký kiểm toán."></textarea></label>
+            <button class="btn btn--primary" type="button" disabled>Lưu ý định thay đổi</button>
+            <p class="faint">Danh sách này chỉ ghi lại những gì bạn đã kiểm tra; nó không chặn bất kỳ điều gì trong Ads Manager.</p>
+          </div></div>
+          <div class="toolbar"><button class="btn btn--sm" type="button"><svg class="ic ic--16" aria-hidden="true"><use href="#i-external"/></svg>Mở chi tiết tài khoản</button><button class="btn btn--sm" type="button"><svg class="ic ic--16" aria-hidden="true"><use href="#i-bell"/></svg>Mở cảnh báo liên quan</button></div>
+          <p class="note"><svg class="ic ic--16" aria-hidden="true"><use href="#i-info"/></svg><span>Đây là các trạng thái vận hành được ghi nhận trong sản phẩm này. Chúng không phải quyết định từ nền tảng quảng cáo, và không đảm bảo rằng tài khoản sẽ không bị hạn chế.</span></p>
+          <p class="faint"><svg class="ic ic--16" aria-hidden="true" style="vertical-align:-3px"><use href="#i-eye"/></svg> Tiện ích chỉ đọc trang và hiển thị những gì sản phẩm đã biết. Nó không thay đổi bất kỳ điều gì trong Ads Manager.</p>
+        </div>
+      </div>
+      <div class="ext scheme-dark">
+        <div class="ext__chrome"><span>Side panel · 360px · tối</span><span class="mono">0.3.1</span></div>
+        <div class="ext__bd">
+          <div class="dist__top"><h1>Ngữ cảnh tài khoản</h1><span class="toolbar" style="gap:6px"><span class="lang"><span class="on">VI</span><span>EN</span></span><button class="btn btn--icon btn--ghost btn--sm" type="button" aria-label="Làm mới"><svg class="ic ic--16" aria-hidden="true"><use href="#i-refresh"/></svg></button></span></div>
+          <div class="card"><div class="card__bd">
+            <div class="dist__top"><span class="badge badge--cau">Chưa xác nhận</span></div>
+            <p class="muted">Không thể khớp trang này với một tài khoản đã đăng ký một cách chắc chắn.</p>
+            <p class="faint">Tiện ích sẽ không đoán đây là tài khoản nào. Hãy mở tài khoản trong dashboard nếu bạn cần chắc chắn.</p>
+          </div></div>
+          <div class="toolbar"><button class="btn btn--sm" type="button"><svg class="ic ic--16" aria-hidden="true"><use href="#i-external"/></svg>Mở dashboard</button><button class="btn btn--sm" type="button">Chọn tài khoản thủ công</button></div>
+          <p class="note note--att"><svg class="ic ic--16" aria-hidden="true"><use href="#i-alert"/></svg><span><strong>Không đọc được ngữ cảnh.</strong> Phiên tiện ích đã hết hạn. Mở Cài đặt để kết nối lại.</span></p>
+          <div class="card"><div class="card__bd">
+            <h2 style="margin-top:0">Chi tiêu (Meta, chỉ đọc)</h2>
+            <dl class="dl"><dt>Độ mới của số liệu</dt><dd><span class="badge badge--cau">Đã cũ</span></dd><dt>Ngày đầy đủ gần nhất</dt><dd class="mono">— <span class="faint" style="font-family:var(--font-sans)">Meta không trả dòng cho ngày này</span></dd><dt>Hôm nay (chưa đủ ngày)</dt><dd class="faint">—</dd><dt>Tín hiệu chi tiêu</dt><dd><span class="badge badge--cau">Đang mở</span></dd></dl>
+            <p class="note note--cau"><svg class="ic ic--16" aria-hidden="true"><use href="#i-alert"/></svg><span>Tiền tệ mâu thuẫn giữa các nguồn, không hiển thị số tiền.</span></p>
+          </div></div>
+          <p class="note"><svg class="ic ic--16" aria-hidden="true"><use href="#i-info"/></svg><span>Đây là các trạng thái vận hành được ghi nhận trong sản phẩm này. Chúng không phải quyết định từ nền tảng quảng cáo, và không đảm bảo rằng tài khoản sẽ không bị hạn chế.</span></p>
+          <p class="faint"><svg class="ic ic--16" aria-hidden="true" style="vertical-align:-3px"><use href="#i-eye"/></svg> Tiện ích chỉ đọc trang và hiển thị những gì sản phẩm đã biết. Nó không thay đổi bất kỳ điều gì trong Ads Manager.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== GHI CHÚ ===================== -->
+  <section class="doc-sec" id="ghi-chu">
+    <h2>8 · Đã kiểm · chưa kiểm · câu hỏi cho chủ sản phẩm</h2>
+    <div class="cols-2">
+      <div class="card"><div class="card__hd"><h3>Bản xem trước này</h3></div><div class="card__bd" style="padding:0 16px">
+        <table class="check-tbl">
+          <thead><tr><th>Hạng mục</th><th>Trạng thái</th></tr></thead>
+          <tbody>
+            <tr><td>Tương phản chữ/nền của mọi token (sáng + tối)</td><td>Đã tính bằng script WCAG; mọi cặp ≥ 4,5:1</td></tr>
+            <tr><td>Cân bằng thẻ HTML, kích thước tệp</td><td>Đã kiểm bằng script</td></tr>
+            <tr><td>Không tràn ngang ở 375px và 1280px</td><td>Đã đo trong Chromium headless của workspace (DevTools): 375px tối và 1280px sáng, <code>scrollWidth = clientWidth</code>; hàng thành thẻ không tràn (một lỗi tràn ô được phát hiện và sửa trong lần đo đầu) — <strong>chưa kiểm trên Chrome/Windows/macOS của người dùng</strong></td></tr>
+            <tr><td>Dấu tiếng Việt với Be Vietnam Pro ở 11–30px</td><td>Font nạp đủ 4 độ đậm trong Chromium headless; mẫu ở mục 2 — <strong>cần người nhìn trên máy thật</strong></td></tr>
+            <tr><td>Trình đọc màn hình, bàn phím</td><td>Chưa kiểm (bản tĩnh)</td></tr>
+            <tr><td>Sheet mobile, menu ⋯, hộp xác nhận lưu trữ</td><td>Không có trong bản tĩnh; mô tả ở spec §9b</td></tr>
+          </tbody>
+        </table>
+      </div></div>
+      <div class="card"><div class="card__hd"><h3>Cần chủ sản phẩm quyết</h3></div><div class="card__bd">
+        <ol class="rule-list">
+          <li><strong>Q1</strong> Màu thương hiệu: giữ xanh dương hiện tại hay đổi?</li>
+          <li><strong>Q2</strong> Chủ đề mặc định: theo hệ điều hành (đề xuất) hay luôn sáng?</li>
+          <li><strong>Q3</strong> Mật độ: body 14px / hàng 40px (đề xuất) hay 13px / 36px?</li>
+          <li><strong>Q4</strong> Chỉ tiếng Việt, hay VI mặc định + EN phụ (đề xuất, vì tiện ích đã có)?</li>
+          <li><strong>Q5</strong> Biểu đồ chi tiêu: U1 không vẽ (giữ chuỗi thô). Mở spec riêng để API trả số?</li>
+          <li><strong>Q6</strong> Khôi phục 5 trang đang bị ẩn vào nav nhóm (đề xuất: có)?</li>
+          <li><strong>Q7</strong> "Đang hoạt động" do <em>đội ghi nhận</em> đang xanh; "Đang hoạt động (theo Meta)" xám. Giữ hay hạ xuống xám? (BA)</li>
+          <li><strong>Q8</strong> Ai duyệt wording trong <code>vi.ts</code>?</li>
+        </ol>
+      </div></div>
+    </div>
+    <p class="kv-note">Tệp này không có script ngoài; chỉ một đoạn nhỏ cho công tắc chủ đề (lưu lựa chọn trong trình duyệt của bạn). Font nạp từ Google Fonts chỉ cho bản xem trước; sản phẩm sẽ tự host theo CSP.</p>
+  </section>
+</main>
+
+<script>
+(function(){
+  var root=document.documentElement, key='adsops.u1.theme';
+  function paint(v){
+    if(v==='light'||v==='dark'){root.setAttribute('data-theme',v)}else{root.removeAttribute('data-theme')}
+    var cur=v||'system';
+    document.querySelectorAll('[data-theme-opt]').forEach(function(b){b.setAttribute('aria-pressed',String(b.getAttribute('data-theme-opt')===cur))});
+  }
+  var saved=null; try{saved=localStorage.getItem(key)}catch(e){}
+  paint(saved==='light'||saved==='dark'?saved:null);
+  document.querySelectorAll('[data-theme-opt]').forEach(function(b){
+    b.addEventListener('click',function(){
+      var v=b.getAttribute('data-theme-opt');
+      try{ if(v==='system'){localStorage.removeItem(key)}else{localStorage.setItem(key,v)} }catch(e){}
+      paint(v==='system'?null:v);
+    });
+  });
+})();
+</script>
+</body>
+</html>
