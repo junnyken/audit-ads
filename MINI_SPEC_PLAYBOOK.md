@@ -345,7 +345,7 @@ và **không được nới** bởi khung chung. `CLAUDE.md` (42 hard rules) v�
   reduced to a numeric score, and neither may be worded as safety, approval or immunity.
 - Acknowledging an issue is not resolving it, at any layer.
 - No outbound message may carry a secret, a raw provider response, a stack trace or an unusable
-  link, and no credential may live anywhere but server configuration.
+  link, and no credential may live anywhere but server configuration — except a Meta reader credential that the product obtained from Meta's own login flow, held encrypted in the O4 vault exactly as CLAUDE.md rules 1 and 40 allow (approved by the owner 2026-10-27).
 - Deployment and a first outbound message are irreversible external actions. They are separate
   stages with separate approvals, and neither happens because a spec was accepted.
 - Report what was measured, not what the previous report claimed. When the environment cannot
