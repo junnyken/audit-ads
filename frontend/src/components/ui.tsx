@@ -1,6 +1,9 @@
 import type { ReactNode } from 'react'
-import { TONE_CLASS, TONE_DOT, type Tone } from '../lib/readiness'
+import { TONE_CLASS, type Tone } from '../lib/readiness'
 
+// The old component set. U1d moved every page except the Meta connection screens (O4 owns those) and
+// Settings/Login to the primitives in `components/primitives` and `components/states`; what remains here is
+// exactly what those files still import. Delete this file when the Meta connection screens are restyled.
 // Badge moved to primitives/badge.tsx (U1b); re-exported so existing imports keep working.
 export { Badge } from './primitives/badge'
 
@@ -25,42 +28,6 @@ export function Card({
       )}
       <div className="p-4">{children}</div>
     </section>
-  )
-}
-
-export function StatTile({
-  label,
-  value,
-  tone = 'neutral',
-  hint,
-  onClick,
-  active = false,
-}: {
-  label: string
-  value: number | string
-  tone?: Tone
-  hint?: string
-  onClick?: () => void
-  active?: boolean
-}) {
-  const Wrapper = onClick ? 'button' : 'div'
-  return (
-    <Wrapper
-      type={onClick ? 'button' : undefined}
-      onClick={onClick}
-      title={hint}
-      className={`card w-full px-4 py-3 text-left transition-colors ${
-        onClick ? 'hover:border-line-strong cursor-pointer' : ''
-      } ${active ? 'ring-2 ring-brand' : ''}`}
-    >
-      <div className="flex items-center gap-1.5">
-        <span className={`h-2 w-2 rounded-full ${TONE_DOT[tone]}`} />
-        <span className="text-[11.5px] font-medium uppercase tracking-wide text-ink-faint">
-          {label}
-        </span>
-      </div>
-      <div className="mt-1 text-2xl font-semibold tabular-nums">{value}</div>
-    </Wrapper>
   )
 }
 
@@ -169,47 +136,6 @@ export function Field({
   )
 }
 
-export function Drawer({
-  open,
-  title,
-  onClose,
-  children,
-  footer,
-}: {
-  open: boolean
-  title: string
-  onClose: () => void
-  children: ReactNode
-  footer?: ReactNode
-}) {
-  if (!open) return null
-  return (
-    <div className="fixed inset-0 z-40 flex justify-end">
-      <div
-        className="absolute inset-0 bg-ink/30"
-        onClick={onClose}
-        role="presentation"
-        aria-hidden="true"
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        className="relative flex h-full w-full max-w-xl flex-col bg-surface shadow-xl"
-      >
-        <header className="flex items-center justify-between border-b border-line px-4 py-3">
-          <h2 className="text-[14px] font-semibold">{title}</h2>
-          <button type="button" className="btn-ghost" onClick={onClose} aria-label="Close">
-            ✕
-          </button>
-        </header>
-        <div className="flex-1 overflow-y-auto px-4 py-4">{children}</div>
-        {footer && <footer className="border-t border-line px-4 py-3">{footer}</footer>}
-      </div>
-    </div>
-  )
-}
-
 export function Tabs({
   tabs,
   active,
@@ -240,32 +166,6 @@ export function Tabs({
           </button>
         ))}
       </div>
-    </div>
-  )
-}
-
-export function Progress({ value, total }: { value: number; total: number }) {
-  // No required items determined is "no figure", not "0 of 0" (U1b data honesty).
-  if (total <= 0) {
-    return (
-      <span className="text-ink-faint" title="No required items have been determined">
-        —
-      </span>
-    )
-  }
-  const percent = Math.round((value / total) * 100)
-  const complete = total > 0 && value >= total
-  return (
-    <div className="flex items-center gap-2" title={`${value} of ${total} required items satisfied`}>
-      <div className="h-1.5 w-16 overflow-hidden rounded-full bg-surface-sunken">
-        <div
-          className={`h-full rounded-full ${complete ? 'bg-tone-positive-fg' : 'bg-ink-faint'}`}
-          style={{ width: `${percent}%` }}
-        />
-      </div>
-      <span className="tabular-nums text-[11.5px] text-ink-muted">
-        {value}/{total}
-      </span>
     </div>
   )
 }

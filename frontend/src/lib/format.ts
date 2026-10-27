@@ -63,14 +63,3 @@ export function formatDay(value: string | null | undefined, language: Language =
 export function formatCount(value: number, language: Language = getActiveLanguage()): string {
   return new Intl.NumberFormat(INTL_LOCALE[language]).format(value)
 }
-
-export function humanise(value: string): string {
-  return value.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())
-}
-
-export function titleCase(value: string): string {
-  return value
-    .split(/[_\s]+/)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ')
-}

@@ -2,16 +2,29 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, query } from '../lib/api'
 import type { Paged, ReferenceRecord } from '../lib/types'
-import { Badge, Drawer, EmptyState, ErrorState, Field, InlineNote, Skeleton } from './ui'
-import { formatDateTime, humanise } from '../lib/format'
+import { formatDateTime } from '../lib/format'
+import { useI18n } from '../i18n'
+import type { TranslationKey } from '../i18n'
+import { useEnumLabel } from '../i18n/labels'
+import { Badge } from './primitives/badge'
+import { Button } from './primitives/button'
+import { Card } from './primitives/card'
+import { Field } from './primitives/field'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './primitives/table'
+import { EmptyState, ErrorState } from './states'
+import { ConfirmDialog } from './page/ConfirmDialog'
+import { FormSheet } from './page/FormSheet'
+import { CheckField, SearchField } from './page/Filters'
+import { TableSkeleton } from './page/TableSkeleton'
+import { Note } from '../pages/account/parts'
 
 export interface FieldSpec {
   name: string
-  label: string
+  label: TranslationKey
   type?: 'text' | 'textarea' | 'select' | 'url'
   required?: boolean
-  hint?: string
-  options?: [string, string][]
+  hint?: TranslationKey
+  options?: [string, TranslationKey][]
   maxLength?: number
   uppercase?: boolean
   columnWidth?: string
@@ -21,28 +34,28 @@ export interface FieldSpec {
 export interface ResourceSpec {
   key: string
   path: string
-  singular: string
-  plural: string
-  description: string
-  note?: string
+  singular: TranslationKey
+  plural: TranslationKey
+  description: TranslationKey
+  note?: TranslationKey
   fields: FieldSpec[]
 }
 
 const STATUS_FIELD: FieldSpec = {
   name: 'status',
-  label: 'Status',
+  label: 'res.f.status',
   type: 'select',
   options: [
-    ['unknown', 'Unknown'],
-    ['active', 'Active'],
-    ['inactive', 'Inactive'],
-    ['restricted', 'Restricted'],
+    ['unknown', 'refStatus.unknown'],
+    ['active', 'refStatus.active'],
+    ['inactive', 'refStatus.inactive'],
+    ['restricted', 'refStatus.restricted'],
   ],
 }
 
 const NOTES_FIELD: FieldSpec = {
   name: 'notes',
-  label: 'Notes',
+  label: 'res.f.notes',
   type: 'textarea',
   maxLength: 5000,
   hideInTable: true,
@@ -52,12 +65,27 @@ export function withCommonFields(fields: FieldSpec[]): FieldSpec[] {
   return [...fields, STATUS_FIELD, NOTES_FIELD]
 }
 
+/** What the record is called in a sentence: its first required text field, else its id. */
+function recordLabel(spec: ResourceSpec, record: ReferenceRecord): string {
+  for (const field of spec.fields) {
+    const value = record[field.name]
+    if (field.required && value) return String(value)
+  }
+  return String(record.id)
+}
+
+type Pending = { kind: 'archive' | 'restore'; record: ReferenceRecord } | null
+
 export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
+  const { t } = useI18n()
+  const enumLabel = useEnumLabel()
   const queryClient = useQueryClient()
   const [archived, setArchived] = useState(false)
   const [search, setSearch] = useState('')
   const [editing, setEditing] = useState<ReferenceRecord | null>(null)
   const [creating, setCreating] = useState(false)
+  const [pending, setPending] = useState<Pending>(null)
+  const [readBack, setReadBack] = useState<{ ok: boolean; text: string } | null>(null)
 
   const list = useQuery({
     queryKey: [spec.key, 'list', { archived, search }],
@@ -71,135 +99,153 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
     void queryClient.invalidateQueries({ queryKey: ['business-managers', 'options'] })
   }
 
-  const archiveMutation = useMutation({
-    mutationFn: (id: string) => api.post(`${spec.path}/${id}/archive`),
-    onSuccess: invalidate,
-  })
-  const restoreMutation = useMutation({
-    mutationFn: (id: string) => api.post(`${spec.path}/${id}/restore`),
-    onSuccess: invalidate,
+  // Archive / restore: ask, write, then read the list back and say what the server now holds
+  // (skill 6.4). "Sent" is not "done".
+  const change = useMutation({
+    mutationFn: async ({ kind, record }: { kind: 'archive' | 'restore'; record: ReferenceRecord }) => {
+      await api.post(`${spec.path}/${record.id}/${kind}`)
+      const fresh = await queryClient.fetchQuery({
+        queryKey: [spec.key, 'list', { archived, search }],
+        queryFn: () =>
+          api.get<Paged<ReferenceRecord>>(`${spec.path}${query({ archived, search, page_size: 200 })}`),
+        staleTime: 0,
+      })
+      // Archiving from the active list (or restoring from the archived list) must make the row leave it.
+      return { kind, record, gone: !fresh.items.some((item) => item.id === record.id) }
+    },
+    onSuccess: ({ kind, record, gone }) => {
+      invalidate()
+      const label = recordLabel(spec, record)
+      setReadBack(
+        gone
+          ? { ok: true, text: t(kind === 'archive' ? 'ref.readback.archived' : 'ref.readback.restored', { label }) }
+          : { ok: false, text: t('ref.readback.mismatch') },
+      )
+      setPending(null)
+    },
   })
 
   const visibleFields = spec.fields.filter((field) => !field.hideInTable)
+  const name = t(spec.singular)
+  const rows = list.data?.items ?? []
+
+  const columns = [...visibleFields.map((field) => t(field.label)), t('ref.col.updated'), t('pg.actions')]
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <p className="text-[12.5px] text-ink-muted">{spec.description}</p>
-        </div>
+        <p className="max-w-2xl text-sm text-ink-muted">{t(spec.description)}</p>
         <div className="flex flex-wrap items-end gap-2">
-          <div>
-            <label className="label" htmlFor={`${spec.key}-search`}>Search</label>
-            <input
-              id={`${spec.key}-search`}
-              className="input min-w-[180px]"
-              defaultValue={search}
-              onBlur={(event) => setSearch(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') setSearch((event.target as HTMLInputElement).value)
-              }}
-            />
-          </div>
-          <label className="flex items-center gap-1.5 pb-1.5 text-[12.5px]">
-            <input type="checkbox" checked={archived} onChange={(event) => setArchived(event.target.checked)} />
-            Archived only
-          </label>
-          <button type="button" className="btn-primary" onClick={() => setCreating(true)}>
-            Add {spec.singular.toLowerCase()}
-          </button>
+          <SearchField label={t('pg.search')} value={search} onApply={setSearch} />
+          <CheckField label={t('pg.archivedOnly')} checked={archived} onChange={setArchived} />
+          <Button type="button" onClick={() => setCreating(true)}>
+            {t('ref.add', { name })}
+          </Button>
         </div>
       </div>
 
-      {spec.note && <InlineNote>{spec.note}</InlineNote>}
+      {spec.note && <Note>{t(spec.note)}</Note>}
+      {readBack && (
+        <Note role="status" tone={readBack.ok ? undefined : 'caution'}>
+          {readBack.text}
+        </Note>
+      )}
 
       {list.isLoading ? (
-        <Skeleton rows={5} />
+        <TableSkeleton columns={columns} />
       ) : list.isError ? (
-        <ErrorState error={list.error} onRetry={() => list.refetch()} />
-      ) : list.data!.items.length === 0 ? (
+        <ErrorState error={list.error} onRetry={() => list.refetch()} title={t('ref.error.title')} />
+      ) : rows.length === 0 ? (
         <EmptyState
-          title={archived ? `No archived ${spec.plural.toLowerCase()}` : `No ${spec.plural.toLowerCase()} yet`}
-          description={spec.description}
+          title={archived ? t('ref.empty.archived', { name }) : t('ref.empty.none', { name })}
+          description={archived ? t('ref.empty.archivedBody') : t(spec.description)}
           action={
             !archived && (
-              <button type="button" className="btn-primary" onClick={() => setCreating(true)}>
-                Add {spec.singular.toLowerCase()}
-              </button>
+              <Button type="button" onClick={() => setCreating(true)}>
+                {t('ref.add', { name })}
+              </Button>
             )
           }
         />
       ) : (
-        <div className="card table-scroll">
-          <table className="w-full min-w-[720px] border-collapse">
-            <thead className="bg-surface-muted">
-              <tr>
+        <Card>
+          <Table cards aria-label={t(spec.plural)}>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
                 {visibleFields.map((field) => (
-                  <th key={field.name} className="th">
-                    {field.label}
-                  </th>
+                  <TableHead key={field.name}>{t(field.label)}</TableHead>
                 ))}
-                <th className="th">Updated</th>
-                <th className="th">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.data!.items.map((record) => (
-                <tr key={record.id} className="hover:bg-surface-muted">
-                  {visibleFields.map((field) => (
-                    <td key={field.name} className="td">
+                <TableHead>{t('ref.col.updated')}</TableHead>
+                <TableHead>
+                  <span className="sr-only">{t('pg.actions')}</span>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((record) => (
+                <TableRow key={record.id}>
+                  {visibleFields.map((field, index) => (
+                    <TableCell key={field.name} label={t(field.label)} className={index === 0 ? 'cell-title' : undefined}>
                       {field.name === 'status' ? (
                         <Badge tone={String(record.status) === 'active' ? 'positive' : 'neutral'}>
-                          {humanise(String(record.status))}
+                          {enumLabel('refStatus', String(record.status))}
                         </Badge>
                       ) : (
-                        <span className={field.name.includes('reference') ? 'font-mono text-[11.5px]' : ''}>
+                        <span className={field.name.includes('reference') ? 'font-mono text-xs' : undefined}>
                           {record[field.name] ? String(record[field.name]) : '—'}
                         </span>
                       )}
-                    </td>
+                    </TableCell>
                   ))}
-                  <td className="td whitespace-nowrap text-[12px] text-ink-muted">
+                  <TableCell label={t('ref.col.updated')} className="whitespace-nowrap text-xs text-ink-muted">
                     {formatDateTime(record.updated_at)}
-                  </td>
-                  <td className="td">
-                    <div className="flex gap-1.5">
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex justify-end gap-1.5">
                       {record.archived_at ? (
-                        <button
-                          type="button"
-                          className="btn-secondary"
-                          onClick={() => restoreMutation.mutate(record.id)}
-                        >
-                          Restore
-                        </button>
+                        <Button type="button" variant="secondary" size="sm" onClick={() => setPending({ kind: 'restore', record })}>
+                          {t('pg.restore')}
+                        </Button>
                       ) : (
                         <>
-                          <button type="button" className="btn-secondary" onClick={() => setEditing(record)}>
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-secondary"
-                            onClick={() => archiveMutation.mutate(record.id)}
-                          >
-                            Archive
-                          </button>
+                          <Button type="button" variant="secondary" size="sm" onClick={() => setEditing(record)}>
+                            {t('pg.edit')}
+                          </Button>
+                          <Button type="button" variant="secondary" size="sm" onClick={() => setPending({ kind: 'archive', record })}>
+                            {t('pg.archive')}
+                          </Button>
                         </>
                       )}
                     </div>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+          </Table>
+        </Card>
       )}
 
-      {(archiveMutation.isError || restoreMutation.isError) && (
-        <ErrorState error={archiveMutation.error ?? restoreMutation.error} />
-      )}
+      <ConfirmDialog
+        open={pending !== null}
+        onCancel={() => {
+          setPending(null)
+          change.reset()
+        }}
+        title={pending ? t(pending.kind === 'archive' ? 'ref.archive.title' : 'ref.restore.title', { name }) : ''}
+        object={pending ? t(pending.kind === 'archive' ? 'ref.archive.object' : 'ref.restore.object', { label: recordLabel(spec, pending.record) }) : ''}
+        effects={
+          pending?.kind === 'archive'
+            ? [t('ref.archive.effect'), t('ref.archive.keeps'), t('ref.archive.reversible')]
+            : [t('ref.restore.effect'), t('ref.restore.reversible')]
+        }
+        confirmLabel={pending?.kind === 'archive' ? t('ref.archive.confirm') : t('ref.restore.confirm')}
+        tone={pending?.kind === 'archive' ? 'destructive' : 'default'}
+        pending={change.isPending}
+        error={change.isError ? change.error : undefined}
+        onConfirm={() => pending && change.mutate(pending)}
+      />
 
-      <ReferenceDrawer
+      <ReferenceSheet
         spec={spec}
         record={editing}
         open={creating || editing !== null}
@@ -213,7 +259,7 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
   )
 }
 
-function ReferenceDrawer({
+function ReferenceSheet({
   spec,
   record,
   open,
@@ -226,7 +272,9 @@ function ReferenceDrawer({
   onClose: () => void
   onSaved: () => void
 }) {
+  const { t } = useI18n()
   const [values, setValues] = useState<Record<string, string>>({})
+  const [touched, setTouched] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     const next: Record<string, string> = {}
@@ -235,6 +283,7 @@ function ReferenceDrawer({
       next[field.name] = current === null || current === undefined ? '' : String(current)
     }
     setValues(next)
+    setTouched({})
   }, [record, spec, open])
 
   const save = useMutation({
@@ -256,74 +305,73 @@ function ReferenceDrawer({
     },
   })
 
-  const requiredMissing = spec.fields.some(
-    (field) => field.required && !(values[field.name] ?? '').trim(),
-  )
+  const missing = spec.fields.filter((field) => field.required && !(values[field.name] ?? '').trim())
+  const name = t(spec.singular)
+  const formId = `${spec.key}-form`
 
   return (
-    <Drawer
+    <FormSheet
       open={open}
-      title={record ? `Edit ${spec.singular.toLowerCase()}` : `Add ${spec.singular.toLowerCase()}`}
       onClose={onClose}
+      title={record ? t('ref.edit', { name }) : t('ref.add', { name })}
+      description={record ? t('ref.editDesc') : t('ref.addDesc')}
       footer={
-        <div className="flex justify-end gap-2">
-          <button type="button" className="btn-secondary" onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            type="submit"
-            form={`${spec.key}-form`}
-            className="btn-primary"
-            disabled={requiredMissing || save.isPending}
-          >
-            {save.isPending ? 'Saving…' : 'Save'}
-          </button>
-        </div>
+        <>
+          <Button type="button" variant="secondary" onClick={onClose}>
+            {t('common.cancel')}
+          </Button>
+          <Button type="submit" form={formId} disabled={missing.length > 0 || save.isPending}>
+            {save.isPending ? t('pg.saving') : t('pg.save')}
+          </Button>
+        </>
       }
     >
       <form
-        id={`${spec.key}-form`}
+        id={formId}
         className="space-y-3"
         onSubmit={(event) => {
           event.preventDefault()
           save.mutate()
         }}
       >
-        {spec.note && <InlineNote>{spec.note}</InlineNote>}
-        {save.isError && <ErrorState error={save.error} />}
-        {spec.fields.map((field) => (
-          <Field key={field.name} label={field.label} required={field.required} hint={field.hint}>
-            {field.type === 'textarea' ? (
-              <textarea
-                className="input min-h-[72px]"
-                maxLength={field.maxLength}
-                value={values[field.name] ?? ''}
-                onChange={(event) => setValues({ ...values, [field.name]: event.target.value })}
-              />
-            ) : field.type === 'select' ? (
-              <select
-                className="input"
-                value={values[field.name] ?? ''}
-                onChange={(event) => setValues({ ...values, [field.name]: event.target.value })}
-              >
-                {(field.options ?? []).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <input
-                className={`input ${field.uppercase ? 'uppercase' : ''}`}
-                type={field.type === 'url' ? 'url' : 'text'}
-                maxLength={field.maxLength}
-                value={values[field.name] ?? ''}
-                onChange={(event) => setValues({ ...values, [field.name]: event.target.value })}
-              />
-            )}
-          </Field>
-        ))}
+        {spec.note && <Note>{t(spec.note)}</Note>}
+        {save.isError && <ErrorState error={save.error} title={t('ref.save.error')} noPermissionText={t('acct.error.noPermissionWrite')} compact />}
+        {spec.fields.map((field) => {
+          const id = `${spec.key}-${field.name}`
+          const error = field.required && touched[field.name] && !(values[field.name] ?? '').trim()
+            ? t('ref.name.required', { name: t(field.label).toLowerCase() })
+            : undefined
+          const common = {
+            id,
+            value: values[field.name] ?? '',
+            onChange: (event: { target: { value: string } }) => setValues({ ...values, [field.name]: event.target.value }),
+            onBlur: () => setTouched({ ...touched, [field.name]: true }),
+          }
+          return (
+            <Field key={field.name} htmlFor={id} label={t(field.label)} required={field.required} hint={field.hint ? t(field.hint) : undefined} error={error}>
+              {field.type === 'textarea' ? (
+                <textarea className="input min-h-[72px]" maxLength={field.maxLength} {...common} />
+              ) : field.type === 'select' ? (
+                <select className="input" {...common}>
+                  {(field.options ?? []).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {t(label)}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  className={`input ${field.uppercase ? 'uppercase' : ''}`}
+                  type={field.type === 'url' ? 'url' : 'text'}
+                  maxLength={field.maxLength}
+                  aria-invalid={error ? true : undefined}
+                  {...common}
+                />
+              )}
+            </Field>
+          )
+        })}
       </form>
-    </Drawer>
+    </FormSheet>
   )
 }

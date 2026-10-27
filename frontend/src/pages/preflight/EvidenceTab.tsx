@@ -2,33 +2,41 @@ import type { ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import type { CampaignDraft, LandingPageEvidence } from '../../lib/types'
-import { Badge, Card, EmptyState, ErrorState, Skeleton } from '../../components/ui'
 import { formatDateTime } from '../../lib/format'
+import { useI18n } from '../../i18n'
+import { Badge } from '../../components/primitives/badge'
+import { EmptyState, ErrorState } from '../../components/states'
+import { Note, Panel, TabSkeleton } from '../account/parts'
 
+/** A boolean the evidence may not have determined: "Chưa xác định", never a made-up "No". */
 function YesNo({ value }: { value: boolean | null }) {
-  if (value === null) return <span className="text-ink-faint">—</span>
-  return <Badge tone={value ? 'positive' : 'caution'}>{value ? 'Yes' : 'No'}</Badge>
+  const { t } = useI18n()
+  if (value === null)
+    return (
+      <span title={t('pf.evidence.unknown')}>
+        <span aria-hidden="true" className="text-ink-faint">—</span>
+        <span className="sr-only">{t('pf.evidence.unknown')}</span>
+      </span>
+    )
+  return <Badge tone={value ? 'positive' : 'caution'}>{value ? t('pg.yes') : t('pg.no')}</Badge>
 }
 
 export default function EvidenceTab({ draft }: { draft: CampaignDraft }) {
+  const { t } = useI18n()
   const evidence = useQuery({
     queryKey: ['preflight-evidence', draft.id],
     queryFn: () => api.get<LandingPageEvidence[]>(`/api/v1/campaign-drafts/${draft.id}/landing-page-evidence`),
   })
 
-  if (evidence.isLoading) return <Skeleton rows={6} />
-  if (evidence.isError) return <ErrorState error={evidence.error} onRetry={() => evidence.refetch()} />
+  if (evidence.isLoading) return <TabSkeleton cards={1} />
+  if (evidence.isError) return <ErrorState error={evidence.error} onRetry={() => evidence.refetch()} title={t('pf.evidence.error')} />
 
   const rows = evidence.data ?? []
   if (rows.length === 0) {
     return (
       <EmptyState
-        title="No landing-page checks yet"
-        description={
-          draft.landing_page_url
-            ? "Run an evaluation to fetch this — safety-bounded metadata only, never the page's HTML."
-            : 'This draft has no landing page URL set.'
-        }
+        title={t('pf.evidence.empty.title')}
+        description={draft.landing_page_url ? t('pf.evidence.empty.run') : t('pf.evidence.empty.noUrl')}
       />
     )
   }
@@ -38,51 +46,50 @@ export default function EvidenceTab({ draft }: { draft: CampaignDraft }) {
       {rows.map((row) => {
         const stale = row.expires_at ? new Date(row.expires_at).getTime() < Date.now() : false
         return (
-          <Card
+          <Panel
             key={row.id}
             title={
-              <span className="flex items-center gap-2">
-                Checked {formatDateTime(row.checked_at)}
-                {stale && <Badge tone="caution">Stale — cache expired</Badge>}
+              <span className="flex flex-wrap items-center gap-2">
+                {t('pf.evidence.checked', { time: formatDateTime(row.checked_at) })}
+                {stale && <Badge tone="caution">{t('pf.evidence.stale')}</Badge>}
               </span>
             }
           >
-            <p className="mb-3 break-all font-mono text-[11.5px] text-ink-faint">{row.url}</p>
-            {row.fetch_error ? (
-              <div role="alert" className="mb-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12.5px] text-rose-900">
-                Fetch error: {row.fetch_error}
-              </div>
-            ) : null}
-            <dl className="grid grid-cols-2 gap-y-2 text-[12.5px] sm:grid-cols-4">
-              <Row label="HTTP status">{row.http_status ?? '—'}</Row>
-              <Row label="HTTPS">
+            <p className="break-all font-mono text-xs text-ink-muted">{row.url}</p>
+            {row.fetch_error ? <Note tone="attention" role="alert">{t('pf.evidence.fetchError', { error: row.fetch_error })}</Note> : null}
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-4">
+              <Item label={t('pf.evidence.http')}>
+                <span className="font-mono">{row.http_status ?? '—'}</span>
+              </Item>
+              <Item label={t('pf.evidence.https')}>
                 <YesNo value={row.is_https} />
-              </Row>
-              <Row label="Redirects">{row.redirect_count ?? '—'}</Row>
-              <Row label="Response time">{row.response_time_ms !== null ? `${row.response_time_ms}ms` : '—'}</Row>
-              <Row label="Mobile viewport">
+              </Item>
+              <Item label={t('pf.evidence.redirects')}>
+                <span className="font-mono">{row.redirect_count ?? '—'}</span>
+              </Item>
+              <Item label={t('pf.evidence.time')}>
+                <span className="font-mono">{row.response_time_ms !== null ? `${row.response_time_ms} ms` : '—'}</span>
+              </Item>
+              <Item label={t('pf.evidence.viewport')}>
                 <YesNo value={row.mobile_viewport_meta_present} />
-              </Row>
-              <Row label="Contact/policy link">
+              </Item>
+              <Item label={t('pf.evidence.contact')}>
                 <YesNo value={row.contact_or_policy_link_detected} />
-              </Row>
-              <Row label="Final URL">
+              </Item>
+              <Item label={t('pf.evidence.final')}>
                 <span className="break-all">{row.final_url ?? '—'}</span>
-              </Row>
-              <Row label="Expires">{row.expires_at ? formatDateTime(row.expires_at) : '—'}</Row>
+              </Item>
+              <Item label={t('pf.evidence.expires')}>{row.expires_at ? formatDateTime(row.expires_at) : '—'}</Item>
             </dl>
-          </Card>
+          </Panel>
         )
       })}
-      <p className="text-[11px] text-ink-faint">
-        Only the fields above are ever stored — the fetched page&apos;s full HTML is never
-        persisted.
-      </p>
+      <p className="text-xs text-ink-muted">{t('pf.evidence.note')}</p>
     </div>
   )
 }
 
-function Row({ label, children }: { label: string; children: ReactNode }) {
+function Item({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
       <dt className="text-ink-faint">{label}</dt>

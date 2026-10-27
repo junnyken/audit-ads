@@ -186,7 +186,7 @@ describe('Accounts list', () => {
     wrap(<Accounts />)
     expect(await screen.findByText('Seen')).toBeInTheDocument()
     expect(screen.getByRole('columnheader', { name: 'Trạng thái Meta' })).toBeInTheDocument()
-    expect(screen.getByRole('columnheader', { name: 'Đội ghi nhận' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Trạng thái ghi nhận' })).toBeInTheDocument()
     expect(screen.getByText('Bị vô hiệu hoá (theo Meta)').className).not.toMatch(SUCCESS)
     expect(screen.getAllByTestId('platform-status-none')).toHaveLength(1)
   })

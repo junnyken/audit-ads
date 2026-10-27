@@ -277,7 +277,7 @@ describe('Accounts list (T2)', () => {
     wrap(<Accounts />)
     await screen.findByText('Acc 1')
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent)
-    expect(headers).toEqual(['Tài khoản', 'Đội ghi nhận', 'Trạng thái Meta', 'Mức sẵn sàng', 'Checklist', 'Chi tiêu · ngày đầy đủ gần nhất', 'Cập nhật', 'Hành động'])
+    expect(headers).toEqual(['Tài khoản', 'Trạng thái ghi nhận', 'Trạng thái Meta', 'Mức sẵn sàng', 'Checklist', 'Chi tiêu · ngày đầy đủ gần nhất', 'Cập nhật', 'Hành động'])
     const row = screen.getAllByRole('row')[1]
     expect(row.querySelectorAll('td[data-label]').length).toBe(6)
     expect(within(row).getByText('Không xác định', { selector: 'span' }).className).toMatch(/tone-neutral/)

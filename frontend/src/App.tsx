@@ -24,16 +24,19 @@ const ShareAccessWizard = lazy(() => import('./pages/operations/ShareAccessWizar
 const PixelShareWizard = lazy(() => import('./pages/operations/PixelShareWizard'))
 const TeamSeats = lazy(() => import('./pages/TeamSeats'))
 const SecurityDevices = lazy(() => import('./pages/SecurityDevices'))
-import { Skeleton } from './components/ui'
+import { Skeleton } from './components/primitives/skeleton'
+import { LoadingRegion } from './components/states'
 
 export default function App() {
   const { user, loading } = useAuth()
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-md p-8">
-        <Skeleton rows={5} />
-      </div>
+      <LoadingRegion className="mx-auto max-w-md space-y-2 p-8">
+        {Array.from({ length: 5 }).map((_, index) => (
+          <Skeleton key={index} className="h-8 w-full" />
+        ))}
+      </LoadingRegion>
     )
   }
   if (!user) return <Login />

@@ -1,65 +1,48 @@
 import { Link } from 'react-router-dom'
-import { Card } from '../components/ui'
+import { useI18n } from '../i18n'
+import type { TranslationKey } from '../i18n'
+import { Button } from '../components/primitives/button'
+import { Card, CardContent, CardHeader, CardTitle } from '../components/primitives/card'
+import { PageHeader } from '../components/page/PageHeader'
+import { Note } from './account/parts'
 
 /** Deliberately four cards, three live (A7 create/share + A8 pixel share). The remaining
  * placeholder never gets an execute button until it's actually built — so this page never
  * grows past what is actually built, and never dresses up a placeholder as a working feature. */
+const CARDS: { to: string; title: TranslationKey; body: TranslationKey }[] = [
+  { to: '/operations/create-accounts', title: 'op.card.create.title', body: 'op.card.create.body' },
+  { to: '/operations/share-access', title: 'op.card.share.title', body: 'op.card.share.body' },
+  { to: '/operations/pixel-share', title: 'op.card.pixel.title', body: 'op.card.pixel.body' },
+  { to: '/team', title: 'op.card.team.title', body: 'op.card.team.body' },
+]
+
 export default function Operations() {
+  const { t } = useI18n()
   return (
     <div className="space-y-4">
-      <header>
-        <h1 className="text-[17px] font-semibold">Operations</h1>
-        <p className="text-[12.5px] text-ink-muted">
-          Batch actions against the official Meta API — nothing here ever runs without an
-          explicit preview and confirm.
-        </p>
-      </header>
+      <PageHeader title={t('op.title')} description={t('op.desc')} />
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Card title="Create ad accounts">
-          <p className="mb-3 text-[12.5px] text-ink-muted">
-            Create one or more ad accounts under a Business Manager, through the official Meta
-            API — draft, preview, confirm, then a sequential queue with per-item results.
-          </p>
-          <Link to="/operations/create-accounts" className="btn-primary">
-            Start
-          </Link>
-        </Card>
-
-        <Card title="Share ad-account access">
-          <p className="mb-3 text-[12.5px] text-ink-muted">
-            Grant access on an existing ad account to a person, BM or system user, using a role
-            the official API actually permits.
-          </p>
-          <Link to="/operations/share-access" className="btn-primary">
-            Start
-          </Link>
-        </Card>
-
-        <Card title="Bulk Pixel share">
-          <p className="mb-3 text-[12.5px] text-ink-muted">
-            Share a Pixel across many ad accounts in one batch, reusing this same preview →
-            confirm → queue engine.
-          </p>
-          <Link to="/operations/pixel-share" className="btn-primary">
-            Start
-          </Link>
-        </Card>
-
-        <Card title="Team seats">
-          <p className="mb-3 text-[12.5px] text-ink-muted">
-            Invite staff, assign roles, and scope which BMs and ad accounts each person can see.
-          </p>
-          <Link to="/team" className="btn-primary">
-            Start
-          </Link>
-        </Card>
+        {CARDS.map((card) => (
+          <Card key={card.to} className="flex flex-col">
+            <CardHeader>
+              <CardTitle className="text-sm">{t(card.title)}</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-1 flex-col justify-between gap-3">
+              <p className="text-sm text-ink-muted">{t(card.body)}</p>
+              <div>
+                <Button asChild>
+                  <Link to={card.to} aria-label={`${t('op.start')}: ${t(card.title)}`}>
+                    {t('op.start')}
+                  </Link>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
-      <p className="rounded-md border border-line bg-surface-muted px-3 py-2 text-[11.5px] text-ink-muted">
-        Unlimited internal records. Meta creation, sharing, rate, billing, and permission limits
-        still apply.
-      </p>
+      <Note>{t('op.note')}</Note>
     </div>
   )
 }

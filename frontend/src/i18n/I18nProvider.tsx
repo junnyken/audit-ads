@@ -3,7 +3,9 @@ import type { ReactNode } from 'react'
 import {
   DEFAULT_LANGUAGE,
   INTL_LOCALE,
+  isDictionaryLoaded,
   isLanguage,
+  loadDictionary,
   setActiveLanguage,
   translate,
 } from './translate'
@@ -56,15 +58,46 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     return initial
   })
 
+  // The English dictionary is a separate chunk. A stored 'en' waits for it before the first render
+  // of the app, so English users never see a flash of Vietnamese; if it cannot be fetched, the
+  // default language is the answer.
+  const [ready, setReady] = useState(() => isDictionaryLoaded(language))
+
   useEffect(() => {
     setActiveLanguage(language)
     document.documentElement.lang = language
   }, [language])
 
+  useEffect(() => {
+    if (ready) return
+    let cancelled = false
+    loadDictionary(language)
+      .then(() => {
+        if (!cancelled) setReady(true)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setActiveLanguage(DEFAULT_LANGUAGE)
+        setLanguageState(DEFAULT_LANGUAGE)
+        setReady(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [language, ready])
+
   const setLanguage = useCallback((next: Language) => {
-    setActiveLanguage(next)
-    setLanguageState(next)
-    writeStoredLanguage(next)
+    const apply = () => {
+      setActiveLanguage(next)
+      setLanguageState(next)
+      writeStoredLanguage(next)
+    }
+    if (isDictionaryLoaded(next)) {
+      apply()
+      return
+    }
+    // Switch only once the dictionary has arrived; on failure the current language stays.
+    loadDictionary(next).then(apply, () => undefined)
   }, [])
 
   const t = useCallback(
@@ -77,6 +110,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     [language, setLanguage, t],
   )
 
+  if (!ready) return null
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
 }
 

@@ -4,7 +4,7 @@ import { vi } from './vi'
 
 /**
  * Labels for server enums (`readiness_status`, `account_status`, ...). The mapping lives in the
- * dictionaries as `<prefix>.<value>`, replacing the old `humanise()` of the raw enum (U1b).
+ * dictionaries as `<prefix>.<value>`, replacing the old helper that prettified the raw enum (U1b; removed in U1d).
  * A value the client does not know is shown as the raw code, never as a guessed label: the code
  * is what the server said, and an invented friendly word could claim more than we know.
  */

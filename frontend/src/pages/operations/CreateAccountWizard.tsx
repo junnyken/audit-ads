@@ -1,10 +1,19 @@
 import { useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api } from '../../lib/api'
 import type { AccountCreationBatchDetail, MetaConnection } from '../../lib/types'
-import { Badge, Card, ErrorState, Field } from '../../components/ui'
-import { BATCH_ITEM_STATUS_LABEL, batchItemStatusTone } from '../../lib/meta'
+import { batchItemStatusTone } from '../../lib/meta'
+import { useI18n } from '../../i18n'
+import { useEnumLabel } from '../../i18n/labels'
+import { Badge } from '../../components/primitives/badge'
+import { Button } from '../../components/primitives/button'
+import { Field } from '../../components/primitives/field'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/primitives/table'
+import { ErrorState } from '../../components/states'
+import { ConfirmDialog } from '../../components/page/ConfirmDialog'
+import { Note } from '../account/parts'
+import { ConnectionPicker, ResultSummary, StepCard, WizardHeader } from '../../components/operations/WizardParts'
 
 interface DraftRow {
   name: string
@@ -14,21 +23,16 @@ interface DraftRow {
 
 const EMPTY_ROW: DraftRow = { name: '', currency: 'VND', country: '' }
 
-const STEPS = ['Connection & BM', 'Ad accounts', 'Preview', 'Confirm', 'Result']
-
 export default function CreateAccountWizard() {
+  const { t } = useI18n()
+  const enumLabel = useEnumLabel()
   const [step, setStep] = useState(0)
-  const [connectionId, setConnectionId] = useState('')
+  const [connection, setConnection] = useState<MetaConnection | null>(null)
   const [businessManagerId, setBusinessManagerId] = useState('')
   const [rows, setRows] = useState<DraftRow[]>([{ ...EMPTY_ROW }])
   const [batch, setBatch] = useState<AccountCreationBatchDetail | null>(null)
-
-  const connections = useQuery({
-    queryKey: ['meta-connections'],
-    queryFn: () => api.get<MetaConnection[]>('/api/v1/meta-connections'),
-  })
-  const connection = connections.data?.find((item) => item.id === connectionId) ?? null
-  const canCreate = connection?.capabilities?.create_ad_account === true
+  const [confirmRun, setConfirmRun] = useState(false)
+  const connectionId = connection?.id ?? ''
 
   const draft = useMutation({
     mutationFn: () =>
@@ -60,6 +64,7 @@ export default function CreateAccountWizard() {
     mutationFn: () => api.post<AccountCreationBatchDetail>(`/api/v1/account-creation-batches/${batch!.batch.id}/run`),
     onSuccess: (result) => {
       setBatch(result)
+      setConfirmRun(false)
       setStep(4)
     },
   })
@@ -72,276 +77,240 @@ export default function CreateAccountWizard() {
     },
   })
 
+  const update = (index: number, patch: Partial<DraftRow>) => setRows(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)))
+  const stepLabels = [t('op.create.s1'), t('op.create.s2'), t('op.create.s3'), t('op.create.s4'), t('op.create.s5')]
+  const queued = batch?.items.some((item) => item.status === 'queued') ?? false
+
   return (
     <div className="space-y-4">
-      <nav className="text-[12px] text-ink-muted">
-        <Link to="/operations" className="hover:underline">
-          Operations
-        </Link>
-        <span className="mx-1">/</span>
-        <span className="text-ink">Create ad accounts</span>
-      </nav>
-
-      <ol className="flex flex-wrap gap-2 text-[12px]">
-        {STEPS.map((label, index) => (
-          <li
-            key={label}
-            className={`rounded-full border px-2.5 py-1 ${
-              index === step ? 'border-brand bg-brand-light text-brand-dark font-medium' : 'border-line text-ink-faint'
-            }`}
-          >
-            {index + 1}. {label}
-          </li>
-        ))}
-      </ol>
+      <WizardHeader crumb={t('op.create.crumb')} steps={stepLabels} current={step} />
 
       {step === 0 && (
-        <Card title="Step 1 — Choose Meta Connection + Business Manager">
-          <div className="space-y-3">
-            <Field label="Meta Connection" required>
-              <select className="input" value={connectionId} onChange={(event) => setConnectionId(event.target.value)}>
-                <option value="">— Choose a connection —</option>
-                {(connections.data ?? []).map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.label} ({c.environment})
-                  </option>
-                ))}
-              </select>
-              <p className="mt-1 text-[11.5px] text-ink-faint">
-                No connection with a checked, allowed capability?{' '}
-                <Link to="/meta-connections" className="text-brand hover:underline">
-                  Set one up first
-                </Link>
-                .
-              </p>
-            </Field>
-            {connection && !canCreate && (
-              <p className="text-[12.5px] text-rose-700">
-                This connection's last capability check says `create_ad_account` is not allowed
-                {connection.capabilities?.reason ? ` (${connection.capabilities.reason})` : ''}.
-              </p>
+        <StepCard title={t('op.create.t1')}>
+          <ConnectionPicker
+            connectionId={connectionId}
+            capability="create_ad_account"
+            onChange={(_, next) => setConnection(next)}
+          >
+            {(current, allowed) => (
+              <>
+                <Field label={t('op.create.bm')} required htmlFor="op-bm">
+                  <input
+                    id="op-bm"
+                    className="input font-mono"
+                    value={businessManagerId}
+                    onChange={(event) => setBusinessManagerId(event.target.value)}
+                    placeholder={t('op.create.bm.placeholder')}
+                  />
+                  {current?.business_managers && current.business_managers.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {current.business_managers.map((bm) => (
+                        <Button key={bm.external_id} type="button" variant="secondary" size="sm" onClick={() => setBusinessManagerId(bm.external_id)}>
+                          {bm.name}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+                </Field>
+                <Button type="button" disabled={!connectionId || !businessManagerId.trim() || !allowed} onClick={() => setStep(1)}>
+                  {t('op.next')}
+                </Button>
+              </>
             )}
-            <Field label="Business Manager external ID" required>
-              <input
-                className="input"
-                value={businessManagerId}
-                onChange={(event) => setBusinessManagerId(event.target.value)}
-                placeholder="bm_..."
-              />
-              {connection?.business_managers && connection.business_managers.length > 0 && (
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {connection.business_managers.map((bm) => (
-                    <button
-                      key={bm.external_id}
-                      type="button"
-                      className="rounded border border-line px-1.5 py-0.5 text-[11px] hover:bg-surface-muted"
-                      onClick={() => setBusinessManagerId(bm.external_id)}
-                    >
-                      {bm.name}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </Field>
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={!connectionId || !businessManagerId.trim() || !canCreate}
-              onClick={() => setStep(1)}
-            >
-              Next
-            </button>
-          </div>
-        </Card>
+          </ConnectionPicker>
+        </StepCard>
       )}
 
       {step === 1 && (
-        <Card title="Step 2 — Enter one or more ad accounts">
-          <div className="space-y-3">
-            {rows.map((row, index) => (
-              <div key={index} className="grid grid-cols-[1fr_100px_80px_auto] items-end gap-2">
-                <Field label="Name" htmlFor={`name-${index}`}>
-                  <input
-                    id={`name-${index}`}
-                    className="input"
-                    value={row.name}
-                    onChange={(event) => {
-                      const next = [...rows]
-                      next[index] = { ...row, name: event.target.value }
-                      setRows(next)
-                    }}
-                    maxLength={200}
-                  />
-                </Field>
-                <Field label="Currency">
-                  <input
-                    className="input uppercase"
-                    value={row.currency}
-                    maxLength={3}
-                    onChange={(event) => {
-                      const next = [...rows]
-                      next[index] = { ...row, currency: event.target.value.toUpperCase() }
-                      setRows(next)
-                    }}
-                  />
-                </Field>
-                <Field label="Country">
-                  <input
-                    className="input uppercase"
-                    value={row.country}
-                    maxLength={2}
-                    placeholder="VN"
-                    onChange={(event) => {
-                      const next = [...rows]
-                      next[index] = { ...row, country: event.target.value.toUpperCase() }
-                      setRows(next)
-                    }}
-                  />
-                </Field>
-                <button
-                  type="button"
-                  className="btn-ghost"
-                  onClick={() => setRows(rows.filter((_, i) => i !== index))}
-                  disabled={rows.length === 1}
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
-            <button type="button" className="btn-secondary" onClick={() => setRows([...rows, { ...EMPTY_ROW }])}>
-              + Add another account
-            </button>
-            <div className="flex justify-between pt-2">
-              <button type="button" className="btn-secondary" onClick={() => setStep(0)}>
-                Back
-              </button>
-              <button
+        <StepCard title={t('op.create.t2')}>
+          {rows.map((row, index) => (
+            <div key={index} className="grid items-end gap-2 sm:grid-cols-[1fr_100px_80px_auto]">
+              <Field label={t('op.create.name')} htmlFor={`name-${index}`}>
+                <input id={`name-${index}`} className="input" value={row.name} onChange={(event) => update(index, { name: event.target.value })} maxLength={200} />
+              </Field>
+              <Field label={t('op.create.currency')} htmlFor={`currency-${index}`}>
+                <input
+                  id={`currency-${index}`}
+                  className="input font-mono uppercase"
+                  value={row.currency}
+                  maxLength={3}
+                  onChange={(event) => update(index, { currency: event.target.value.toUpperCase() })}
+                />
+              </Field>
+              <Field label={t('op.create.country')} htmlFor={`country-${index}`}>
+                <input
+                  id={`country-${index}`}
+                  className="input font-mono uppercase"
+                  value={row.country}
+                  maxLength={2}
+                  placeholder="VN"
+                  onChange={(event) => update(index, { country: event.target.value.toUpperCase() })}
+                />
+              </Field>
+              <Button
                 type="button"
-                className="btn-primary"
-                disabled={rows.every((row) => !row.name.trim()) || draft.isPending}
-                onClick={() => draft.mutate()}
+                variant="ghost"
+                aria-label={t('op.removeNamed', { n: index + 1 })}
+                onClick={() => setRows(rows.filter((_, i) => i !== index))}
+                disabled={rows.length === 1}
               >
-                {draft.isPending ? 'Preparing preview…' : 'Validate + Preview'}
-              </button>
+                {t('op.remove')}
+              </Button>
             </div>
-            {draft.isError && <ErrorState error={draft.error} />}
+          ))}
+          <Button type="button" variant="secondary" onClick={() => setRows([...rows, { ...EMPTY_ROW }])}>
+            {t('op.create.add')}
+          </Button>
+          <div className="flex justify-between pt-2">
+            <Button type="button" variant="secondary" onClick={() => setStep(0)}>
+              {t('op.back')}
+            </Button>
+            <Button type="button" disabled={rows.every((row) => !row.name.trim()) || draft.isPending} onClick={() => draft.mutate()}>
+              {draft.isPending ? t('op.preparing') : t('op.validate')}
+            </Button>
           </div>
-        </Card>
+          {draft.isError && <ErrorState error={draft.error} title={t('op.error.draft')} noPermissionText={t('acct.error.noPermissionWrite')} compact />}
+        </StepCard>
       )}
 
       {step === 2 && batch && (
-        <Card title="Step 3 — Preview exactly what will be created">
-          <p className="mb-3 text-[12.5px] text-ink-muted">
-            {batch.items.length} ad account{batch.items.length === 1 ? '' : 's'} under BM{' '}
-            <span className="font-mono">{batch.batch.business_manager_external_id}</span>.
+        <StepCard title={t('op.create.t3')}>
+          <p className="text-sm text-ink-muted">
+            {t('op.create.preview.summary', { count: batch.items.length, bm: batch.batch.business_manager_external_id })}
           </p>
-          <div className="table-scroll">
-            <table className="w-full min-w-[500px] border-collapse">
-              <thead className="bg-surface-muted">
-                <tr>
-                  <th className="th">Name</th>
-                  <th className="th">Currency</th>
-                  <th className="th">Country</th>
-                </tr>
-              </thead>
-              <tbody>
-                {batch.items.map((item) => (
-                  <tr key={item.id}>
-                    <td className="td">{item.name}</td>
-                    <td className="td font-mono">{item.currency}</td>
-                    <td className="td font-mono">{item.country ?? '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <Table cards aria-label={t('op.create.t3')}>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead>{t('op.create.col.name')}</TableHead>
+                <TableHead>{t('op.create.col.currency')}</TableHead>
+                <TableHead>{t('op.create.col.country')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {batch.items.map((item) => (
+                <TableRow key={item.id}>
+                  <TableCell label={t('op.create.col.name')} className="cell-title">{item.name}</TableCell>
+                  <TableCell label={t('op.create.col.currency')} className="font-mono">{item.currency}</TableCell>
+                  <TableCell label={t('op.create.col.country')} className="font-mono">{item.country ?? '—'}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <div className="flex justify-between pt-1">
+            <Button type="button" variant="secondary" onClick={() => setStep(1)}>
+              {t('op.edit')}
+            </Button>
+            <Button type="button" onClick={() => setStep(3)}>
+              {t('op.looksRight')}
+            </Button>
           </div>
-          <div className="mt-3 flex justify-between">
-            <button type="button" className="btn-secondary" onClick={() => setStep(1)}>
-              Back and edit
-            </button>
-            <button type="button" className="btn-primary" onClick={() => setStep(3)}>
-              Looks right — continue
-            </button>
-          </div>
-        </Card>
+        </StepCard>
       )}
 
       {step === 3 && batch && (
-        <Card title="Step 4 — Confirm the batch">
-          <p className="mb-3 text-[12.5px] text-ink-muted">
-            Confirming locks in exactly the {batch.items.length} account(s) shown in the preview.
-            If anything changes before this point, confirming is refused and you preview again.
-          </p>
-          {confirm.isError && <ErrorState error={confirm.error} />}
+        <StepCard title={t('op.create.t4')}>
+          <p className="text-sm text-ink-muted">{t('op.create.confirm.body', { count: batch.items.length })}</p>
+          {confirm.isError && (
+            <>
+              <ErrorState error={confirm.error} title={t('op.error.confirm')} noPermissionText={t('acct.error.noPermissionWrite')} compact />
+              <Note>{t('op.error.stale')}</Note>
+            </>
+          )}
           <div className="flex justify-between">
-            <button type="button" className="btn-secondary" onClick={() => setStep(2)}>
-              Back to preview
-            </button>
-            <button type="button" className="btn-primary" disabled={confirm.isPending} onClick={() => confirm.mutate()}>
-              {confirm.isPending ? 'Confirming…' : 'Confirm batch'}
-            </button>
+            <Button type="button" variant="secondary" onClick={() => setStep(2)}>
+              {t('op.backPreview')}
+            </Button>
+            <Button type="button" disabled={confirm.isPending} onClick={() => confirm.mutate()}>
+              {confirm.isPending ? t('op.confirming') : t('op.confirm.batch')}
+            </Button>
           </div>
-        </Card>
+        </StepCard>
       )}
 
       {step === 4 && batch && (
-        <Card title="Step 5 — Result">
-          {batch.items.some((item) => item.status === 'queued') && (
-            <button type="button" className="btn-primary" disabled={run.isPending} onClick={() => run.mutate()}>
-              {run.isPending ? 'Running…' : 'Run queue'}
-            </button>
+        <StepCard title={t('op.create.t5')}>
+          {queued && (
+            <Button type="button" disabled={run.isPending} onClick={() => setConfirmRun(true)}>
+              {run.isPending ? t('op.running') : t('op.run.queue')}
+            </Button>
           )}
-          {run.isError && <ErrorState error={run.error} />}
-          <div className="table-scroll mt-3">
-            <table className="w-full min-w-[600px] border-collapse">
-              <thead className="bg-surface-muted">
-                <tr>
-                  <th className="th">Name</th>
-                  <th className="th">Status</th>
-                  <th className="th">Result</th>
-                  <th className="th">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {batch.items.map((item) => (
-                  <tr key={item.id}>
-                    <td className="td">{item.name}</td>
-                    <td className="td">
-                      <Badge tone={batchItemStatusTone(item.status)}>{BATCH_ITEM_STATUS_LABEL[item.status]}</Badge>
-                    </td>
-                    <td className="td text-[12px]">
-                      {item.external_account_id ? (
-                        <span className="font-mono">{item.external_account_id}</span>
-                      ) : item.failure_summary ? (
-                        <span className="text-rose-700">{item.failure_summary}</span>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td className="td">
+          <ResultSummary statuses={batch.items.map((item) => item.status)} />
+          {batch.items.some((item) => item.status === 'unknown') && <Note>{t('op.create.reconcileHint')}</Note>}
+          {reconcile.isError && <ErrorState error={reconcile.error} title={t('op.create.error.reconcile')} compact />}
+          <Table cards aria-label={t('op.create.t5')}>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead>{t('op.create.col.name')}</TableHead>
+                <TableHead>{t('op.create.col.status')}</TableHead>
+                <TableHead>{t('op.create.col.result')}</TableHead>
+                <TableHead>
+                  <span className="sr-only">{t('pg.actions')}</span>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {batch.items.map((item) => (
+                <TableRow key={item.id}>
+                  <TableCell label={t('op.create.col.name')} className="cell-title">{item.name}</TableCell>
+                  <TableCell label={t('op.create.col.status')}>
+                    <Badge tone={batchItemStatusTone(item.status)}>{enumLabel('batchItemStatus', item.status)}</Badge>
+                  </TableCell>
+                  <TableCell label={t('op.create.col.result')} className="text-xs">
+                    {item.external_account_id ? (
+                      <span className="font-mono">{item.external_account_id}</span>
+                    ) : item.failure_summary ? (
+                      <span className="text-tone-attention-fg">{item.failure_summary}</span>
+                    ) : (
+                      '—'
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap justify-end gap-2">
                       {item.status === 'unknown' && (
-                        <button
+                        <Button
                           type="button"
-                          className="btn-secondary"
+                          variant="secondary"
+                          size="sm"
                           disabled={reconcile.isPending}
+                          aria-label={t('op.create.reconcileNamed', { name: item.name })}
                           onClick={() => reconcile.mutate(item.id)}
                         >
-                          Reconcile
-                        </button>
+                          {t('op.create.reconcile')}
+                        </Button>
                       )}
                       {item.synced_ad_account_id && (
-                        <Link to={`/accounts/${item.synced_ad_account_id}`} className="btn-secondary">
-                          Open account
-                        </Link>
+                        <Button asChild variant="secondary" size="sm">
+                          <Link to={`/accounts/${item.synced_ad_account_id}`}>{t('op.create.openAccount')}</Link>
+                        </Button>
                       )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </StepCard>
       )}
+
+      <ConfirmDialog
+        open={confirmRun}
+        onCancel={() => {
+          setConfirmRun(false)
+          run.reset()
+        }}
+        title={t('op.create.dialog.title', { count: batch?.items.length ?? 0 })}
+        object={t('op.create.dialog.object', {
+          bm: batch?.batch.business_manager_external_id ?? businessManagerId,
+          connection: connection?.label ?? '—',
+          env: connection ? enumLabel('metaEnv', connection.environment) : '—',
+        })}
+        effects={[t('op.create.dialog.effect'), t('op.dialog.scope'), t('op.dialog.reversible')]}
+        confirmLabel={t('op.dialog.confirm')}
+        typedPhrase={t('op.phrase')}
+        pending={run.isPending}
+        error={run.isError ? run.error : undefined}
+        onConfirm={() => run.mutate()}
+      />
     </div>
   )
 }

@@ -54,3 +54,41 @@ export const OPERATIONS_DISCLAIMER =
 export const TEST_SEND_DISCLAIMER =
   'A controlled delivery verification. It sends one clearly-labelled test message to the ' +
   'configured chat, creates no alert, and changes no account, health or readiness record.'
+
+/**
+ * How a status the server reports is painted (U1d, fixes P13). Each of these used to be a fixed
+ * colour on the page — the API badge was `positive` whatever the value. Now the colour is a
+ * function of the value, and a value this client does not know is `neutral`, never green: an
+ * unfamiliar word is not evidence that something is fine (rules 4, 28).
+ */
+const API_STATUS_TONE: Record<string, Tone> = {
+  healthy: 'positive',
+  degraded: 'caution',
+  unhealthy: 'attention',
+  down: 'attention',
+}
+
+export function apiStatusTone(value: string | null | undefined): Tone {
+  return (value ? API_STATUS_TONE[value] : undefined) ?? 'neutral'
+}
+
+const DATABASE_STATUS_TONE: Record<string, Tone> = {
+  reachable: 'positive',
+  unreachable: 'attention',
+}
+
+export function databaseStatusTone(value: string | null | undefined): Tone {
+  return (value ? DATABASE_STATUS_TONE[value] : undefined) ?? 'neutral'
+}
+
+/** `worker_status` is derived from the dispatcher's recorded runs; "never run" is its own state
+ * (`not_configured`), distinct from stale, and is never positive (rule 28). */
+const WORKER_STATUS_TONE: Record<string, Tone> = {
+  running: 'positive',
+  stale: 'caution',
+  not_configured: 'attention',
+}
+
+export function workerStatusTone(value: string | null | undefined): Tone {
+  return (value ? WORKER_STATUS_TONE[value] : undefined) ?? 'neutral'
+}

@@ -5,7 +5,10 @@ export {
   LANGUAGES,
   getActiveLanguage,
   interpolate,
+  isDictionaryLoaded,
   isLanguage,
+  loadDictionary,
+  registerDictionary,
   setActiveLanguage,
   translate,
 } from './translate'

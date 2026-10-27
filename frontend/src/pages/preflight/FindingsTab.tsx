@@ -2,12 +2,20 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import type { CampaignDraft, PreflightFinding } from '../../lib/types'
-import { Badge, Card, EmptyState, ErrorState, Skeleton } from '../../components/ui'
 import { FINDING_SEVERITY_META, FINDING_STATUS_META } from '../../lib/preflight'
-import { humanise } from '../../lib/format'
+import { useI18n } from '../../i18n'
+import { useEnumLabel } from '../../i18n/labels'
+import { Badge } from '../../components/primitives/badge'
+import { Button } from '../../components/primitives/button'
+import { Card, CardHeader, CardTitle } from '../../components/primitives/card'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/primitives/table'
+import { EmptyState, ErrorState } from '../../components/states'
+import { TableSkeleton } from '../../components/page/TableSkeleton'
 import PreflightFindingDrawer from '../../components/PreflightFindingDrawer'
 
 export default function FindingsTab({ draft, onChanged }: { draft: CampaignDraft; onChanged: () => void }) {
+  const { t } = useI18n()
+  const enumLabel = useEnumLabel()
   const [selected, setSelected] = useState<PreflightFinding | null>(null)
 
   const findings = useQuery({
@@ -15,15 +23,17 @@ export default function FindingsTab({ draft, onChanged }: { draft: CampaignDraft
     queryFn: () => api.get<PreflightFinding[]>(`/api/v1/campaign-drafts/${draft.id}/findings`),
   })
 
-  if (findings.isLoading) return <Skeleton rows={6} />
-  if (findings.isError) return <ErrorState error={findings.error} onRetry={() => findings.refetch()} />
+  if (findings.isLoading)
+    return <TableSkeleton columns={[t('pf.findings.col.severity'), t('pf.findings.col.category'), t('pf.findings.col.message'), t('pf.findings.col.status'), t('col.actions')]} rows={4} />
+  if (findings.isError) return <ErrorState error={findings.error} onRetry={() => findings.refetch()} title={t('pf.findings.error')} />
 
   const rows = findings.data ?? []
   if (rows.length === 0) {
     return (
       <EmptyState
-        title="No open findings"
-        description="Either this draft has never been evaluated, or the last evaluation found nothing to flag."
+        title={t('pf.findings.empty.title')}
+        // A draft that was never evaluated has no verdict; "no findings" there must not read as clean.
+        description={draft.last_evaluated_at === null ? t('pf.findings.empty.never') : t('pf.findings.empty.evaluated')}
       />
     )
   }
@@ -35,48 +45,65 @@ export default function FindingsTab({ draft, onChanged }: { draft: CampaignDraft
 
   return (
     <>
-      <Card title={`Findings — ${rows.length}`}>
-        <div className="table-scroll">
-          <table className="w-full min-w-[800px] border-collapse">
-            <thead className="bg-surface-muted">
-              <tr>
-                <th className="th">Severity</th>
-                <th className="th">Category</th>
-                <th className="th">Message</th>
-                <th className="th">Status</th>
-                <th className="th"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {ordered.map((finding) => {
-                const severity = FINDING_SEVERITY_META[finding.severity]
-                const status = FINDING_STATUS_META[finding.status]
-                return (
-                  <tr key={finding.id} className="hover:bg-surface-muted">
-                    <td className="td">
-                      <Badge tone={severity.tone} dot>{severity.label}</Badge>
-                    </td>
-                    <td className="td text-[12px] text-ink-muted">{humanise(finding.category)}</td>
-                    <td className="td max-w-[420px] text-[12.5px]">
-                      {finding.message}
-                      <div className="mt-0.5 font-mono text-[11px] text-ink-faint">
-                        {finding.rule_key} v{finding.rule_version}
-                      </div>
-                    </td>
-                    <td className="td">
-                      <Badge tone={status.tone} title={status.hint}>{status.label}</Badge>
-                    </td>
-                    <td className="td">
-                      <button type="button" className="btn-secondary" onClick={() => setSelected(finding)}>
-                        {finding.status === 'open' || finding.status === 'acknowledged' ? 'Review' : 'View'}
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">{t('pf.findings.title', { count: rows.length })}</CardTitle>
+        </CardHeader>
+        <Table cards aria-label={t('pf.tab.findings')}>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead>{t('pf.findings.col.severity')}</TableHead>
+              <TableHead>{t('pf.findings.col.category')}</TableHead>
+              <TableHead>{t('pf.findings.col.message')}</TableHead>
+              <TableHead>{t('pf.findings.col.status')}</TableHead>
+              <TableHead>
+                <span className="sr-only">{t('col.actions')}</span>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {ordered.map((finding) => {
+              const severity = FINDING_SEVERITY_META[finding.severity]
+              const status = FINDING_STATUS_META[finding.status]
+              const actionable = finding.status === 'open' || finding.status === 'acknowledged'
+              const action = actionable ? t('pf.findings.review') : t('pf.findings.view')
+              return (
+                <TableRow key={finding.id}>
+                  <TableCell label={t('pf.findings.col.severity')}>
+                    <Badge tone={severity?.tone ?? 'neutral'} dot>
+                      {enumLabel('findingSeverity', finding.severity)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell label={t('pf.findings.col.category')} className="text-xs text-ink-muted">
+                    {enumLabel('findingCategory', finding.category)}
+                  </TableCell>
+                  <TableCell label={t('pf.findings.col.message')} className="max-w-[420px]">
+                    {finding.message}
+                    <span className="mt-0.5 block font-mono text-2xs text-ink-faint">
+                      {finding.rule_key} v{finding.rule_version}
+                    </span>
+                  </TableCell>
+                  <TableCell label={t('pf.findings.col.status')}>
+                    <Badge tone={status?.tone ?? 'neutral'} title={enumLabel('findingStatusHint', finding.status)}>
+                      {enumLabel('findingStatus', finding.status)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      aria-label={t('pf.findings.openNamed', { action, rule: finding.rule_key })}
+                      onClick={() => setSelected(finding)}
+                    >
+                      {action}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
       </Card>
 
       <PreflightFindingDrawer

@@ -1,96 +1,101 @@
 import type { ResourceSpec } from '../components/ReferenceManager'
 import { withCommonFields } from '../components/ReferenceManager'
 
+/**
+ * The registry resources managed by `ReferenceManager`. Every user-facing string is an i18n key
+ * (resolved at render time), so the same specs serve both languages. The API paths, `key`s (which
+ * double as TanStack query keys) and field names are unchanged.
+ */
 export const BUSINESS_MANAGERS: ResourceSpec = {
   key: 'business-managers',
   path: '/api/v1/business-managers',
-  singular: 'Business Manager',
-  plural: 'Business Managers',
-  description: 'Business Manager records that ad accounts are mapped to.',
+  singular: 'res.bm.singular',
+  plural: 'res.bm.plural',
+  description: 'res.bm.description',
   fields: withCommonFields([
-    { name: 'name', label: 'Name', required: true, maxLength: 200 },
-    { name: 'external_id', label: 'External ID', maxLength: 120, hint: 'Unique within this workspace.' },
-    { name: 'country', label: 'Country', maxLength: 2, uppercase: true },
-    { name: 'currency', label: 'Currency', maxLength: 3, uppercase: true },
+    { name: 'name', label: 'res.f.name', required: true, maxLength: 200 },
+    { name: 'external_id', label: 'res.f.externalId', maxLength: 120, hint: 'res.f.externalId.hint' },
+    { name: 'country', label: 'res.f.country', maxLength: 2, uppercase: true },
+    { name: 'currency', label: 'res.f.currency', maxLength: 3, uppercase: true },
   ]),
 }
 
 export const PERSONAL_REFERENCES: ResourceSpec = {
   key: 'personal-account-references',
   path: '/api/v1/personal-account-references',
-  singular: 'Personal account reference',
-  plural: 'Personal account references',
-  description: 'Ownership context for accounts that are not held under a Business Manager.',
-  note: 'This is reference metadata only. It is never an authentication container — no login, password, cookie or session material is accepted here.',
+  singular: 'res.personal.singular',
+  plural: 'res.personal.plural',
+  description: 'res.personal.description',
+  note: 'res.personal.note',
   fields: withCommonFields([
-    { name: 'label', label: 'Label', required: true, maxLength: 200 },
-    { name: 'display_name', label: 'Display name', maxLength: 200 },
-    { name: 'external_reference_id', label: 'External reference ID', maxLength: 120 },
-    { name: 'country', label: 'Country', maxLength: 2, uppercase: true },
-    { name: 'timezone', label: 'Timezone', maxLength: 64 },
+    { name: 'label', label: 'res.f.label', required: true, maxLength: 200 },
+    { name: 'display_name', label: 'res.f.displayName', maxLength: 200 },
+    { name: 'external_reference_id', label: 'res.f.externalReferenceId', maxLength: 120 },
+    { name: 'country', label: 'res.f.country', maxLength: 2, uppercase: true },
+    { name: 'timezone', label: 'res.f.timezone', maxLength: 64 },
   ]),
 }
 
 export const PAGES: ResourceSpec = {
   key: 'pages',
   path: '/api/v1/pages',
-  singular: 'Page',
-  plural: 'Pages',
-  description: 'Pages that can be linked to ad accounts.',
+  singular: 'res.page.singular',
+  plural: 'res.page.plural',
+  description: 'res.page.description',
   fields: withCommonFields([
-    { name: 'name', label: 'Name', required: true, maxLength: 200 },
-    { name: 'external_page_id', label: 'External page ID', maxLength: 120 },
-    { name: 'url', label: 'URL', type: 'url', maxLength: 2048 },
-    { name: 'category', label: 'Category', maxLength: 120 },
+    { name: 'name', label: 'res.f.name', required: true, maxLength: 200 },
+    { name: 'external_page_id', label: 'res.f.externalPageId', maxLength: 120 },
+    { name: 'url', label: 'res.f.url', type: 'url', maxLength: 2048 },
+    { name: 'category', label: 'res.f.category', maxLength: 120 },
   ]),
 }
 
 export const PIXELS: ResourceSpec = {
   key: 'pixels',
   path: '/api/v1/pixels',
-  singular: 'Pixel',
-  plural: 'Pixels',
-  description: 'Pixels that can be linked to ad accounts.',
+  singular: 'res.pixel.singular',
+  plural: 'res.pixel.plural',
+  description: 'res.pixel.description',
   fields: withCommonFields([
-    { name: 'name', label: 'Name', required: true, maxLength: 200 },
-    { name: 'external_pixel_id', label: 'External pixel ID', maxLength: 120 },
+    { name: 'name', label: 'res.f.name', required: true, maxLength: 200 },
+    { name: 'external_pixel_id', label: 'res.f.externalPixelId', maxLength: 120 },
   ]),
 }
 
 export const PAYMENT_REFERENCES: ResourceSpec = {
   key: 'payment-profile-references',
   path: '/api/v1/payment-profile-references',
-  singular: 'Payment profile reference',
-  plural: 'Payment profile references',
-  description: 'Labels pointing at payment arrangements managed outside this product.',
-  note: 'Reference labels only. Card numbers, billing credentials and payment logins are refused by the API — A1 excludes payment changes entirely.',
+  singular: 'res.payment.singular',
+  plural: 'res.payment.plural',
+  description: 'res.payment.description',
+  note: 'res.payment.note',
   fields: withCommonFields([
-    { name: 'reference_code', label: 'Reference code', required: true, maxLength: 120 },
-    { name: 'label', label: 'Label', maxLength: 200 },
-    { name: 'provider', label: 'Provider', maxLength: 120 },
-    { name: 'billing_country', label: 'Billing country', maxLength: 2, uppercase: true },
-    { name: 'currency', label: 'Currency', maxLength: 3, uppercase: true },
+    { name: 'reference_code', label: 'res.f.referenceCode', required: true, maxLength: 120 },
+    { name: 'label', label: 'res.f.label', maxLength: 200 },
+    { name: 'provider', label: 'res.f.provider', maxLength: 120 },
+    { name: 'billing_country', label: 'res.f.billingCountry', maxLength: 2, uppercase: true },
+    { name: 'currency', label: 'res.f.currency', maxLength: 3, uppercase: true },
   ]),
 }
 
 export const BROWSER_REFERENCES: ResourceSpec = {
   key: 'browser-profile-references',
   path: '/api/v1/browser-profile-references',
-  singular: 'Browser profile reference',
-  plural: 'Browser profile references',
-  description: 'Labels for the browser environments you use to work on accounts.',
-  note: 'A profile reference is a local label, not a cookie path, a profile export or a credential location. The product launches nothing and stores no session material.',
+  singular: 'res.browser.singular',
+  plural: 'res.browser.plural',
+  description: 'res.browser.description',
+  note: 'res.browser.note',
   fields: withCommonFields([
-    { name: 'profile_reference', label: 'Profile reference', required: true, maxLength: 200 },
-    { name: 'provider', label: 'Provider', maxLength: 120 },
-    { name: 'label', label: 'Label', maxLength: 200 },
+    { name: 'profile_reference', label: 'res.f.profileReference', required: true, maxLength: 200 },
+    { name: 'provider', label: 'res.f.provider', maxLength: 120 },
+    { name: 'label', label: 'res.f.label', maxLength: 200 },
     {
       name: 'local_or_remote',
-      label: 'Location',
+      label: 'res.f.location',
       type: 'select',
       options: [
-        ['local', 'Local'],
-        ['remote', 'Remote'],
+        ['local', 'res.opt.local'],
+        ['remote', 'res.opt.remote'],
       ],
     },
   ]),
@@ -99,25 +104,25 @@ export const BROWSER_REFERENCES: ResourceSpec = {
 export const PROXY_REFERENCES: ResourceSpec = {
   key: 'proxy-references',
   path: '/api/v1/proxy-references',
-  singular: 'Proxy reference',
-  plural: 'Proxy references',
-  description: 'Opaque labels for proxy arrangements, held as operational metadata.',
-  note: 'Enter an operator label such as "smartproxy-vn-01". Hostnames, usernames, passwords and full connection strings are rejected — this product has no secret vault and performs no proxy rotation.',
+  singular: 'res.proxy.singular',
+  plural: 'res.proxy.plural',
+  description: 'res.proxy.description',
+  note: 'res.proxy.note',
   fields: withCommonFields([
-    { name: 'proxy_reference', label: 'Proxy reference', required: true, maxLength: 200 },
-    { name: 'provider', label: 'Provider', maxLength: 120 },
-    { name: 'label', label: 'Label', maxLength: 200 },
-    { name: 'country', label: 'Country', maxLength: 2, uppercase: true },
-    { name: 'region', label: 'Region', maxLength: 120 },
+    { name: 'proxy_reference', label: 'res.f.proxyReference', required: true, maxLength: 200 },
+    { name: 'provider', label: 'res.f.provider', maxLength: 120 },
+    { name: 'label', label: 'res.f.label', maxLength: 200 },
+    { name: 'country', label: 'res.f.country', maxLength: 2, uppercase: true },
+    { name: 'region', label: 'res.f.region', maxLength: 120 },
     {
       name: 'protocol',
-      label: 'Protocol',
+      label: 'res.f.protocol',
       type: 'select',
       options: [
-        ['', 'Unspecified'],
-        ['http', 'HTTP'],
-        ['https', 'HTTPS'],
-        ['socks5', 'SOCKS5'],
+        ['', 'res.opt.unspecified'],
+        ['http', 'res.opt.http'],
+        ['https', 'res.opt.https'],
+        ['socks5', 'res.opt.socks5'],
       ],
     },
   ]),
