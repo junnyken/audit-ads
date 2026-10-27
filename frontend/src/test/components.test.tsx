@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { Badge, EmptyState, ErrorState, Progress, Skeleton } from '../components/ui'
+import { Badge, EmptyState, ErrorState, Skeleton } from '../components/ui'
+import { ChecklistProgress } from '../components/dashboard/ChecklistProgress'
 import AuditDiff from '../components/AuditDiff'
 import AccountFormDrawer from '../components/AccountFormDrawer'
 import { READINESS_META } from '../lib/readiness'
@@ -74,7 +75,7 @@ describe('state components', () => {
   })
 
   it('reports checklist progress as a fraction', () => {
-    wrap(<Progress value={7} total={10} />)
+    wrap(<ChecklistProgress done={7} total={10} />)
     expect(screen.getByText('7/10')).toBeInTheDocument()
   })
 })
@@ -94,10 +95,12 @@ describe('audit diff', () => {
 
 describe('account form', () => {
   it('offers no field for a password, cookie, token or proxy credential', () => {
-    const { container } = wrap(<AccountFormDrawer open onClose={() => {}} />)
-    expect(container.querySelector('input[type="password"]')).toBeNull()
+    wrap(<AccountFormDrawer open onClose={() => {}} />)
+    // The form is a Sheet, which renders in a portal on <body>: querying the render container found nothing.
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(document.body.querySelector('input[type="password"]')).toBeNull()
 
-    const names = Array.from(container.querySelectorAll('input, textarea, select'))
+    const names = Array.from(document.body.querySelectorAll('input, textarea, select'))
       .map((element) => `${element.getAttribute('id') ?? ''} ${element.getAttribute('name') ?? ''}`)
       .join(' ')
       .toLowerCase()

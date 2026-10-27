@@ -3,20 +3,20 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import type { AlertDetail, DeliveryAttempt, NotificationDelivery } from '../lib/types'
-import { Badge, Drawer, ErrorState, Field, InlineNote, Skeleton } from './ui'
-import {
-  ACKNOWLEDGE_HINT,
-  ALERT_SEVERITY_META,
-  ALERT_STATUS_META,
-  CRITICAL_SUPPRESS_WARNING,
-  DELIVERY_STATUS_META,
-  RESOLVE_HINT,
-  SKIP_REASON_LABEL,
-  SUPPRESS_HINT,
-} from '../lib/alerts'
+import { ALERT_SEVERITY_META, ALERT_STATUS_META, DELIVERY_STATUS_META } from '../lib/alerts'
 import { HEALTH_META } from '../lib/health'
 import { READINESS_META } from '../lib/readiness'
-import { formatDateTime, humanise } from '../lib/format'
+import { formatDateTime } from '../lib/format'
+import { useI18n } from '../i18n'
+import { useEnumLabel } from '../i18n/labels'
+import { Badge } from './primitives/badge'
+import { Button } from './primitives/button'
+import { Field } from './primitives/field'
+import { Skeleton } from './primitives/skeleton'
+import { ErrorState, LoadingRegion } from './states'
+import { FormSheet } from './page/FormSheet'
+import { ConfirmDialog } from './page/ConfirmDialog'
+import { Note } from '../pages/account/parts'
 
 function defaultExpiry(): string {
   const when = new Date(Date.now() + 4 * 60 * 60 * 1000)
@@ -26,8 +26,10 @@ function defaultExpiry(): string {
   return new Date(when.getTime() - offset).toISOString().slice(0, 16)
 }
 
+const DL = 'grid gap-y-1 text-xs sm:grid-cols-[minmax(0,160px)_1fr]'
+
 /**
- * Alert detail with the four workflow actions.
+ * Alert detail with the four workflow actions, in a right-hand Sheet.
  *
  * There is deliberately no "send now": delivery follows the recorded policy, and a button that
  * bypassed dedupe and quiet hours would be the fastest route to alert fatigue.
@@ -41,10 +43,13 @@ export default function AlertDrawer({
   onClose: () => void
   onChanged: () => void
 }) {
+  const { t } = useI18n()
+  const enumLabel = useEnumLabel()
   const [note, setNote] = useState('')
   const [reason, setReason] = useState('')
   const [suppressReason, setSuppressReason] = useState('')
   const [expiresAt, setExpiresAt] = useState(defaultExpiry())
+  const [confirmSuppress, setConfirmSuppress] = useState(false)
 
   const detail = useQuery({
     queryKey: ['alert', alertId],
@@ -56,6 +61,7 @@ export default function AlertDrawer({
     setNote('')
     setReason('')
     setSuppressReason('')
+    setConfirmSuppress(false)
     void detail.refetch()
     onChanged()
   }
@@ -89,117 +95,114 @@ export default function AlertDrawer({
   const status = alert ? ALERT_STATUS_META[alert.status] : null
   const isActive =
     alert?.status === 'open' || alert?.status === 'acknowledged' || alert?.status === 'suppressed'
+  const noWrite = t('acct.error.noPermissionWrite')
 
   return (
-    <Drawer open title={alert?.title ?? 'Alert'} onClose={onClose}>
-      {detail.isLoading || !data || !alert ? (
-        <Skeleton rows={6} />
+    <FormSheet open onClose={onClose} title={alert?.title ?? t('al.sheet.fallbackTitle')} description={t('al.sheet.desc')} wide>
+      {detail.isError ? (
+        <ErrorState error={detail.error} onRetry={() => detail.refetch()} title={t('al.sheet.error')} />
+      ) : detail.isLoading || !data || !alert ? (
+        <LoadingRegion className="space-y-3">
+          <Skeleton className="h-5 w-1/2" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-5/6" />
+          <Skeleton className="h-24 w-full" />
+        </LoadingRegion>
       ) : (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone={severity!.tone} dot>
-              {severity!.label}
+              {enumLabel('alertSeverity', alert.severity)}
             </Badge>
-            <Badge tone={status!.tone} title={status!.hint}>
-              {status!.label}
+            <Badge tone={status!.tone} title={enumLabel('alertStatusHint', alert.status)}>
+              {enumLabel('alertStatus', alert.status)}
             </Badge>
             <Badge tone="muted">{data.source_label}</Badge>
-            <span className="font-mono text-[11px] text-ink-faint">{alert.category}</span>
+            <span className="font-mono text-xs text-ink-faint">{alert.category}</span>
           </div>
 
-          <p className="text-[13px]">{alert.summary}</p>
+          <p className="text-sm">{alert.summary}</p>
 
           {data.account && (
             <div className="rounded-md border border-line bg-surface-muted p-3">
               <div className="flex flex-wrap items-center gap-2">
-                <Link
-                  to={`/accounts/${data.account.id}?tab=health`}
-                  className="font-medium text-brand hover:underline"
-                >
+                <Link to={`/accounts/${data.account.id}?tab=health`} className="font-medium text-brand-text hover:underline">
                   {data.account.display_name}
                 </Link>
-                <span className="font-mono text-[11px] text-ink-faint">
-                  {data.account.external_account_id ?? 'no external ID'}
-                </span>
+                <span className="font-mono text-xs text-ink-faint">{data.account.external_account_id ?? t('al.sheet.noExternalId')}</span>
               </div>
               <div className="mt-1.5 flex flex-wrap gap-2">
-                <Badge tone={HEALTH_META[data.account.health_status].tone}>
-                  Health: {HEALTH_META[data.account.health_status].label}
+                <Badge tone={HEALTH_META[data.account.health_status]?.tone ?? 'neutral'}>
+                  {t('al.sheet.healthOf', { value: enumLabel('health', data.account.health_status) })}
                 </Badge>
-                <Badge tone={READINESS_META[data.account.readiness_status].tone}>
-                  Readiness: {READINESS_META[data.account.readiness_status].label}
+                <Badge tone={READINESS_META[data.account.readiness_status]?.tone ?? 'neutral'}>
+                  {t('al.sheet.readinessOf', { value: enumLabel('readiness', data.account.readiness_status) })}
                 </Badge>
               </div>
             </div>
           )}
 
           <div>
-            <h3 className="mb-1 text-[12px] font-semibold">Source</h3>
-            <dl className="grid gap-y-1 text-[12px] sm:grid-cols-[minmax(0,160px)_1fr]">
-              <dt className="text-ink-faint">Rule</dt>
-              <dd className="font-mono text-[11.5px] break-all">
+            <h3 className="mb-1 text-xs font-semibold">{t('al.sheet.source')}</h3>
+            <dl className={DL}>
+              <dt className="text-ink-faint">{t('al.sheet.rule')}</dt>
+              <dd className="break-all font-mono text-xs">
                 {String(alert.source_snapshot_json.rule_key ?? alert.source_entity_type)}
-                {alert.source_snapshot_json.rule_version
-                  ? ` v${alert.source_snapshot_json.rule_version}`
-                  : ''}
+                {alert.source_snapshot_json.rule_version ? ` v${alert.source_snapshot_json.rule_version}` : ''}
               </dd>
               {alert.source_snapshot_json.health_severity != null && (
                 <>
-                  <dt className="text-ink-faint">Health severity</dt>
-                  <dd>{String(alert.source_snapshot_json.health_severity)}</dd>
+                  <dt className="text-ink-faint">{t('al.sheet.healthSeverity')}</dt>
+                  <dd>{enumLabel('severity', String(alert.source_snapshot_json.health_severity))}</dd>
                 </>
               )}
               {alert.source_snapshot_json.error_code != null && (
                 <>
-                  <dt className="text-ink-faint">Error code</dt>
-                  <dd className="font-mono text-[11.5px]">
-                    {String(alert.source_snapshot_json.error_code)}
-                  </dd>
+                  <dt className="text-ink-faint">{t('al.sheet.errorCode')}</dt>
+                  <dd className="font-mono text-xs">{String(alert.source_snapshot_json.error_code)}</dd>
                 </>
               )}
-              <dt className="text-ink-faint">First observed</dt>
+              <dt className="text-ink-faint">{t('al.sheet.first')}</dt>
               <dd>{formatDateTime(alert.first_observed_at)}</dd>
-              <dt className="text-ink-faint">Last observed</dt>
+              <dt className="text-ink-faint">{t('al.sheet.last')}</dt>
               <dd>{formatDateTime(alert.last_observed_at)}</dd>
             </dl>
             {alert.source_snapshot_json.recommended_next_step != null && (
-              <p className="mt-2 text-[12.5px] text-ink-muted">
-                <strong>Next step:</strong>{' '}
-                {String(alert.source_snapshot_json.recommended_next_step)}
+              <p className="mt-2 text-sm text-ink-muted">
+                <strong>{t('al.sheet.next')}</strong> {String(alert.source_snapshot_json.recommended_next_step)}
               </p>
             )}
           </div>
 
           <div>
-            <h3 className="mb-1 text-[12px] font-semibold">Timeline</h3>
-            <ul className="space-y-1 text-[12px] text-ink-muted">
-              <li>Created {formatDateTime(alert.created_at)}</li>
+            <h3 className="mb-1 text-xs font-semibold">{t('al.sheet.timeline')}</h3>
+            <ul className="space-y-1 text-xs text-ink-muted">
+              <li>{t('al.sheet.created', { time: formatDateTime(alert.created_at) })}</li>
               {alert.acknowledged_at && (
-                <li>
-                  Acknowledged {formatDateTime(alert.acknowledged_at)} — {alert.acknowledgement_note}
-                </li>
+                <li>{t('al.sheet.acknowledged', { time: formatDateTime(alert.acknowledged_at), note: alert.acknowledgement_note ?? '—' })}</li>
               )}
               {alert.suppressed_at && (
                 <li>
-                  Suppressed {formatDateTime(alert.suppressed_at)} until{' '}
-                  {formatDateTime(alert.suppression_expires_at)} — {alert.suppression_reason}
+                  {t('al.sheet.suppressed', {
+                    time: formatDateTime(alert.suppressed_at),
+                    until: formatDateTime(alert.suppression_expires_at),
+                    reason: alert.suppression_reason ?? '—',
+                  })}
                 </li>
               )}
               {alert.resolved_at && (
                 <li>
-                  Resolved {formatDateTime(alert.resolved_at)} — {alert.resolution_reason}
-                  {alert.resolved_by === null && ' (closed automatically: the source condition ended)'}
+                  {t('al.sheet.resolved', { time: formatDateTime(alert.resolved_at), reason: alert.resolution_reason ?? '—' })}
+                  {alert.resolved_by === null && ` ${t('al.sheet.resolvedAuto')}`}
                 </li>
               )}
             </ul>
           </div>
 
           <div>
-            <h3 className="mb-1 text-[12px] font-semibold">
-              Notification history ({data.notifications.length})
-            </h3>
+            <h3 className="mb-1 text-xs font-semibold">{t('al.sheet.history', { count: data.notifications.length })}</h3>
             {data.notifications.length === 0 ? (
-              <p className="text-[12px] text-ink-muted">No delivery has been planned yet.</p>
+              <p className="text-xs text-ink-muted">{t('al.sheet.historyEmpty')}</p>
             ) : (
               <ul className="space-y-2">
                 {data.notifications.map((delivery) => (
@@ -207,22 +210,20 @@ export default function AlertDrawer({
                 ))}
               </ul>
             )}
-            {!data.policy_decision.recipient_configured && (
-              <InlineNote>{SKIP_REASON_LABEL.no_recipient_configured}</InlineNote>
-            )}
+            {!data.policy_decision.recipient_configured && <Note className="mt-2">{enumLabel('skipReason', 'no_recipient_configured')}</Note>}
           </div>
 
           <div>
-            <h3 className="mb-1 text-[12px] font-semibold">Current policy decision</h3>
-            <dl className="grid gap-y-1 text-[12px] sm:grid-cols-[minmax(0,160px)_1fr]">
-              <dt className="text-ink-faint">Timezone</dt>
+            <h3 className="mb-1 text-xs font-semibold">{t('al.sheet.policy')}</h3>
+            <dl className={DL}>
+              <dt className="text-ink-faint">{t('al.sheet.timezone')}</dt>
               <dd>{data.policy_decision.timezone ?? '—'}</dd>
-              <dt className="text-ink-faint">Quiet hours</dt>
-              <dd>{data.policy_decision.quiet_hours_enabled ? 'Enabled' : 'Disabled'}</dd>
-              <dt className="text-ink-faint">Critical bypass</dt>
-              <dd>{data.policy_decision.critical_bypasses_quiet_hours ? 'Yes' : 'No'}</dd>
-              <dt className="text-ink-faint">Recipient</dt>
-              <dd>{data.policy_decision.recipient_configured ? 'Configured' : 'Not configured'}</dd>
+              <dt className="text-ink-faint">{t('al.sheet.quiet')}</dt>
+              <dd>{data.policy_decision.quiet_hours_enabled ? t('pg.enabled') : t('pg.disabled')}</dd>
+              <dt className="text-ink-faint">{t('al.sheet.criticalBypass')}</dt>
+              <dd>{data.policy_decision.critical_bypasses_quiet_hours ? t('pg.yes') : t('pg.no')}</dd>
+              <dt className="text-ink-faint">{t('al.sheet.recipient')}</dt>
+              <dd>{data.policy_decision.recipient_configured ? t('pg.configured') : t('pg.notConfigured')}</dd>
             </dl>
           </div>
 
@@ -236,82 +237,51 @@ export default function AlertDrawer({
                     acknowledge.mutate()
                   }}
                 >
-                  <h3 className="text-[12px] font-semibold">Acknowledge</h3>
-                  <InlineNote>{ACKNOWLEDGE_HINT}</InlineNote>
-                  <Field label="Note" required>
-                    <textarea
-                      className="input min-h-[56px]"
-                      value={note}
-                      onChange={(event) => setNote(event.target.value)}
-                      maxLength={2000}
-                      required
-                    />
+                  <h3 className="text-xs font-semibold">{t('al.sheet.ack.title')}</h3>
+                  <Note>{t('al.sheet.ack.hint')}</Note>
+                  <Field label={t('al.sheet.ack.note')} required>
+                    <textarea className="input min-h-[56px]" value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} required />
                   </Field>
-                  {acknowledge.isError && <ErrorState error={acknowledge.error} />}
-                  <button type="submit" className="btn-secondary" disabled={!note.trim() || acknowledge.isPending}>
-                    Acknowledge
-                  </button>
+                  {acknowledge.isError && <ErrorState error={acknowledge.error} title={t('al.sheet.error.ack')} noPermissionText={noWrite} compact />}
+                  <Button type="submit" variant="secondary" disabled={!note.trim() || acknowledge.isPending}>
+                    {t('al.sheet.ack.submit')}
+                  </Button>
                 </form>
               )}
 
               {alert.status === 'suppressed' ? (
                 <div className="space-y-2">
-                  <h3 className="text-[12px] font-semibold">Suppression</h3>
-                  <InlineNote>
-                    Delivery is muted until {formatDateTime(alert.suppression_expires_at)}. The alert
-                    stays visible and its history is kept.
-                  </InlineNote>
-                  {unsuppress.isError && <ErrorState error={unsuppress.error} />}
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={() => unsuppress.mutate()}
-                    disabled={unsuppress.isPending}
-                  >
-                    Unsuppress
-                  </button>
+                  <h3 className="text-xs font-semibold">{t('al.sheet.unsuppress.title')}</h3>
+                  <Note>{t('al.sheet.unsuppress.hint', { time: formatDateTime(alert.suppression_expires_at) })}</Note>
+                  {unsuppress.isError && <ErrorState error={unsuppress.error} title={t('al.sheet.error.unsuppress')} noPermissionText={noWrite} compact />}
+                  <Button type="button" variant="secondary" onClick={() => unsuppress.mutate()} disabled={unsuppress.isPending}>
+                    {t('al.sheet.unsuppress.submit')}
+                  </Button>
                 </div>
               ) : (
                 <form
                   className="space-y-2"
                   onSubmit={(event) => {
                     event.preventDefault()
-                    suppress.mutate()
+                    // A critical alert's delivery is the last line of the notification layer:
+                    // muting it asks for an explicit confirmation naming the effect.
+                    if (alert.severity === 'critical') setConfirmSuppress(true)
+                    else suppress.mutate()
                   }}
                 >
-                  <h3 className="text-[12px] font-semibold">Suppress delivery</h3>
-                  <InlineNote>{SUPPRESS_HINT}</InlineNote>
-                  {alert.severity === 'critical' && (
-                    <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11.5px] text-amber-900">
-                      {CRITICAL_SUPPRESS_WARNING}
-                    </p>
-                  )}
-                  <Field label="Reason" required>
-                    <input
-                      className="input"
-                      value={suppressReason}
-                      onChange={(event) => setSuppressReason(event.target.value)}
-                      maxLength={2000}
-                      required
-                    />
+                  <h3 className="text-xs font-semibold">{t('al.sheet.suppress.title')}</h3>
+                  <Note>{t('al.sheet.suppress.hint')}</Note>
+                  {alert.severity === 'critical' && <Note tone="caution">{t('al.sheet.suppress.critical')}</Note>}
+                  <Field label={t('al.sheet.suppress.reason')} required>
+                    <input className="input" value={suppressReason} onChange={(event) => setSuppressReason(event.target.value)} maxLength={2000} required />
                   </Field>
-                  <Field label="Expires at" required hint="Suppression cannot be indefinite.">
-                    <input
-                      className="input"
-                      type="datetime-local"
-                      value={expiresAt}
-                      onChange={(event) => setExpiresAt(event.target.value)}
-                      required
-                    />
+                  <Field label={t('al.sheet.suppress.expires')} required hint={t('al.sheet.suppress.expiresHint')}>
+                    <input className="input" type="datetime-local" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} required />
                   </Field>
-                  {suppress.isError && <ErrorState error={suppress.error} />}
-                  <button
-                    type="submit"
-                    className="btn-secondary"
-                    disabled={!suppressReason.trim() || !expiresAt || suppress.isPending}
-                  >
-                    Suppress
-                  </button>
+                  {suppress.isError && !confirmSuppress && <ErrorState error={suppress.error} title={t('al.sheet.error.suppress')} noPermissionText={noWrite} compact />}
+                  <Button type="submit" variant="secondary" disabled={!suppressReason.trim() || !expiresAt || suppress.isPending}>
+                    {t('al.sheet.suppress.submit')}
+                  </Button>
                 </form>
               )}
 
@@ -322,33 +292,48 @@ export default function AlertDrawer({
                   resolve.mutate()
                 }}
               >
-                <h3 className="text-[12px] font-semibold">Resolve</h3>
-                <InlineNote>{RESOLVE_HINT}</InlineNote>
-                <Field label="Resolution reason" required>
-                  <textarea
-                    className="input min-h-[56px]"
-                    value={reason}
-                    onChange={(event) => setReason(event.target.value)}
-                    maxLength={2000}
-                    required
-                  />
+                <h3 className="text-xs font-semibold">{t('al.sheet.resolve.title')}</h3>
+                <Note>{t('al.sheet.resolve.hint')}</Note>
+                <Field label={t('al.sheet.resolve.reason')} required>
+                  <textarea className="input min-h-[56px]" value={reason} onChange={(event) => setReason(event.target.value)} maxLength={2000} required />
                 </Field>
-                {resolve.isError && <ErrorState error={resolve.error} />}
-                <button type="submit" className="btn-primary" disabled={!reason.trim() || resolve.isPending}>
-                  Resolve alert
-                </button>
+                {resolve.isError && <ErrorState error={resolve.error} title={t('al.sheet.error.resolve')} noPermissionText={noWrite} compact />}
+                <Button type="submit" disabled={!reason.trim() || resolve.isPending}>
+                  {t('al.sheet.resolve.submit')}
+                </Button>
               </form>
             </div>
           )}
 
-          <InlineNote>{data.disclaimer}</InlineNote>
+          <Note>{data.disclaimer}</Note>
         </div>
       )}
-    </Drawer>
+
+      <ConfirmDialog
+        open={confirmSuppress}
+        onCancel={() => {
+          setConfirmSuppress(false)
+          suppress.reset()
+        }}
+        title={t('al.sheet.suppressConfirm.title')}
+        object={t('al.sheet.suppressConfirm.object', { title: alert?.title ?? '' })}
+        effects={[
+          t('al.sheet.suppressConfirm.effect', { time: expiresAt ? formatDateTime(new Date(expiresAt).toISOString()) : '—' }),
+          t('al.sheet.suppressConfirm.scope'),
+          t('al.sheet.suppressConfirm.reversible'),
+        ]}
+        confirmLabel={t('al.sheet.suppressConfirm.confirm')}
+        pending={suppress.isPending}
+        error={suppress.isError ? suppress.error : undefined}
+        onConfirm={() => suppress.mutate()}
+      />
+    </FormSheet>
   )
 }
 
 function DeliveryRow({ delivery }: { delivery: NotificationDelivery }) {
+  const { t } = useI18n()
+  const enumLabel = useEnumLabel()
   const [open, setOpen] = useState(false)
   const meta = DELIVERY_STATUS_META[delivery.status]
   const attempts = useQuery({
@@ -359,58 +344,53 @@ function DeliveryRow({ delivery }: { delivery: NotificationDelivery }) {
 
   return (
     <li className="rounded-md border border-line p-2">
-      <div className="flex flex-wrap items-center gap-2 text-[12px]">
-        <Badge tone={meta.tone} title={meta.hint}>
-          {meta.label}
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <Badge tone={meta?.tone ?? 'neutral'} title={enumLabel('deliveryHint', delivery.status)}>
+          {enumLabel('delivery', delivery.status)}
         </Badge>
-        <span className="text-ink-muted">{humanise(delivery.reason)}</span>
-        <span className="text-ink-faint">scheduled {formatDateTime(delivery.scheduled_for)}</span>
-        {delivery.sent_at && <span className="text-ink-faint">sent {formatDateTime(delivery.sent_at)}</span>}
-        {delivery.attempt_count > 0 && (
-          <span className="text-ink-faint">{delivery.attempt_count} attempt(s)</span>
-        )}
-        <button type="button" className="btn-ghost ml-auto" onClick={() => setOpen((value) => !value)}>
-          {open ? 'Hide' : 'Attempts'}
-        </button>
+        <span className="text-ink-muted">{enumLabel('deliveryReason', delivery.reason)}</span>
+        <span className="text-ink-faint">{t('al.sheet.scheduled', { time: formatDateTime(delivery.scheduled_for) })}</span>
+        {delivery.sent_at && <span className="text-ink-faint">{t('al.sheet.sent', { time: formatDateTime(delivery.sent_at) })}</span>}
+        {delivery.attempt_count > 0 && <span className="text-ink-faint">{t('al.sheet.attemptCount', { count: delivery.attempt_count })}</span>}
+        <Button type="button" variant="ghost" size="sm" className="ml-auto" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+          {open ? t('al.sheet.hide') : t('al.sheet.attempts')}
+        </Button>
       </div>
-      {delivery.skip_reason && (
-        <p className="mt-1 text-[11.5px] text-ink-muted">{SKIP_REASON_LABEL[delivery.skip_reason]}</p>
-      )}
+      {delivery.skip_reason && <p className="mt-1 text-xs text-ink-muted">{enumLabel('skipReason', delivery.skip_reason)}</p>}
       {delivery.quiet_hours_decision?.deferred === true && (
-        <p className="mt-1 text-[11.5px] text-amber-800">
-          Deferred by quiet hours ({String(delivery.quiet_hours_decision.timezone ?? '')}) until{' '}
-          {formatDateTime(delivery.scheduled_for)}.
+        <p className="mt-1 text-xs text-tone-caution-fg">
+          {t('al.sheet.deferred', { tz: String(delivery.quiet_hours_decision.timezone ?? ''), time: formatDateTime(delivery.scheduled_for) })}
         </p>
       )}
       {delivery.failure_summary && (
-        <p className="mt-1 text-[11.5px] text-rose-800">
+        <p className="mt-1 text-xs text-tone-attention-fg">
           {delivery.failure_code}: {delivery.failure_summary}
         </p>
       )}
       {delivery.telegram_message_id && (
-        <p className="mt-1 font-mono text-[11px] text-ink-faint">
-          message {delivery.telegram_message_id} · to {delivery.recipient_masked}
+        <p className="mt-1 font-mono text-2xs text-ink-faint">
+          {t('al.sheet.messageTo', { id: delivery.telegram_message_id, to: delivery.recipient_masked ?? '—' })}
         </p>
       )}
       {open && (
-        <ul className="mt-2 space-y-1 border-t border-line pt-2 text-[11.5px]">
+        <ul className="mt-2 space-y-1 border-t border-line pt-2 text-xs">
+          {attempts.isLoading && <li className="text-ink-muted">{t('al.sheet.attemptsLoading')}</li>}
+          {attempts.isError && (
+            <li>
+              <ErrorState error={attempts.error} onRetry={() => attempts.refetch()} title={t('al.sheet.attemptsError')} compact />
+            </li>
+          )}
           {(attempts.data ?? []).map((attempt) => (
             <li key={attempt.id} className="flex flex-wrap items-center gap-2">
               <span className="font-mono">#{attempt.attempt_number}</span>
-              <Badge tone={DELIVERY_STATUS_META[attempt.status].tone}>
-                {DELIVERY_STATUS_META[attempt.status].label}
-              </Badge>
+              <Badge tone={DELIVERY_STATUS_META[attempt.status]?.tone ?? 'neutral'}>{enumLabel('delivery', attempt.status)}</Badge>
               <span className="text-ink-faint">{formatDateTime(attempt.started_at)}</span>
-              {attempt.provider_response_code && (
-                <span className="text-ink-faint">HTTP {attempt.provider_response_code}</span>
-              )}
-              {attempt.failure_summary && <span className="text-rose-800">{attempt.failure_summary}</span>}
-              {attempt.retry_scheduled_for && (
-                <span className="text-ink-faint">retry {formatDateTime(attempt.retry_scheduled_for)}</span>
-              )}
+              {attempt.provider_response_code && <span className="text-ink-faint">HTTP {attempt.provider_response_code}</span>}
+              {attempt.failure_summary && <span className="text-tone-attention-fg">{attempt.failure_summary}</span>}
+              {attempt.retry_scheduled_for && <span className="text-ink-faint">{t('al.sheet.retry', { time: formatDateTime(attempt.retry_scheduled_for) })}</span>}
             </li>
           ))}
-          {attempts.data?.length === 0 && <li className="text-ink-muted">No attempt yet.</li>}
+          {attempts.data?.length === 0 && <li className="text-ink-muted">{t('al.sheet.noAttempt')}</li>}
         </ul>
       )}
     </li>

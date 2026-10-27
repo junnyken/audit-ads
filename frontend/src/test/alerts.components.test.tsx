@@ -101,8 +101,8 @@ describe('alert drawer', () => {
     stubFetch()
     wrap(<AlertDrawer alertId="alert-1" onClose={() => {}} onChanged={() => {}} />)
     expect(await screen.findByText('Account status is restricted')).toBeInTheDocument()
-    expect(await screen.findByText('Critical')).toBeInTheDocument()
-    expect(await screen.findByText('Open')).toBeInTheDocument()
+    expect((await screen.findAllByText('Nghiêm trọng')).length).toBeGreaterThan(0)
+    expect(await screen.findByText('Đang mở')).toBeInTheDocument()
     expect(await screen.findByText(/account_restricted_status v1/)).toBeInTheDocument()
     expect(await screen.findByText(/Review the account in the ads interface/)).toBeInTheDocument()
     vi.unstubAllGlobals()
@@ -111,8 +111,8 @@ describe('alert drawer', () => {
   it('shows health and readiness beside each other, not merged', async () => {
     stubFetch()
     wrap(<AlertDrawer alertId="alert-1" onClose={() => {}} onChanged={() => {}} />)
-    expect(await screen.findByText(/^Health: /)).toBeInTheDocument()
-    expect(await screen.findByText(/^Readiness: /)).toBeInTheDocument()
+    expect(await screen.findByText(/^Sức khoẻ: /)).toBeInTheDocument()
+    expect(await screen.findByText(/^Mức sẵn sàng: /)).toBeInTheDocument()
     vi.unstubAllGlobals()
   })
 
@@ -120,14 +120,14 @@ describe('alert drawer', () => {
     stubFetch()
     const user = userEvent.setup()
     wrap(<AlertDrawer alertId="alert-1" onClose={() => {}} onChanged={() => {}} />)
-    const ack = await screen.findByRole('button', { name: 'Acknowledge' })
-    const resolve = await screen.findByRole('button', { name: 'Resolve alert' })
+    const ack = await screen.findByRole('button', { name: 'Ghi nhận' })
+    const resolve = await screen.findByRole('button', { name: 'Xử lý cảnh báo' })
     expect(ack).toBeDisabled()
     expect(resolve).toBeDisabled()
 
-    await user.type(screen.getByLabelText(/Note/), 'Seen it.')
+    await user.type(screen.getByLabelText(/Ghi chú/), 'Seen it.')
     await waitFor(() => expect(ack).toBeEnabled())
-    await user.type(screen.getByLabelText(/Resolution reason/), 'Handled.')
+    await user.type(screen.getByLabelText(/Lý do xử lý/), 'Handled.')
     await waitFor(() => expect(resolve).toBeEnabled())
     vi.unstubAllGlobals()
   })
@@ -136,20 +136,20 @@ describe('alert drawer', () => {
     stubFetch()
     const user = userEvent.setup()
     wrap(<AlertDrawer alertId="alert-1" onClose={() => {}} onChanged={() => {}} />)
-    const suppress = await screen.findByRole('button', { name: 'Suppress' })
+    const suppress = await screen.findByRole('button', { name: 'Tạm tắt thông báo' })
     expect(suppress).toBeDisabled()
-    expect(await screen.findByText(/Suppressing it mutes delivery only/)).toBeInTheDocument()
+    expect(await screen.findByText(/Tạm tắt chỉ ngừng việc gửi/)).toBeInTheDocument()
 
-    await user.type(screen.getByLabelText(/Reason/), 'Appeal filed.')
+    await user.type(screen.getByLabelText(/^Lý do/, { selector: 'input' }), 'Appeal filed.')
     await waitFor(() => expect(suppress).toBeEnabled())
-    expect((screen.getByLabelText(/Expires at/) as HTMLInputElement).value).not.toBe('')
+    expect((screen.getByLabelText(/Hết hạn lúc/) as HTMLInputElement).value).not.toBe('')
     vi.unstubAllGlobals()
   })
 
   it('shows a failed delivery with its safe summary and never a raw provider response', async () => {
     stubFetch()
     wrap(<AlertDrawer alertId="alert-1" onClose={() => {}} onChanged={() => {}} />)
-    expect(await screen.findByText('Notification delivery failed')).toBeInTheDocument()
+    expect(await screen.findByText('Gửi thông báo thất bại')).toBeInTheDocument()
     expect(
       await screen.findByText(/invalid_recipient: The configured Telegram chat is not reachable/),
     ).toBeInTheDocument()
@@ -161,15 +161,16 @@ describe('alert drawer', () => {
 
   it('offers no send-now control and no recipient field', async () => {
     stubFetch()
-    const { container } = wrap(<AlertDrawer alertId="alert-1" onClose={() => {}} onChanged={() => {}} />)
+    wrap(<AlertDrawer alertId="alert-1" onClose={() => {}} onChanged={() => {}} />)
     await screen.findByText('Account status is restricted')
-    const buttons = Array.from(container.querySelectorAll('button')).map((b) =>
+    // The Sheet renders in a portal on <body>, outside the render container.
+    const buttons = Array.from(document.body.querySelectorAll('button')).map((b) =>
       (b.textContent ?? '').toLowerCase(),
     )
-    for (const banned of ['send now', 'send message', 'resend', 'test send']) {
+    for (const banned of ['send now', 'send message', 'resend', 'test send', 'gửi ngay', 'gửi tin nhắn', 'gửi lại', 'gửi thử']) {
       expect(buttons.some((label) => label.includes(banned))).toBe(false)
     }
-    const inputs = Array.from(container.querySelectorAll('input, textarea'))
+    const inputs = Array.from(document.body.querySelectorAll('input, textarea'))
       .map((el) => `${el.getAttribute('id') ?? ''} ${el.getAttribute('placeholder') ?? ''}`)
       .join(' ')
       .toLowerCase()
@@ -183,8 +184,8 @@ describe('alert drawer', () => {
     stubFetch({ ...detail, alert: { ...detail.alert, status: 'resolved', resolved_at: '2026-09-04T12:00:00Z', resolution_reason: 'Done.' } })
     wrap(<AlertDrawer alertId="alert-1" onClose={() => {}} onChanged={() => {}} />)
     await screen.findByText('Account status is restricted')
-    expect(screen.queryByRole('button', { name: 'Acknowledge' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Resolve alert' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Ghi nhận' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Xử lý cảnh báo' })).toBeNull()
     vi.unstubAllGlobals()
   })
 
@@ -200,9 +201,9 @@ describe('alert drawer', () => {
       },
     })
     wrap(<AlertDrawer alertId="alert-1" onClose={() => {}} onChanged={() => {}} />)
-    expect(await screen.findByText('Suppressed')).toBeInTheDocument()
-    expect(await screen.findByText(/Delivery is muted until/)).toBeInTheDocument()
-    expect(await screen.findByRole('button', { name: 'Unsuppress' })).toBeInTheDocument()
+    expect(await screen.findByText('Đã tạm tắt thông báo')).toBeInTheDocument()
+    expect(await screen.findByText(/Việc gửi thông báo bị tắt đến/)).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Bật lại thông báo' })).toBeInTheDocument()
     vi.unstubAllGlobals()
   })
 })

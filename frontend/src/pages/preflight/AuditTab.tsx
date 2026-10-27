@@ -2,17 +2,21 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, query } from '../../lib/api'
 import type { AuditEntry, CampaignDraft, Paged } from '../../lib/types'
-import { Card, EmptyState, ErrorState, Skeleton } from '../../components/ui'
-import AuditDiff from '../../components/AuditDiff'
 import { formatDateTime } from '../../lib/format'
+import { useI18n } from '../../i18n'
+import { Button } from '../../components/primitives/button'
+import { EmptyState, ErrorState } from '../../components/states'
+import AuditDiff from '../../components/AuditDiff'
+import { Note, Panel, TabSkeleton } from '../account/parts'
 
 /**
  * Scoped to the draft row's own audit trail (created/updated/archived/restored). Finding
  * acknowledge/resolve and evaluation-run events have their own audit rows too, under
  * `entity_type=preflight_finding` / `preflight_evaluation_run` — not merged in here, a scoped
- * simplification versus A1's account audit tab (documented, not silent).
+ * simplification versus A1's account audit tab (documented, and stated on the tab itself).
  */
 export default function AuditTab({ draft }: { draft: CampaignDraft }) {
+  const { t } = useI18n()
   const [page, setPage] = useState(1)
   const logs = useQuery({
     queryKey: ['preflight-audit', draft.id, page],
@@ -22,52 +26,43 @@ export default function AuditTab({ draft }: { draft: CampaignDraft }) {
       ),
   })
 
-  if (logs.isLoading) return <Skeleton rows={6} />
-  if (logs.isError) return <ErrorState error={logs.error} onRetry={() => logs.refetch()} />
+  if (logs.isLoading) return <TabSkeleton cards={2} />
+  if (logs.isError) return <ErrorState error={logs.error} onRetry={() => logs.refetch()} title={t('pf.audit.error')} />
   if (logs.data!.items.length === 0) {
-    return <EmptyState title="No audit history" description="Mutations on this draft will appear here." />
+    return <EmptyState title={t('pf.audit.empty.title')} description={t('pf.audit.empty.body')} />
   }
+  const totalPages = logs.data!.total_pages || 1
 
   return (
-    <Card title={`Audit history — ${logs.data!.total} record${logs.data!.total === 1 ? '' : 's'}`}>
-      <p className="mb-3 text-[11.5px] text-ink-faint">
-        Append-only. Entries are never edited or deleted, and payloads are redacted before they
-        are written.
-      </p>
+    <Panel title={t('pf.audit.title', { count: logs.data!.total })}>
+      <p className="text-xs text-ink-muted">{t('pf.audit.note')}</p>
+      <Note>{t('pf.audit.scope')}</Note>
       <ol className="space-y-3">
         {logs.data!.items.map((entry) => (
           <li key={entry.id} className="border-l-2 border-line pl-3">
-            <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
               <span className="font-mono font-medium">{entry.action}</span>
-              <span className="text-ink-faint">{formatDateTime(entry.created_at)}</span>
-              <span className="text-ink-faint">{entry.actor_email ?? 'system'}</span>
+              <span className="text-xs tabular-nums text-ink-muted">{formatDateTime(entry.created_at)}</span>
+              <span className="text-xs text-ink-muted">{entry.actor_email ?? t('au.actor.system')}</span>
               {entry.request_id && (
-                <span className="font-mono text-[11px] text-ink-faint">req {entry.request_id.slice(0, 8)}</span>
+                <span className="font-mono text-xs text-ink-muted">{t('au.request', { id: entry.request_id.slice(0, 8) })}</span>
               )}
             </div>
             <AuditDiff before={entry.before_json} after={entry.after_json} metadata={entry.metadata_json} />
           </li>
         ))}
       </ol>
-
-      <div className="mt-4 flex items-center justify-between">
-        <span className="text-[12px] text-ink-muted">
-          Page {logs.data!.page} of {logs.data!.total_pages || 1}
-        </span>
+      <div className="flex items-center justify-between border-t border-line pt-3">
+        <span className="text-xs tabular-nums text-ink-muted">{t('common.page', { page: logs.data!.page, total: totalPages })}</span>
         <div className="flex gap-2">
-          <button type="button" className="btn-secondary" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-            Previous
-          </button>
-          <button
-            type="button"
-            className="btn-secondary"
-            disabled={page >= (logs.data!.total_pages || 1)}
-            onClick={() => setPage(page + 1)}
-          >
-            Next
-          </button>
+          <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+            {t('common.prev')}
+          </Button>
+          <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+            {t('common.next')}
+          </Button>
         </div>
       </div>
-    </Card>
+    </Panel>
   )
 }

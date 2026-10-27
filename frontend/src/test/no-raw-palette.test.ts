@@ -8,28 +8,17 @@ import { describe, expect, it } from 'vitest'
  * it ignores dark mode.
  *
  * U1a freezes the debt: the files below already used raw palette classes before the redesign.
- * U1b-U1d restyle them and REMOVE entries; the second test fails when an entry is stale, so the
+ * U1b-U1d restyle them and REMOVE entries (U1d left only the Meta connection files O4 owns); the second test fails when an entry is stale, so the
  * list can only shrink. A new file can never be added.
  */
 const ALLOWLIST = new Set([
-  'components/AlertDrawer.tsx',
-  'components/AuditDiff.tsx',
+  // O4 owns these until it lands; the next slice restyles them and empties this list.
   'components/meta/AssetInventory.tsx',
   'components/meta/DiscoveryOverview.tsx',
   'components/meta/DiscoverySection.tsx',
-  'pages/AccountHealth.tsx',
-  'pages/Alerts.tsx',
   'pages/MetaConnectionWorkspace.tsx',
   'pages/MetaConnections.tsx',
-  'pages/Preflight.tsx',
-  'pages/PreflightDetail.tsx',
-  'pages/SystemStatus.tsx',
   'pages/meta-connection/HistoryTab.tsx',
-  'pages/operations/CreateAccountWizard.tsx',
-  'pages/operations/PixelShareWizard.tsx',
-  'pages/operations/ShareAccessWizard.tsx',
-  'pages/preflight/EvidenceTab.tsx',
-  'pages/preflight/RunsTab.tsx',
 ])
 
 const RAW_PALETTE =

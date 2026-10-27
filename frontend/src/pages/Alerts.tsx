@@ -1,30 +1,61 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
+import { ChevronRight } from 'lucide-react'
 import { api, query } from '../lib/api'
 import type { AlertRow, AlertSummary, Paged } from '../lib/types'
-import { Badge, EmptyState, ErrorState, InlineNote, Skeleton } from '../components/ui'
 import AlertDrawer from '../components/AlertDrawer'
-import {
-  ALERT_DISCLAIMER,
-  ALERT_SEVERITY_META,
-  ALERT_STATUS_META,
-  DELIVERY_STATUS_META,
-  SKIP_REASON_LABEL,
-  TRANSPORT_NOT_CONFIGURED,
-} from '../lib/alerts'
+import { ALERT_SEVERITY_META, ALERT_STATUS_META, DELIVERY_STATUS_META } from '../lib/alerts'
 import { HEALTH_META } from '../lib/health'
 import { READINESS_META } from '../lib/readiness'
-import { formatDateTime, formatRelative } from '../lib/format'
+import { formatCount, formatDateTime, formatRelative } from '../lib/format'
+import { columnsStorageKey, loadColumns, saveColumns } from '../lib/columnPrefs'
+import { useAuth } from '../hooks/useAuth'
+import { useI18n } from '../i18n'
+import type { TranslationKey } from '../i18n'
+import { useEnumLabel } from '../i18n/labels'
+import { Badge } from '../components/primitives/badge'
+import { Button } from '../components/primitives/button'
+import { Card } from '../components/primitives/card'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/primitives/table'
+import { EmptyState, ErrorState, PartialDataNote } from '../components/states'
+import { PageHeader } from '../components/page/PageHeader'
+import { CheckField, FilterChips, SearchField, SelectField } from '../components/page/Filters'
+import type { FilterChip } from '../components/page/Filters'
+import { ColumnChooser, ListToolbar } from '../components/page/ListToolbar'
+import { Pager } from '../components/page/Pager'
+import { TableSkeleton } from '../components/page/TableSkeleton'
+import { Note } from './account/parts'
 
-const SORTS = [
-  { value: 'severity', label: 'Severity' },
-  { value: 'last_observed_at', label: 'Last observed' },
-  { value: 'first_observed_at', label: 'First observed' },
-  { value: 'title', label: 'Alert' },
-]
+const SORT_KEYS = ['severity', 'last_observed_at', 'first_observed_at', 'title'] as const
+const SEVERITY_OPTIONS = ['critical', 'warning', 'info']
+const STATUS_OPTIONS = ['open', 'acknowledged', 'suppressed', 'resolved', 'expired']
+const SOURCE_OPTIONS = ['health_signal', 'health_evaluation_run', 'discovery_sweep']
+const HEALTH_OPTIONS = ['critical', 'warning', 'attention_needed', 'unknown', 'clear_signals']
+const READINESS_OPTIONS = ['operationally_ready', 'ready_with_warnings', 'not_ready', 'unknown']
+const DELIVERY_OPTIONS = ['pending', 'sent', 'failed_transient', 'failed_final', 'skipped', 'cancelled']
+
+const COLUMN_IDS = ['severity', 'account', 'health', 'readiness', 'source', 'status', 'first', 'last', 'delivery', 'notified', 'suppression'] as const
+type ColumnId = (typeof COLUMN_IDS)[number]
+const DEFAULT_COLUMNS: ColumnId[] = ['severity', 'account', 'health', 'status', 'last', 'delivery', 'suppression']
+const COLUMN_LABEL: Record<ColumnId, TranslationKey> = {
+  severity: 'al.col.severity',
+  account: 'al.col.account',
+  health: 'al.col.health',
+  readiness: 'al.col.readiness',
+  source: 'al.col.source',
+  status: 'al.col.status',
+  first: 'al.col.first',
+  last: 'al.col.last',
+  delivery: 'al.col.delivery',
+  notified: 'al.col.notified',
+  suppression: 'al.col.suppression',
+}
 
 export default function Alerts() {
+  const { t } = useI18n()
+  const enumLabel = useEnumLabel()
+  const { user } = useAuth()
   const [params, setParams] = useSearchParams()
   const [selected, setSelected] = useState<string | null>(null)
 
@@ -55,6 +86,14 @@ export default function Alerts() {
     setParams(next, { replace: true })
   }
 
+  const storageKey = columnsStorageKey('alerts', user?.id)
+  const [visible, setVisible] = useState<ColumnId[]>(() => loadColumns(storageKey, COLUMN_IDS, DEFAULT_COLUMNS))
+  const shown = COLUMN_IDS.filter((id) => visible.includes(id))
+  function chooseColumns(next: ColumnId[]) {
+    setVisible(next)
+    saveColumns(storageKey, next)
+  }
+
   const rows = useQuery({
     queryKey: ['alerts', filters],
     queryFn: () => api.get<Paged<AlertRow>>(`/api/v1/alerts${query(filters)}`),
@@ -69,274 +108,284 @@ export default function Alerts() {
     void summary.refetch()
   }
 
-  const filtersActive = Object.entries(filters).some(
-    ([key, value]) =>
-      !['page', 'page_size', 'sort', 'sort_direction'].includes(key) && value !== '' && value !== false,
-  )
+  const chips: FilterChip[] = []
+  if (filters.search) chips.push({ key: 'search', text: `${t('pg.search')}: ${filters.search}`, clear: { search: null } })
+  if (filters.severity) chips.push({ key: 'severity', text: `${t('al.filter.severity')}: ${enumLabel('alertSeverity', filters.severity)}`, clear: { severity: null } })
+  if (filters.status) chips.push({ key: 'status', text: `${t('al.filter.status')}: ${enumLabel('alertStatus', filters.status)}`, clear: { status: null } })
+  if (filters.delivery_status) chips.push({ key: 'delivery_status', text: `${t('al.filter.delivery')}: ${enumLabel('delivery', filters.delivery_status)}`, clear: { delivery_status: null } })
+  if (filters.source_type) chips.push({ key: 'source_type', text: `${t('al.filter.source')}: ${enumLabel('alertSource', filters.source_type)}`, clear: { source_type: null } })
+  if (filters.health_status) chips.push({ key: 'health_status', text: `${t('al.filter.health')}: ${enumLabel('health', filters.health_status)}`, clear: { health_status: null } })
+  if (filters.readiness_status) chips.push({ key: 'readiness_status', text: `${t('al.filter.readiness')}: ${enumLabel('readiness', filters.readiness_status)}`, clear: { readiness_status: null } })
+  if (filters.ad_account_id) chips.push({ key: 'ad_account_id', text: `${t('al.col.account')}: ${filters.ad_account_id}`, clear: { ad_account_id: null } })
+  if (filters.suppressed === 'true') chips.push({ key: 'suppressed', text: t('al.filter.suppressedOnly'), clear: { suppressed: null } })
+  if (filters.archived) chips.push({ key: 'archived', text: t('filter.archivedOnly'), clear: { archived: null } })
+  const filtersActive = chips.length > 0
+  const moreCount = [filters.source_type, filters.health_status, filters.readiness_status, filters.suppressed, filters.archived ? 'x' : ''].filter(Boolean).length
+  const clearAll = () => setParams({}, { replace: true })
+
+  // Only when the summary says so: an unloaded summary is "not known", never "configured".
   const transportMissing =
     summary.data && (!summary.data.telegram_transport_configured || !summary.data.recipient_configured)
 
+  const items = rows.data?.items ?? []
+
+  function cell(id: ColumnId, row: AlertRow) {
+    const label = t(COLUMN_LABEL[id])
+    const severity = ALERT_SEVERITY_META[row.severity]
+    const status = ALERT_STATUS_META[row.status]
+    const delivery = row.delivery_status ? DELIVERY_STATUS_META[row.delivery_status] : null
+    switch (id) {
+      case 'severity':
+        return (
+          <TableCell key={id} label={label}>
+            <Badge tone={severity?.tone ?? 'neutral'} dot title={enumLabel('alertSeverityHint', row.severity)}>
+              {enumLabel('alertSeverity', row.severity)}
+            </Badge>
+          </TableCell>
+        )
+      case 'account':
+        return (
+          <TableCell key={id} label={label}>
+            {row.ad_account_id ? (
+              <Link to={`/accounts/${row.ad_account_id}?tab=health`} className="text-brand-text hover:underline">
+                {row.account_display_name}
+              </Link>
+            ) : (
+              '—'
+            )}
+            <span className="block font-mono text-xs text-ink-muted">{row.account_reference ?? '—'}</span>
+          </TableCell>
+        )
+      case 'health':
+        return (
+          <TableCell key={id} label={label}>
+            <Badge tone={HEALTH_META[row.health_status]?.tone ?? 'neutral'}>{enumLabel('health', row.health_status)}</Badge>
+          </TableCell>
+        )
+      case 'readiness':
+        return (
+          <TableCell key={id} label={label}>
+            <Badge tone={READINESS_META[row.readiness_status]?.tone ?? 'neutral'}>{enumLabel('readiness', row.readiness_status)}</Badge>
+          </TableCell>
+        )
+      case 'source':
+        return (
+          <TableCell key={id} label={label} className="text-xs">
+            {row.source_label}
+          </TableCell>
+        )
+      case 'status':
+        return (
+          <TableCell key={id} label={label}>
+            <Badge tone={status?.tone ?? 'neutral'} title={enumLabel('alertStatusHint', row.status)}>
+              {enumLabel('alertStatus', row.status)}
+            </Badge>
+          </TableCell>
+        )
+      case 'first':
+        return (
+          <TableCell key={id} label={label} className="whitespace-nowrap text-xs text-ink-muted" title={formatDateTime(row.first_observed_at)}>
+            {formatRelative(row.first_observed_at)}
+          </TableCell>
+        )
+      case 'last':
+        return (
+          <TableCell key={id} label={label} className="whitespace-nowrap text-xs text-ink-muted" title={formatDateTime(row.last_observed_at)}>
+            {formatRelative(row.last_observed_at)}
+          </TableCell>
+        )
+      case 'delivery':
+        return (
+          <TableCell key={id} label={label}>
+            {delivery && row.delivery_status ? (
+              <Badge tone={delivery.tone} title={enumLabel('deliveryHint', row.delivery_status)}>
+                {enumLabel('delivery', row.delivery_status)}
+              </Badge>
+            ) : (
+              <span className="text-ink-faint">—</span>
+            )}
+            {row.delivery_skip_reason && (
+              <span className="mt-0.5 block max-w-[220px] text-2xs text-ink-muted">{enumLabel('skipReason', row.delivery_skip_reason)}</span>
+            )}
+          </TableCell>
+        )
+      case 'notified':
+        return (
+          <TableCell key={id} label={label} className="whitespace-nowrap text-xs text-ink-muted">
+            {formatRelative(row.last_notified_at)}
+          </TableCell>
+        )
+      case 'suppression':
+        return (
+          <TableCell key={id} label={label} className="text-xs text-ink-muted">
+            {row.suppressed_until
+              ? t('al.suppressedUntil', { time: formatDateTime(row.suppressed_until) })
+              : row.quiet_hours_deferred
+                ? t('al.deferred', { time: formatDateTime(row.delivery_scheduled_for) })
+                : '—'}
+          </TableCell>
+        )
+    }
+  }
+
+  const headerNames = [t('al.col.alert'), ...shown.map((id) => t(COLUMN_LABEL[id])), t('col.actions')]
+
   return (
     <div className="space-y-4">
-      <header>
-        <h1 className="text-[17px] font-semibold">Alerts</h1>
-        <p className="text-[12.5px] text-ink-muted">
-          Attention items derived from account health. Acknowledging or resolving an alert records
-          your workflow; it does not change the health signal behind it.
-        </p>
-      </header>
+      <PageHeader
+        title={t('al.title')}
+        description={t('al.desc')}
+        meta={rows.data ? t('al.count', { count: formatCount(rows.data.total) }) : '—'}
+      />
 
       {transportMissing && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-900">
-          <strong>{TRANSPORT_NOT_CONFIGURED}</strong>{' '}
-          <Link to="/settings" className="underline">
-            Open notification settings
+        <Note tone="caution" role="status">
+          <strong>{t('al.transport')}</strong>{' '}
+          <Link to="/settings" className="font-medium underline">
+            {t('al.transport.link')}
           </Link>
           .
-        </div>
+        </Note>
       )}
+      {summary.isError && <PartialDataNote>{t('al.partial.summary')}</PartialDataNote>}
 
-      <div className="card flex flex-wrap items-end gap-2 p-3">
-        <div className="min-w-[180px] flex-1">
-          <label className="label" htmlFor="alert-search">Search</label>
-          <input
-            id="alert-search"
-            className="input"
-            placeholder="Alert title, summary, account"
-            defaultValue={filters.search}
-            onBlur={(event) => update({ search: event.target.value })}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') update({ search: (event.target as HTMLInputElement).value })
-            }}
-          />
-        </div>
-        <Select label="Severity" value={filters.severity} onChange={(value) => update({ severity: value })}
-          options={[['', 'Any'], ['critical', 'Critical'], ['warning', 'Warning'], ['info', 'Info']]} />
-        <Select label="Status" value={filters.status} onChange={(value) => update({ status: value })}
-          options={[['', 'Active'], ['open', 'Open'], ['acknowledged', 'Acknowledged'], ['suppressed', 'Suppressed'], ['resolved', 'Resolved'], ['expired', 'Expired']]} />
-        <Select label="Source" value={filters.source_type} onChange={(value) => update({ source_type: value })}
-          options={[['', 'Any'], ['health_signal', 'Health signal'], ['health_evaluation_run', 'Health evaluation'], ['discovery_sweep', 'Discovery sweep']]} />
-        <Select label="Health" value={filters.health_status} onChange={(value) => update({ health_status: value })}
-          options={[['', 'Any'], ['critical', 'Critical'], ['warning', 'Warning'], ['attention_needed', 'Attention needed'], ['unknown', 'Unknown health'], ['clear_signals', 'Clear signals']]} />
-        <Select label="Readiness" value={filters.readiness_status} onChange={(value) => update({ readiness_status: value })}
-          options={[['', 'Any'], ['operationally_ready', 'Operationally ready'], ['ready_with_warnings', 'Ready with warnings'], ['not_ready', 'Not ready'], ['unknown', 'Unknown']]} />
-        <Select label="Delivery" value={filters.delivery_status} onChange={(value) => update({ delivery_status: value })}
-          options={[['', 'Any'], ['pending', 'Pending'], ['sent', 'Sent'], ['failed_transient', 'Retrying'], ['failed_final', 'Failed'], ['skipped', 'Not sent'], ['cancelled', 'Cancelled']]} />
-        <Select label="Sort" value={filters.sort} onChange={(value) => update({ sort: value })}
-          options={SORTS.map((sort) => [sort.value, sort.label] as [string, string])} />
-        <label className="flex items-center gap-1.5 pb-1.5 text-[12.5px]">
-          <input
-            type="checkbox"
-            checked={filters.suppressed === 'true'}
-            onChange={(event) => update({ suppressed: event.target.checked ? 'true' : '' })}
-          />
-          Suppressed only
-        </label>
-        <label className="flex items-center gap-1.5 pb-1.5 text-[12.5px]">
-          <input type="checkbox" checked={filters.archived} onChange={(event) => update({ archived: event.target.checked })} />
-          Archived only
-        </label>
-        {filtersActive && (
-          <button type="button" className="btn-ghost mb-0.5" onClick={() => setParams({}, { replace: true })}>
-            Clear
-          </button>
-        )}
-      </div>
+      <ListToolbar
+        label={t('al.toolbar')}
+        moreCount={moreCount}
+        primary={
+          <>
+            <SearchField label={t('pg.search')} placeholder={t('al.search.placeholder')} value={filters.search} onApply={(value) => update({ search: value })} />
+            <SelectField
+              label={t('al.filter.severity')}
+              value={filters.severity}
+              onChange={(value) => update({ severity: value })}
+              options={[['', t('filter.any')], ...SEVERITY_OPTIONS.map((v) => [v, enumLabel('alertSeverity', v)] as [string, string])]}
+            />
+            <SelectField
+              label={t('al.filter.status')}
+              value={filters.status}
+              onChange={(value) => update({ status: value })}
+              options={[['', t('al.filter.statusActive')], ...STATUS_OPTIONS.map((v) => [v, enumLabel('alertStatus', v)] as [string, string])]}
+            />
+            <SelectField
+              label={t('al.filter.delivery')}
+              value={filters.delivery_status}
+              onChange={(value) => update({ delivery_status: value })}
+              options={[
+                ['', t('filter.any')],
+                ...DELIVERY_OPTIONS.map((v) => [v, v === 'failed_final' ? t('al.filter.deliveryFailed') : enumLabel('delivery', v)] as [string, string]),
+              ]}
+            />
+          </>
+        }
+        more={
+          <>
+            <SelectField
+              label={t('al.filter.source')}
+              value={filters.source_type}
+              onChange={(value) => update({ source_type: value })}
+              options={[['', t('filter.any')], ...SOURCE_OPTIONS.map((v) => [v, enumLabel('alertSource', v)] as [string, string])]}
+            />
+            <SelectField
+              label={t('al.filter.health')}
+              value={filters.health_status}
+              onChange={(value) => update({ health_status: value })}
+              options={[['', t('filter.any')], ...HEALTH_OPTIONS.map((v) => [v, enumLabel('health', v)] as [string, string])]}
+            />
+            <SelectField
+              label={t('al.filter.readiness')}
+              value={filters.readiness_status}
+              onChange={(value) => update({ readiness_status: value })}
+              options={[['', t('filter.any')], ...READINESS_OPTIONS.map((v) => [v, enumLabel('readiness', v)] as [string, string])]}
+            />
+            <SelectField
+              label={t('filter.sort')}
+              value={filters.sort}
+              onChange={(value) => update({ sort: value })}
+              options={SORT_KEYS.map((key) => [key, t(`al.sort.${key}`)] as [string, string])}
+            />
+            <CheckField label={t('al.filter.suppressedOnly')} checked={filters.suppressed === 'true'} onChange={(checked) => update({ suppressed: checked ? 'true' : '' })} />
+            <CheckField label={t('pg.archivedOnly')} checked={filters.archived} onChange={(checked) => update({ archived: checked })} />
+          </>
+        }
+        columns={<ColumnChooser ids={COLUMN_IDS} labelOf={COLUMN_LABEL} visible={visible} defaults={DEFAULT_COLUMNS} onChange={chooseColumns} />}
+      />
+      <FilterChips chips={chips} onClear={update} onClearAll={clearAll} />
 
       {rows.isLoading ? (
-        <Skeleton rows={8} />
+        <TableSkeleton columns={headerNames} rows={8} />
       ) : rows.isError ? (
-        <ErrorState error={rows.error} onRetry={() => rows.refetch()} />
-      ) : rows.data!.items.length === 0 ? (
+        <ErrorState error={rows.error} onRetry={() => rows.refetch()} title={t('al.error.title')} />
+      ) : items.length === 0 ? (
         <EmptyState
-          title={filtersActive ? 'No alert matches these filters' : 'No alerts'}
-          description={
-            filtersActive
-              ? 'Adjust or clear the filters to see more.'
-              : 'Alerts appear here when account health raises a signal or an evaluation fails. Nothing needs attention right now.'
-          }
+          title={filtersActive ? t('al.empty.filtered.title') : t('al.empty.none.title')}
+          description={filtersActive ? t('al.empty.filtered.body') : t('al.empty.none.body')}
           action={
             filtersActive ? (
-              <button type="button" className="btn-secondary" onClick={() => setParams({}, { replace: true })}>
-                Clear filters
-              </button>
+              <Button type="button" variant="secondary" onClick={clearAll}>
+                {t('filter.clear')}
+              </Button>
             ) : (
-              <Link to="/account-health" className="btn-secondary">
-                Open account health
-              </Link>
+              <Button asChild variant="secondary">
+                <Link to="/account-health">{t('al.empty.open')}</Link>
+              </Button>
             )
           }
         />
       ) : (
         <>
-          <div className="card table-scroll">
-            <table className="w-full min-w-[1250px] border-collapse">
-              <thead className="bg-surface-muted">
-                <tr>
-                  <th className="th">Severity</th>
-                  <th className="th">Alert</th>
-                  <th className="th">Account</th>
-                  <th className="th">Health</th>
-                  <th className="th">Readiness</th>
-                  <th className="th">Source</th>
-                  <th className="th">Status</th>
-                  <th className="th">First observed</th>
-                  <th className="th">Last observed</th>
-                  <th className="th">Delivery</th>
-                  <th className="th">Last notified</th>
-                  <th className="th">Suppression / quiet hours</th>
-                  <th className="th">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.data!.items.map((row) => {
-                  const severity = ALERT_SEVERITY_META[row.severity]
-                  const status = ALERT_STATUS_META[row.status]
-                  const delivery = row.delivery_status ? DELIVERY_STATUS_META[row.delivery_status] : null
-                  return (
-                    <tr key={row.id} className="hover:bg-surface-muted">
-                      <td className="td">
-                        <Badge tone={severity.tone} dot title={severity.description}>
-                          {severity.label}
-                        </Badge>
-                      </td>
-                      <td className="td max-w-[300px]">
-                        <button
-                          type="button"
-                          className="text-left font-medium text-brand hover:underline"
-                          onClick={() => setSelected(row.id)}
-                        >
-                          {row.title}
-                        </button>
-                        <p className="text-[11.5px] text-ink-muted">{row.summary}</p>
-                      </td>
-                      <td className="td">
-                        {row.ad_account_id ? (
-                          <Link
-                            to={`/accounts/${row.ad_account_id}?tab=health`}
-                            className="text-brand hover:underline"
-                          >
-                            {row.account_display_name}
-                          </Link>
-                        ) : (
-                          '—'
-                        )}
-                        <div className="font-mono text-[11px] text-ink-faint">
-                          {row.account_reference ?? '—'}
-                        </div>
-                      </td>
-                      <td className="td">
-                        <Badge tone={HEALTH_META[row.health_status].tone}>
-                          {HEALTH_META[row.health_status].label}
-                        </Badge>
-                      </td>
-                      <td className="td">
-                        <Badge tone={READINESS_META[row.readiness_status].tone}>
-                          {READINESS_META[row.readiness_status].label}
-                        </Badge>
-                      </td>
-                      <td className="td text-[12px]">{row.source_label}</td>
-                      <td className="td">
-                        <Badge tone={status.tone} title={status.hint}>
-                          {status.label}
-                        </Badge>
-                      </td>
-                      <td className="td whitespace-nowrap text-[12px] text-ink-muted">
-                        {formatRelative(row.first_observed_at)}
-                      </td>
-                      <td className="td whitespace-nowrap text-[12px] text-ink-muted">
-                        {formatRelative(row.last_observed_at)}
-                      </td>
-                      <td className="td">
-                        {delivery ? (
-                          <Badge tone={delivery.tone} title={delivery.hint}>
-                            {delivery.label}
-                          </Badge>
-                        ) : (
-                          <span className="text-ink-faint">—</span>
-                        )}
-                        {row.delivery_skip_reason && (
-                          <p className="mt-0.5 max-w-[220px] text-[11px] text-ink-faint">
-                            {SKIP_REASON_LABEL[row.delivery_skip_reason]}
-                          </p>
-                        )}
-                      </td>
-                      <td className="td whitespace-nowrap text-[12px] text-ink-muted">
-                        {row.last_notified_at ? formatRelative(row.last_notified_at) : 'never'}
-                      </td>
-                      <td className="td text-[12px] text-ink-muted">
-                        {row.suppressed_until
-                          ? `Suppressed until ${formatDateTime(row.suppressed_until)}`
-                          : row.quiet_hours_deferred
-                            ? `Deferred by quiet hours to ${formatDateTime(row.delivery_scheduled_for)}`
-                            : '—'}
-                      </td>
-                      <td className="td">
-                        <button type="button" className="btn-secondary" onClick={() => setSelected(row.id)}>
-                          Open
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-[12px] text-ink-muted">
-              Page {rows.data!.page} of {rows.data!.total_pages || 1} · {rows.data!.total} alert
-              {rows.data!.total === 1 ? '' : 's'}
-              {summary.data?.last_successful_notification_at
-                ? ` · last successful notification ${formatRelative(summary.data.last_successful_notification_at)}`
-                : ''}
-            </span>
-            <div className="flex gap-2">
-              <button type="button" className="btn-secondary" disabled={filters.page <= 1} onClick={() => update({ page: filters.page - 1 })}>
-                Previous
-              </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                disabled={filters.page >= (rows.data!.total_pages || 1)}
-                onClick={() => update({ page: filters.page + 1 })}
-              >
-                Next
-              </button>
-            </div>
-          </div>
+          <Card>
+            <Table cards aria-label={t('al.title')}>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>{t('al.col.alert')}</TableHead>
+                  {shown.map((id) => (
+                    <TableHead key={id}>{t(COLUMN_LABEL[id])}</TableHead>
+                  ))}
+                  <TableHead>
+                    <span className="sr-only">{t('col.actions')}</span>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell className="cell-title min-w-[240px] max-w-[320px]">
+                      <button type="button" className="text-left font-medium text-brand-text hover:underline" onClick={() => setSelected(row.id)}>
+                        {row.title}
+                      </button>
+                      <p className="text-xs text-ink-muted">{row.summary}</p>
+                    </TableCell>
+                    {shown.map((id) => cell(id, row))}
+                    <TableCell className="w-10 text-right">
+                      <Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label={t('al.openNamed', { title: row.title })} onClick={() => setSelected(row.id)}>
+                        <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
+          <Pager
+            page={rows.data!.page}
+            pages={rows.data!.total_pages}
+            total={rows.data!.total}
+            onPage={(page) => update({ page })}
+            note={
+              summary.data
+                ? summary.data.last_successful_notification_at
+                  ? t('al.lastSuccess', { time: formatRelative(summary.data.last_successful_notification_at) })
+                  : t('al.lastSuccessNone')
+                : undefined
+            }
+          />
         </>
       )}
 
-      <InlineNote>{ALERT_DISCLAIMER}</InlineNote>
+      <Note>{t('al.disclaimer')}</Note>
 
       <AlertDrawer alertId={selected} onClose={() => setSelected(null)} onChanged={refresh} />
     </div>
   )
 }
-
-function Select({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  options: [string, string][]
-}) {
-  return (
-    <div>
-      <label className="label">{label}</label>
-      <select className="input min-w-[130px]" value={value} onChange={(event) => onChange(event.target.value)}>
-        {options.map(([optionValue, optionLabel]) => (
-          <option key={optionValue} value={optionValue}>
-            {optionLabel}
-          </option>
-        ))}
-      </select>
-    </div>
-  )
-}
-

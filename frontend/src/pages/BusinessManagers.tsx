@@ -1,30 +1,28 @@
 import { useState } from 'react'
 import ReferenceManager from '../components/ReferenceManager'
-import { Tabs } from '../components/ui'
+import { PageHeader } from '../components/page/PageHeader'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/primitives/tabs'
+import { useI18n } from '../i18n'
 import { BUSINESS_MANAGERS, PERSONAL_REFERENCES } from '../lib/resources'
 
-const TABS = [
-  { key: 'bm', label: 'Business Managers' },
-  { key: 'personal', label: 'Personal account references' },
-]
-
 export default function BusinessManagers() {
+  const { t } = useI18n()
   const [tab, setTab] = useState('bm')
   return (
     <div className="space-y-4">
-      <header>
-        <h1 className="text-[17px] font-semibold">Ownership references</h1>
-        <p className="text-[12.5px] text-ink-muted">
-          Who an ad account belongs to. Every account maps to a Business Manager or a personal
-          account reference — or is explicitly recorded as unknown.
-        </p>
-      </header>
-      <Tabs tabs={TABS} active={tab} onChange={setTab} />
-      {tab === 'bm' ? (
-        <ReferenceManager spec={BUSINESS_MANAGERS} />
-      ) : (
-        <ReferenceManager spec={PERSONAL_REFERENCES} />
-      )}
+      <PageHeader title={t('bm.title')} description={t('bm.desc')} />
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList aria-label={t('bm.title')}>
+          <TabsTrigger value="bm">{t('bm.tab.bm')}</TabsTrigger>
+          <TabsTrigger value="personal">{t('bm.tab.personal')}</TabsTrigger>
+        </TabsList>
+        <TabsContent value="bm">
+          <ReferenceManager spec={BUSINESS_MANAGERS} />
+        </TabsContent>
+        <TabsContent value="personal">
+          <ReferenceManager spec={PERSONAL_REFERENCES} />
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

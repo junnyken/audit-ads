@@ -82,40 +82,40 @@ describe('signal detail drawer', () => {
     expect(screen.getByText('Manual review is due or stale')).toBeInTheDocument()
     expect(screen.getAllByText(/manual_review_due_or_stale v1/).length).toBeGreaterThan(0)
     expect(screen.getByText(/older than the configured 30-day interval/)).toBeInTheDocument()
-    expect(screen.getByText('Why it matters')).toBeInTheDocument()
-    expect(screen.getByText('Recommended next step')).toBeInTheDocument()
-    expect(screen.getByText('Policy interval days')).toBeInTheDocument()
+    expect(screen.getByText('Vì sao quan trọng')).toBeInTheDocument()
+    expect(screen.getByText('Bước tiếp theo đề xuất')).toBeInTheDocument()
+    expect(screen.getByText('policy_interval_days')).toBeInTheDocument()
     expect(screen.getByText('sig-1')).toBeInTheDocument()
   })
 
   it('requires a note before acknowledging', async () => {
     const user = userEvent.setup()
     wrap(<HealthSignalDrawer signal={signal} readOnly={false} onClose={() => {}} onChanged={() => {}} />)
-    const button = screen.getByRole('button', { name: 'Acknowledge' })
+    const button = screen.getByRole('button', { name: 'Ghi nhận' })
     expect(button).toBeDisabled()
-    await user.type(screen.getByLabelText(/Note/), 'Seen it.')
+    await user.type(screen.getByLabelText(/Ghi chú/), 'Seen it.')
     expect(button).toBeEnabled()
   })
 
   it('requires a reason before resolving', async () => {
     const user = userEvent.setup()
     wrap(<HealthSignalDrawer signal={signal} readOnly={false} onClose={() => {}} onChanged={() => {}} />)
-    const button = screen.getByRole('button', { name: 'Resolve signal' })
+    const button = screen.getByRole('button', { name: 'Xử lý tín hiệu' })
     expect(button).toBeDisabled()
-    await user.type(screen.getByLabelText(/Resolution reason/), 'Reviewed today.')
+    await user.type(screen.getByLabelText(/Lý do xử lý/), 'Reviewed today.')
     expect(button).toBeEnabled()
   })
 
   it('states that acknowledging is not resolving and that resolving asserts nothing about a platform', () => {
     wrap(<HealthSignalDrawer signal={signal} readOnly={false} onClose={() => {}} onChanged={() => {}} />)
-    expect(screen.getByText(/does not assert that any platform/i)).toBeInTheDocument()
-    expect(screen.getByText(/keeps counting towards/i)).toBeInTheDocument()
+    expect(screen.getByText(/không khẳng định nền tảng nào/i)).toBeInTheDocument()
+    expect(screen.getByText(/vẫn được tính vào sức khoẻ/i)).toBeInTheDocument()
   })
 
   it('offers no actions on an archived account', () => {
     wrap(<HealthSignalDrawer signal={signal} readOnly onClose={() => {}} onChanged={() => {}} />)
-    expect(screen.queryByRole('button', { name: 'Acknowledge' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Resolve signal' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Ghi nhận' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Xử lý tín hiệu' })).toBeNull()
   })
 
   it('labels an engine-closed signal as automatic rather than operator action', () => {
@@ -133,16 +133,15 @@ describe('signal detail drawer', () => {
         onChanged={() => {}}
       />,
     )
-    expect(screen.getByText(/closed automatically/i)).toBeInTheDocument()
+    expect(screen.getByText(/đóng tự động/i)).toBeInTheDocument()
   })
 
   it('offers no credential field and no numeric score', () => {
-    const { container } = wrap(
-      <HealthSignalDrawer signal={signal} readOnly={false} onClose={() => {}} onChanged={() => {}} />,
-    )
-    expect(container.querySelector('input[type="password"]')).toBeNull()
-    const text = (container.textContent ?? '').toLowerCase()
-    for (const banned of ['risk score', 'safety score', 'trust score', 'ban risk']) {
+    wrap(<HealthSignalDrawer signal={signal} readOnly={false} onClose={() => {}} onChanged={() => {}} />)
+    // The Sheet renders in a portal on <body>, outside the render container.
+    expect(document.body.querySelector('input[type="password"]')).toBeNull()
+    const text = (document.body.textContent ?? '').toLowerCase()
+    for (const banned of ['risk score', 'safety score', 'trust score', 'ban risk', 'điểm rủi ro', 'điểm an toàn', 'điểm tin cậy']) {
       expect(text).not.toContain(banned)
     }
   })

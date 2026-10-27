@@ -1,5 +1,10 @@
 import '@testing-library/jest-dom/vitest'
 import { vi } from 'vitest'
+import { en } from '../i18n/en'
+import { registerDictionary } from '../i18n/translate'
+
+// English is loaded on demand in the app (its own chunk). Tests run synchronously, so preload it.
+registerDictionary('en', en)
 
 // jsdom lacks a few browser APIs that Radix UI (dropdown, tooltip, sheet) touches.
 class ResizeObserverStub {

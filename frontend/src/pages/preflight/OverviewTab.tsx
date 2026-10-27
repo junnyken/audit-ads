@@ -1,66 +1,60 @@
-import type { ReactNode } from 'react'
 import type { CampaignDraft } from '../../lib/types'
-import { Card } from '../../components/ui'
+import { useI18n } from '../../i18n'
+import { useEnumLabel } from '../../i18n/labels'
+import { DL_CLASS, Panel, Row } from '../account/parts'
 
 export default function OverviewTab({ draft }: { draft: CampaignDraft }) {
+  const { t } = useI18n()
+  const enumLabel = useEnumLabel()
   return (
     <div className="grid gap-4 xl:grid-cols-2">
-      <Card title="Identity">
-        <dl className="grid grid-cols-[minmax(0,150px)_1fr] gap-y-2 text-[12.5px]">
-          <Row label="Title">{draft.title}</Row>
-          <Row label="Account">{draft.account_display_name ?? '—'}</Row>
-          <Row label="Objective">{draft.objective ?? '—'}</Row>
+      <Panel title={t('pf.ov.identity')}>
+        <dl className={DL_CLASS}>
+          <Row label={t('pf.ov.title')}>{draft.title}</Row>
+          <Row label={t('pf.ov.account')}>{draft.account_display_name ?? '—'}</Row>
+          <Row label={t('pf.ov.objective')}>{draft.objective ? enumLabel('objective', draft.objective) : '—'}</Row>
         </dl>
-      </Card>
+      </Panel>
 
-      <Card title="Copy">
-        <dl className="grid grid-cols-[minmax(0,150px)_1fr] gap-y-2 text-[12.5px]">
-          <Row label="Primary copy">
+      <Panel title={t('pf.ov.copy')}>
+        <dl className={DL_CLASS}>
+          <Row label={t('pf.ov.primaryCopy')}>
             <span className="whitespace-pre-wrap">{draft.primary_copy || '—'}</span>
           </Row>
-          <Row label="Headline">{draft.headline ?? '—'}</Row>
-          <Row label="Description">{draft.description ?? '—'}</Row>
-          <Row label="Call to action">{draft.call_to_action ?? '—'}</Row>
+          <Row label={t('pf.ov.headline')}>{draft.headline ?? '—'}</Row>
+          <Row label={t('pf.ov.description')}>{draft.description ?? '—'}</Row>
+          <Row label={t('pf.ov.cta')}>{draft.call_to_action ?? '—'}</Row>
         </dl>
-      </Card>
+      </Panel>
 
-      <Card title="Landing page & creative">
-        <dl className="grid grid-cols-[minmax(0,150px)_1fr] gap-y-2 text-[12.5px]">
-          <Row label="Landing page URL">
+      <Panel title={t('pf.ov.landing')}>
+        <dl className={DL_CLASS}>
+          <Row label={t('pf.ov.url')}>
             {draft.landing_page_url ? (
-              <a href={draft.landing_page_url} target="_blank" rel="noreferrer" className="text-brand hover:underline break-all">
+              <a href={draft.landing_page_url} target="_blank" rel="noreferrer" className="break-all text-brand-text hover:underline">
                 {draft.landing_page_url}
               </a>
             ) : (
               '—'
             )}
           </Row>
-          <Row label="Creative reference">{draft.creative_reference ?? '—'}</Row>
+          <Row label={t('pf.ov.creative')}>{draft.creative_reference ?? '—'}</Row>
         </dl>
-      </Card>
+      </Panel>
 
-      <Card title="Budget & targeting">
-        <dl className="grid grid-cols-[minmax(0,150px)_1fr] gap-y-2 text-[12.5px]">
-          <Row label="Budget">
-            {draft.budget_amount ? `${draft.budget_amount} ${draft.budget_currency ?? ''}` : '—'}
+      <Panel title={t('pf.ov.budget')}>
+        <dl className={DL_CLASS}>
+          <Row label={t('pf.ov.budgetAmount')}>
+            <span className="font-mono">{draft.budget_amount ? `${draft.budget_amount} ${draft.budget_currency ?? ''}` : '—'}</span>
           </Row>
-          <Row label="% change vs. current">
-            {draft.budget_change_percent !== null ? `${draft.budget_change_percent}%` : '—'}
+          <Row label={t('pf.ov.change')}>
+            <span className="font-mono">{draft.budget_change_percent !== null ? `${draft.budget_change_percent}%` : '—'}</span>
           </Row>
-          <Row label="Targeting summary">
+          <Row label={t('pf.ov.targeting')}>
             <span className="whitespace-pre-wrap">{draft.targeting_summary ?? '—'}</span>
           </Row>
         </dl>
-      </Card>
+      </Panel>
     </div>
-  )
-}
-
-function Row({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <>
-      <dt className="text-ink-faint">{label}</dt>
-      <dd className="min-w-0 break-words">{children}</dd>
-    </>
   )
 }

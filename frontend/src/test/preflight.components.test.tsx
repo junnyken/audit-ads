@@ -46,31 +46,32 @@ describe('preflight finding drawer', () => {
   it('requires a reason before acknowledging', async () => {
     const user = userEvent.setup()
     wrap(<PreflightFindingDrawer finding={finding} readOnly={false} onClose={() => {}} onChanged={() => {}} />)
-    const button = screen.getByRole('button', { name: 'Acknowledge' })
+    const button = screen.getByRole('button', { name: 'Ghi nhận' })
     expect(button).toBeDisabled()
-    await user.type(screen.getAllByLabelText(/Reason/)[0], 'Reviewed, will fix.')
+    await user.type(screen.getAllByLabelText(/^Lý do/)[0], 'Reviewed, will fix.')
     expect(button).toBeEnabled()
   })
 
   it('requires a reason before resolving', async () => {
     const user = userEvent.setup()
     wrap(<PreflightFindingDrawer finding={finding} readOnly={false} onClose={() => {}} onChanged={() => {}} />)
-    const button = screen.getByRole('button', { name: 'Resolve finding' })
+    const button = screen.getByRole('button', { name: 'Xử lý phát hiện' })
     expect(button).toBeDisabled()
-    await user.type(screen.getByLabelText(/Resolution reason/), 'Copy rewritten.')
+    await user.type(screen.getByLabelText(/Lý do xử lý/), 'Copy rewritten.')
     expect(button).toBeEnabled()
   })
 
   it('states that neither action changes the draft status', () => {
     wrap(<PreflightFindingDrawer finding={finding} readOnly={false} onClose={() => {}} onChanged={() => {}} />)
-    expect(screen.getByText(/does not change the draft's status/i)).toBeInTheDocument()
-    expect(screen.getByText(/run the evaluation again/i)).toBeInTheDocument()
+    // One sentence on the Acknowledge form, one on the Resolve form (the sheet description repeats the gist).
+    expect(screen.getByText(/KHÔNG xử lý nó và không đổi trạng thái của bản nháp/)).toBeInTheDocument()
+    expect(screen.getByText(/chạy đánh giá lại/i)).toBeInTheDocument()
   })
 
   it('offers no actions when read-only', () => {
     wrap(<PreflightFindingDrawer finding={finding} readOnly onClose={() => {}} onChanged={() => {}} />)
-    expect(screen.queryByRole('button', { name: 'Acknowledge' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Resolve finding' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Ghi nhận' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Xử lý phát hiện' })).not.toBeInTheDocument()
   })
 
   it('offers no actions once resolved', () => {
@@ -82,8 +83,8 @@ describe('preflight finding drawer', () => {
         onChanged={() => {}}
       />,
     )
-    expect(screen.queryByRole('button', { name: 'Acknowledge' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Resolve finding' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Ghi nhận' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Xử lý phát hiện' })).not.toBeInTheDocument()
     expect(screen.getByText(/Fixed\./)).toBeInTheDocument()
   })
 })

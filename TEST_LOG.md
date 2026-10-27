@@ -3580,3 +3580,101 @@ Settings, Overview, Accounts untouched.
   old `Drawer` with no focus trap), `AuditDiff`, `DISABLE_REASON_LABEL` glosses; the same
   focus-return fix applies to every Sheet opened by state; consider lazy-loading the `en` dictionary; the form has
   no pre-save diff step (edits are reversible and audited, so only archive / restore got the confirmation).
+
+## Session 2026-10-27 — U1d (Every remaining dashboard page on the new design system)
+
+Scope: `docs/AUDIT_BEFORE_BUILD_U1_UI.md` slice U1d. Branch `u1d-remaining-pages` on top of U1c (`1297710`). No API call,
+queryKey, enum or route changed. **Not touched (O4 owns them): `MetaConnections.tsx`, `MetaConnectionWorkspace.tsx`,
+`pages/meta-connection/*`, `components/meta/*`, `Settings.tsx`.**
+
+- Built, on the U1a-U1c primitives (`Card`, `Table`, `Badge`, `Button`, `Tabs`, `Sheet`, `AlertDialog`, `Field`, `Skeleton`,
+  `states/*`, `pages/account/parts`): BusinessManagers and Assets (Tabs + `ReferenceManager` as a table-to-cards list and a
+  Sheet), Readiness, AccountHealth (T2 toolbar, "Bộ lọc khác", column chooser, rules panel; `HealthSignalDrawer` is a Sheet),
+  Alerts (T2; `AlertDrawer` is a Sheet), Preflight list and PreflightDetail (T3, five tabs synced to `?tab=`;
+  `PreflightFindingDrawer` and `PreflightDraftFormDrawer` are Sheets), Operations hub and the three Meta wizards (T5),
+  TeamSeats (`InviteMemberDrawer`, `MemberDrawer` are Sheets), SecurityDevices, AuditLog (+ `AuditDiff` on tone tokens),
+  SystemStatus (T6). New shared parts: `components/page/{PageHeader,Filters,ListToolbar,Pager,TableSkeleton,FormSheet,
+  ConfirmDialog,Stat}`, `components/operations/WizardParts`.
+- **Write actions follow skill 6.4** (check -> diff -> typed confirmation -> write -> read back -> log): one `ConfirmDialog`
+  (AlertDialog) names the object, lists the effects and whether it can be undone, keeps focus on Cancel, stays open while the
+  request runs and when the server refuses, and returns focus to the opener (or the page heading). It takes an optional
+  required reason and an optional typed word. Used for: archive / restore of a reference, a preflight draft; turning a health
+  check off; suppressing a CRITICAL alert; changing a member's role; suspend / deactivate / archive / sign-out-everywhere of
+  a member; revoking a scope assignment or an invitation; revoking one session or all other sessions; and the three Meta
+  write wizards. After each write the page re-reads the record from the server and says what it now holds, or says the
+  read-back does not show the change; it never says "success" on a 200 alone. `window.confirm` is gone (2 call sites, both
+  in this slice's files).
+- **Meta write wizards: every existing gate is kept** (Preview -> "Looks right" -> Confirm batch, which still posts the
+  `preview_hash`, -> Run queue) and one is ADDED: "Run queue" now opens an AlertDialog that names the BM / connection /
+  environment, says production writes cannot be undone from the product, and keeps the Run button disabled until `CHẠY`
+  is typed. The result block counts the statuses the server returned and turns into a caution (with a separate alert) if any
+  item failed or is undetermined; `unknown` still offers Reconcile, which asks Meta again. The five steps were kept (the spec
+  sketch had four) because collapsing Confirm into Run would have removed a gate.
+- **P13 fixed.** The API badge on System status was `positive` whatever `api_status` said. The colour is now a function of
+  the value (`apiStatusTone` in `lib/operations.ts`: `healthy` positive, `degraded` caution, `unhealthy`/`down` attention,
+  anything else neutral and shown as the raw code). Database and dispatcher/worker got the same treatment
+  (`databaseStatusTone`, `workerStatusTone`). "Never run" (`not_configured`) is attention and "stale" is caution, in words and
+  tone, on the tile and in the application card (rule 28). The existing STATE_META test (`current` positive, never/stale not)
+  is unchanged.
+- Vietnamese through i18n: +1,070 keys in each of `vi.ts` / `en.ts` (parity test green), all `[ĐỀ XUẤT — chờ duyệt]`.
+  No `humanise()` / `titleCase()` left anywhere in `src/` (the two helpers were deleted from `lib/format.ts`); server enums
+  go through `useEnumLabel`; an unknown code shows as the code. Sentences the server writes (alert titles, finding messages,
+  configuration findings, audit actions, disclaimers in API responses) are shown as sent. `lib/health.ts`, `lib/alerts.ts`,
+  `lib/preflight.ts`, `lib/team.ts` and `lib/operations.ts` keep their English maps and tones untouched (they decide the tone,
+  and their existing tests assert them); pages take the label from the dictionary.
+- `no-raw-palette` allowlist: 18 -> 6 files, all of them the Meta connection files O4 owns. `components/ui.tsx` is **not
+  deleted**: `Login`, `Settings`, `MetaConnections`, `MetaConnectionWorkspace`, `meta-connection/HistoryTab` and
+  `components/meta/*` still import it. I removed its dead exports (`Drawer`, `StatTile`, `Progress`) so the old focus-trap-less
+  drawer cannot be reused.
+- **English dictionary is now lazy**: `translate.ts` ships only Vietnamese; `loadDictionary('en')` imports `./en` as its own
+  chunk. A stored English choice holds back the first render until the chunk arrives (no flash of Vietnamese); switching
+  language loads first and then switches; a failed load keeps Vietnamese. `test/setup.ts` preloads `en` so the suite stays
+  synchronous.
+- Results (run in this worktree): `npx vitest run` **512 passed, 20 skipped** (31 files passed + 1 skipped live file; U1c was
+  408 / 20, so +104). `npm run typecheck` and `npx eslint .` clean; `npm run build` succeeds. New tests: `u1d.lists.test.tsx`
+  30, `u1d.actions.test.tsx` 36, `u1d.i18n.test.tsx` 38.
+  - lists: loading region, empty with a next action, four-part error with request id, 403 as no-permission (not "try again"),
+    per page; reference archive via AlertDialog with focus on Cancel, Esc writes nothing, read-back and mismatch wording;
+    Sheet title / description / field error / focus return; Assets arrow-key tabs; unknown readiness and stale health never
+    success-toned; "chưa từng" not a date; never-evaluated draft shows "—" not 0; check turn-off via AlertDialog; non-owner
+    toggle disabled with a reason; critical alert suppression needs the AlertDialog; failed evaluation run is an alert;
+    URL filters and `?tab=` kept; axe on 5 pages + the AlertDialog + a Sheet.
+  - actions: connection step loading / error / empty / never-checked vs not-allowed; environment note; each wizard gate posts
+    only when asked; the typed word; result never success on a failed or unknown item; role change shows old -> new and is read
+    back; deactivation / invitation revoke need a reason; one-time link warning; current session cannot be revoked; a failed
+    extension list is an error; audit diff headers and redaction marker; System status P13 (4 values + 2 unfamiliar), never-run
+    vs stale, degraded overview, non-owner, host "not measured", test send typed `SEND`, "switched off" neutral; axe on 6
+    pages + the member Sheet + both dialog kinds.
+  - i18n: source scan (no `window.confirm`, no `humanise`, no old `components/ui` import in 38 U1d files), every literal key
+    exists, every server state in the tone maps has a vi and en label, wording guardrails (no "an toàn", the one
+    "sẽ được duyệt" is inside a negation), lazy English (fallback, deferred first render, Vietnamese does not wait, no static
+    import of `en`).
+- Existing tests edited only where wording or markup legitimately changed: `alerts.components`, `health.components`,
+  `preflight.components` (Vietnamese labels; the Sheets render in a portal, so two scans now look at `document.body`),
+  `platform-status` and `u1b.overview-accounts` ("Trạng thái ghi nhận", see defect 1), `components` (`Progress` replaced by
+  `ChecklistProgress`; see defect 2), `no-raw-palette` (allowlist shrank). No rule-5 / 6 / 13 / 17 / 28 / 29 / 33 or approval
+  assertion was weakened; the absence tests that now use Vietnamese button names were re-checked against a positive control.
+- Bundle (vite build): entry JS 493.00 kB -> 534.02 kB (gzip 148.21 -> 155.65 kB) because `vi.ts` grew by ~1,070 keys and is
+  the eager dictionary; `en` is now a separate 95.07 kB chunk (gzip 25.78 kB) that Vietnamese sessions never fetch (without the
+  split the entry would have been ~629 kB); CSS 46.95 -> 43.84 kB (gzip 10.73 kB).
+- Real defects found while doing this slice: (1) `col.recorded` / `filter.recorded` read "Đội ghi nhận" ("the recording
+  team") instead of "Trạng thái ghi nhận" in the Accounts table header and filter (U1b copy slip; fixed, two tests updated).
+  (2) The U1c test "account form offers no field for a password..." queried the render container, but the form is a Sheet in a
+  portal, so it inspected nothing and could not fail; it now inspects `document.body` and first asserts the dialog is open.
+  (3) Preflight list printed `0` blocking / `0` warning for a draft that was never evaluated, which reads as "clean"; it now
+  shows "—" with the reason, and the findings tab says a never-evaluated draft has no verdict. (4) SecurityDevices treated a
+  failed extension-installations request as "no browser connected"; it now shows the error. (5) The Meta wizards had no
+  loading / error / empty state for the connection list and reported a connection whose capabilities were never checked
+  (`capabilities === null`) as "not allowed". (6) "Test send is switched off" was painted with the success tone; it is neutral.
+  (7) Reference archive / restore, member role change, invitation revoke and session revoke happened on one click with no
+  confirmation or read-back. (8) System status showed a missing last-readiness-recalculation as an empty date; it says
+  "chưa từng".
+- NOT done / NOT verified: no click-through by a person and no screenshots; layout at 375 / 768 / 1280 px and dark mode were
+  not looked at (the `tbl-cards` conversion of every new table, the two-column grids and the stepper wrap are class-checked
+  only); Vietnamese diacritics in Chrome unchecked; menu / tooltip positioning untested (the floating-ui mock from U1a still
+  applies); `agy` was not used (the changes were written directly against the existing primitives). The wizards were tested
+  with a fake `api`; no Meta call was made, nothing was run live. Wording is `[ĐỀ XUẤT — chờ duyệt]` (BA review pending); the
+  typed words `CHẠY` (wizards) and `SEND` (test send) are proposals too.
+- Follow-ups: restyle the Meta connection screens (`MetaConnections`, `MetaConnectionWorkspace`, `meta-connection/*`,
+  `components/meta/*`) and `Settings` after O4 lands, then delete `components/ui.tsx` and empty the `no-raw-palette` allowlist;
+  `Login` still imports `ui.Field`; split the Vietnamese dictionary per route (entry is 534 kB); U1e (extension) is untouched.
