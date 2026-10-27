@@ -27,7 +27,9 @@ logger = logging.getLogger("app.rate_limit")
 
 #: Paths (relative to the API prefix) that exchange a credential. These are the brute-force
 #: surface, and they are limited by address because the caller is not yet authenticated.
-AUTH_PATH_SUFFIXES = ("/auth/login", "/extension/connect")
+#: O4: the Meta Login callback is public and exchanges a `code` for a token, so it is limited the
+#: same way, by address.
+AUTH_PATH_SUFFIXES = ("/auth/login", "/extension/connect", "/meta-reader-credentials/callback")
 
 #: Never limited. A failing health probe restarts the container, so limiting one converts a
 #: traffic spike into an outage.

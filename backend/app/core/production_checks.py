@@ -228,6 +228,51 @@ def check_settings(settings: Settings) -> list[ConfigFinding]:
                 f"{business_id.strip()}.",
             )
 
+    # ---- O4 Facebook Login for Business + credential vault ---------------------------
+    # Codes and sentences only (rule 26): the app secret and the vault key are never echoed.
+    if (settings.meta_app_secret or "").strip() and _placeholder(settings.meta_app_secret):
+        add(
+            "meta_app_secret_placeholder",
+            "META_APP_SECRET holds a known placeholder, so the Login callback cannot exchange a "
+            "code and debug_token cannot be asked.",
+        )
+    login_values = (
+        settings.meta_app_id,
+        settings.meta_app_secret,
+        settings.meta_login_config_id,
+        settings.meta_oauth_redirect_uri,
+    )
+    if any((value or "").strip() for value in login_values) and not settings.meta_login_configured:
+        add(
+            "meta_login_partially_configured",
+            "Some of META_APP_ID, META_APP_SECRET, META_LOGIN_CONFIG_ID and META_OAUTH_REDIRECT_URI "
+            "are set and some are not, so connecting a Facebook account stays disabled.",
+            severity="warning",
+        )
+    if settings.meta_login_configured:
+        from app.core.secret_vault import vault_configured
+
+        if not vault_configured(settings):
+            add(
+                "credential_vault_key_unusable",
+                "Facebook Login is configured but CREDENTIAL_VAULT_KEY is missing or is not a valid "
+                "Fernet key, so no credential can be stored and stored ones cannot be read.",
+                severity="warning",
+            )
+        redirect = urlparse((settings.meta_oauth_redirect_uri or "").strip())
+        if production and redirect.scheme != "https":
+            add(
+                "meta_oauth_redirect_not_https",
+                "META_OAUTH_REDIRECT_URI is not an https URL; Meta delivers the authorization code "
+                "to it.",
+            )
+    if (settings.meta_login_config_kind or "").strip().lower() not in ("", "system_user", "user"):
+        add(
+            "meta_login_config_kind_unknown",
+            "META_LOGIN_CONFIG_KIND must be system_user or user.",
+            severity="warning",
+        )
+
     return findings
 
 

@@ -268,6 +268,10 @@ class AlertSourceType(StrEnum):
     #: O3. One summary per discovery-sweep pass per connection, carrying no ad account. It is
     #: what keeps the first automatic import of many accounts from becoming one message each.
     DISCOVERY_SWEEP = "discovery_sweep"
+    #: O4. A vault reader credential that died (`critical`, one per credential and reason), is
+    #: about to expire (`warning`), or stopped listing a Business Manager it reads (`info`).
+    #: Carries no ad account: one credential can stand behind many.
+    READER_CREDENTIAL = "reader_credential"
 
 
 class DeliveryChannel(StrEnum):
@@ -373,6 +377,9 @@ class OperationalRunKind(StrEnum):
     #: O3. Scheduled read-only discovery, plus automatic import for connections that allow it.
     #: Off by default (`DISCOVERY_SWEEP_EVERY_N_PASSES=0`); switching it on is a release decision.
     DISCOVERY_SWEEP = "discovery_sweep"
+    #: O4. Liveness and expiry of each vault reader credential (`debug_token`, at most three GETs
+    #: per credential). Off by default (`CREDENTIAL_CHECK_EVERY_N_PASSES=0`); a release decision.
+    CREDENTIAL_CHECK = "credential_check"
 
 
 class OperationalRunStatus(StrEnum):
@@ -739,3 +746,32 @@ class SpendObservationTrigger(StrEnum):
 
     SCHEDULED_SWEEP = "scheduled_sweep"
     MANUAL_REFRESH = "manual_refresh"
+
+
+# ---------------------------------------------------------------------------------------
+# MINI-SPEC O4 — stored Meta reader credentials (Facebook Login for Business, vault).
+# ---------------------------------------------------------------------------------------
+
+
+class ReaderCredentialKind(StrEnum):
+    """What Meta says the token is (`debug_token.type`) — never what a person declared."""
+
+    #: A Login for Business "System User" configuration: a business-integration system user.
+    #: Documented by Meta as not expiring by default. The owner's chosen main path (§14 13.3).
+    SYSTEM_USER = "system_user"
+    #: A person's user access token, about 60 days. Handled by the same code, not the main path.
+    USER = "user"
+
+
+class ReaderCredentialStatus(StrEnum):
+    """Stored lifecycle. `expiring` is derived from `expires_at` when read, never stored.
+
+    Only `active` is ever read with. Nothing but a successful verification against Meta
+    (`debug_token` + a read of the Business Manager) makes a credential `active` — no person can
+    attest it. `reconnect_required` never returns to `active` by itself; `revoked` is terminal.
+    """
+
+    PENDING_VERIFICATION = "pending_verification"
+    ACTIVE = "active"
+    RECONNECT_REQUIRED = "reconnect_required"
+    REVOKED = "revoked"

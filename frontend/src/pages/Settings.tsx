@@ -7,6 +7,7 @@ import { Badge, Card, ErrorState, Field, InlineNote, Skeleton } from '../compone
 import { formatRelative } from '../lib/format'
 import { useAuth } from '../hooks/useAuth'
 import { TRANSPORT_NOT_CONFIGURED } from '../lib/alerts'
+import { ReaderCredentialsSection } from '../components/meta/ReaderCredentialsSection'
 
 export default function Settings() {
   const { user } = useAuth()
@@ -60,6 +61,8 @@ export default function Settings() {
           </Link>
         </div>
       </Card>
+
+      <ReaderCredentialsSection isOwner={me.data.role === 'owner'} />
 
       <Card title="Meta">
         <Link to="/meta-connections" className="card block px-3 py-2.5 hover:border-line-strong">

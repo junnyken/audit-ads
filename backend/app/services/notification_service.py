@@ -38,12 +38,16 @@ from app.services import quiet_hours
 from app.services.audit import AuditLogService
 from app.services.base import snapshot as orm_snapshot
 from app.services.notification_templates import (
+    CREDENTIAL_TEMPLATE_VERSION,
     SUMMARY_TEMPLATE_VERSION,
     TEMPLATE_VERSION,
+    CredentialMessageInputs,
     MessageInputs,
     SummaryMessageInputs,
     build_dashboard_link,
+    build_settings_link,
     render,
+    render_credential,
     render_summary,
 )
 from app.services.notification_transport import NotificationTransport, OutboundMessage
@@ -149,11 +153,38 @@ class NotificationPlannerService:
             is not None
         )
 
+    def _credential_payload(self, alert: Alert, policy: AlertPolicy) -> tuple[dict, str]:
+        """O4. A reader-credential alert names a credential, not an account."""
+        snapshot = alert.source_snapshot_json or {}
+
+        def count(key: str) -> int | None:
+            value = snapshot.get(key)
+            return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
+
+        inputs = CredentialMessageInputs(
+            severity=alert.severity.value,
+            alert_title=alert.title,
+            reader_label=str(snapshot.get("reader_label") or "—"),
+            reader_kind=str(snapshot.get("reader_kind") or "—"),
+            granted_by=str(snapshot.get("granted_by") or "—"),
+            reason=str(snapshot.get("reason") or "—"),
+            expires_at=snapshot.get("expires_at") if isinstance(snapshot.get("expires_at"), str) else None,
+            connections_affected=count("connections_affected"),
+            accounts_affected=count("accounts_affected"),
+            observed_at=alert.last_observed_at,
+            recommended_next_step=str(snapshot.get("recommended_next_step", "")),
+            timezone_name=policy.timezone,
+            dashboard_link=build_settings_link(self.settings.public_app_url),
+        )
+        return redact(inputs.to_payload()), render_credential(inputs)
+
     def _payload(
         self, alert: Alert, account: AdAccount | None, policy: AlertPolicy
     ) -> tuple[dict, str]:
         if alert.source_type == AlertSourceType.DISCOVERY_SWEEP:
             return self._summary_payload(alert, policy)
+        if alert.source_type == AlertSourceType.READER_CREDENTIAL:
+            return self._credential_payload(alert, policy)
         snapshot = alert.source_snapshot_json or {}
         inputs = MessageInputs(
             severity=alert.severity.value,
@@ -463,6 +494,10 @@ class NotificationDispatcherService:
         if payload.get("template_version") == SUMMARY_TEMPLATE_VERSION:
             text = render_summary(
                 SummaryMessageInputs.from_payload(payload, observed_at=alert.last_observed_at)
+            )
+        elif payload.get("template_version") == CREDENTIAL_TEMPLATE_VERSION:
+            text = render_credential(
+                CredentialMessageInputs.from_payload(payload, observed_at=alert.last_observed_at)
             )
         else:
             text = self._render_account_message(payload, alert)

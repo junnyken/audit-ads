@@ -14,6 +14,9 @@ expression anywhere in A3.
 | Health signal resolved / superseded / expired | — | The linked alert resolves. **No "resolved" Telegram message in v1** |
 | Health evaluation run failed, and it is the latest word on the account | `warning` | Candidate, quiet-hours aware. Carries only the allowlisted error *code* — never the exception text |
 | Health evaluation succeeded after a failure | — | The failure-derived alert resolves automatically |
+| Vault reader credential (O4) declared dead by Meta (`debug_token` invalid/expired/under-scoped), or unopenable with a changed vault key | `critical` | **One** per credential per death (key without the reason), Telegram per policy — `critical` bypasses quiet hours when the policy says so (decided 2026-10-27, §14 13.5). Template `a3-v1-credential`. Resolved by a successful reconnect or a revoke |
+| Vault reader credential (O4) expiring within `CREDENTIAL_EXPIRY_WARNING_DAYS` (14) | `warning` | One per expiry date; `warning` policy. Resolved when the expiry moves out of the window |
+| Vault reader credential (O4, user token) no longer lists a Business Manager it reads | `info` | Alert Center only by default. Nothing is archived |
 | Discovery sweep pass (O3), per connection, **only when something is new** — an import, or a changed set of standing conditions (new accounts awaiting import, archived accounts Meta still returns, accounts not returned by a complete discovery, new Pixels) | `warning` | One summary per pass per connection, never one per account. Follows the `warning` policy (quiet-hours aware, `warning_telegram_enabled`); no policy column of its own (decided 2026-10-27, §9 8.3). Template `a3-v1-summary` (§8b). A newer summary resolves the previous one; a summary whose conditions have all cleared is resolved by its source |
 
 The original A2 severity is kept in `source_snapshot_json.health_severity`, so mapping an
@@ -22,6 +25,7 @@ someone invented.
 
 **Alert key** — `health_signal:{ad_account_id}:{signal_key}`,
 `health_evaluation_run:{ad_account_id}:{error_code}`, or (O3) `discovery_sweep:{connection_id}:{run_id}`
+with `ad_account_id = null`, or (O4) `reader_credential:{credential_id}:reconnect|expiring:{date}|not_listed:{bm}`
 with `ad_account_id = null`. At most one *active* alert per key is
 enforced by the database through a nullable `active_key` with `unique(workspace_id, active_key)`.
 

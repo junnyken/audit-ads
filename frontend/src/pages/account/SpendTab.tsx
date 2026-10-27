@@ -7,6 +7,8 @@ import { SPEND_FRESHNESS_META } from '../../lib/readiness'
 import { rawMoney, refreshErrorMessage } from '../../lib/spend'
 import { formatDateTime } from '../../lib/format'
 import { useAuth } from '../../hooks/useAuth'
+import { NotObservableReason } from '../../components/meta/NotObservableReason'
+import { readerSourceLabel } from '../../lib/metaReaders'
 
 export default function SpendTab({ account }: { account: AdAccount }) {
   const { user } = useAuth()
@@ -72,14 +74,15 @@ export default function SpendTab({ account }: { account: AdAccount }) {
           <Badge tone={meta.tone} title={meta.description}>
             {meta.label}
           </Badge>
-          {data.reader_source && (
-            <span className="text-[12px] text-ink-muted">Read via: {data.reader_source}</span>
+          {readerSourceLabel(data.reader_source) && (
+            <span className="text-[12px] text-ink-muted">Read via: {readerSourceLabel(data.reader_source)}</span>
           )}
           <span className="text-[12px] text-ink-muted">
             Fresh for {data.stale_after_hours} hours after a successful read
           </span>
         </div>
         <p className="mt-2 text-[12.5px] text-ink-muted">{meta.description}</p>
+        {!data.observable && <NotObservableReason reason={data.not_observable_reason} />}
 
         {refresh.isError && (
           <p role="alert" className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12.5px] text-rose-800">

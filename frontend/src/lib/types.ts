@@ -616,6 +616,12 @@ export interface OperationsOverview {
   host: HostMetrics
   host_bands: { cpu: string; memory: string; disk: string }
   thresholds: Record<string, number>
+  /** O4. Optional so older fixtures still type-check. */
+  credential_check_state?: 'current' | 'stale' | 'never'
+  credential_check_last_run?: OperationalRun | null
+  reader_credentials?: Partial<Record<ReaderCredentialState, number>>
+  meta_login_configured?: boolean
+  credential_vault_configured?: boolean
 }
 
 export interface ConfigurationFinding {
@@ -800,7 +806,7 @@ export interface MetaConnection {
    * a value. `business_specific`: this BM has its own reader. `server_default`: it falls back to
    * the single server token, which may or may not have a role in that business.
    * `none`: nothing is configured that could read it. `fake`: no real credential is involved. */
-  reader_source: 'business_specific' | 'server_default' | 'none' | 'fake'
+  reader_source: ReaderSource
   /** The Business Manager this connection actually reads, and where that id came from. A
    * connection that inherits the server setting reads the same BM as every other inheriting
    * connection — which is why the source has to be visible, not just the id. */
@@ -813,7 +819,84 @@ export interface MetaConnection {
   /** O3. The owner's switches for the scheduled discovery sweep. Optional so older fixtures and
    * responses still type-check; absent reads as "both off". */
   automation?: MetaConnectionAutomation
+  /** O4. The vault credential this connection reads with — name and state, never a token.
+   * Optional so older fixtures still type-check; absent reads as "not bound". */
+  reader_credential?: ConnectionReaderCredential | null
+  /** O4. Other active vault credentials that also saw this Business Manager. Offered to the owner
+   * as an explicit switch; the system never switches by itself. */
+  other_readers?: { id: string; label: string; kind: ReaderCredentialKind }[]
 }
+
+/** O4. `vault`: an active Facebook Login for Business credential. `vault_reconnect_required`: bound
+ * to one that cannot be used — nothing is read, and it never falls back to a server token. */
+export type ReaderSource =
+  | 'vault'
+  | 'vault_reconnect_required'
+  | 'business_specific'
+  | 'server_default'
+  | 'none'
+  | 'fake'
+
+export type ReaderCredentialKind = 'system_user' | 'user'
+export type ReaderCredentialStatus = 'pending_verification' | 'active' | 'reconnect_required' | 'revoked'
+/** `expiring` is derived on the server from `expires_at`, never stored. */
+export type ReaderCredentialState = ReaderCredentialStatus | 'expiring'
+
+export interface ConnectionReaderCredential {
+  id: string
+  label: string
+  kind: ReaderCredentialKind
+  status: ReaderCredentialStatus
+  derived_state: ReaderCredentialState
+  expires_at: string | null
+  reconnect_reason: string | null
+}
+
+/** O4. Everything that may be disclosed about a vault credential (rule 40) — never the token. */
+export interface MetaReaderCredential {
+  id: string
+  label: string
+  kind: ReaderCredentialKind
+  status: ReaderCredentialStatus
+  derived_state: ReaderCredentialState
+  provider_user_external_id: string | null
+  provider_user_name: string | null
+  scopes: string[]
+  issued_at: string | null
+  expires_at: string | null
+  data_access_expires_at: string | null
+  last_verified_at: string | null
+  last_verify_outcome: string | null
+  reconnect_reason: string | null
+  businesses_seen: {
+    external_id: string
+    name: string | null
+    permitted_roles: string[] | null
+    bound_here: boolean
+  }[]
+  connections: { id: string; label: string; business_manager_reference: string | null }[]
+  connected_at: string | null
+  secret_last_rotated_at: string | null
+  revoked_at: string | null
+  check_result?: string
+}
+
+export interface MetaReaderCredentialList {
+  configured: boolean
+  unavailable_reason: 'not_configured' | 'vault_unavailable' | null
+  config_kind: ReaderCredentialKind
+  business_manager_required: boolean
+  items: MetaReaderCredential[]
+}
+
+/** O4. Why the product cannot read an account; `null` when it can. */
+export type NotObservableReason =
+  | 'account_archived'
+  | 'no_external_account_id'
+  | 'no_business_manager'
+  | 'no_production_connection'
+  | 'no_reader'
+  | 'reader_reconnect_required'
 
 /** O3. `eligible` is whether the sweep could read this connection at all — production, a
  * Business Manager id, and a configured reader. Computed on the server, never stored. */
@@ -823,7 +906,13 @@ export interface MetaConnectionAutomation {
   enabled_by: string | null
   enabled_at: string | null
   eligible: boolean
-  ineligible_reason: 'not_production' | 'business_manager_not_configured' | 'reader_not_configured' | 'archived' | null
+  ineligible_reason:
+    | 'not_production'
+    | 'business_manager_not_configured'
+    | 'reader_not_configured'
+    | 'reader_reconnect_required'
+    | 'archived'
+    | null
 }
 
 /** A10.1. One edge's outcome. `not_attempted` is the value a boolean cannot express, and the
@@ -1157,6 +1246,8 @@ export interface AccountSpendCompact {
   observed_currency: string | null
   /** `spend_raw` is null when Meta returned no row for that day — never "0". */
   latest_complete_day: { date: string; spend_raw: string | null } | null
+  /** O4. Optional: absent in responses older than O4. */
+  not_observable_reason?: NotObservableReason | null
 }
 
 export interface SpendDailyRaw {
@@ -1200,6 +1291,8 @@ export interface SpendView {
   ad_account_id: string
   freshness: SpendFreshness
   observable: boolean
+  /** O4. The first missing link when the account cannot be read. */
+  not_observable_reason?: NotObservableReason | null
   reader_source: string | null
   meta_connection_id: string | null
   stale_after_hours: number

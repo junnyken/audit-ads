@@ -3,9 +3,11 @@
 The only places that write `ad_account_spend_observations`. Three boundaries are kept here:
 
 * **Who can be read** is decided once, by `resolve_spend_connection`: the account's Business
-  Manager, a non-archived `production` connection reading that Business Manager, and a configured
-  reader credential for it. Anything short of all three is `not_observable` — the product cannot
-  read it, which is a different fact from "nobody has read it yet" (rule 28).
+  Manager, a non-archived `production` connection reading that Business Manager, and a usable
+  reader credential for it — server configuration, or since O4 an `active` vault credential the
+  connection is bound to. Anything short of all three is `not_observable` — the product cannot
+  read it, which is a different fact from "nobody has read it yet" (rule 28) — and since O4 it
+  says why (`not_observable_reason`).
 * **Reading** goes through a provider built for that connection — the real, read-only provider
   (`meta_real_provider.py`) — and nothing else. `provider_for_connection` is the single seam a
   test replaces; no test reaches the network.
@@ -43,7 +45,13 @@ from app.services.meta_provider import (
     ProviderIdentity,
     SpendRead,
 )
-from app.services.meta_real_provider import READER_NONE, build_real_provider, resolve_reader
+from app.services.meta_real_provider import (
+    READER_NONE,
+    READER_VAULT,
+    READER_VAULT_RECONNECT_REQUIRED,
+    build_real_provider,
+    resolve_reader,
+)
 from app.services.spend_engine import ObservationView, SpendFacts, assemble
 
 logger = logging.getLogger(__name__)
@@ -72,13 +80,30 @@ class SpendReader:
     business_id: str
 
 
+def connection_reader_source(connection: MetaConnection, settings=None) -> str:
+    """Which credential would answer for this connection — a name, never a value (rule 40).
+
+    O4: the connection's own vault credential, when it is bound to one (`vault`, or
+    `vault_reconnect_required` when that credential cannot be used); otherwise server
+    configuration, exactly as before. The token `resolve_reader` returns is discarded here.
+    """
+    settings = settings or get_settings()
+    business_id = connection_business_id(connection, settings)
+    # `getattr`: a few A10 tests pass a plain stand-in rather than an ORM row; no attribute means
+    # "not bound to the vault", which is exactly what an unbound row says.
+    credential = getattr(connection, "reader_credential", None)
+    _, reader_source = resolve_reader(settings, business_id, credential=credential)
+    return reader_source
+
+
 def reader_for_connection(connection: MetaConnection, settings=None) -> SpendReader | None:
     """The one predicate for "can this connection read Meta at all": not archived, `production`,
-    a Business Manager id, and a configured reader credential for it. `None` otherwise.
+    a Business Manager id, and a usable reader credential for it. `None` otherwise.
 
-    Shared by spend (S1) and the discovery sweep (O3), so "eligible" cannot mean two things. A
-    later reader source (mb-connect, Phase 4) is a new branch of `resolve_reader`, not of this.
-    Reads server configuration and the row, never Meta; the credential itself is never returned.
+    Shared by spend (S1) and the discovery sweep (O3), so "eligible" cannot mean two things. The
+    vault (O4) is a branch of `resolve_reader`, not of this — a connection bound to a credential
+    that is not `active` is simply not readable. Reads server configuration and the row, never
+    Meta; the credential itself is never returned.
     """
     settings = settings or get_settings()
     if connection.archived_at is not None or connection.environment != MetaEnvironment.PRODUCTION:
@@ -86,20 +111,47 @@ def reader_for_connection(connection: MetaConnection, settings=None) -> SpendRea
     business_id = connection_business_id(connection, settings)
     if not business_id:
         return None
-    _, reader_source = resolve_reader(settings, business_id)
-    if reader_source == READER_NONE:
+    reader_source = connection_reader_source(connection, settings)
+    if reader_source in (READER_NONE, READER_VAULT_RECONNECT_REQUIRED):
         return None
     return SpendReader(connection, reader_source, business_id)
 
 
-def _connections_by_business(session: Session, workspace_id: uuid.UUID, settings) -> dict[str, SpendReader]:
-    """Business Manager id -> the one connection chosen to read it.
+#: O4. Why an account cannot be read (`not_observable_reason`). Codes, never sentences.
+NOT_OBSERVABLE_ACCOUNT_ARCHIVED = "account_archived"
+NOT_OBSERVABLE_NO_EXTERNAL_ID = "no_external_account_id"
+NOT_OBSERVABLE_NO_BUSINESS_MANAGER = "no_business_manager"
+NOT_OBSERVABLE_NO_PRODUCTION_CONNECTION = "no_production_connection"
+NOT_OBSERVABLE_NO_READER = "no_reader"
+NOT_OBSERVABLE_READER_RECONNECT_REQUIRED = "reader_reconnect_required"
 
-    Only `production` connections with a configured reader count: a fake or sandbox connection
-    never reaches Meta, and spend that no platform reported must not appear as observed. When
-    several qualify for one Business Manager (it has happened), a connection that names the
-    Business Manager itself wins over one inheriting the server setting, then the oldest.
+
+@dataclass(frozen=True)
+class ReaderMap:
+    """Business Manager id -> the one connection chosen to read it, and for every Business
+    Manager that has a production connection but no reader, why not."""
+
+    readers: dict[str, SpendReader]
+    gaps: dict[str, str]
+
+
+def reader_map(session: Session, workspace_id: uuid.UUID, settings=None) -> ReaderMap:
+    """Which connection reads each Business Manager.
+
+    Only `production` connections with a usable reader count: a fake or sandbox connection never
+    reaches Meta, and spend that no platform reported must not appear as observed. When several
+    qualify for one Business Manager (it has happened), the rank decides, then the oldest:
+
+    0. bound to an `active` vault credential (O4);
+    1. names the Business Manager itself, read with server configuration;
+    2. inherits the server's Business Manager setting.
+
+    **No silent fallback (rule 40).** Once any connection for a Business Manager is bound to a
+    vault credential, only vault-bound connections may read it. If none of their credentials is
+    `active`, the Business Manager is not read at all — `reader_reconnect_required` — rather
+    than read by a server token as a different identity.
     """
+    settings = settings or get_settings()
     rows = session.execute(
         sa.select(MetaConnection)
         .where(
@@ -110,16 +162,63 @@ def _connections_by_business(session: Session, workspace_id: uuid.UUID, settings
         .order_by(MetaConnection.created_at.asc(), MetaConnection.id.asc())
     ).scalars().all()
     chosen: dict[str, tuple[int, SpendReader]] = {}
+    seen: set[str] = set()
+    vault_bound: set[str] = set()
     for connection in rows:
+        business_id = connection_business_id(connection, settings)
+        if not business_id:
+            continue
+        seen.add(business_id)
+        if connection.reader_credential_id is not None:
+            vault_bound.add(business_id)
         reader = reader_for_connection(connection, settings)
         if reader is None:
             continue
-        business_id = reader.business_id
-        rank = 0 if (connection.business_manager_reference or "").strip() else 1
+        if reader.reader_source == READER_VAULT:
+            rank = 0
+        elif (connection.business_manager_reference or "").strip():
+            rank = 1
+        else:
+            rank = 2
         current = chosen.get(business_id)
         if current is None or rank < current[0]:
             chosen[business_id] = (rank, reader)
-    return {key: value for key, (_, value) in chosen.items()}
+    readers: dict[str, SpendReader] = {}
+    gaps: dict[str, str] = {}
+    for business_id in seen:
+        entry = chosen.get(business_id)
+        if business_id in vault_bound and (entry is None or entry[0] != 0):
+            gaps[business_id] = NOT_OBSERVABLE_READER_RECONNECT_REQUIRED
+        elif entry is None:
+            gaps[business_id] = NOT_OBSERVABLE_NO_READER
+        else:
+            readers[business_id] = entry[1]
+    return ReaderMap(readers=readers, gaps=gaps)
+
+
+def _connections_by_business(session: Session, workspace_id: uuid.UUID, settings) -> dict[str, SpendReader]:
+    """Business Manager id -> the one connection chosen to read it (`reader_map`)."""
+    return reader_map(session, workspace_id, settings).readers
+
+
+def not_observable_reason(account: AdAccount, readers: ReaderMap) -> str | None:
+    """`None` when the account is observable; otherwise the first missing link, as a code."""
+    if account.archived_at is not None:
+        return NOT_OBSERVABLE_ACCOUNT_ARCHIVED
+    if not canonical_external_id(account.external_account_id):
+        return NOT_OBSERVABLE_NO_EXTERNAL_ID
+    business_id = _account_business_id(account)
+    if not business_id:
+        return NOT_OBSERVABLE_NO_BUSINESS_MANAGER
+    if business_id in readers.readers:
+        return None
+    return readers.gaps.get(business_id, NOT_OBSERVABLE_NO_PRODUCTION_CONNECTION)
+
+
+def account_not_observable_reason(
+    session: Session, workspace_id: uuid.UUID, account: AdAccount, settings=None
+) -> str | None:
+    return not_observable_reason(account, reader_map(session, workspace_id, settings))
 
 
 def _account_business_id(account: AdAccount) -> str:
@@ -148,7 +247,13 @@ def provider_for_connection(reader: SpendReader) -> MetaBusinessProvider:
     The one place a spend read gets its provider, and the seam tests replace — automated tests
     never build this, so they can never reach the network.
     """
-    return build_real_provider(get_settings(), business_id=reader.business_id)
+    return build_real_provider(
+        get_settings(),
+        business_id=reader.business_id,
+        # O4: a vault-bound connection is read with its own credential, decrypted here — when the
+        # provider is built, not earlier, and never cached across passes.
+        credential=getattr(reader.connection, "reader_credential", None),
+    )
 
 
 def _view(row: AdAccountSpendObservation) -> ObservationView:
@@ -329,7 +434,8 @@ def list_compact_reads(
         return {}
     settings = get_settings()
     now = now or datetime.now(UTC)
-    readers = _connections_by_business(session, workspace_id, settings)
+    mapping = reader_map(session, workspace_id, settings)
+    readers = mapping.readers
     ids = [account.id for account in accounts]
     scoped = (
         AdAccountSpendObservation.workspace_id == workspace_id,
@@ -385,12 +491,17 @@ def list_compact_reads(
                     "date": entry.day.isoformat(),
                     "spend_raw": entry.spend_raw if entry.has_row else None,
                 }
+        spend = {
+            "freshness": facts.freshness.value,
+            "observed_currency": facts.observed_currency,
+            "latest_complete_day": day,
+        }
+        if reader is None:
+            # O4: why the product cannot read it. Present only on a `not_observable` row, so the
+            # S1 compact shape of every observable row stays exactly what it was.
+            spend["not_observable_reason"] = not_observable_reason(account, mapping)
         result[account.id] = {
-            "spend": {
-                "freshness": facts.freshness.value,
-                "observed_currency": facts.observed_currency,
-                "latest_complete_day": day,
-            },
+            "spend": spend,
             "platform_status": compact_platform_status(facts.platform_status),
         }
     return result

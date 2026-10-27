@@ -31,6 +31,18 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, default=str, ensure_ascii=False)
 
 
+class StripQueryStringFilter(logging.Filter):
+    """O4: uvicorn's access line carries the full request target, query string included. The
+    Login callback arrives as `?code=…&state=…` — a one-time authorization code — so every access
+    line is cut at `?`. The app's own request line already logs the path only."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str) and "?" in args[2]:
+            record.args = (*args[:2], args[2].split("?", 1)[0], *args[3:])
+        return True
+
+
 def configure_logging(level: str = "INFO") -> None:
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(JsonFormatter())
@@ -40,3 +52,6 @@ def configure_logging(level: str = "INFO") -> None:
     for noisy in ("uvicorn.access", "uvicorn.error"):
         logging.getLogger(noisy).handlers = [handler]
         logging.getLogger(noisy).propagate = False
+    access = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, StripQueryStringFilter) for f in access.filters):
+        access.addFilter(StripQueryStringFilter())

@@ -27,6 +27,8 @@ export function ineligibleText(reason: MetaConnectionAutomation['ineligible_reas
     return 'No Business Manager is set for this connection or on the server, so there is nothing to read.'
   if (reason === 'reader_not_configured')
     return 'The server has no reader credential for this Business Manager. The switch can be set now, but nothing will be read until one is configured.'
+  if (reason === 'reader_reconnect_required')
+    return "This connection's Meta reader credential needs reconnecting (Settings). Nothing will be read until it is reconnected."
   if (reason === 'archived') return 'This connection is archived.'
   return null
 }

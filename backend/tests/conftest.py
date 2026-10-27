@@ -27,6 +27,15 @@ os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 # need a configured credential set a fake one themselves.
 os.environ["META_ACCESS_TOKEN"] = ""
 os.environ["META_ACCESS_TOKENS_BY_BUSINESS"] = "{}"
+# O4: the same for the Login for Business app and the credential vault. A developer's `.env` may
+# hold real values; no test may find them. Tests that need a vault generate a throwaway Fernet
+# key at test time (`tests/o4_helpers.py`) — never a value that exists anywhere else.
+for _o4_name in (
+    "META_APP_ID", "META_APP_SECRET", "META_LOGIN_CONFIG_ID", "META_OAUTH_REDIRECT_URI",
+    "CREDENTIAL_VAULT_KEY",
+):
+    os.environ[_o4_name] = ""
+os.environ["CREDENTIAL_CHECK_EVERY_N_PASSES"] = "0"
 
 import pytest  # noqa: E402
 import sqlalchemy as sa  # noqa: E402
@@ -42,6 +51,7 @@ from app.models.entities import User, Workspace, WorkspaceMember  # noqa: E402
 from app.services.meta_provider import reset_fake_provider  # noqa: E402
 from app.services.notification_transport import reset_fake_transport  # noqa: E402
 from tests.o3_helpers import sweep_env  # noqa: E402,F401 - O3 fixture, shared
+from tests.o4_helpers import o4_env  # noqa: E402,F401 - O4 fixture, shared
 from tests.s1_spend_helpers import spend_env  # noqa: E402,F401 - S1 fixture, shared
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

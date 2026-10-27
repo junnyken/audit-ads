@@ -699,3 +699,35 @@ Không test nào được chạy để viết tài liệu này.
 | 13.5 | Credential chết thì bắn **một alert `critical`** và báo Telegram ngay. Loại có hạn thì cảnh báo `warning` trước 14 ngày |
 | 13.10 | **Làm O4 ngay sau O3**, không chờ lần đọc thật trên hub |
 | 13.4, 13.6–13.9, 13.11 | Chưa hỏi riêng, áp đề xuất của tài liệu: một cú bấm owner (không tự chuyển credential); giữ `business_management` và đo thêm ở phiên đo; 2FA là khuyến nghị bắt buộc trong runbook. Phiên đo ≤ 6 GET, chọn app Meta, gán vai trò app và người duyệt cadence trên production là việc ngoài mã, làm khi cấu hình thật |
+
+---
+
+## 15. Build (2026-10-27) — chỗ lệch có chủ ý so với bản nháp §7
+
+Đã build đúng Design Choice §7b với quyết định §14. Các điểm dưới đây là cách hiện thực khác chữ của bản
+nháp; mỗi điểm có test ghim. Kết quả test thật ở `TEST_LOG.md` (O4).
+
+1. **Mẫu tin Telegram**: thêm `a3-v1-credential` thay vì dùng lại `a3-v1-summary` — mẫu summary bắt buộc
+   connection/BM/coverage, không hợp với một credential. Cùng kỷ luật allowlist, không trường nào chở token.
+2. **Khoá alert critical** là `reader_credential:{id}:reconnect` (lý do nằm trong snapshot, không trong khoá)
+   → đúng **một** alert critical mỗi lần chết (§14 13.5), đổi lý do không bắn thêm.
+3. **`POST /meta-connections/{id}/reader-credential` nhận `{reader_id}`**, không `{credential_id}`:
+   `StrictPayload` từ chối mọi field có chữ "credential" — giữ nguyên độ chặt đó.
+4. **`not_observable_reason`** thêm hai mã có thật ngoài bốn mã của bản nháp: `no_external_account_id`,
+   `account_archived` (không gộp vào mã khác cho khỏi nói sai).
+5. **`businesses_seen_json` cho system user** = BM đã xác minh (bản nháp ghi NULL) — cần cho luật 409 của
+   việc gán credential.
+6. **Thu hồi xoá ciphertext** (`encrypted_secret = NULL`), giữ hàng + lịch sử + con trỏ trên connection.
+7. **Mất khoá vault** trong lượt kiểm: run `failed`, **không** đánh dấu credential nào chết (lỗi triển khai, không
+   phải phán quyết của Meta); **đổi khoá** (có khoá mà không mở được) → `reconnect_required/vault_unavailable`.
+8. **Chưa cấu hình app Meta**: lượt kiểm không gọi gì và **không ghi run** → System Status vẫn `never`.
+9. **≤ 3 GET**: lượt có thử gia hạn thì bỏ `me/businesses` tới lượt sau; xác minh lại một system user còn pending
+   trong lượt thì bỏ `identify()`.
+10. **Connection production gắn credential chết**: `_provider_for` trả 409 `reader_reconnect_required` thay vì
+    rơi về provider giả hay token máy chủ.
+11. **Log**: dòng access của uvicorn bị cắt tại `?` (callback mang `code`); callback từ chối trước khi lưu ghi
+    audit `meta_reader_credential.connect_refused`.
+12. **`business_manager_not_listed`** là alert `info` (Alert Center; không có mức "attention" cho alert).
+13. **Giao diện**: không có tone "critical" → `reconnect_required` dùng `attention` (mạnh nhất), `pending` và
+    `expiring` dùng `caution`, `active` dùng `neutral`. Chuỗi mới nằm ở `frontend/src/i18n/o4.ts`, spread vào
+    `vi.ts`/`en.ts` (một dòng mỗi tệp) để không xung đột với U1b/U1c.

@@ -4,8 +4,9 @@ Five additive tables. No A1 table is altered — a successfully created account 
 `AdAccount` through the existing registry service, not through a duplicate write path here.
 
 No token is ever a column in any table here. `MetaConnection` records *that* a connection is
-configured and what it can do — never the credential itself, which lives only in server
-configuration (CLAUDE.md rule 18's boundary, extended to Meta).
+configured and what it can do — never the credential itself. Since O4 a credential lives in
+server configuration or, encrypted, in `meta_reader_credentials` (rule 40); a connection only
+*points at* the latter through `reader_credential_id`.
 """
 from __future__ import annotations
 
@@ -13,7 +14,7 @@ import uuid
 from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.enums import MetaBatchItemStatus, MetaEnvironment, ReferenceStatus
 from app.db.base import Archivable, Base, Timestamped, UUIDPrimaryKey
@@ -78,6 +79,21 @@ class MetaConnection(UUIDPrimaryKey, Timestamped, Archivable, Base):
     automation_enabled_at: Mapped[datetime | None] = mapped_column(
         sa.DateTime(timezone=True), nullable=True
     )
+    #: O4. The vault credential this connection reads with, chosen once (on connect, or by the
+    #: owner through `POST /meta-connections/{id}/reader-credential`) and never switched by the
+    #: system. While it points at a credential that is not `active`, the connection reads
+    #: nothing — it never falls back to a server token (rule 40). Kept after a revoke so the
+    #: history of what was read, and with which credential, stays continuous.
+    reader_credential_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid(),
+        # Named explicitly: the convention's name is 64 characters, one over PostgreSQL's limit.
+        sa.ForeignKey(
+            "meta_reader_credentials.id", ondelete="RESTRICT", name="fk_meta_conn_reader_credential"
+        ),
+        nullable=True,
+        index=True,
+    )
+    reader_credential = relationship("MetaReaderCredential", lazy="joined")
 
 
 class AccountCreationBatch(UUIDPrimaryKey, Timestamped, Archivable, Base):

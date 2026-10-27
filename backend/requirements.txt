@@ -9,3 +9,7 @@ email-validator==2.2.0
 PyJWT==2.10.1
 # A6: bounded landing-page fetch (timeout/redirect/size control) — was dev-only (TestClient).
 httpx==0.28.1
+# O4: Fernet (AES-128-CBC + HMAC-SHA256) for the Meta reader credential vault. The standard
+# library has no authenticated symmetric cipher; this is a deliberate, owner-approved dependency
+# (docs/AUDIT_BEFORE_BUILD_O4_USER_TOKENS.md §14, 13.2). Only `core/secret_vault.py` imports it.
+cryptography==46.0.3

@@ -80,6 +80,13 @@ services:
       RATE_LIMIT_TRUSTED_PROXY_HOPS: ${RATE_LIMIT_TRUSTED_PROXY_HOPS:-1}
       # One uvicorn worker (see the Dockerfile CMD), so the configured allowance is the real one.
       RATE_LIMIT_PROCESS_COUNT: ${RATE_LIMIT_PROCESS_COUNT:-1}
+      # O4 Facebook Login for Business + vault. Empty = the Connect button stays disabled.
+      META_APP_ID: ${META_APP_ID:-}
+      META_APP_SECRET: ${META_APP_SECRET:-}
+      META_LOGIN_CONFIG_ID: ${META_LOGIN_CONFIG_ID:-}
+      META_OAUTH_REDIRECT_URI: ${META_OAUTH_REDIRECT_URI:-}
+      META_LOGIN_CONFIG_KIND: ${META_LOGIN_CONFIG_KIND:-system_user}
+      CREDENTIAL_VAULT_KEY: ${CREDENTIAL_VAULT_KEY:-}
     expose: ["8000"]
     ports: !override []
     networks: [internal]
@@ -130,6 +137,14 @@ services:
       NOTIFICATION_DISPATCH_BATCH_SIZE: ${NOTIFICATION_DISPATCH_BATCH_SIZE:-10}
       DISPATCHER_INTERVAL_SECONDS: ${DISPATCHER_INTERVAL_SECONDS:-60}
       DISPATCHER_RECOVERY_EVERY_N_PASSES: ${DISPATCHER_RECOVERY_EVERY_N_PASSES:-10}
+      # O4: the dispatcher decrypts vault credentials to read and asks debug_token to check them.
+      META_APP_ID: ${META_APP_ID:-}
+      META_APP_SECRET: ${META_APP_SECRET:-}
+      META_LOGIN_CONFIG_ID: ${META_LOGIN_CONFIG_ID:-}
+      META_OAUTH_REDIRECT_URI: ${META_OAUTH_REDIRECT_URI:-}
+      CREDENTIAL_VAULT_KEY: ${CREDENTIAL_VAULT_KEY:-}
+      # 0 = off. A release decision with a named approver (rule 22).
+      CREDENTIAL_CHECK_EVERY_N_PASSES: ${CREDENTIAL_CHECK_EVERY_N_PASSES:-0}
     networks: [internal]
     logging: *logging
     read_only: true

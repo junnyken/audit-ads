@@ -708,6 +708,14 @@ across businesses, and refusing to try would remove access that works today.
 `server_default` is therefore not a claim of access. The UI says so in words: the credential may
 have no role in that business, in which case an empty result is not evidence the business is empty.
 
+**O4 adds two values.** `vault`: the connection is bound to an `active` Meta reader credential from
+the vault (Facebook Login for Business) and is read with it, never with a server token.
+`vault_reconnect_required`: bound to a credential that cannot be used — nothing is read and nothing
+falls back. `token_configured` is `false` for the latter. Connection responses also carry
+`reader_credential: {id, label, kind, status, derived_state, expires_at, reconnect_reason} | null` and
+`other_readers: [{id, label, kind}]` (active credentials that also saw this Business Manager). See
+"Meta reader credentials (O4)" below.
+
 ### `business_authority` — whether an empty result may be trusted
 
 Every discovery response carries `business_authority`: `established`, `not_established` or
@@ -860,6 +868,41 @@ The UI for all of this lives at `/team` (owner-only) and `/security-devices` (an
 both reached from Settings rather than the main nav. Verified in real Chromium —
 `backend/scripts/a9_live_verify.py`, 20/20, screenshots in `docs/evidence/A9-LIVE/`.
 
+## Meta reader credentials (O4)
+
+Facebook Login for Business into an encrypted vault. **Owner only** (`403` for any other role; another
+workspace's id → `404`), except the callback. No request body carries a credential — `StrictPayload` is
+unchanged, which is also why the field naming the credential to bind is `reader_id`, not
+`credential_id`. **No response carries a token, ciphertext or the app secret.**
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/api/v1/meta-reader-credentials` | `{configured, unavailable_reason: not_configured\|vault_unavailable\|null, config_kind: system_user\|user, business_manager_required, items: [credential]}` |
+| `POST` | `/api/v1/meta-reader-credentials/connect/start` | `{label (1–200), business_manager_reference}` → `{url}` (Meta's dialog with `config_id`, a signed 10-minute `state`). `409 {reason: not_configured\|vault_unavailable}`; `422` when the configuration is `system_user` and the BM id is missing or not a number. Audit `meta_reader_credential.connect_started`. No outbound call |
+| `GET` | `/api/v1/meta-reader-credentials/callback?code&state[&error]` | **Public**, rate limited like `/auth/login`. Always `302` to `{PUBLIC_APP_URL or first CORS origin}/settings?meta_login=ok\|error[&reason=<code>][&reader=<id>]#meta-readers` — never JSON, never a token. Reasons: `invalid_state`, `not_configured`, `vault_unavailable`, `not_authorized`, `login_cancelled`, `code_missing`, `code_exchange_failed`, `token_check_failed`, `app_mismatch`, `invalid_token`, `scope_missing`, `scope_too_broad`, `unsupported_token_type`, `business_manager_required`, `user_mismatch`, `credential_revoked`, `business_not_readable`, `businesses_unreadable`, `rate_limited`. With `reader=` the credential was stored but stays `pending_verification`. Refusals before storing write `meta_reader_credential.connect_refused` |
+| `POST` | `/api/v1/meta-reader-credentials/{id}/verify` | One check now (≤ 3 GETs) → credential + `check_result` (`valid`, `pending`, `reconnect_required`, `rate_limited`, `failed`, `vault_unavailable`). `409` for `revoked`/`reconnect_required` (reconnect instead) or when the Meta app is not configured |
+| `POST` | `/api/v1/meta-reader-credentials/{id}/reconnect/start` | Optional `{business_manager_reference}` → `{url}`; the state names this credential. On return a different Facebook identity is `user_mismatch`; success keeps every bound connection. `409 credential_revoked` |
+| `POST` | `/api/v1/meta-reader-credentials/{id}/revoke` | `{reason}` (required). Terminal; clears the ciphertext; bound connections keep the pointer and read nothing (`vault_reconnect_required`). Removing the app at Meta is manual |
+| `POST` | `/api/v1/meta-connections/{id}/reader-credential` | `{reader_id}`. The owner's explicit switch. `409 {reason}`: `not_production`, `business_manager_not_configured`, `credential_not_active`, `business_manager_not_seen`. Audit `meta_reader_credential.assigned_to_connection` |
+
+A credential: `id, label, kind (system_user|user), status (pending_verification|active|reconnect_required|revoked),
+derived_state (status, or expiring when active and within CREDENTIAL_EXPIRY_WARNING_DAYS),
+provider_user_external_id, provider_user_name, scopes[], issued_at, expires_at (null = does not expire),
+data_access_expires_at, last_verified_at, last_verify_outcome, reconnect_reason, businesses_seen[{external_id,
+name, permitted_roles, bound_here}], connections[{id, label, business_manager_reference}], connected_at,
+secret_last_rotated_at, revoked_at`. `reconnect_reason` codes: `expired`, `invalid_token`, `password_changed`,
+`checkpointed`, `app_not_installed`, `scope_missing`, `scope_too_broad`, `app_mismatch`, `business_not_readable`,
+`businesses_unreadable`, `vault_unavailable`, `revoked_by_owner`.
+
+Other O4 additions (fields only added): `GET /operations/overview` → `credential_check_state`
+(`current|stale|never`), `credential_check_last_run`, `reader_credentials{active, expiring,
+pending_verification, reconnect_required, revoked}`, `meta_login_configured`, `credential_vault_configured`;
+`GET /operations/runs?kind=credential_check`; `automation.ineligible_reason` may be
+`reader_reconnect_required`; alerts with `source_type=reader_credential` and no ad account;
+deliveries with template `a3-v1-credential`; configuration findings `meta_app_secret_placeholder`,
+`meta_login_partially_configured`, `credential_vault_key_unusable`, `meta_oauth_redirect_not_https`,
+`meta_login_config_kind_unknown`.
+
 ## Spend tracking, Meta read-only (S1)
 
 All four routes follow the A1 conventions: bearer dashboard session, workspace from the membership,
@@ -879,6 +922,12 @@ nothing is divided, converted or rounded, and nothing is ever summed across curr
 
 `freshness` is one of `current`, `stale`, `never_observed`, `not_observable` — four states, never
 merged (rule 28). None of them may be rendered with success styling.
+
+**O4:** `GET …/spend` (and the refresh response) adds `not_observable_reason` (`null` when
+observable); each item's compact `spend` on `GET /ad-accounts` carries it **only on a
+`not_observable` row**, so an observable row keeps S1's exact three keys. Values: the first missing link —
+`account_archived`, `no_external_account_id`, `no_business_manager`, `no_production_connection`,
+`no_reader`, `reader_reconnect_required`. The refresh `409` carries it in `details` too.
 
 ### `GET /ad-accounts/{id}/spend`
 

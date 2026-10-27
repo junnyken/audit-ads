@@ -17,6 +17,8 @@
  * Guardrails for the copy: nothing here may say an account is safe, cannot be restricted, or
  * will be approved (CLAUDE.md rule 6); the disclaimer keeps the meaning of READINESS_DISCLAIMER.
  */
+import { o4Vi } from './o4'
+
 export const vi = {
   'common.appName': 'AdsOps Control Center',
   'common.appTagline': 'Sổ đăng ký tài khoản và mức sẵn sàng vận hành',
@@ -83,4 +85,7 @@ export const vi = {
 
   'format.never': 'chưa từng',
   'format.justNow': 'vừa xong',
+
+  // O4 — Meta reader credentials [ĐỀ XUẤT — chờ duyệt]; strings live in ./o4.ts.
+  ...o4Vi,
 } as const

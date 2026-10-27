@@ -677,6 +677,9 @@ available. This one carries nothing in a request body at all.
 **The slice grants no access by itself.** Someone still has to create a system user inside the
 second Business Manager and generate its token in Business Settings.
 
+**O4 adds a second home (§4m).** The paragraph above stays true for server configuration; the vault
+is the one deliberate exception, and it too carries nothing in a request body.
+
 ### 4j. Spend tracking, Meta read-only (S1)
 
 **What it answers:** for each ad account, per day in the account's own timezone, how much Meta
@@ -896,6 +899,63 @@ rows. `OperationalRun` is `PARTIAL` on any failure, rate limit or conflict.
 
 **Calls.** About six GETs per connection per run; hub model = one connection ≈ six GETs a day.
 Measured live: **none** — no Meta read has been made with this code.
+
+### 4m. Stored Meta readers: Facebook Login for Business and the credential vault (O4)
+
+Design: `docs/AUDIT_BEFORE_BUILD_O4_USER_TOKENS.md` §7b; owner decisions §14. Rules 1, 20, 40 were
+reworded for it (verbatim §7c).
+
+```
+owner ─POST /meta-reader-credentials/connect/start {label, bm}──▶ sign_state (vault key, TTL 600 s)
+      ◀── {url: facebook.com/{v}/dialog/oauth?client_id&redirect_uri&state&config_id&response_type=code}
+browser ── Meta dialog (a real person consents; cookies stay in their browser) ──▶
+Meta ──GET /meta-reader-credentials/callback?code&state (public, rate-limited by address)──▶
+   verify_state → owner still owner → GET oauth/access_token (no bearer) → GET debug_token (app token)
+   refuse: app_mismatch | invalid_token | scope_missing | scope_too_broad (ads_management) → 302, nothing stored
+   store: encrypt → meta_reader_credentials (pending_verification) → verify in a SAVEPOINT
+      system_user: {bm} node + {bm}/system_users     user: me/businesses
+      → active, bind/create the BM's production connection (O3 switches off) → 302 ?meta_login=ok
+```
+
+**Modules.** `core/secret_vault.py` is the only module importing `cryptography` and the only one that
+encrypts or decrypts (Fernet; `VaultNotConfiguredError` when the key is missing or malformed — never
+plaintext; `SecretDecryptionError` when the key changed). It also signs the OAuth `state`.
+`services/meta_reader_credentials.py` holds the lifecycle: connect, callback, verification, check,
+renewal attempt, revoke, owner switch, alerts. Its one seam, `graph_transport(settings, token)`, returns
+the existing `MetaGraphTransport` — **no new outbound module** (rule 20). The transport gained no
+method: `oauth/access_token` is the one GET path allowed without a bearer, and `GraphResponse` now
+carries Graph's `error.code` / `error_subcode` as integers (never `error.message`). uvicorn's access
+log line is cut at `?` so the callback's `code` never reaches a log.
+
+**Data.** `meta_reader_credentials` (`0018_o4_reader_credentials`): label, `kind` (from
+`debug_token.type`), `status` (`pending_verification → active → reconnect_required`, `revoked`
+terminal; `expiring` is derived, not stored), `encrypted_secret` (nullable; cleared on revoke),
+granting id/name, allowlisted scopes, issued/expires/data-access-expires, last verification and its
+outcome code, `reconnect_reason` code, `businesses_seen_json`. `meta_connections.reader_credential_id`
+(FK RESTRICT, nullable; constraint named `fk_meta_conn_reader_credential` because the convention's
+name is 64 characters).
+
+**Precedence (`resolve_reader`, rule 40).** `credential=None` → env exactly as before. `active` →
+decrypt, `vault`. Anything else → `("", vault_reconnect_required)`. `include_unverified=True` opens a
+`pending_verification` credential for verification only. At Business Manager level
+(`spend_service.reader_map`): rank 0 vault-active, 1 own-BM env, 2 inherited env; once any connection of
+a BM is vault-bound, a non-vault reader may not read it — the BM is `not_observable` with
+`reader_reconnect_required`. `provider_for_connection` decrypts when the provider is built and nothing
+caches it across passes; the spend sweep asks `identify()` once per credential per pass.
+
+**Watching (`credential_check_pass`).** Off by default. Per credential: `debug_token` (1 GET); a
+pending one also re-runs the binding verification (≤ 2 more); an active user token either lists
+`me/businesses` or, inside `CREDENTIAL_RENEW_BEFORE_DAYS`, tries `fb_exchange_token` + `debug_token` on
+the result and keeps it only if the expiry moved later. A failure to *ask* (rate limit, timeout, our
+app token refused) never kills a credential; only Meta's verdict on the token does. Alerts:
+`AlertSourceType.READER_CREDENTIAL`, no ad account, keys `reader_credential:{id}:reconnect` (critical,
+one per death — the reason is in the snapshot, not the key, so a change of reason does not page twice),
+`…:expiring:{date}` (warning), `…:not_listed:{bm}` (info). Template `a3-v1-credential`: label, kind,
+granted-by, reason code, expiry, affected connections/accounts, a Settings link — no field a token
+could travel in. Reconnecting resolves the critical alert; revoking resolves all of them.
+
+**What it cannot do.** Remove the app or system user at Meta (no DELETE); rotate the vault key; prove
+2FA is on; read `ads_management`-scoped tokens (refused by design).
 
 ## 5. Security model
 

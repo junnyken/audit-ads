@@ -34,8 +34,9 @@ def test_the_test_database_is_not_the_dev_database():
     assert engine.url.database == "adsops_test"
 
 
-def test_head_is_0017_with_four_columns_defaulting_off(migrated_database):
-    assert _revision() == "0017_o3_conn_automation"
+def test_head_includes_0017_with_four_columns_defaulting_off(migrated_database):
+    # O4 put 0018 on top; 0017's columns are what this test is about.
+    assert _revision() in ("0017_o3_conn_automation", "0018_o4_reader_credentials")
     columns = _columns()
     assert set(columns) >= COLUMNS
     assert columns["auto_discovery_enabled"]["nullable"] is False
@@ -47,17 +48,20 @@ def test_head_is_0017_with_four_columns_defaulting_off(migrated_database):
 
 
 def test_downgrade_removes_only_the_four_columns_and_upgrade_restores_them(migrated_database):
-    tables_before = set(sa.inspect(engine).get_table_names())
-    columns_before = set(_columns())
     try:
+        # Step below O4 first, so this test still measures exactly what 0017 adds.
+        command.downgrade(_config(), "0017_o3_conn_automation")
+        tables_before = set(sa.inspect(engine).get_table_names())
+        columns_before = set(_columns())
         command.downgrade(_config(), "0016_s1_spend_observations")
         assert _revision() == "0016_s1_spend_observations"
         assert columns_before - set(_columns()) == COLUMNS
         assert set(sa.inspect(engine).get_table_names()) == tables_before
+        command.upgrade(_config(), "0017_o3_conn_automation")
+        assert set(_columns()) == columns_before
+        assert _revision() == "0017_o3_conn_automation"
     finally:
         command.upgrade(_config(), "head")
-    assert set(_columns()) == columns_before
-    assert _revision() == "0017_o3_conn_automation"
 
 
 def test_an_existing_connection_keeps_meaning_manual_after_the_upgrade(migrated_database, db_session):

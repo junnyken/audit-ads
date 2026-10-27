@@ -10,6 +10,7 @@ from app.api.v1.routers import (
     extension,
     health,
     meta_operations,
+    meta_reader_credentials,
     operations,
     preflight,
     readiness,
@@ -37,6 +38,7 @@ api_router.include_router(preflight.router)
 api_router.include_router(preflight.findings_router)
 api_router.include_router(account_operations.router)
 api_router.include_router(meta_operations.router)
+api_router.include_router(meta_reader_credentials.router)
 api_router.include_router(security_sessions.router)
 api_router.include_router(team.router)
 api_router.include_router(spend.router)

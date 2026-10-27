@@ -43,6 +43,10 @@ SAFE_SUMMARY_KEYS = frozenset(
         "never_discovered", "runs", "succeeded", "warnings", "not_configured", "imported",
         "already_in_registry", "archived_returned", "conflicts", "awaiting_import", "pixels_new",
         "not_returned_complete", "summaries",
+        # O4 credential check. `reconnect_required` counts credentials Meta declared dead in this
+        # pass; `vault_unavailable` counts ones the server could not open (key missing/changed).
+        "checked", "valid", "expiring", "reconnect_required", "pending", "renewed",
+        "renew_not_extended", "businesses_added", "businesses_not_listed", "vault_unavailable",
         "size_bytes", "table_count", "revision", "checksum_algorithm", "database_label",
         "duration_seconds", "message_count", "transport",
     }

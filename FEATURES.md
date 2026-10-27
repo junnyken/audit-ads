@@ -73,6 +73,72 @@ Chrome Context Extension & Account Workspace Guard**, **A4 Stage A — Deploymen
 **A3 — Alert Center & Telegram Notification Delivery**, **A2 — Evidence-Based Account Health**
 and **A1 — Account Registry & Stability Readiness**.
 
+## O4 (built, never run against live Meta) — stored Meta readers via Facebook Login for Business, encrypted vault
+
+Built 2026-10-27 in this workspace: backend, migration `0018_o4_reader_credentials`, dashboard and
+tests. **No live Meta call has been made with this code**, no Meta app or Login configuration has been
+set up, nothing was deployed, no Telegram message was sent. The single Design Choice of
+`docs/AUDIT_BEFORE_BUILD_O4_USER_TOKENS.md` (§7b), with the owner's decisions in §14 (rules 1/20/40
+reworded verbatim, `cryptography` accepted, **System User** Login configuration as the main path, one
+`critical` alert per dead credential, `warning` 14 days before expiry, build before the hub live read).
+
+- **Where a reader credential can now live (rule 40):** server configuration, as before, **or** the
+  vault — `meta_reader_credentials.encrypted_secret`, Fernet ciphertext written only by
+  `core/secret_vault.py` with `CREDENTIAL_VAULT_KEY` from server configuration. It is the only column
+  in the schema carrying a credential; it is cleared on revoke. No request body carries one
+  (`StrictPayload` unchanged), and no response, audit row, alert, delivery or log line contains one
+  (tests grep every one of them for the fake token prefix).
+- **Connecting** (owner only): Settings → *Meta reader credentials* → label + Business Manager id →
+  Meta's own dialog (`config_id`, no `scope`) → public callback (`state` signed with the vault key,
+  10-minute TTL, rate limited by address, always a 302 with a short code) → `GET oauth/access_token` →
+  `GET debug_token` with the app token. Refused and **not stored**: another app (`app_mismatch`),
+  invalid (`invalid_token`), missing `ads_read`/`business_management` (`scope_missing`), **any**
+  `ads_management` (`scope_too_broad`). A stored credential is `pending_verification` until Meta proves
+  it can read: for a system user, the declared Business Manager's node **and** `{bm}/system_users`;
+  for a user token, `me/businesses`. Then `active`, and the Business Manager's production connection
+  is bound (`reader_credential_id`) or created — with O3's switches **off**.
+- **Reading:** `resolve_reader` gained a third branch: a connection bound to an `active` credential
+  reads with it (`reader_source=vault`) and never with a server token; bound to anything else →
+  `vault_reconnect_required`, nothing read, **no fallback**. At Business Manager level the same holds:
+  once any connection of a BM is vault-bound, only vault-bound connections may read it.
+- **Not observable, with a reason:** `GET /ad-accounts/{id}/spend` and the list's compact spend carry
+  `not_observable_reason` (`no_business_manager`, `no_production_connection`, `no_reader`,
+  `reader_reconnect_required`, plus `no_external_account_id` / `account_archived`). The Spend tab shows
+  the sentence and the reader's label instead of the raw `reader_source`.
+- **Watching:** `credential_check_pass` (`--credential-check`; cadence `CREDENTIAL_CHECK_EVERY_N_PASSES`,
+  **default 0 = off**, a named release decision): `active` + `pending_verification` credentials, oldest
+  check first, ≤ 3 GETs each, stops on `rate_limited`. Meta's verdict maps `190`+subcode to a reason
+  (`expired`, `password_changed` 460, `checkpointed` 459, `app_not_installed` 458, `invalid_token`,
+  `scope_missing`) → `reconnect_required` + **one** `critical` alert (`AlertSourceType.READER_CREDENTIAL`,
+  template `a3-v1-credential`, link to Settings). Expiry within 14 days → one `warning`. User tokens near
+  expiry: one `fb_exchange_token` is tried and counted (`renewed` / `renew_not_extended`), never assumed.
+  `me/businesses`: a new BM gets a connection; a vanished one raises an `info` alert and is **never**
+  archived. A missing vault key fails the run and kills nothing; a *changed* key marks each credential
+  `vault_unavailable`. Without the Meta app configured the pass makes no call and records no run
+  (System Status keeps saying "never").
+- **Owner acts:** check again, reconnect (same Facebook identity only — another one is `user_mismatch`;
+  connections keep their `reader_credential_id`), revoke (terminal, reason required; removing the app at
+  Meta is a manual step the runbook describes), and switch a connection to another active credential
+  that saw its Business Manager (`POST /meta-connections/{id}/reader-credential`) — the system never
+  switches by itself.
+- **Dashboard:** Settings section (states: loading / empty / error / not configured / not owner / one
+  per credential state; `active` is `neutral`, never success styling), reader badge `vault` /
+  `vault_reconnect_required` on connection cards with the "also sees this BM" switch, System Status card
+  *Meta reader check*. New strings live in `frontend/src/i18n/o4.ts`, all **[ĐỀ XUẤT — chờ duyệt]**.
+- **Runbook** `docs/RUNBOOK_META_LOGIN_FOR_BUSINESS.md` (Vietnamese; Meta UI labels [CHƯA KIỂM]).
+
+**Not done / known limits:**
+
+- Nothing has been measured against Meta: T4 (re-exchange extends a long-lived user token), T7 (how many
+  portfolios one System User dialog can grant), T10 (does a password change kill a system-user LfB token),
+  T14 (does an admin user token read every account), whether `{bm}/system_users` answers to an LfB system
+  user token (verification **requires** it — if it does not, every system-user connect stays pending and
+  the gate must be revisited). The ≤ 6-GET measurement session (§10.3) needs its own approval.
+- No Meta app/config chosen; no env set anywhere; production still has no dispatcher.
+- No key rotation; no `appsecret_proof`; revoking at Meta is manual (no DELETE in the transport).
+- Overview / Accounts (U1b in flight) do not yet show the reason; only the Spend tab, connection cards,
+  Settings and System Status do.
+
 ## O3 (built, never run against live Meta) — scheduled discovery and automatic import, read-only
 
 Built 2026-10-27 in this workspace: backend, migration, dashboard and tests only. **No live Meta read

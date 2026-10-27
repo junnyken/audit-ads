@@ -68,7 +68,7 @@ from app.services.meta_discovery import (
     MetaDiscoveryService,
 )
 from app.services.meta_provider import MetaBusinessProvider, MetaFailureCode
-from app.services.meta_real_provider import READER_BUSINESS_SPECIFIC
+from app.services.meta_real_provider import READER_BUSINESS_SPECIFIC, READER_VAULT
 from app.services.notification_service import NotificationPlannerService
 from app.services.notification_templates import SUMMARY_MAX_IDS
 from app.services.spend_service import SpendReader, connection_business_id, reader_for_connection
@@ -103,6 +103,9 @@ def automation_eligibility(connection: MetaConnection, settings=None) -> tuple[b
     if not connection_business_id(connection, settings):
         return False, "business_manager_not_configured"
     if reader_for_connection(connection, settings) is None:
+        if connection.reader_credential_id is not None:
+            # O4: bound to a vault credential that cannot be used. Never read with another one.
+            return False, "reader_reconnect_required"
         return False, "reader_not_configured"
     return True, None
 
@@ -197,6 +200,10 @@ def budget_key(reader: SpendReader) -> str:
     """Which rate-limit budget a read spends. A Business Manager with its own credential has its
     own budget; every connection on the server default shares one. `rate_limited` stops the rest
     of the pass for that budget only."""
+    if reader.reader_source == READER_VAULT:
+        # O4: one vault credential can stand behind several Business Managers; its budget is
+        # the credential's, not the Business Manager's.
+        return f"vault:{reader.connection.reader_credential_id}"
     if reader.reader_source == READER_BUSINESS_SPECIFIC:
         return f"business:{reader.business_id}"
     return "server_default"

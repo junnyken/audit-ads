@@ -3423,3 +3423,61 @@ page bodies other than Login are untouched (still English, restyled by U1b–U1d
   `prefers-color-scheme` follow-OS CSS block only checked by reading; production frontend is not
   reachable so nothing deployed. Wording is `[ĐỀ XUẤT — chờ duyệt]` (BA review pending).
 - Packages and licences: `docs/ui/LICENSES.md` (class-variance-authority is Apache-2.0, not MIT).
+
+## Session 2026-10-27 — MINI-SPEC O4 (stored Meta readers via Facebook Login for Business, encrypted vault)
+
+Workspace only. **No call to Meta was made, no Telegram message was sent, nothing was deployed, the dev
+database `adsops` was not touched** — every test ran against `adsops_test`, with the Graph replaced by a
+scripted fake (`tests/o4_helpers.FakeGraph`) and a throwaway Fernet key generated per test.
+`conftest.py` now also forces `META_APP_ID/SECRET`, `META_LOGIN_CONFIG_ID`, `META_OAUTH_REDIRECT_URI` and
+`CREDENTIAL_VAULT_KEY` empty, like the Meta tokens. New dependency: `cryptography==46.0.3` (installed in
+`backend/.venv`).
+
+### Backend — PASS
+
+```
+$ .venv/bin/python -m pytest          # full suite, one session, nothing else running
+1274 passed in 1701.29s (0:28:21)
+$ .venv/bin/ruff check .
+All checks passed!
+```
+
+New tests (75):
+
+| File | Tests | Covers |
+|---|---|---|
+| `test_o4_credentials_api.py` | 29 | not configured / no vault key → 409, never plaintext; dialog URL (`config_id`, no `scope`, no secret, no outbound call); BM id required for system user; `StrictPayload` still refuses credential fields; system-user connect → ciphertext ≠ token, verified via BM node + `system_users`, connection created/bound with O3 switches off; user token → one connection per `me/businesses` BM; short-lived user token exchanged; zero BMs; refusals `scope_too_broad` (ads_management), `scope_missing`, `app_mismatch`, `invalid_token` store nothing and write `connect_refused`; tampered/missing/expired `state` → `invalid_state` with zero Graph calls; cancelled login not echoed; bad code; unreadable BM / authority not established → `pending_verification`, nothing read; former owner → `not_authorized`; reconnect keeps the connection and refuses another identity (`user_mismatch`); revoke terminal, clears ciphertext, no fallback to the configured server token; verify = 1 GET; owner switch between two credentials (never automatic), 409 when the credential never saw the BM, 422 for a `credential_id` field; authz (other workspace 404, admin 403, anonymous 401); redirect only to configured dashboard. Every response, audit row, alert and delivery grepped for the fake token prefix and the app secret: 0 hits |
+| `test_o4_credential_check.py` | 14 | degradation table: no Meta app → no call, no run, System Status `never`; missing vault key → failed run, nothing killed; live credential = 1 GET, run `succeeded`, actor `system:credential_check`; `rate_limited` stops the pass; **expired** → `reconnect_required`, one critical alert (not one per account), spend `not_observable` + `reader_reconnect_required` on detail, list and refresh 409, spend sweep reads nothing although a server token is configured; alert raised once, one delivery, template `a3-v1-credential`; `password_changed` vs `checkpointed` keep their reasons; removed scope; changed vault key → `vault_unavailable`; reconnect resolves the critical alert; expiring → one warning, renewal not extended is counted; renewal that extends is kept and audited (≤ 3 GETs); new BM → connection, vanished BM → info alert, never archived; fake Telegram transport message names the reader and reason, no token, Settings link |
+| `test_o4_vault_and_resolution.py` | 29 | Fernet round trip, missing/malformed/wrong key, tamper, empty refused, errors never echo the key; state TTL/tamper/other key; **only `resolve_reader` calls `decrypt_secret`, only the vault imports `cryptography`**; `resolve_reader` env precedence unchanged, active vault wins, non-active never falls back, unverified opened only on request, missing/changed key → `vault_reconnect_required`; `debug_token` mapping (0 → never expires, granular scopes, allowlist); refusal reasons incl. subcodes 458/459/460/463; transport: only `oauth/access_token` may go without a bearer, no new public method; **the two credential paths, `client_secret`, `code`, `fb_exchange_token`, `input_token` and the Graph host appear in no log line** (HTTP error and unreachable paths); uvicorn access line loses its query string; configuration findings name codes only |
+| `test_o4_migration.py` | 3 | head `0018`; only `encrypted_secret` carries a credential (others are hashes/timestamps); down to `0017` removes exactly the table + column, up restores |
+
+Existing tests changed (shape only, no logic): `test_o3_migration.py` and `test_s1_spend_migration.py`
+step below `0018` before measuring what their own revision adds (a downgrade below 0018 now also drops
+`meta_reader_credentials`). The first full run showed 7 failures that drove two code fixes rather than
+test edits: (1) the list's compact `spend` gained a key on every row, breaking S1/S2's pinned exact
+shape → `not_observable_reason` now appears only on `not_observable` rows; (2) three A10 tests pass a
+plain connection stand-in → `getattr(connection, "reader_credential", None)`.
+
+### Frontend — PASS
+
+```
+$ npx vitest run        Test Files 27 passed | 1 skipped (28); Tests 311 passed | 20 skipped (331)
+$ npm run typecheck     (tsc -b) clean
+$ npx eslint .          clean
+$ npm run build         built in 10.63s (bundle-size warning pre-existing)
+```
+
+New: `src/test/o4.reader-credentials.test.tsx` (14) — no credential state is painted `positive`,
+`reconnect_required` is `attention`; badge for all six reader sources; Settings section lists metadata and
+no token-shaped text, empty state + before-you-start steps, Connect disabled when not configured, a dead
+credential offers Reconnect not Check again, callback reason read from the URL, error state, non-owner makes
+no request; unknown reason shown as a code; not-observable sentence; explicit switch button.
+`no-raw-palette` and i18n parity pass with the new files.
+
+### Explicitly not tested
+
+- **No live verification** (§8.4): nothing has been connected to a real Meta app; T4/T7/T10/T14 and
+  whether `{bm}/system_users` answers to a Login-for-Business system-user token are unmeasured.
+- No click-through by a person; the Settings section, badges and System Status card are covered by
+  mocked-API tests only.
+- The production configuration (5 variables + vault key) was not set anywhere.

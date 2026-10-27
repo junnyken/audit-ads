@@ -18,6 +18,7 @@ It is deliberately unexciting:
     python -m app.commands.run_dispatcher --once       # a single pass, for a timer or a check
     python -m app.commands.run_dispatcher --spend-sweep  # one S1 spend read pass, then exit
     python -m app.commands.run_dispatcher --discovery-sweep  # one O3 discovery pass, then exit
+    python -m app.commands.run_dispatcher --credential-check  # one O4 credential check, then exit
 """
 from __future__ import annotations
 
@@ -35,20 +36,25 @@ from app.core.enums import (
     EvaluationTrigger,
     OperationalRunKind,
     OperationalRunStatus,
+    ReaderCredentialStatus,
     SpendObservationTrigger,
 )
 from app.core.logging import configure_logging
+from app.core.secret_vault import vault_configured
 from app.db.session import session_scope
 from app.models.entities import AdAccount, Workspace, WorkspaceMember
 from app.models.health import AccountHealthSnapshot
+from app.models.meta_reader_credential import MetaReaderCredential
 from app.services import discovery_sweep, spend_service
 from app.services.audit import (
+    SYSTEM_CREDENTIAL_CHECK_ACTOR,
     SYSTEM_DISCOVERY_SWEEP_ACTOR,
     AuditLogService,
     SystemAuditLogService,
 )
 from app.services.health_service import AccountHealthEvaluationService
 from app.services.meta_provider import MetaFailureCode
+from app.services.meta_reader_credentials import MetaReaderCredentialService
 from app.services.notification_service import NotificationDispatcherService
 from app.services.operations import OperationalRunService
 
@@ -310,9 +316,13 @@ def spend_sweep_pass(*, batch: int) -> dict[str, int]:
                         continue
                     if connection_id not in providers:
                         providers[connection_id] = spend_service.provider_for_connection(due.reader)
-                        # Once per connection per pass: who read is evidence, and asking per
-                        # account would spend a call per account to learn the same answer.
-                        identities[connection_id] = providers[connection_id].identify()
+                        # Once per reader per pass: who read is evidence, and asking per account
+                        # would spend a call per account to learn the same answer. O4: one vault
+                        # credential behind several connections is the same identity, asked once.
+                        identity_key = due.reader.connection.reader_credential_id or connection_id
+                        if identity_key not in identities:
+                            identities[identity_key] = providers[connection_id].identify()
+                        identities[connection_id] = identities[identity_key]
                     if due.never_observed:
                         totals["never_observed"] += 1
                     else:
@@ -505,6 +515,131 @@ def discovery_sweep_pass(*, batch: int) -> dict[str, int]:
     return totals
 
 
+def credential_check_pass(*, batch: int) -> dict[str, int]:
+    """O4. Is each vault reader credential still alive, and when does it expire?
+
+    Off by default (`credential_check_every_n_passes = 0`); turning it on in production is a
+    release decision with a named approver (rule 22). Bounded: `batch` credentials per workspace,
+    oldest check first, at most three GETs each (`debug_token`; plus the Business Manager read for
+    one still pending, `me/businesses` for a user token, or one renewal attempt near expiry).
+    Read-only; it stops on the first `rate_limited`.
+
+    * Only `active` and `pending_verification` credentials are checked. `reconnect_required`
+      never comes back by itself, and `revoked` is terminal.
+    * Without the Meta app configured there is nothing to ask `debug_token` with: the pass does
+      nothing, records no run, and System Status keeps saying "never" (rule 28).
+    * Without a vault key it records a `failed` run and marks nothing dead — a lost key is the
+      server's slip, not Meta's verdict.
+    * A credential Meta declares dead → `reconnect_required` with the reason, **one** `critical`
+      alert (Telegram per policy); expiring within the warning window → one `warning`.
+
+    The actor is the system (`metadata.actor = "system:credential_check"`), never a person.
+    """
+    settings = get_settings()
+    totals = {
+        "checked": 0, "valid": 0, "expiring": 0, "reconnect_required": 0, "pending": 0,
+        "renewed": 0, "renew_not_extended": 0, "businesses_added": 0, "businesses_not_listed": 0,
+        "rate_limited": 0, "failed": 0, "vault_unavailable": 0, "not_configured": 0,
+        "due_remaining": 0, "workspaces": 0,
+    }
+    started = datetime.now(UTC)
+    run_id = uuid.uuid4()
+    if not settings.meta_login_configured:
+        logger.warning("credential check skipped", extra={"reason": "meta_app_not_configured"})
+        totals["not_configured"] = 1
+        return totals
+
+    with session_scope() as session:
+        runs = OperationalRunService(session)
+        if not vault_configured(settings):
+            runs.record(
+                kind=OperationalRunKind.CREDENTIAL_CHECK,
+                status=OperationalRunStatus.FAILED,
+                started_at=started,
+                summary={"vault_unavailable": 1},
+                error_code="vault_unavailable",
+                error_summary="The credential vault key is missing or invalid on this server.",
+                run_id=run_id,
+            )
+            totals["vault_unavailable"] = 1
+            return totals
+        stopped = False
+        try:
+            workspaces = list(
+                session.execute(
+                    sa.select(Workspace).where(Workspace.archived_at.is_(None))
+                ).scalars().all()
+            )
+            for workspace in workspaces:
+                totals["workspaces"] += 1
+                due = list(
+                    session.execute(
+                        sa.select(MetaReaderCredential)
+                        .where(
+                            MetaReaderCredential.workspace_id == workspace.id,
+                            MetaReaderCredential.archived_at.is_(None),
+                            MetaReaderCredential.status.in_(
+                                [ReaderCredentialStatus.ACTIVE, ReaderCredentialStatus.PENDING_VERIFICATION]
+                            ),
+                        )
+                        .order_by(
+                            MetaReaderCredential.last_verified_at.asc().nulls_first(),
+                            MetaReaderCredential.id.asc(),
+                        )
+                    ).scalars().all()
+                )
+                if stopped:
+                    totals["due_remaining"] += len(due)
+                    continue
+                audit = SystemAuditLogService(
+                    session, workspace.id, actor=SYSTEM_CREDENTIAL_CHECK_ACTOR, operational_run_id=run_id
+                )
+                service = MetaReaderCredentialService(session, workspace.id, audit, settings=settings)
+                for position, credential in enumerate(due):
+                    if position >= batch or stopped:
+                        totals["due_remaining"] += len(due) - position
+                        break
+                    outcome = service.check(credential)
+                    totals["checked"] += 1
+                    totals["renewed"] += int(outcome.renewed)
+                    totals["renew_not_extended"] += int(outcome.renew_not_extended)
+                    totals["businesses_added"] += outcome.businesses_added
+                    totals["businesses_not_listed"] += outcome.businesses_not_listed
+                    totals["expiring"] += int(outcome.expiring)
+                    if outcome.result == "rate_limited":
+                        totals["rate_limited"] += 1
+                        # Meta said "slow down": no further credential is asked in this pass.
+                        stopped = True
+                    elif outcome.result in totals:
+                        totals[outcome.result] += 1
+                session.commit()
+        except Exception as exc:
+            session.rollback()
+            runs.record(
+                kind=OperationalRunKind.CREDENTIAL_CHECK,
+                status=OperationalRunStatus.FAILED,
+                started_at=started,
+                error_code=type(exc).__name__[:64],
+                error_summary="The credential check failed; see the process log.",
+                run_id=run_id,
+            )
+            session.commit()
+            raise
+
+        runs.record(
+            kind=OperationalRunKind.CREDENTIAL_CHECK,
+            status=(
+                OperationalRunStatus.PARTIAL
+                if totals["failed"] or totals["rate_limited"] or totals["vault_unavailable"]
+                else OperationalRunStatus.SUCCEEDED
+            ),
+            started_at=started,
+            summary=totals,
+            run_id=run_id,
+        )
+    return totals
+
+
 def run_loop(
     *,
     batch: int,
@@ -516,6 +651,8 @@ def run_loop(
     spend_batch: int = 10,
     discovery_every: int = 0,
     discovery_batch: int = 5,
+    credential_every: int = 0,
+    credential_batch: int = 10,
 ) -> int:
     settings = get_settings()
     logger.info(
@@ -531,6 +668,8 @@ def run_loop(
             "spend_sweep_every_n_passes": spend_every,
             # O3: calls Meta and may write the registry. Zero means it never runs.
             "discovery_sweep_every_n_passes": discovery_every,
+            # O4: asks Meta about each vault credential. Zero means it never runs.
+            "credential_check_every_n_passes": credential_every,
         },
     )
     passes = 0
@@ -553,6 +692,9 @@ def run_loop(
                 # first in line — S1/S2 take over without anyone pressing anything.
                 discovery = discovery_sweep_pass(batch=discovery_batch)
                 logger.info("discovery sweep", extra=discovery)
+            if credential_every and passes % credential_every == 0:
+                credentials = credential_check_pass(batch=credential_batch)
+                logger.info("credential check", extra=credentials)
         except Exception:  # pragma: no cover - the loop must outlive one bad pass
             logger.exception("dispatcher pass failed; continuing")
 
@@ -590,6 +732,14 @@ def main() -> None:
             "switched them to automatic, and imports new ad accounts where that is allowed too."
         ),
     )
+    parser.add_argument(
+        "--credential-check",
+        action="store_true",
+        help=(
+            "One credential check only, then exit. Asks Meta (GET only, at most three per "
+            "credential) whether each vault reader credential is alive and when it expires."
+        ),
+    )
     parser.add_argument("--batch", type=int, default=None, help="Deliveries per workspace.")
     parser.add_argument("--interval", type=int, default=None, help="Seconds between passes.")
     args = parser.parse_args()
@@ -624,6 +774,11 @@ def main() -> None:
         print(" ".join(f"{key}={value}" for key, value in sorted(totals.items())))
         raise SystemExit(0)
 
+    if args.credential_check:
+        totals = credential_check_pass(batch=settings.credential_check_batch)
+        print(" ".join(f"{key}={value}" for key, value in sorted(totals.items())))
+        raise SystemExit(0)
+
     if args.once or args.recovery_sweep:
         totals = one_pass(batch=batch, recovery=args.recovery_sweep)
         print(" ".join(f"{key}={value}" for key, value in sorted(totals.items())))
@@ -642,6 +797,8 @@ def main() -> None:
             spend_batch=settings.spend_sweep_batch,
             discovery_every=settings.discovery_sweep_every_n_passes,
             discovery_batch=settings.discovery_sweep_batch,
+            credential_every=settings.credential_check_every_n_passes,
+            credential_batch=settings.credential_check_batch,
         )
     )
 

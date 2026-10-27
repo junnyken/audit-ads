@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     #: system-user token (the auth model chosen for A10 — no OAuth round-trip). It never
     #: reaches the database, an API response, an audit row, a log line or the frontend bundle;
     #: `token_configured` is a computed boolean, never the credential.
+    #:
+    #: Since O4 a reader credential has exactly two homes (rule 40): this server configuration,
+    #: or the encrypted vault (`meta_reader_credentials.encrypted_secret`) filled only by the
+    #: product's own Facebook Login for Business flow. A connection bound to an `active` vault
+    #: credential is never read with the values below.
     meta_access_token: str = ""
     #: One reader credential per Business Manager, for the case one system user cannot read
     #: another business at all — measured 2026-09-11: a token with no role in a BM still reads
@@ -101,6 +106,42 @@ class Settings(BaseSettings):
     #: Public dashboard URL for deep links. A missing or unsafe value omits the link entirely
     #: rather than sending a recipient somewhere unreachable.
     public_app_url: str = ""
+
+    # ---- O4 Meta reader credentials via Facebook Login for Business (vault) -------------
+    #: The Meta app that owns the Login for Business configuration. `META_APP_ID` is not a
+    #: secret; `META_APP_SECRET` is, under rule 18's terms: server configuration only, never the
+    #: database, a response, an audit row, a log line or the bundle. Together they form the app
+    #: access token `debug_token` needs, and the code exchange's `client_secret`.
+    meta_app_id: str = ""
+    meta_app_secret: str = ""
+    #: The Facebook Login for Business configuration id (`config_id`). It — not a `scope`
+    #: parameter — decides which permissions and which token type Meta grants. It must ask for
+    #: `ads_read` + `business_management` only; a token carrying `ads_management` is refused.
+    meta_login_config_id: str = ""
+    #: The callback Meta redirects to, registered on the app exactly as written here:
+    #: `https://<api host>/api/v1/meta-reader-credentials/callback`.
+    meta_oauth_redirect_uri: str = ""
+    #: Which token the configuration above was created to issue: `system_user` (the owner's
+    #: decision, §14 13.3 — never expires) or `user`. Used only to tell the form whether a
+    #: Business Manager id is required; the callback always trusts `debug_token.type` instead.
+    meta_login_config_kind: str = "system_user"
+    #: Fernet key for the credential vault (`core/secret_vault.py`). Missing or invalid means the
+    #: vault refuses to work — never plaintext. Changing it makes every stored credential
+    #: unreadable (`vault_unavailable` → reconnect), by design: there is no key rotation in O4.
+    credential_vault_key: str = ""
+    #: How often the dispatcher also checks that each vault credential is still alive, counted in
+    #: dispatch passes. **Zero disables it, and zero is the default** — like every pass that calls
+    #: Meta, switching it on in production is a release decision with a named approver (rule 22).
+    #: `python -m app.commands.run_dispatcher --credential-check` runs one pass by hand.
+    credential_check_every_n_passes: int = 0
+    #: Credentials per workspace per pass. At most three GETs each.
+    credential_check_batch: int = 10
+    #: A credential that expires within this many days raises one `warning` alert (§14 13.5).
+    credential_expiry_warning_days: int = 14
+    #: `user` tokens only: within this many days of expiry the pass *tries* one
+    #: `fb_exchange_token`. Whether that extends anything is counted (`renewed` /
+    #: `renew_not_extended`), never assumed — Meta does not document it (T4).
+    credential_renew_before_days: int = 20
 
     #: Set by the release process to the deployed commit. "unknown" means nobody stamped it,
     #: which is itself worth seeing on the status page.
@@ -237,6 +278,22 @@ class Settings(BaseSettings):
     def telegram_transport_configured(self) -> bool:
         """A boolean capability only. The token itself never leaves the server process."""
         return bool(self.telegram_bot_token) and self.notification_transport == "telegram"
+
+    @property
+    def meta_login_configured(self) -> bool:
+        """O4. The four values the Facebook Login for Business round trip cannot start without.
+        A boolean capability only — none of the values leaves the server process. The vault key
+        is checked separately (`secret_vault.vault_configured`), because a wrong key is a
+        different failure from a missing app."""
+        return all(
+            (value or "").strip()
+            for value in (
+                self.meta_app_id,
+                self.meta_app_secret,
+                self.meta_login_config_id,
+                self.meta_oauth_redirect_uri,
+            )
+        )
 
     @property
     def cors_origins(self) -> list[str]:

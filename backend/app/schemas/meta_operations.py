@@ -212,3 +212,29 @@ class PixelShareBatchDetailOut(ORMModel):
     batch: PixelShareBatchOut
     items: list[PixelShareItemOut]
     current_preview_hash: str
+
+
+# ------------------------------------------------------------------ O4 vault reader credentials
+# None of these bodies carries a credential: the token travels Meta → server through the
+# callback's `code`, never through a request body, so `StrictPayload` stays the boundary. The
+# field naming the credential to bind is `reader_id`, not `credential_id`, because StrictPayload
+# refuses any field whose name contains "credential" — deliberately left that strict.
+
+
+class ReaderConnectStart(StrictPayload):
+    label: Label
+    #: Required when the Login configuration issues system-user tokens: the Business Manager the
+    #: owner will choose in Meta's dialog. Not a secret.
+    business_manager_reference: str = Field(default="", max_length=120)
+
+
+class ReaderReconnectStart(StrictPayload):
+    business_manager_reference: str = Field(default="", max_length=120)
+
+
+class ReaderRevokeRequest(StrictPayload):
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class ConnectionReaderAssign(StrictPayload):
+    reader_id: uuid.UUID

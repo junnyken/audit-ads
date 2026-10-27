@@ -57,6 +57,14 @@ class OperationsOverviewOut(BaseModel):
     host_bands: dict[str, str]
     thresholds: dict[str, float]
 
+    #: O4. The credential check pass: "current" | "stale" | "never" (rule 28), its last run, and
+    #: how many vault reader credentials are in each state. Counts and booleans only.
+    credential_check_state: str = "never"
+    credential_check_last_run: OperationalRunOut | None = None
+    reader_credentials: dict[str, int] = {}
+    meta_login_configured: bool = False
+    credential_vault_configured: bool = False
+
 
 class ConfigurationFindingOut(BaseModel):
     code: str

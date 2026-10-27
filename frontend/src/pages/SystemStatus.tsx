@@ -21,6 +21,7 @@ import { formatDateTime, formatRelative, humanise } from '../lib/format'
 import type { Tone } from '../lib/readiness'
 import type { SystemStatus as Status } from '../lib/types'
 import { useAuth } from '../hooks/useAuth'
+import { CredentialCheckStatus } from '../components/meta/CredentialCheckStatus'
 
 export default function SystemStatus() {
   const { user } = useAuth()
@@ -115,6 +116,8 @@ export default function SystemStatus() {
           </InlineNote>
         )}
       </Card>
+
+      <CredentialCheckStatus data={data} />
 
       <Card title="Host resources">
         <div className="grid gap-3 sm:grid-cols-3">

@@ -95,6 +95,14 @@ Names and descriptions only. Real values live in a file outside git — see §3.
 | `DISCOVERY_STALE_AFTER_HOURS` | no | `24` | O3. Per-connection cadence of the sweep, the discovery freshness badge, and the window of `account_not_returned_by_latest_discovery` — one value, so they agree |
 | `AUTO_IMPORT_TELEGRAM_GRACE_HOURS` | no | `24` | O3. A `warning` delivery of an account the sweep imported within this window is skipped with `auto_import_grace` (the pass's summary already said it). Never applies to `critical`. `0` turns the grace off |
 | `META_ACCESS_TOKEN` / `META_BUSINESS_ID` | for any Meta read | empty | **Server-side only** (rule 40). Without them every account is `not_observable`, the spend sweep reads nothing, and every automatic connection is `not_configured` for the discovery sweep. The dispatcher process needs them too — `docker-compose.production.yml`'s `dispatcher` service does not pass them (nor the `SPEND_*`/`DISCOVERY_*` settings) yet |
+| `META_APP_ID` | for Facebook Login (O4) | empty | O4. Not a secret. With the next three, enables *Connect a Facebook account*; any missing → the button is disabled with `not_configured` |
+| `META_APP_SECRET` | for Facebook Login (O4) | empty | O4. **Secret, server-side only** (rule 18's terms): the code exchange's `client_secret` and half of the app token `debug_token` needs. Never in the database, a response, an audit row, a log line or the bundle. A known placeholder is an `error` finding |
+| `META_LOGIN_CONFIG_ID` | for Facebook Login (O4) | empty | O4. The Login for Business configuration id — **System User token, `ads_read` + `business_management` only** (§14 13.3). A credential carrying `ads_management` is refused at the callback |
+| `META_OAUTH_REDIRECT_URI` | for Facebook Login (O4) | empty | O4. `https://<api host>/api/v1/meta-reader-credentials/callback`, registered on the app exactly so. Not https in production → `error` finding |
+| `META_LOGIN_CONFIG_KIND` | no | `system_user` | O4. `system_user` \| `user`; only tells the form whether a Business Manager id is required. The callback trusts `debug_token.type` |
+| `CREDENTIAL_VAULT_KEY` | for Facebook Login (O4) | empty | O4. **Secret.** Fernet key for the credential vault. Missing/invalid → nothing can be stored and stored credentials cannot be read (never plaintext). **Changing it makes every stored credential unreadable** — each must be reconnected; there is no rotation. The api **and** the dispatcher need the same value |
+| `CREDENTIAL_CHECK_EVERY_N_PASSES` | no | `0` (off) | O4. How often the dispatcher asks Meta (`debug_token`, ≤ 3 GETs per credential) whether each vault credential is alive. Turning it on in production is a separate, named approval (rule 22) — not given. `--credential-check` runs one pass by hand |
+| `CREDENTIAL_CHECK_BATCH` / `CREDENTIAL_EXPIRY_WARNING_DAYS` / `CREDENTIAL_RENEW_BEFORE_DAYS` | no | `10` / `14` / `20` | O4. Credentials per workspace per pass; `warning` alert window before expiry; window in which a `user` token's renewal is *tried* (counted, never assumed) |
 | `ALLOW_TEST_SEND` | no | `false` | Armed for one approved verification, then turned off again |
 
 The recipient chat is **not** an environment variable: it is owner-managed per workspace in
@@ -122,6 +130,11 @@ Settings, and is stored masked in every response.
    the env file and export `PGPASSWORD` for the child process only.
 6. `GET /api/v1/operations/configuration` reports whether a secret is set, long enough and not
    a known placeholder. It never returns the value, and neither does any log line.
+7. **What the database may hold (O4).** No secret ever enters the database in plaintext. Since O4
+   exactly one column holds a credential: `meta_reader_credentials.encrypted_secret`, Fernet
+   ciphertext of a Meta reader credential obtained through the product's own Facebook Login flow.
+   Its key (`CREDENTIAL_VAULT_KEY`) is server configuration; a database dump alone does not yield a
+   token. Back up the key separately from database backups, and never in the same place.
 
 ## 4. First owner, and retiring the pilot credential
 

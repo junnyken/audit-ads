@@ -274,3 +274,107 @@ def render_summary(inputs: SummaryMessageInputs) -> str:
     if len(message) > MAX_MESSAGE_LENGTH:
         message = message[: MAX_MESSAGE_LENGTH - 1].rstrip() + "…"
     return message
+
+
+# ------------------------------------------------------------------ O4 reader credential
+#: A third template, for the same reason `a3-v1-summary` exists: a credential alert is about a
+#: Meta reader credential that may stand behind many accounts, not about one account. Same
+#: discipline — allowlisted named fields, sanitised, truncated, no token, no raw Meta message, no
+#: safety claim.
+CREDENTIAL_TEMPLATE_VERSION = "a3-v1-credential"
+
+
+@dataclass(frozen=True)
+class CredentialMessageInputs:
+    """The complete allowlist for a reader-credential alert. There is no field a token could
+    travel in: the label, the kind, the granting account's name, a reason *code*, an expiry date
+    and two counts."""
+
+    severity: str
+    alert_title: str
+    reader_label: str
+    reader_kind: str
+    granted_by: str
+    reason: str
+    expires_at: str | None
+    connections_affected: int | None
+    accounts_affected: int | None
+    observed_at: datetime
+    recommended_next_step: str
+    timezone_name: str | None = None
+    dashboard_link: str | None = None
+
+    def to_payload(self) -> dict:
+        return {
+            "template_version": CREDENTIAL_TEMPLATE_VERSION,
+            "severity": self.severity,
+            "alert_title": self.alert_title,
+            "reader_label": self.reader_label,
+            "reader_kind": self.reader_kind,
+            "granted_by": self.granted_by,
+            "reason": self.reason,
+            "expires_at": self.expires_at,
+            "connections_affected": self.connections_affected,
+            "accounts_affected": self.accounts_affected,
+            "observed_at": self.observed_at.isoformat(),
+            "recommended_next_step": self.recommended_next_step,
+            "timezone": self.timezone_name,
+            "dashboard_link": self.dashboard_link,
+        }
+
+    @classmethod
+    def from_payload(cls, payload: dict, *, observed_at: datetime) -> CredentialMessageInputs:
+        def count(key: str) -> int | None:
+            value = payload.get(key)
+            return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
+
+        return cls(
+            severity=str(payload.get("severity", "warning")),
+            alert_title=str(payload.get("alert_title", "Meta reader credential")),
+            reader_label=str(payload.get("reader_label", "—")),
+            reader_kind=str(payload.get("reader_kind", "—")),
+            granted_by=str(payload.get("granted_by", "—")),
+            reason=str(payload.get("reason", "—")),
+            expires_at=payload.get("expires_at") if isinstance(payload.get("expires_at"), str) else None,
+            connections_affected=count("connections_affected"),
+            accounts_affected=count("accounts_affected"),
+            observed_at=observed_at,
+            recommended_next_step=str(payload.get("recommended_next_step", "")),
+            timezone_name=payload.get("timezone"),
+            dashboard_link=payload.get("dashboard_link"),
+        )
+
+
+def build_settings_link(base_url: str | None) -> str | None:
+    """Where an owner reconnects. Omitted, like every link, when no safe public URL exists."""
+    if not is_safe_public_url(base_url):
+        return None
+    return f"{(base_url or '').rstrip('/')}/settings#meta-readers"
+
+
+def render_credential(inputs: CredentialMessageInputs) -> str:
+    lines = [
+        f"[AdsOps] {sanitise(inputs.severity, limit=32).upper()} — {sanitise(inputs.alert_title)}",
+        "",
+        f"Meta reader: {sanitise(inputs.reader_label)} ({sanitise(inputs.reader_kind, limit=32)})",
+        f"Granted by: {sanitise(inputs.granted_by)}",
+        f"Reason: {sanitise(inputs.reason, limit=64)}",
+    ]
+    if inputs.expires_at:
+        lines.append(f"Expires: {sanitise(inputs.expires_at, limit=40)}")
+    if inputs.connections_affected is not None or inputs.accounts_affected is not None:
+        lines.append(
+            f"Not observable until reconnected: {inputs.connections_affected or 0} connection(s), "
+            f"{inputs.accounts_affected or 0} ad account(s)"
+        )
+    lines += [
+        f"Observed: {format_observed_at(inputs.observed_at, inputs.timezone_name)}",
+        "",
+        f"Next step: {sanitise(inputs.recommended_next_step, limit=_SUMMARY_LIMIT)}",
+    ]
+    if inputs.dashboard_link and is_safe_public_url(inputs.dashboard_link):
+        lines += ["", inputs.dashboard_link]
+    message = "\n".join(lines)
+    if len(message) > MAX_MESSAGE_LENGTH:
+        message = message[: MAX_MESSAGE_LENGTH - 1].rstrip() + "…"
+    return message

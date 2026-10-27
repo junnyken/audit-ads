@@ -3,6 +3,7 @@
  * a missing or extra key here fails `tsc -b`. Where a string already shipped in English
  * (Login, the shell), the original wording is kept.
  */
+import { o4En } from './o4'
 import type { TranslationKey } from './types'
 
 export const en = {
@@ -71,4 +72,7 @@ export const en = {
 
   'format.never': 'never',
   'format.justNow': 'just now',
+
+  // O4 — Meta reader credentials; strings live in ./o4.ts.
+  ...o4En,
 } satisfies Record<TranslationKey, string>

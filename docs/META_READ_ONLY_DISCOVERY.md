@@ -86,6 +86,13 @@ that is wrong.
 identities with different access are not comparable, and presenting them side by side without
 saying so invites a false comparison.
 
+
+**O4.** A connection bound to a vault credential reads as that credential's identity: for a System
+User Login configuration, the business-integration system user Meta created; for a user token, the
+Facebook account itself (`me` is the person). A different credential on the same Business Manager is a
+different reader and may legitimately see a different inventory — which is why the system never
+switches a connection's credential by itself.
+
 ## An empty result has to prove it may read at all
 
 Measured against real Meta on 2026-09-11, across three Business Managers with one system-user

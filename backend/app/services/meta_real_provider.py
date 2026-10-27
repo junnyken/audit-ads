@@ -22,7 +22,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from app.core.enums import BusinessAuthority
+from app.core.enums import BusinessAuthority, ReaderCredentialStatus
+from app.core.secret_vault import SecretDecryptionError, VaultNotConfiguredError, decrypt_secret
 from app.services.extension_context import canonical_external_id
 from app.services.meta_graph_transport import GraphResponse, MetaGraphTransport
 from app.services.meta_provider import (
@@ -52,6 +53,8 @@ __all__ = [
     "READER_BUSINESS_SPECIFIC",
     "READER_NONE",
     "READER_SERVER_DEFAULT",
+    "READER_VAULT",
+    "READER_VAULT_RECONNECT_REQUIRED",
     "RealMetaBusinessProvider",
     "build_real_provider",
     "resolve_reader",
@@ -625,22 +628,58 @@ class RealMetaBusinessProvider(MetaBusinessProvider):
         return self._read_business_managers(limit="1")
 
 
-#: Which configured credential answered for a Business Manager. A name, never a value — the three
+#: Which configured credential answered for a Business Manager. A name, never a value — the
 #: answers are all the operator needs to diagnose a reader, and none of them discloses anything.
 READER_BUSINESS_SPECIFIC = "business_specific"
 READER_SERVER_DEFAULT = "server_default"
 READER_NONE = "none"
+#: O4. A connection bound to an `active` vault credential (Facebook Login for Business).
+READER_VAULT = "vault"
+#: O4. A connection bound to a vault credential that cannot be used — unverified, expired,
+#: invalidated, revoked, or unreadable with the configured vault key. Nothing is read, and the
+#: connection never falls back to a server token: that would silently read as another identity.
+READER_VAULT_RECONNECT_REQUIRED = "vault_reconnect_required"
 
 
-def resolve_reader(settings, business_id: str | None) -> tuple[str, str]:
+def resolve_reader(
+    settings,
+    business_id: str | None,
+    *,
+    credential=None,
+    include_unverified: bool = False,
+) -> tuple[str, str]:
     """Return `(access_token, reader_source)` for one Business Manager.
 
-    A Business Manager with its own configured entry always wins. Anything else falls back to the
-    single server token, which is what every caller did before this existed — a system user can
-    legitimately hold assets across businesses, and refusing to try would remove access that works.
+    The order is fixed (rule 40):
+
+    1. `credential` is `None` (the connection is not bound to the vault) → server configuration,
+       exactly as before O4: a Business Manager with its own entry always wins; anything else
+       falls back to the single server token — deliberate, because a system user can legitimately
+       hold assets across businesses and refusing to try would remove access that works.
+    2. `credential` is `active` → its decrypted token, `vault`. The vault wins over every server
+       token for a connection bound to it.
+    3. `credential` is anything else → `("", vault_reconnect_required)`. **Never** a fall back to
+       the server tokens.
+
+    **This is the only caller of `secret_vault.decrypt_secret`** (a test pins it). A key that is
+    missing or wrong surfaces as `vault_reconnect_required` here, never as an exception and never
+    as plaintext. `include_unverified=True` also opens a `pending_verification` credential; only
+    the credential service's verification passes it, never a reading path.
 
     The token is returned, never logged, and never handed to anything but the transport.
     """
+    if credential is not None:
+        usable = {ReaderCredentialStatus.ACTIVE}
+        if include_unverified:
+            usable.add(ReaderCredentialStatus.PENDING_VERIFICATION)
+        if credential.status not in usable or credential.archived_at is not None:
+            return "", READER_VAULT_RECONNECT_REQUIRED
+        try:
+            token = decrypt_secret(settings, credential.encrypted_secret or "")
+        except (VaultNotConfiguredError, SecretDecryptionError):
+            return "", READER_VAULT_RECONNECT_REQUIRED
+        return token, READER_VAULT
+
     mapped = (settings.meta_access_tokens_by_business or {}).get((business_id or "").strip())
     if mapped and mapped.strip():
         return mapped.strip(), READER_BUSINESS_SPECIFIC
@@ -649,11 +688,14 @@ def resolve_reader(settings, business_id: str | None) -> tuple[str, str]:
     return "", READER_NONE
 
 
-def build_real_provider(settings, *, business_id: str | None = None) -> RealMetaBusinessProvider:
+def build_real_provider(
+    settings, *, business_id: str | None = None, credential=None
+) -> RealMetaBusinessProvider:
     """`business_id` overrides the server setting, for a connection that names its own Business
-    Manager. Defaulting to the setting keeps every existing caller reading what it read before."""
+    Manager. Defaulting to the setting keeps every existing caller reading what it read before.
+    `credential` is the connection's vault credential (O4), when it is bound to one."""
     resolved_business_id = business_id if business_id is not None else settings.meta_business_id
-    access_token, _ = resolve_reader(settings, resolved_business_id)
+    access_token, _ = resolve_reader(settings, resolved_business_id, credential=credential)
     return RealMetaBusinessProvider(
         transport=MetaGraphTransport(
             access_token=access_token,

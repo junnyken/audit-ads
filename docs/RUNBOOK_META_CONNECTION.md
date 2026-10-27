@@ -82,8 +82,11 @@ anh và tôi không kiểm chứng được từ đây. Nếu thiếu quyền th
 META_ACCESS_TOKEN='<system user token>'
 ```
 
-Không đưa vào file nào trong repo này. Không đưa vào database — sản phẩm này không có cột nào
-cho nó và sẽ không sinh ra cột đó. Không đưa vào chat, ticket hay ảnh chụp màn hình.
+Không đưa vào file nào trong repo này. Không đưa vào database bằng tay — token **dán** vào thì
+không bao giờ vào DB. Từ O4, DB có đúng **một** cột mang credential
+(`meta_reader_credentials.encrypted_secret`): chỉ chứa bản **mã hoá**, và chỉ được ghi bởi luồng
+Facebook Login for Business của chính sản phẩm — không ai gõ hay dán vào đó (CLAUDE.md rule 1, 40;
+xem `docs/RUNBOOK_META_LOGIN_FOR_BUSINESS.md`). Không đưa vào chat, ticket hay ảnh chụp màn hình.
 `token_configured` trong API chỉ là một biến boolean được tính ra; bản thân token không bao giờ
 rời khỏi phần cấu hình.
 

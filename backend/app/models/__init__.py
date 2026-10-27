@@ -43,6 +43,7 @@ from app.models.meta_operations import (
     PixelShareBatch,
     PixelShareBatchItem,
 )
+from app.models.meta_reader_credential import MetaReaderCredential
 from app.models.operations import OperationalRun
 from app.models.preflight import (
     CampaignDraft,
@@ -65,6 +66,7 @@ __all__ = [
     "AccountCreationBatch",
     "AccountCreationBatchItem",
     "MetaConnection",
+    "MetaReaderCredential",
     "PixelShareBatch",
     "PixelShareBatchItem",
     "CampaignDraft",

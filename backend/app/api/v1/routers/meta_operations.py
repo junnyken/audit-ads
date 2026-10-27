@@ -4,7 +4,8 @@ workspace-scoped through `Ctx.workspace_id`, never a payload.
 
 Which provider a route reaches is decided in one place, `_provider_for`: the fake provider by
 default, and since A10 the real, **read-only** provider only for a `production` connection whose
-Business Manager has a configured reader credential (rule 40). The real provider cannot write —
+Business Manager has a usable reader credential — server configuration, or since O4 the `active`
+vault credential the connection is bound to (rule 40). The real provider cannot write —
 its transport is GET-only (rule 20). The scheduled discovery sweep (O3) does not go through these
 routes; it is `run_dispatcher.discovery_sweep_pass`, switched per connection by
 `PATCH /meta-connections/{id}/automation` below.
@@ -30,6 +31,7 @@ from app.models.meta_operations import (
     MetaConnection,
     PixelShareBatch,
 )
+from app.models.meta_reader_credential import MetaReaderCredential
 from app.schemas import meta_operations as s
 from app.schemas.common import page_response
 from app.services.base import get_or_404, snapshot
@@ -39,8 +41,13 @@ from app.services.meta_account_creation import AccountCreationBatchService, Draf
 from app.services.meta_discovery import MetaDiscoveryService, ReconciliationRow
 from app.services.meta_pixel_share import DraftPixelShareItem, PixelShareBatchService
 from app.services.meta_provider import DiscoveredAsset, get_fake_provider
-from app.services.meta_real_provider import READER_NONE, build_real_provider, resolve_reader
-from app.services.spend_service import connection_business_id
+from app.services.meta_reader_credentials import MetaReaderCredentialService, derived_state
+from app.services.meta_real_provider import (
+    READER_NONE,
+    READER_VAULT_RECONNECT_REQUIRED,
+    build_real_provider,
+)
+from app.services.spend_service import connection_business_id, connection_reader_source
 
 #: A9 permission matrix (§6): "Manage Meta connections/capabilities" and "Queue A7/A8 external
 #: operation" are owner-only by default — Admin only "if role capability exists", and A9
@@ -78,22 +85,89 @@ def _provider_for(connection: MetaConnection):
     """
     settings = get_settings()
     business_id = _business_id_for(connection)
-    _, reader_source = resolve_reader(settings, business_id)
+    reader_source = connection_reader_source(connection, settings)
+    if connection.environment == MetaEnvironment.PRODUCTION and reader_source == READER_VAULT_RECONNECT_REQUIRED:
+        # O4: bound to a vault credential that cannot be used. Neither the server token nor the
+        # fake provider may stand in for it — the first would read as another identity, the second
+        # would show fabricated data on a production card. Nothing is read.
+        raise ConflictError(
+            "This connection's Meta reader credential needs reconnecting. Nothing is read until "
+            "it is reconnected in Settings.",
+            details={"reason": "reader_reconnect_required"},
+        )
     if connection.environment == MetaEnvironment.PRODUCTION and reader_source != READER_NONE:
-        return build_real_provider(settings, business_id=business_id)
+        return build_real_provider(
+            settings, business_id=business_id, credential=getattr(connection, "reader_credential", None)
+        )
     return _seeded_fake_provider(business_id)
 
 
-def _serialize_connection(connection: MetaConnection) -> dict[str, Any]:
+def _reader_credential_block(connection: MetaConnection) -> dict[str, Any] | None:
+    """O4. Which vault credential this connection reads with — its name and state, never a token."""
+    credential = connection.reader_credential
+    if credential is None:
+        return None
+    return {
+        "id": str(credential.id),
+        "label": credential.label,
+        "kind": credential.kind.value,
+        "status": credential.status.value,
+        "derived_state": derived_state(credential),
+        "expires_at": credential.expires_at.isoformat() if credential.expires_at else None,
+        "reconnect_reason": credential.reconnect_reason,
+    }
+
+
+def _other_readers(connection: MetaConnection, credentials: list[MetaReaderCredential]) -> list[dict[str, Any]]:
+    """Active vault credentials that also saw this connection's Business Manager — offered to the
+    owner as an explicit switch, never applied by the system (Constraint 9)."""
+    reference = (connection.business_manager_reference or "").strip()
+    if not reference or connection.environment != MetaEnvironment.PRODUCTION:
+        return []
+    return [
+        {"id": str(c.id), "label": c.label, "kind": c.kind.value}
+        for c in credentials
+        if c.id != connection.reader_credential_id
+        and c.status.value == "active"
+        and any(
+            isinstance(item, dict) and str(item.get("external_id")) == reference
+            for item in (c.businesses_seen_json or [])
+        )
+    ]
+
+
+def _workspace_credentials(ctx) -> list[MetaReaderCredential]:
+    return list(
+        ctx.session.execute(
+            sa.select(MetaReaderCredential).where(
+                MetaReaderCredential.workspace_id == ctx.workspace_id,
+                MetaReaderCredential.archived_at.is_(None),
+            )
+        ).scalars().all()
+    )
+
+
+def _serialize_connection(
+    connection: MetaConnection, credentials: list[MetaReaderCredential] | None = None
+) -> dict[str, Any]:
     settings = get_settings()
     business_id = _business_id_for(connection)
     # Per Business Manager, not per server. The old global boolean answered "the server holds *a*
     # token", which is not the question an operator asks while looking at one connection's card:
-    # a token that reads one business proves nothing about another.
-    _, reader_source = resolve_reader(settings, business_id)
-    token_configured = True if connection.environment.value == "fake" else reader_source != READER_NONE
+    # a token that reads one business proves nothing about another. Since O4 a connection bound
+    # to the vault answers with its own credential's state.
+    reader_source = connection_reader_source(connection, settings)
+    token_configured = (
+        True
+        if connection.environment.value == "fake"
+        else reader_source not in (READER_NONE, READER_VAULT_RECONNECT_REQUIRED)
+    )
     return {
-        **{k: v for k, v in snapshot(connection).items() if k not in ("capabilities_json", "business_managers_json")},
+        **{
+            k: v
+            for k, v in snapshot(connection).items()
+            if k not in ("capabilities_json", "business_managers_json", "reader_credential_id")
+        },
         "capabilities": connection.capabilities_json,
         "business_managers": connection.business_managers_json,
         "token_configured": token_configured,
@@ -109,6 +183,10 @@ def _serialize_connection(connection: MetaConnection) -> dict[str, Any]:
         # O3. The owner's switches and whether the sweep could read this connection at all —
         # computed from server configuration, never stored, never a credential.
         "automation": serialize_automation(connection, settings),
+        # O4. The vault credential this connection reads with, if any, and other active ones that
+        # also saw its Business Manager (the owner may switch, the system never does).
+        "reader_credential": _reader_credential_block(connection),
+        "other_readers": _other_readers(connection, credentials or []),
     }
 
 
@@ -252,7 +330,8 @@ def list_connections(ctx: OwnerCtx) -> list[dict[str, Any]]:
         .scalars()
         .all()
     )
-    return [_serialize_connection(row) for row in rows]
+    credentials = _workspace_credentials(ctx)
+    return [_serialize_connection(row, credentials) for row in rows]
 
 
 @connections_router.post("", status_code=201)
@@ -360,7 +439,24 @@ def discovery_summary(ctx: OwnerCtx) -> list[dict[str, Any]]:
 @connections_router.get("/{connection_id}")
 def get_connection(ctx: OwnerCtx, connection_id: uuid.UUID) -> dict[str, Any]:
     connection = get_or_404(ctx.session, MetaConnection, connection_id, ctx.workspace_id, label="Meta connection")
-    return _serialize_connection(connection)
+    return _serialize_connection(connection, _workspace_credentials(ctx))
+
+
+@connections_router.post("/{connection_id}/reader-credential")
+def assign_reader_credential(
+    ctx: OwnerCtx, connection_id: uuid.UUID, payload: s.ConnectionReaderAssign
+) -> dict[str, Any]:
+    """O4. The owner's explicit choice of which vault credential reads this Business Manager.
+    409 unless the connection is `production` and names its own Business Manager, the credential
+    is `active`, and that credential has been seen reading this Business Manager. Makes no
+    provider call; audited with the real actor."""
+    connection = get_or_404(ctx.session, MetaConnection, connection_id, ctx.workspace_id, label="Meta connection")
+    service = MetaReaderCredentialService(ctx.session, ctx.workspace_id, ctx.audit)
+    credential = service.get(payload.reader_id)
+    service.assign_to_connection(connection, credential, actor_id=ctx.user.id)
+    ctx.commit()
+    ctx.session.refresh(connection)
+    return _serialize_connection(connection, _workspace_credentials(ctx))
 
 
 @connections_router.patch("/{connection_id}/automation")

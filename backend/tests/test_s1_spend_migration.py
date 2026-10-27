@@ -53,8 +53,12 @@ def test_0016_is_applied_and_the_table_has_the_planned_shape(migrated_database):
 
 
 def test_downgrade_removes_only_the_new_table_and_upgrade_restores_it(migrated_database):
-    before = _tables()
+    head_tables = _tables()
     try:
+        # Later revisions (O4's 0018 adds a table) are stepped below first, so this still measures
+        # exactly what 0016 adds.
+        command.downgrade(_config(), "0016_s1_spend_observations")
+        before = _tables()
         command.downgrade(_config(), "0015_a10_3_conn_bm")
         after_down = _tables()
         assert TABLE not in after_down
@@ -62,5 +66,5 @@ def test_downgrade_removes_only_the_new_table_and_upgrade_restores_it(migrated_d
         assert _revision() == "0015_a10_3_conn_bm"
     finally:
         command.upgrade(_config(), "head")
-    assert _tables() == before
+    assert _tables() == head_tables
     assert _revision() == _head()

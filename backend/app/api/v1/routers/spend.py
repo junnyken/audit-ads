@@ -134,6 +134,14 @@ def spend_payload(ctx, account: AdAccount, *, now: datetime | None = None) -> di
         "ad_account_id": str(account.id),
         "freshness": facts.freshness.value,
         "observable": facts.observable,
+        # O4: the first missing link when the product cannot read this account — a code
+        # (`no_business_manager`, `no_production_connection`, `no_reader`,
+        # `reader_reconnect_required`, …), `None` when it can.
+        "not_observable_reason": (
+            None
+            if facts.observable
+            else spend_service.account_not_observable_reason(ctx.session, ctx.workspace_id, account)
+        ),
         "reader_source": facts.reader_source,
         "meta_connection_id": facts.meta_connection_id,
         "stale_after_hours": facts.stale_after_hours,
@@ -223,8 +231,13 @@ def refresh_account_spend(ctx: OwnerCtx, ad_account_id: uuid.UUID) -> dict[str, 
     if reader is None:
         raise ConflictError(
             "This account cannot be read: it needs an external account id, a Business Manager, "
-            "and a production Meta connection with a reader configured on the server.",
-            details={"freshness": SpendFreshness.NOT_OBSERVABLE.value},
+            "and a production Meta connection with a usable reader credential.",
+            details={
+                "freshness": SpendFreshness.NOT_OBSERVABLE.value,
+                "not_observable_reason": spend_service.account_not_observable_reason(
+                    ctx.session, ctx.workspace_id, account
+                ),
+            },
         )
     provider = spend_service.provider_for_connection(reader)
     observation, read = spend_service.SpendObservationService(ctx.session, ctx.workspace_id).read_and_record(

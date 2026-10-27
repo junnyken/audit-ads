@@ -8,6 +8,7 @@ import { Badge, Card, ErrorState, InlineNote, Skeleton, Tabs } from '../componen
 import { AssetInventory, type EdgeFilter, type StatusFilter } from '../components/meta/AssetInventory'
 import { CoverageBadge } from '../components/meta/DiscoverySection'
 import { ReaderSourceBadge, readerSourceNote } from '../components/meta/ReaderSource'
+import { ConnectionReaderSwitch } from '../components/meta/ConnectionReaderSwitch'
 import { HistoryTab } from './meta-connection/HistoryTab'
 
 const TABS = [
@@ -228,11 +229,12 @@ export default function MetaConnectionWorkspace() {
                 <div className="space-y-1.5 text-[12.5px]">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-ink-muted">Reader credential</span>
-                    <ReaderSourceBadge source={record.reader_source} />
+                    <ReaderSourceBadge source={record.reader_source} readerLabel={record.reader_credential?.label} />
                   </div>
                   {readerSourceNote(record.reader_source) && (
                     <p className="text-[11.5px] text-ink-faint">{readerSourceNote(record.reader_source)}</p>
                   )}
+                  <ConnectionReaderSwitch connection={record} />
                   <div className="flex items-center justify-between">
                     <span className="text-ink-muted">Business Manager in use</span>
                     <span className="font-mono text-[11.5px]">

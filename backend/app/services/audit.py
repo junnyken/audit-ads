@@ -53,6 +53,8 @@ class AuditLogService:
 #: no fake user in this product, and naming a person for work no person did is what the older
 #: "first member of the workspace" pattern did (S1/A4 still do — a separate follow-up).
 SYSTEM_DISCOVERY_SWEEP_ACTOR = "system:discovery_sweep"
+#: O4. The scheduled check of vault reader credentials.
+SYSTEM_CREDENTIAL_CHECK_ACTOR = "system:credential_check"
 
 
 class SystemAuditLogService(AuditLogService):

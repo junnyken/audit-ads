@@ -511,4 +511,6 @@ def source_label(alert: Alert) -> str:
         return "Health signal"
     if alert.source_type == AlertSourceType.DISCOVERY_SWEEP:
         return "Discovery sweep"
+    if alert.source_type == AlertSourceType.READER_CREDENTIAL:
+        return "Meta reader credential"
     return "Health evaluation"

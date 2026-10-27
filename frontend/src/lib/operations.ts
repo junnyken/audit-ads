@@ -39,6 +39,7 @@ export const RUN_KIND_LABEL: Record<string, string> = {
   restore_drill: 'Restore drill',
   migration_release: 'Migration release',
   test_send: 'Controlled test send',
+  credential_check: 'Meta reader credential check',
 }
 
 export const TRANSPORT_LABEL: Record<string, string> = {

@@ -15,6 +15,15 @@ What leaves this process: a Graph path, a pinned API version, and the access tok
 itself, the full request URL (it carries query parameters that may identify a BM), and the raw
 response body.
 
+O4 adds two **GET** paths on the same host, through the same `get()` — no new method:
+`oauth/access_token` (exchange the Login `code`, or a short-lived user token, for a token) and
+`debug_token` (ask Meta what a token is: app, type, scopes, expiry, validity). By Meta's design
+both carry a credential in the query string (`client_secret`, `code`, `fb_exchange_token`,
+`input_token`). That is tolerable only because this module never logs a URL, a query string, a
+response body or an exception message — a test pins that neither path, nor any of those values,
+reaches a log line. `oauth/access_token` is the one path that may be called without a bearer:
+there is no token yet, the app authenticates with `client_id` + `client_secret` instead.
+
 Stdlib `urllib.request` on purpose, matching `telegram_transport.py`: no new dependency enters
 the production image for this, and `test_alert_security.py` names both modules explicitly.
 """
@@ -50,6 +59,10 @@ _BILLING_ERROR_CODES = {2500, 1487742}
 #: and `12/adaccountsomethingelse` both fail it.
 _WRITABLE_PATH = re.compile(r"^\d{1,30}/adaccount$")
 
+#: O4. The only GET path that may be sent without a bearer: the Login code exchange, where the app
+#: authenticates with `client_id` + `client_secret` because no access token exists yet.
+_UNAUTHENTICATED_GET_PATHS = frozenset({"oauth/access_token"})
+
 
 @dataclass(frozen=True)
 class GraphResponse:
@@ -63,11 +76,17 @@ class GraphResponse:
     #: Whatever Meta told us about our remaining budget, when it tells us. Observability only —
     #: nothing in this build throttles itself on it, and pretending otherwise would be a lie.
     rate_limit_header: str | None = None
+    #: O4. Graph's `error.code` and `error.error_subcode` when Meta returned an error envelope —
+    #: integers only, never `error.message`. `190` with `460` (password changed) or `459`
+    #: (checkpointed) needs a different next step from `190`/`463` (expired), and the mapped
+    #: `failure_code` alone cannot tell them apart.
+    graph_error_code: int | None = None
+    graph_error_subcode: int | None = None
 
 
 @dataclass
 class MetaGraphTransport:
-    """GET-only client for the Graph API.
+    """Read-only client for the Graph API: `get()`, plus the one narrow `post()` (A10.2).
 
     `access_token` is held in memory for the lifetime of a call and sent as a bearer header
     rather than a query parameter, so it does not end up in an intermediary's access log.
@@ -81,7 +100,8 @@ class MetaGraphTransport:
     def get(self, path: str, params: dict[str, str] | None = None) -> GraphResponse:
         """Issue one GET. `path` is a Graph path such as `me/businesses`, never a full URL —
         a caller cannot redirect this transport at another host."""
-        if not self.access_token:
+        unauthenticated = path.strip("/") in _UNAUTHENTICATED_GET_PATHS
+        if not self.access_token and not unauthenticated:
             return GraphResponse(
                 ok=False,
                 failure_code=MetaFailureCode.PERMISSION_MISSING,
@@ -89,13 +109,13 @@ class MetaGraphTransport:
             )
 
         url = self._build_url(path, params)
+        headers = {"Accept": "application/json"}
+        if self.access_token:
+            headers["Authorization"] = f"Bearer {self.access_token}"
         request = urllib.request.Request(  # noqa: S310 - scheme and host are fixed by configuration
             url,
             method="GET",
-            headers={
-                "Authorization": f"Bearer {self.access_token}",
-                "Accept": "application/json",
-            },
+            headers=headers,
         )
         try:
             with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
@@ -202,12 +222,16 @@ class MetaGraphTransport:
         back, and those may name a Business Manager.
         """
         code: int | None = None
+        subcode: int | None = None
         try:
             body = json.loads(exc.read().decode("utf-8") or "{}")
             error = body.get("error", {}) if isinstance(body, dict) else {}
             code = error.get("code")
+            subcode = error.get("error_subcode")
         except (ValueError, AttributeError, OSError):
             pass
+        code = code if isinstance(code, int) and not isinstance(code, bool) else None
+        subcode = subcode if isinstance(subcode, int) and not isinstance(subcode, bool) else None
 
         rate_header = exc.headers.get("X-Business-Use-Case-Usage") if exc.headers else None
 
@@ -237,8 +261,20 @@ class MetaGraphTransport:
         # parameters back, which may name a Business Manager. The mapped code is enough.
         logger.info(
             "meta graph error",
-            extra={"context": {"http_status": exc.code, "graph_code": code, "mapped": failure.value}},
+            extra={
+                "context": {
+                    "http_status": exc.code,
+                    "graph_code": code,
+                    "graph_subcode": subcode,
+                    "mapped": failure.value,
+                }
+            },
         )
         return GraphResponse(
-            ok=False, failure_code=failure, failure_summary=summary, rate_limit_header=rate_header
+            ok=False,
+            failure_code=failure,
+            failure_summary=summary,
+            rate_limit_header=rate_header,
+            graph_error_code=code,
+            graph_error_subcode=subcode,
         )

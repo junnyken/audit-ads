@@ -6,6 +6,7 @@ import type { MetaConnection, MetaEnvironment } from '../lib/types'
 import { Badge, Card, EmptyState, ErrorState, Field, Skeleton } from '../components/ui'
 import { DiscoverySection } from '../components/meta/DiscoverySection'
 import { ReaderSourceBadge } from '../components/meta/ReaderSource'
+import { ConnectionReaderSwitch } from '../components/meta/ConnectionReaderSwitch'
 import { AutomationBadge, AutomationControls, automationOf } from '../components/meta/AutomationControls'
 import { formatDateTime } from '../lib/format'
 
@@ -65,8 +66,9 @@ function ConnectionCard({ connection }: { connection: MetaConnection }) {
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-2 text-[12.5px]">
           <span className="text-ink-muted">Reader credential</span>
-          <ReaderSourceBadge source={connection.reader_source} />
+          <ReaderSourceBadge source={connection.reader_source} readerLabel={connection.reader_credential?.label} />
         </div>
+        <ConnectionReaderSwitch connection={connection} />
         <CapabilityRow label="List Business Managers" allowed={connection.capabilities?.list_business_managers} />
         <CapabilityRow label="Create ad account" allowed={connection.capabilities?.create_ad_account} />
         <CapabilityRow label="Share ad-account access" allowed={connection.capabilities?.share_ad_account_access} />

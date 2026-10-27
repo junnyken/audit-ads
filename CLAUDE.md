@@ -1,7 +1,7 @@
 # AdsOps Control Center — agent instructions
 
 Governing process: `MINI_SPEC_PLAYBOOK.md`. Read it, plus `FEATURES.md`, `ARCH.md`, `API.md` and
-`TEST_LOG.md`, before changing code. Current release: O3 (scheduled discovery + automatic import, Meta read-only: off by default on two switches — `DISCOVERY_SWEEP_EVERY_N_PASSES` and the owner's per-connection flags; never fake connections, never archive/restore; never run live), on S2 (Meta account status: four health
+`TEST_LOG.md`, before changing code. Current release: O4 (stored Meta readers: Facebook Login for Business with a System User configuration as the main path, credentials encrypted in a vault (`cryptography`/Fernet, key in server configuration), read scopes only — `ads_management` refused; a dead credential never falls back to a server token, its accounts read `not_observable` with a reason and one critical alert is raised; the credential check is off by default (`CREDENTIAL_CHECK_EVERY_N_PASSES=0`); never run live), on O3 (scheduled discovery + automatic import, Meta read-only: off by default on two switches — `DISCOVERY_SWEEP_EVERY_N_PASSES` and the owner's per-connection flags; never fake connections, never archive/restore; never run live), on S2 (Meta account status: four health
 rules read from S1's stored observations, so no extra Meta call; never shown with success
 styling; extension 0.3.0), on S1 (spend tracking: read-only spend observations, four spend
 health rules, a sweep that is off by default, the Spend tab and the Accounts column), on O1.1
@@ -38,6 +38,13 @@ not copy these forward — re-measure them at the moment you write about them.
    token, compared by hash and never persisted, plus the password a brand-new employee is
    choosing for the account being created in that same call). Adding a third needs the same
    deliberate, documented justification, not a quiet swap of the base class.
+   **One exception, by design and not by drift (O4): a Meta reader credential that the product itself obtained
+   from Meta's login flow — never typed, pasted or posted by a person, never read from a browser — may be stored
+   in `meta_reader_credentials.encrypted_secret`, encrypted with `CREDENTIAL_VAULT_KEY` from server
+   configuration by `core/secret_vault.py`, the only module that may encrypt or decrypt. It is decrypted only
+   inside `resolve_reader`, lives in memory for one provider call chain, is never cached across passes, and
+   never reaches a request body, a response, an audit row, a log line or the frontend bundle. Cookies, sessions
+   and passwords remain forbidden without exception.**
 2. Never hard-delete a domain entity. Use `archived_at`; audit history is permanent.
 3. Every mutation writes a redacted audit row **in the same transaction** as the change.
 4. Missing evidence is never positive evidence. It degrades to `unknown` or `not_ready`.
@@ -72,9 +79,11 @@ not copy these forward — re-measure them at the moment you write about them.
     connecting and on every redirect hop, timeout, redirect cap, response-size cap). No other
     module may import an HTTP client or a browser driver; `test_alert_security.py` enforces
     this by name. The third is `services/meta_graph_transport.py` (A10 — the Meta Graph API
-    only, to the configured base, **GET-only by construction**: it has no method that can POST,
-    PATCH or DELETE, which is what makes the real provider's read-only guarantee structural
-    rather than a setting).
+    only, to the configured base; **read-only except the single documented write path
+    `{business-id}/adaccount`, enforced by `_WRITABLE_PATH` and its tests — it has no method that can PATCH or
+    DELETE. O4 adds two GET paths on that same host, `oauth/access_token` and `debug_token`, whose query strings
+    carry a credential by Meta's design; the transport never logs a URL, and a test pins that these two paths
+    appear in no log line and no response**).
 21. Alert derivation runs in a nested SAVEPOINT inside the health evaluation. An alerting failure
     must degrade alerting only.
 22. Never deploy, run `docker compose up` against a target, change DNS/firewall/proxy, or send a
@@ -117,12 +126,22 @@ not copy these forward — re-measure them at the moment you write about them.
 38. Identity for a bucket comes from a signature-**verified** token, never a decoded one. An
     unverified subject would let a caller drain a victim's allowance.
 39. Health probes are never rate limited. A limited probe turns a busy minute into a restart loop.
-40. A Meta reader credential lives only in server configuration, keyed by Business Manager id
-    (`META_ACCESS_TOKENS_BY_BUSINESS`). Never add a column, a request field or a response field
-    that carries one; `reader_source` names *which* credential answered and is the most that may
-    be disclosed. A Business Manager with its own entry is never read with the default token. The
-    fallback in the other direction is deliberate and documented — do not tighten it into a
-    refusal without measuring what access that removes.
+40. A Meta reader credential lives in exactly one of two places: server configuration keyed by Business
+    Manager id (`META_ACCESS_TOKENS_BY_BUSINESS`, with `META_ACCESS_TOKEN` as the documented fallback), or the
+    encrypted credential vault (`meta_reader_credentials`, rule 1's single exception), filled only by the
+    product's own Facebook Login for Business flow and bound to a connection through
+    `meta_connections.reader_credential_id`. Never add any other column, a request field or a response field
+    that carries one; `reader_source` (`vault` / `vault_reconnect_required` / `business_specific` /
+    `server_default` / `none` / `fake`) names *which* credential answered, and the credential's label, kind,
+    granting account, scopes, expiry, last verification and status are the most that may be disclosed. For one
+    Business Manager the order is fixed: a connection bound to an `active` vault credential is read with it and
+    never with a server token; a Business Manager with its own configuration entry is never read with the
+    default token; the fallback from an unmapped Business Manager to the default token stays, deliberate and
+    documented. A vault credential that is not `active` — unverified, expired, invalidated, revoked — is never
+    used and never falls back silently to another identity: every read under it degrades to
+    `not_observable` with a stated reason until a person reconnects. The Meta app secret, login configuration
+    id and vault key are server configuration under rule 18's terms. Read scopes only: a credential carrying
+    `ads_management` is refused at the door.
 41. Never describe this product's state from memory. Before writing that something is or is not
     built, deployed, sent or verified, check it: `FEATURES.md`'s own follow-up list had accumulated
     five false statements by 2026-09-14, including "no real Meta provider exists" written while the

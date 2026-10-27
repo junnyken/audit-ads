@@ -25,6 +25,7 @@ from app.core.enums import (
     WorkspaceRole,
 )
 from app.core.errors import AuthorizationError, ValidationError
+from app.core.secret_vault import vault_configured
 from app.models.alerts import NotificationDelivery
 from app.models.operations import OperationalRun
 from app.schemas.operations import (
@@ -36,6 +37,7 @@ from app.schemas.operations import (
     TestSendResultOut,
 )
 from app.services.alert_service import AlertPolicyService
+from app.services.meta_reader_credentials import reader_credential_summary
 from app.services.operations import (
     THRESHOLDS,
     OperationalRunService,
@@ -47,6 +49,10 @@ from app.services.telegram_transport import build_transport
 from app.services.test_send import TestSendService
 
 router = APIRouter(prefix="/operations", tags=["operations"])
+
+#: O4. A credential check older than this is `stale`: a daily pass plus two hours' grace, the
+#: same allowance the backup uses.
+CREDENTIAL_CHECK_STALE_AFTER = timedelta(hours=26)
 
 
 def _require_owner(ctx) -> None:
@@ -99,6 +105,7 @@ def operations_overview(ctx: Ctx) -> dict[str, Any]:
     last_backup_ok = runs.latest_successful(OperationalRunKind.BACKUP)
     last_restore_drill = runs.latest(OperationalRunKind.RESTORE_DRILL)
     last_migration = runs.latest(OperationalRunKind.MIGRATION_RELEASE)
+    last_credential_check = runs.latest(OperationalRunKind.CREDENTIAL_CHECK)
 
     oldest_pending = ctx.session.execute(
         sa.select(sa.func.min(NotificationDelivery.scheduled_for)).where(
@@ -169,6 +176,14 @@ def operations_overview(ctx: Ctx) -> dict[str, Any]:
         "host": metrics.as_dict(),
         "host_bands": evaluate_thresholds(metrics),
         "thresholds": THRESHOLDS,
+        "credential_check_state": staleness(
+            last_credential_check.started_at if last_credential_check else None,
+            limit=CREDENTIAL_CHECK_STALE_AFTER,
+        ),
+        "credential_check_last_run": _run_payload(last_credential_check),
+        "reader_credentials": reader_credential_summary(ctx.session, ctx.workspace_id, settings),
+        "meta_login_configured": settings.meta_login_configured,
+        "credential_vault_configured": vault_configured(settings),
     }
 
 

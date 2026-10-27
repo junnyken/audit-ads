@@ -9,7 +9,8 @@ newer read is a newer row. A failed read is a row too, carrying its failure code
 recorded" and "a read was attempted and refused" are different facts.
 
 What is deliberately **not** here: any reader credential (rule 40 — `reader_source` names which
-configured credential answered, never its value), and anything describing a payment method
+credential answered — `vault`, `business_specific`, `server_default` — never its value; since O4 the
+one encrypted copy lives only in `meta_reader_credentials`), and anything describing a payment method
 (`funding_source_details` is never requested; A1 excludes payment data from this product).
 
 Money is stored as the raw strings Meta returned. Their units have not been verified against a
