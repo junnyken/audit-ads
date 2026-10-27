@@ -698,6 +698,8 @@ Không test nào được chạy để viết tài liệu này.
 | 13.3 | Cấu hình Facebook Login for Business loại **System User** (không hết hạn). Mã vẫn xử lý được loại User, nhưng loại User không phải đường chính |
 | 13.5 | Credential chết thì bắn **một alert `critical`** và báo Telegram ngay. Loại có hạn thì cảnh báo `warning` trước 14 ngày |
 | 13.10 | **Làm O4 ngay sau O3**, không chờ lần đọc thật trên hub |
+| 13.3 (xác nhận lại 2026-10-27, lúc cấu hình thật) | **System User** — chủ sản phẩm đã so với loại User (4 lần bấm nhưng hạn khoảng 60 ngày) và chọn 16 lần bấm, mỗi BM một lần, không hết hạn |
+| 13.4 (2026-10-27) | Dùng **app Meta cũ** — app đã sinh quyền đọc cho A10, không dùng app "Mắt Bão Marketing" của mb-connect. Cấu hình Login for Business tạo mới trên app đó |
 | 13.4, 13.6–13.9, 13.11 | Chưa hỏi riêng, áp đề xuất của tài liệu: một cú bấm owner (không tự chuyển credential); giữ `business_management` và đo thêm ở phiên đo; 2FA là khuyến nghị bắt buộc trong runbook. Phiên đo ≤ 6 GET, chọn app Meta, gán vai trò app và người duyệt cadence trên production là việc ngoài mã, làm khi cấu hình thật |
 
 ---
