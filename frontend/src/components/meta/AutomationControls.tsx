@@ -103,7 +103,7 @@ export function AutomationControls({ connection }: { connection: MetaConnection 
         </span>
       </label>
 
-      {reason && <p className="mt-1.5 text-[11px] text-amber-700">{reason}</p>}
+      {reason && <p className="mt-1.5 text-[11px] text-tone-caution-fg">{reason}</p>}
       {current.auto_discovery_enabled && current.enabled_at && (
         <p className="mt-1.5 text-[11px] text-ink-faint">Switched on {formatDateTime(current.enabled_at)}.</p>
       )}
@@ -111,7 +111,7 @@ export function AutomationControls({ connection }: { connection: MetaConnection 
       {draft && (
         <div className="mt-2 space-y-1.5">
           {turningImportOn && (
-            <p className="text-[11px] text-amber-700">
+            <p className="text-[11px] text-tone-caution-fg">
               Added accounts cannot be deleted from the registry afterwards — only archived. Nothing
               in Meta is created, shared or changed.
             </p>
