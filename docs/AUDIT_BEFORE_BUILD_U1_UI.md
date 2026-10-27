@@ -662,3 +662,10 @@ repo là nguồn sự thật.
 | Q5–Q8 | Chưa hỏi riêng, áp đề xuất: U1 không vẽ biểu đồ; đưa 5 route đang ẩn vào menu nhóm; Q7 và Q8 (wording) để BA duyệt. Mọi chuỗi mới gắn `[ĐỀ XUẤT — chờ duyệt]` |
 
 Thứ tự triển khai: U1a → U1b → U1c → U1d → U1e. Mỗi lát xong phải xanh test rồi mới commit.
+
+### Duyệt câu chữ (2026-10-27)
+
+Sau khi xem bảng tiến độ U1a–U1e, chủ sản phẩm nói "tôi duyệt". Ghi nhận như sau:
+- Câu chữ đề xuất trong `frontend/src/i18n/vi.ts`, `en.ts` và i18n của tiện ích (các chuỗi gắn `[ĐỀ XUẤT — chờ duyệt]`) được **chủ sản phẩm duyệt để dùng**.
+- Thẻ đề xuất vẫn giữ trong mã. BA vẫn rà soát theo quy định BA ⇄ DEV, và mọi đề xuất chỉnh của BA sẽ được áp vào sau.
+- Bao gồm cả hai từ xác nhận phải gõ: `CHẠY` (chạy hàng đợi ghi lên Meta) và `SEND` (gửi thử).
