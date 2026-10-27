@@ -187,3 +187,27 @@ Defaults in `app/services/operations.py`, shown on the System Status page.
 These are **operational-system** signals. They are not account health, not readiness, and they
 never travel to Telegram: infrastructure alerting stays on the status page unless a future
 MINI-SPEC extends the alert model to a second source type.
+
+## 7. Current deployment (Vibe Host, account `vays3`)
+
+Recorded 2026-10-27. Re-measure before relying on it (rule 41).
+
+| Part | Vibe Host project | Public URL |
+|---|---|---|
+| API + dispatcher (`RUN_DISPATCHER_IN_API=true`) | `audit-ads-backend` (`cmto42zj408qo0i5fxxjj6xix`), stack `cmto42ubx08q80i5fqw5141dv`, 0.5 CPU / 1024 MB | `https://audit-ads-backend.vibe1.tinhgon.xyz` |
+| Web (nginx, subdir `frontend`) | `adsops-frontend` (`cmvqjkc5p063m0i5fzhsrljpo`) | `https://adsops-app.vibe.tinhgon.xyz` |
+
+The backend's `CORS_ORIGINS` and `PUBLIC_APP_URL` must both name the web URL; the web project's
+`API_ORIGIN` must name the backend URL. Change one host and the other side must follow.
+
+**Bringing it back.** There is no `docker compose` here and no shell. From the Vibe Host panel (or
+the `vays3` MCP): *Redeploy* the project. A redeploy after an environment-only change can answer
+`NO_CHANGE`; then save *Resources* with the same CPU/RAM, which restarts the container.
+Logs: the panel's runtime log, or `get_runtime_logs`.
+
+**Two traps measured here.**
+- The image's `HEALTHCHECK` must call `127.0.0.1`, not `localhost` (which resolves to `::1` while
+  nginx listens on IPv4 only). An unhealthy container keeps running but the platform's Traefik
+  drops its route, so the public host answers 404 while the platform's own probe says 200.
+- `MIGRATE_ON_START` is set for one release only (rule 23). It was set to
+  `0018_o4_reader_credentials` and removed on 2026-10-27.

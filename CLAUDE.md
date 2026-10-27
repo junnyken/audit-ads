@@ -10,23 +10,22 @@ per-Business-Manager reader credential, on A10/A10.1/A10.2/A10.3 (real Meta read
 write capability, authority gate, registry import), A9 (team seats), A6-A8, A5 (Chrome extension),
 A4 Stage A, A3, A2, A1.
 
-**Product state, each line re-measured 2026-09-14 and carrying how it was measured.** Rule 41: do
+**Product state, each line carrying the date it was measured and how.** Rule 41: do
 not copy these forward — re-measure them at the moment you write about them.
 
 | Claim | Verified | How |
 |---|---|---|
-| Backend deployed and healthy | 2026-09-14 | `audit-ads-backend.cmc-1.vibenode.matbao.ai/health/live` → 200; `/health/ready` → `{"status":"ok","database":"reachable"}` |
-| Production frontend unreachable | 2026-09-14 | `audit-ads-app…` and `audit-ads-frontend…` both serve the platform catch-all (`<title>Địa chỉ này chưa phục vụ nội dung · Vibe Host</title>`). Platform routing, not code |
+| Backend deployed and healthy | 2026-10-27 | `audit-ads-backend.vibe1.tinhgon.xyz/health/ready` → 200 `{"status":"ok","database":"reachable"}`. The old `cmc-1.vibenode.matbao.ai` host answers 404 since the platform's domain migration |
+| Production frontend reachable | 2026-10-27 | `adsops-app.vibe.tinhgon.xyz` → 200, `config.js` names the backend above; CORS preflight from that origin → 200 with `access-control-allow-origin`, from the old origin → 400. The months of 404 were **our** HEALTHCHECK (`localhost` → `::1`, nginx on IPv4 only → container unhealthy → Traefik dropped the route), fixed in `1588022` — not platform routing, as this table used to say |
 | Real Meta reads work | 2026-09-14 | run `8d153a28…` holds 8 ad-account observations (5 owned + 3 client) and 7 Pixel observations |
 | Registry is no longer empty | 2026-09-14 | `business_managers` = 1, `ad_accounts` = 2 |
 | No real Telegram message ever sent | 2026-09-14 | `notification_deliveries`: 6 rows, all `SKIPPED`; no `SENT` row exists |
 | No real ad account ever created | 2026-09-14 | every `meta_*_batch` / `*_batch_items` table is 0 rows |
 | CI green | 2026-09-14 | run `34819289771` on `b2f3fd6`: 2 jobs, every step success, 341s |
-| Production runs no dispatcher, holds no Meta credential | 2026-10-26 | Vibe Host (`vays3`) `get_stack`: the `audit-ads` stack contains only the api project. `list_env` on `audit-ads-backend` shows no `META_*` and no `RUN_DISPATCHER_IN_API` variable. So no scheduled sweep has ever run in production, and every Meta read so far was made from a local dev stack |
-| Production frontend still unreachable | 2026-10-26 | `audit-ads-app.cmc-1…` serves the platform catch-all (404). The project's newer URL `audit-ads-app.vibe1.tinhgon.xyz` resolves, but TLS fails: the certificate does not name that host |
+| Production runs the dispatcher in the API container and holds a Meta server token | 2026-10-27 | runtime log `dispatcher started` with `spend_sweep_every_n_passes: 60`, discovery and credential check `0`; `list_env` shows `RUN_DISPATCHER_IN_API`, `META_ACCESS_TOKEN`, `META_BUSINESS_ID` and no O4 variable (`CREDENTIAL_VAULT_KEY`, `META_APP_*`) yet |
 | Local dev database was rebuilt empty | 2026-10-26 | The old `adsops-db` container was gone. The new one holds 0 users, 0 BMs, 0 ad accounts. The 2026-09-14 rows above describe a database that no longer exists |
 | Extension never published | **not verifiable here** | no Chrome Web Store listing can be checked from this workspace; it rests on the operator's word |
-| Production schema at head | **not re-verifiable here** | the production database is internal-only. Last confirmed 2026-09-12 by a `migration complete` log line. The **local** dev database is at `0015_a10_3_conn_bm` (measured 2026-09-14) |
+| Production schema at head (`0018_o4_reader_credentials`) | 2026-10-27 | runtime log `applying migrations at startup because MIGRATE_ON_START names this head` then `migration complete`; `MIGRATE_ON_START` removed afterwards (`list_env`). The database itself is internal-only |
 
 ## Hard rules (these are product requirements, not preferences)
 
