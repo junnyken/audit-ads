@@ -1,28 +1,29 @@
+import { lazy } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import AppShell from './components/AppShell'
 import { useAuth } from './hooks/useAuth'
 import Login from './pages/Login'
-import Overview from './pages/Overview'
-import Accounts from './pages/Accounts'
-import AccountDetail from './pages/AccountDetail'
-import BusinessManagers from './pages/BusinessManagers'
-import Assets from './pages/Assets'
-import ReadinessPage from './pages/Readiness'
-import AccountHealth from './pages/AccountHealth'
-import Alerts from './pages/Alerts'
-import AuditLog from './pages/AuditLog'
-import SystemStatus from './pages/SystemStatus'
-import Settings from './pages/Settings'
-import Preflight from './pages/Preflight'
-import PreflightDetail from './pages/PreflightDetail'
-import Operations from './pages/Operations'
-import MetaConnections from './pages/MetaConnections'
-import MetaConnectionWorkspace from './pages/MetaConnectionWorkspace'
-import CreateAccountWizard from './pages/operations/CreateAccountWizard'
-import ShareAccessWizard from './pages/operations/ShareAccessWizard'
-import PixelShareWizard from './pages/operations/PixelShareWizard'
-import TeamSeats from './pages/TeamSeats'
-import SecurityDevices from './pages/SecurityDevices'
+const Overview = lazy(() => import('./pages/Overview'))
+const Accounts = lazy(() => import('./pages/Accounts'))
+const AccountDetail = lazy(() => import('./pages/AccountDetail'))
+const BusinessManagers = lazy(() => import('./pages/BusinessManagers'))
+const Assets = lazy(() => import('./pages/Assets'))
+const ReadinessPage = lazy(() => import('./pages/Readiness'))
+const AccountHealth = lazy(() => import('./pages/AccountHealth'))
+const Alerts = lazy(() => import('./pages/Alerts'))
+const AuditLog = lazy(() => import('./pages/AuditLog'))
+const SystemStatus = lazy(() => import('./pages/SystemStatus'))
+const Settings = lazy(() => import('./pages/Settings'))
+const Preflight = lazy(() => import('./pages/Preflight'))
+const PreflightDetail = lazy(() => import('./pages/PreflightDetail'))
+const Operations = lazy(() => import('./pages/Operations'))
+const MetaConnections = lazy(() => import('./pages/MetaConnections'))
+const MetaConnectionWorkspace = lazy(() => import('./pages/MetaConnectionWorkspace'))
+const CreateAccountWizard = lazy(() => import('./pages/operations/CreateAccountWizard'))
+const ShareAccessWizard = lazy(() => import('./pages/operations/ShareAccessWizard'))
+const PixelShareWizard = lazy(() => import('./pages/operations/PixelShareWizard'))
+const TeamSeats = lazy(() => import('./pages/TeamSeats'))
+const SecurityDevices = lazy(() => import('./pages/SecurityDevices'))
 import { Skeleton } from './components/ui'
 
 export default function App() {

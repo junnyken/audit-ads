@@ -3423,3 +3423,39 @@ page bodies other than Login are untouched (still English, restyled by U1b–U1d
   `prefers-color-scheme` follow-OS CSS block only checked by reading; production frontend is not
   reachable so nothing deployed. Wording is `[ĐỀ XUẤT — chờ duyệt]` (BA review pending).
 - Packages and licences: `docs/ui/LICENSES.md` (class-variance-authority is Apache-2.0, not MIT).
+
+## Session 2026-10-27 — U1b (Overview and Accounts on the new design system)
+
+Scope: `docs/AUDIT_BEFORE_BUILD_U1_UI.md` slice U1b. No API call, queryKey, enum or route changed.
+`pages/MetaConnections*`, `pages/meta-connection/*`, `components/meta/*`, Settings untouched (O4).
+
+- Built: Overview as template T1 (4 "needs attention" tiles that link to filtered lists, then
+  readiness and health distribution bars with legend and counts, Sources & freshness, Meta status,
+  spend per currency, discovery card, 4 detail cards); Accounts as T2 (8 default columns, "Cột"
+  chooser persisted per viewer in localStorage with try/catch, condensed filters + "Bộ lọc khác"
+  disclosure + removable chips, rows become cards at <=640px via `.tbl-cards`, five states).
+  New primitives `badge`, `card`, `skeleton`, `table`, `DropdownMenuCheckboxItem`; `components/states`
+  (Empty / four-part Error / NoPermission / Partial / LoadingRegion); `components/dashboard`
+  (StatTile, SegmentBar, ChecklistProgress); `i18n/labels.ts` replaces `humanise()` in these two
+  pages; `platformStatusBadge` now returns Vietnamese/English words (tone logic untouched).
+- Routes are code-split (`React.lazy` + `Suspense` inside the shell).
+- `no-raw-palette` allowlist: removed `Overview.tsx`, `SpendSummaryCard.tsx`, `ui.tsx` (24 -> 21).
+- Results (run in this worktree): `npx vitest run` 333 passed, 20 skipped (was 297 / 20), 27 files
+  + 1 skipped live file; `npm run typecheck` clean; `npx eslint .` clean; `npm run build` succeeds.
+  New `u1b.overview-accounts.test.tsx`: 36 tests (KPI numbers/links/no success tone, bar
+  proportions, per-currency spend and no cross-currency sum, complete:false stated, failed block
+  shows dash + retry not 0, empty/error/403/partial/loading states, column chooser + persistence +
+  throwing storage, "—" never 0, cards class, axe on both pages with the contrast rule off because
+  jsdom has no layout).
+- Existing tests edited only where wording changed language (English to Vietnamese labels):
+  `accounts-spend`, `platform-status`, `spend`, `live.app` (skipped). No tone / rule-5 assertion
+  weakened. The "Never observed: n" count assertion moved with its markup to `SpendFreshnessCounts`
+  (covered by the Overview test); "Incomplete" x2 became "Thiếu" plus the explicit
+  "Tổng chưa đầy đủ" note.
+- Bundle (vite build): entry JS 706.50 kB -> 445.75 kB (gzip 189.68 -> 134.95 kB); CSS 42.60 -> 45.02 kB
+  (gzip 10.15 -> 10.69). Largest lazy chunks: AccountDetail 49.5 kB, Overview 25.2 kB, Alerts 19.9 kB.
+- NOT done / NOT verified: no click-through by a person; no screenshots; the 375 px card layout and
+  the column-chooser menu positioning are only class-checked (jsdom has no layout); dark mode not
+  looked at; Vietnamese diacritics in Chrome unchecked. Wording is `[ĐỀ XUẤT — chờ duyệt]`.
+  `DiscoveryOverview` still returns null when the owner has no connections (file belongs to O4).
+  `agy` was not used (no login in this run); UI was written directly.

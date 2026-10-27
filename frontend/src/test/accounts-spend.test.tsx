@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import AccountSpendCell from '../components/AccountSpendCell'
-import { SPEND_FRESHNESS_META } from '../lib/readiness'
+import { translate } from '../i18n/translate'
 import type { AccountSpendCompact, SpendFreshness } from '../lib/types'
 
 const compact = (over: Partial<AccountSpendCompact> = {}): AccountSpendCompact => ({
@@ -16,7 +16,7 @@ describe('Accounts list spend cell', () => {
     'renders %s without success styling',
     (freshness) => {
       render(<AccountSpendCell spend={compact({ freshness })} />)
-      const badge = screen.getByText(SPEND_FRESHNESS_META[freshness].label, { selector: 'span' })
+      const badge = screen.getByText(translate('vi', `spendFreshness.${freshness}` as const), { selector: 'span' })
       expect(badge.className).not.toMatch(/emerald|green/)
     },
   )
@@ -39,7 +39,7 @@ describe('Accounts list spend cell', () => {
 
   it('shows only the badge when there is no complete day', () => {
     render(<AccountSpendCell spend={compact({ freshness: 'never_observed', observed_currency: null, latest_complete_day: null })} />)
-    expect(screen.getByText('Never observed')).toBeInTheDocument()
+    expect(screen.getByText('Chưa từng đọc')).toBeInTheDocument()
     expect(screen.queryByText('—')).toBeNull()
   })
 

@@ -48,6 +48,17 @@ export function formatRelative(
   return translate(language, 'format.justNow')
 }
 
+/**
+ * A calendar day as Meta/the API gives it (`YYYY-MM-DD`). Parsed by splitting, never through
+ * `Date`, so the day cannot slip by one across a timezone. Anything else is returned untouched.
+ */
+export function formatDay(value: string | null | undefined, language: Language = getActiveLanguage()): string {
+  if (!value) return '—'
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!match) return value
+  return language === 'vi' ? `${match[3]}/${match[2]}/${match[1]}` : value
+}
+
 /** Counts only. Meta money stays the raw string Meta returned (lib/spend.ts) — never run through this. */
 export function formatCount(value: number, language: Language = getActiveLanguage()): string {
   return new Intl.NumberFormat(INTL_LOCALE[language]).format(value)

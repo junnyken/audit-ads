@@ -46,7 +46,7 @@ suite('live application', () => {
 
   it('renders the overview with live readiness counts', async () => {
     renderApp('/')
-    expect(await screen.findByRole('heading', { name: 'Overview' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Tổng quan' })).toBeInTheDocument()
     expect(await screen.findByText('Operationally ready')).toBeInTheDocument()
     // The disclaimer appears on the page and again in the app footer, by design.
     expect((await screen.findAllByText(/internal operational state/i)).length).toBeGreaterThan(0)
@@ -54,7 +54,7 @@ suite('live application', () => {
 
   it('renders the registry table with the pilot accounts and their readiness', async () => {
     renderApp('/accounts')
-    expect(await screen.findByRole('heading', { name: 'Accounts' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Tài khoản quảng cáo' })).toBeInTheDocument()
     expect(await screen.findByText('Pilot A - complete record')).toBeInTheDocument()
     expect(await screen.findByText('Pilot B - payment review missing')).toBeInTheDocument()
     expect(await screen.findByText('Pilot C - restricted with critical event')).toBeInTheDocument()

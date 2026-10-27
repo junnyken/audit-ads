@@ -109,19 +109,19 @@ describe('platform status colour map (rule 5, S2 §7 6.3)', () => {
 
   it('names an unrecognised code with the code itself', () => {
     const badge = platformStatusBadge(compact({ status: 'unknown', account_status_raw: '201' }))
-    expect(badge.label).toBe('Unrecognised status code 201')
+    expect(badge.label).toBe('Mã trạng thái lạ: 201')
     expect(badge.tone).toBe('neutral')
   })
 
   it('treats a status the client does not know as unknown, never active', () => {
     const badge = platformStatusBadge(compact({ status: 'brand_new' as PlatformAccountStatus, account_status_raw: '555' }))
-    expect(badge.label).toBe('Unrecognised status code 555')
+    expect(badge.label).toBe('Mã trạng thái lạ: 555')
     expect(badge.tone).toBe('neutral')
   })
 
   it('always says it is per Meta and when, and flags a last word', () => {
-    expect(platformStatusBadge(compact()).context).toMatch(/^per Meta · /)
-    expect(platformStatusBadge(compact({ freshness: 'stale' })).context).toMatch(/last word, not recent/)
+    expect(platformStatusBadge(compact()).context).toMatch(/^theo Meta · /)
+    expect(platformStatusBadge(compact({ freshness: 'stale' })).context).toMatch(/lần cuối, không còn mới/)
   })
 
   it('never words a state as safe or normal', () => {
@@ -152,7 +152,7 @@ describe('platform status colour map (rule 5, S2 §7 6.3)', () => {
 describe('PlatformStatusBadge', () => {
   it.each(STATES)('renders %s without success styling', (status) => {
     render(<PlatformStatusBadge value={compact({ status, account_status_raw: status === 'unknown' ? '201' : '2' })} />)
-    const badge = screen.getByTitle(/Observed/)
+    const badge = screen.getByTitle(/Quan sát lúc/)
     expect(badge.className).not.toMatch(SUCCESS)
   })
 
@@ -185,9 +185,9 @@ describe('Accounts list', () => {
     )
     wrap(<Accounts />)
     expect(await screen.findByText('Seen')).toBeInTheDocument()
-    expect(screen.getByRole('columnheader', { name: 'Meta status' })).toBeInTheDocument()
-    expect(screen.getByRole('columnheader', { name: 'Recorded status' })).toBeInTheDocument()
-    expect(screen.getByText('Disabled (Meta)').className).not.toMatch(SUCCESS)
+    expect(screen.getByRole('columnheader', { name: 'Trạng thái Meta' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Đội ghi nhận' })).toBeInTheDocument()
+    expect(screen.getByText('Bị vô hiệu hoá (theo Meta)').className).not.toMatch(SUCCESS)
     expect(screen.getAllByTestId('platform-status-none')).toHaveLength(1)
   })
 })
@@ -218,7 +218,7 @@ function mountOverview(platform: PlatformStatusView | null, onRecord = vi.fn()) 
 describe('Overview tab', () => {
   it('labels the registry row as recorded and adds the Meta rows', async () => {
     mountOverview(full())
-    expect(await screen.findByText('Disabled (Meta)')).toBeInTheDocument()
+    expect(await screen.findByText('Bị vô hiệu hoá (theo Meta)')).toBeInTheDocument()
     expect(screen.getByText('Recorded status')).toBeInTheDocument()
     expect(screen.queryByText('Platform status')).toBeNull()
     expect(screen.getByText('Disable reason')).toBeInTheDocument()
@@ -248,7 +248,7 @@ describe('Overview tab', () => {
   it('hides the record button from a viewer', async () => {
     authMock.role = 'viewer'
     mountOverview(full())
-    await screen.findByText('Disabled (Meta)')
+    await screen.findByText('Bị vô hiệu hoá (theo Meta)')
     expect(screen.queryByRole('button', { name: /Record Meta status/ })).toBeNull()
   })
 })
@@ -316,9 +316,9 @@ describe('Meta status summary card', () => {
       </MemoryRouter>,
     )
     const counts = screen.getByTestId('platform-status-counts')
-    expect(within(counts).getByText('Not operable: 1')).toBeInTheDocument()
-    expect(within(counts).getByText('Not observed: 4')).toBeInTheDocument()
-    expect(within(counts).getByText('Active (Meta): 3').className).not.toMatch(SUCCESS)
+    expect(within(counts).getByText('Không hoạt động: 1')).toBeInTheDocument()
+    expect(within(counts).getByText('Chưa quan sát: 4')).toBeInTheDocument()
+    expect(within(counts).getByText('Đang hoạt động (theo Meta): 3').className).not.toMatch(SUCCESS)
     for (const badge of within(counts).getAllByText(/: \d/)) expect(badge.className).not.toMatch(SUCCESS)
   })
 
@@ -328,6 +328,6 @@ describe('Meta status summary card', () => {
         <PlatformStatusSummaryView data={{} as SpendSummary} />
       </MemoryRouter>,
     )
-    expect(screen.getByText(/does not report Meta account status/)).toBeInTheDocument()
+    expect(screen.getByText(/chưa báo cáo trạng thái tài khoản Meta/)).toBeInTheDocument()
   })
 })
