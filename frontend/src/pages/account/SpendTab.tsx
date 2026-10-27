@@ -19,7 +19,7 @@ import { readerSourceLabel } from '../../lib/metaReaders'
 import { DisabledReason, Note, Panel, TabSkeleton } from './parts'
 
 export default function SpendTab({ account }: { account: AdAccount }) {
-  const { t } = useI18n()
+  const { t, language } = useI18n()
   const enumLabel = useEnumLabel()
   const { user } = useAuth()
   const isOwner = user?.role === 'owner'
@@ -91,9 +91,9 @@ export default function SpendTab({ account }: { account: AdAccount }) {
           <Badge tone={meta.tone} title={t(`spendFreshnessHint.${data.freshness}`)}>
             {enumLabel('spendFreshness', data.freshness)}
           </Badge>
-          {readerSourceLabel(data.reader_source) && (
+          {readerSourceLabel(data.reader_source, language) && (
             <span className="text-xs text-ink-muted">
-              {t('sp.readVia')} {readerSourceLabel(data.reader_source)}
+              {t('sp.readVia')} {readerSourceLabel(data.reader_source, language)}
             </span>
           )}
           <span className="text-xs text-ink-muted">{t('sp.freshFor', { hours: data.stale_after_hours })}</span>

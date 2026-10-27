@@ -3,22 +3,31 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
 import type { DiscoveryRunSummary, Paged } from '../../lib/types'
-import { Badge, EmptyState, ErrorState, InlineNote, Skeleton } from '../../components/ui'
-import { CoverageBadge, edgeLabel } from '../../components/meta/DiscoverySection'
+import { useI18n } from '../../i18n'
+import { useEnumLabel } from '../../i18n/labels'
+import { Badge } from '../../components/primitives/badge'
+import { Button } from '../../components/primitives/button'
+import { Skeleton } from '../../components/primitives/skeleton'
+import { EmptyState, ErrorState, LoadingRegion } from '../../components/states'
+import { CoverageBadge, edgeLabel, edgeProblem } from '../../components/meta/DiscoverySection'
+import { Note } from '../account/parts'
 
 function RunStatusBadge({ status }: { status: DiscoveryRunSummary['status'] }) {
-  if (status === 'succeeded') return <Badge tone="positive">Succeeded</Badge>
-  if (status === 'succeeded_with_warnings') return <Badge tone="caution">Succeeded with warnings</Badge>
-  if (status === 'running') return <Badge tone="neutral">Running</Badge>
-  return <Badge tone="attention">Failed</Badge>
+  const label = useEnumLabel()
+  const text = label('discRun', status)
+  if (status === 'succeeded') return <Badge tone="positive">{text}</Badge>
+  if (status === 'succeeded_with_warnings') return <Badge tone="caution">{text}</Badge>
+  if (status === 'running') return <Badge tone="neutral">{text}</Badge>
+  return <Badge tone="attention">{text}</Badge>
 }
 
 /** O3. How a run started, as a badge rather than the raw value. `Scheduled` is neutral on
  * purpose: a run the sweep started is not better or worse than one a person started. */
 export function TriggerBadge({ trigger }: { trigger: DiscoveryRunSummary['trigger'] }) {
-  if (trigger === 'manual') return <Badge tone="neutral">Manual</Badge>
-  if (trigger === 'scheduled_sweep') return <Badge tone="info">Scheduled</Badge>
-  if (trigger === 'internal_test') return <Badge tone="muted">Internal test</Badge>
+  const label = useEnumLabel()
+  if (trigger === 'manual') return <Badge tone="neutral">{label('trigger', trigger)}</Badge>
+  if (trigger === 'scheduled_sweep') return <Badge tone="info">{label('trigger', trigger)}</Badge>
+  if (trigger === 'internal_test') return <Badge tone="muted">{label('trigger', trigger)}</Badge>
   return <Badge tone="muted">{trigger}</Badge>
 }
 
@@ -28,15 +37,12 @@ export function TriggerBadge({ trigger }: { trigger: DiscoveryRunSummary['trigge
  *
  * Pure and exported so the wording can be tested without a network. */
 export function DiscoveryHistoryList({ runs }: { runs: DiscoveryRunSummary[] }) {
+  const { t, language } = useI18n()
   return (
     <div className="space-y-3">
-      <InlineNote>
-        Reconciliation against the registry is deliberately not shown here. It is recomputed
-        against the registry as it is <strong>now</strong>, so pinning it to an older reading would
-        put two different moments side by side. Each row states what that run itself saw.
-      </InlineNote>
+      <Note role="note">{t('hist.note')}</Note>
 
-      <ul className="space-y-2">
+      <ul aria-label={t('hist.list')} className="space-y-2">
         {runs.map((run) => {
           const edges = {
             ...(run.ad_accounts.coverage.edges ?? {}),
@@ -44,66 +50,68 @@ export function DiscoveryHistoryList({ runs }: { runs: DiscoveryRunSummary[] }) 
           }
           const notCompleted = Object.entries(edges).filter(([, e]) => e.status !== 'completed')
           return (
-            <li key={run.id} className="rounded-md border border-line p-3">
+            <li key={run.id} className="rounded-lg border border-line bg-surface p-3">
               <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[12.5px] font-medium">
+                <span className="text-sm font-medium">
                   {run.completed_at
-                    ? formatDateTime(run.completed_at)
+                    ? formatDateTime(run.completed_at, language)
                     : run.started_at
-                      ? `Started ${formatDateTime(run.started_at)}`
-                      : 'Time not recorded'}
+                      ? t('hist.started', { time: formatDateTime(run.started_at, language) })
+                      : t('hist.timeMissing')}
                 </span>
                 <span className="flex flex-wrap items-center gap-1.5">
                   <RunStatusBadge status={run.status} />
                   <TriggerBadge trigger={run.trigger} />
-                  {run.environment === 'fake' && <Badge tone="neutral">Fake data</Badge>}
+                  {run.environment === 'fake' && <Badge tone="neutral">{t('meta.fakeData')}</Badge>}
                   {run.business_authority === 'not_established' && (
-                    <Badge tone="attention">Access to the Business Manager not established</Badge>
+                    <Badge tone="attention">{t('hist.authorityNot')}</Badge>
                   )}
                 </span>
               </div>
 
-              <div className="grid gap-1 text-[12px] sm:grid-cols-2">
+              <div className="grid gap-1 text-xs sm:grid-cols-2">
                 <span className="flex items-center gap-2">
                   <span className="text-ink-muted">
-                    Ad accounts: {run.ad_accounts.coverage.total_unique_assets ?? '—'}
+                    {t('hist.adAccounts', { n: run.ad_accounts.coverage.total_unique_assets ?? '—' })}
                   </span>
                   <CoverageBadge status={run.ad_accounts.coverage_status} />
                 </span>
                 <span className="flex items-center gap-2">
                   <span className="text-ink-muted">
-                    Pixels: {run.pixels.coverage.total_unique_assets ?? '—'}
+                    {t('hist.pixels', { n: run.pixels.coverage.total_unique_assets ?? '—' })}
                   </span>
                   <CoverageBadge status={run.pixels.coverage_status} />
                 </span>
               </div>
 
               {notCompleted.length > 0 && (
-                <p className="mt-1 text-[11.5px] text-amber-700">
-                  Not completed:{' '}
-                  {notCompleted
-                    .map(([name, e]) => `${edgeLabel(name)} (${e.error_code ?? e.status.replace('_', ' ')})`)
-                    .join(', ')}
+                <p className="mt-1 text-xs text-tone-caution-fg">
+                  {t('hist.notCompleted', {
+                    list: notCompleted
+                      .map(([name, e]) => `${edgeLabel(t, name)} (${edgeProblem(t, e.status, e.error_code)})`)
+                      .join(', '),
+                  })}
                 </p>
               )}
               {run.auto_import && (
-                <p className="mt-1 text-[11.5px] text-ink-muted">
-                  Imported automatically: {run.auto_import.imported}
-                  {run.auto_import.awaiting_import > 0 &&
-                    ` · new, not imported (automatic import off): ${run.auto_import.awaiting_import}`}
+                <p className="mt-1 text-xs text-ink-muted">
+                  {t('hist.imported', { n: run.auto_import.imported })}
+                  {run.auto_import.awaiting_import > 0 && t('hist.awaiting', { n: run.auto_import.awaiting_import })}
                   {run.auto_import.archived_returned > 0 &&
-                    ` · archived here but still returned: ${run.auto_import.archived_returned} (not restored)`}
-                  {run.auto_import.conflicts > 0 && ` · conflicts: ${run.auto_import.conflicts}`}
+                    t('hist.archivedReturned', { n: run.auto_import.archived_returned })}
+                  {run.auto_import.conflicts > 0 && t('hist.conflicts', { n: run.auto_import.conflicts })}
                 </p>
               )}
               {run.failure_code && (
-                <p className="mt-1 text-[11.5px] text-rose-700">
-                  {run.failure_summary ?? 'The run did not complete.'} ({run.failure_code})
+                <p className="mt-1 text-xs text-tone-attention-fg">
+                  {t('disc.failure', { summary: run.failure_summary ?? t('disc.runFailed'), code: run.failure_code })}
                 </p>
               )}
-              <p className="mt-1 text-[11px] text-ink-faint">
-                Business Manager {run.business_manager.name ?? run.business_manager.reference ?? 'not configured'} · read
-                as {run.read_as.name || run.read_as.external_id || 'an unknown identity'}
+              <p className="mt-1 text-2xs text-ink-faint">
+                {t('hist.bmRead', {
+                  bm: run.business_manager.name ?? run.business_manager.reference ?? t('meta.notConfigured'),
+                  who: run.read_as.name || run.read_as.external_id || t('meta.unknownIdentity'),
+                })}
               </p>
             </li>
           )
@@ -114,6 +122,7 @@ export function DiscoveryHistoryList({ runs }: { runs: DiscoveryRunSummary[] }) 
 }
 
 export function HistoryTab({ connectionId }: { connectionId: string }) {
+  const { t } = useI18n()
   const [page, setPage] = useState(1)
   const history = useQuery({
     queryKey: ['meta-discovery-history', connectionId, page],
@@ -123,44 +132,38 @@ export function HistoryTab({ connectionId }: { connectionId: string }) {
       ),
   })
 
-  if (history.isLoading) return <Skeleton rows={5} />
-  if (history.isError) return <ErrorState error={history.error} onRetry={() => history.refetch()} />
+  if (history.isLoading) {
+    return (
+      <LoadingRegion className="space-y-2">
+        <Skeleton className="h-20 w-full" />
+        <Skeleton className="h-20 w-full" />
+        <Skeleton className="h-20 w-full" />
+      </LoadingRegion>
+    )
+  }
+  if (history.isError) return <ErrorState title={t('hist.error')} error={history.error} onRetry={() => history.refetch()} />
 
   const data = history.data!
   if (data.total === 0) {
-    return (
-      <EmptyState
-        title="No discovery has been run for this connection yet"
-        description="Run one from the Overview tab. Discovery only reads; nothing in Meta is created, shared or changed."
-      />
-    )
+    return <EmptyState title={t('hist.empty.title')} description={t('hist.empty.body')} />
   }
 
+  const totalPages = data.total_pages || 1
   return (
     <div className="space-y-3">
       <DiscoveryHistoryList runs={data.items} />
 
-      <div className="flex items-center justify-between">
-        <span className="text-[12px] text-ink-muted">
-          Page {data.page} of {data.total_pages || 1} · {data.total} run{data.total === 1 ? '' : 's'}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs text-ink-muted">
+          {t('common.page', { page: data.page, total: totalPages })} · {t('hist.runs', { n: data.total })}
         </span>
         <div className="flex gap-2">
-          <button
-            type="button"
-            className="btn-secondary"
-            disabled={page <= 1}
-            onClick={() => setPage(page - 1)}
-          >
-            Previous
-          </button>
-          <button
-            type="button"
-            className="btn-secondary"
-            disabled={page >= (data.total_pages || 1)}
-            onClick={() => setPage(page + 1)}
-          >
-            Next
-          </button>
+          <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+            {t('common.prev')}
+          </Button>
+          <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+            {t('common.next')}
+          </Button>
         </div>
       </div>
     </div>

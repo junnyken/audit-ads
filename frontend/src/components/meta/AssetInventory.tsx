@@ -1,7 +1,11 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { DiscoveryAssetResult, ReconciliationRow } from '../../lib/types'
-import { CoverageBadge, ReconciliationBadge, edgeLabel, whyNotMissing } from './DiscoverySection'
-import { EmptyState, InlineNote } from '../ui'
+import { useI18n } from '../../i18n'
+import { Button } from '../primitives/button'
+import { EmptyState } from '../states'
+import { Note } from '../../pages/account/parts'
+import { CoverageBadge, ReconciliationBadge, edgeLabel, edgeProblem, reconciliationLabel, whyNotMissing } from './DiscoverySection'
+import { ImportConfirmDialog } from './ImportConfirmDialog'
 
 export type EdgeFilter = 'all' | string
 export type StatusFilter = 'all' | ReconciliationRow['status']
@@ -20,6 +24,14 @@ export function filterRows(
     return true
   })
 }
+
+const STATUS_OPTIONS: ReconciliationRow['status'][] = [
+  'matched',
+  'missing_in_registry',
+  'missing_from_latest_discovery',
+  'out_of_scope',
+  'unknown',
+]
 
 /** The inventory of one asset type for one run: what was read, whether that read can support a
  * conclusion about absence, and every row with the edge that produced it.
@@ -42,61 +54,55 @@ export function AssetInventory({
   onEdgeChange: (edge: EdgeFilter) => void
   onStatusChange: (status: StatusFilter) => void
   /** Ad accounts only. A registry Pixel has no Business Manager relationship in the A1 schema,
-   * so there is nothing to import a Pixel into. */
-  onImport?: (externalId: string) => void
+   * so there is nothing to import a Pixel into. Resolves when the write and its read-back are done. */
+  onImport?: (externalId: string, name: string) => Promise<unknown> | void
   importingId?: string | null
   emptyNote?: string
 }) {
-  const [pendingId, setPendingId] = useState<string | null>(null)
+  const { t } = useI18n()
+  const [pending, setPending] = useState<{ external_id: string; name: string } | null>(null)
+  const rootRef = useRef<HTMLDivElement | null>(null)
   const edges = Object.entries(result.coverage.edges ?? {})
   const rows = filterRows(result.reconciliation, edge, status)
   const returned = result.coverage.total_unique_assets ?? result.reconciliation.length
 
   return (
-    <div className="space-y-3">
-      <div className="rounded-md border border-line p-3">
+    <div ref={rootRef} tabIndex={-1} className="space-y-3 outline-none">
+      <div className="rounded-lg border border-line bg-surface p-4">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           {/* "returned", not "discovered": this is what one identity could read at one moment,
               never a claim about everything the Business Manager holds. */}
-          <span className="text-[13px] font-medium">Returned by this run: {returned}</span>
+          <span className="text-sm font-medium">{t('inv.returned', { n: returned })}</span>
           <CoverageBadge status={result.coverage_status} />
         </div>
         {edges.length > 0 && (
           <ul className="space-y-1">
             {edges.map(([name, coverage]) => (
-              <li key={name} className="flex items-center justify-between text-[12px]">
+              <li key={name} className="flex items-center justify-between gap-2 text-xs">
                 <span className="text-ink-muted">
-                  {edgeLabel(name)}
-                  {coverage.required ? '' : ' (optional)'}
+                  {edgeLabel(t, name)}
+                  {coverage.required ? '' : ` ${t('inv.optional')}`}
                 </span>
-                <span className="flex items-center gap-2">
-                  {coverage.status === 'completed' ? (
-                    <span className="text-ink-muted">
-                      {coverage.items} item{coverage.items === 1 ? '' : 's'} · {coverage.pages} page
-                      {coverage.pages === 1 ? '' : 's'}
-                    </span>
-                  ) : (
-                    <span className="text-amber-700">
-                      {coverage.error_code ?? coverage.status.replace('_', ' ')}
-                    </span>
-                  )}
-                </span>
+                {coverage.status === 'completed' ? (
+                  <span className="text-ink-muted">{t('inv.items', { items: coverage.items, pages: coverage.pages })}</span>
+                ) : (
+                  <span className="text-tone-caution-fg">{edgeProblem(t, coverage.status, coverage.error_code)}</span>
+                )}
               </li>
             ))}
           </ul>
         )}
         {!result.complete && result.coverage_status !== 'not_attempted' && (
-          <p className="mt-2 text-[11.5px] text-amber-700">
-            No internal record is classified as missing from this run,{' '}
-            {whyNotMissing(result.coverage_status)}.
+          <p className="mt-2 text-xs text-tone-caution-fg">
+            {t('disc.noMissing', { why: whyNotMissing(t, result.coverage_status) })}
           </p>
         )}
-        {emptyNote && <p className="mt-2 text-[11.5px] text-ink-faint">{emptyNote}</p>}
+        {emptyNote && <p className="mt-2 text-xs text-ink-faint">{emptyNote}</p>}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <label className="text-[12px] text-ink-muted" htmlFor="inventory-edge">
-          Source
+        <label className="text-xs text-ink-muted" htmlFor="inventory-edge">
+          {t('inv.source')}
         </label>
         <select
           id="inventory-edge"
@@ -104,114 +110,79 @@ export function AssetInventory({
           value={edge}
           onChange={(event) => onEdgeChange(event.target.value)}
         >
-          <option value="all">All sources</option>
+          <option value="all">{t('inv.allSources')}</option>
           {edges.map(([name]) => (
             <option key={name} value={name}>
-              {edgeLabel(name)}
+              {edgeLabel(t, name)}
             </option>
           ))}
         </select>
-        <label className="text-[12px] text-ink-muted" htmlFor="inventory-status">
-          Status
+        <label className="text-xs text-ink-muted" htmlFor="inventory-status">
+          {t('inv.status')}
         </label>
         <select
           id="inventory-status"
-          className="input max-w-[220px]"
+          className="input max-w-[260px]"
           value={status}
           onChange={(event) => onStatusChange(event.target.value as StatusFilter)}
         >
-          <option value="all">All statuses</option>
-          <option value="matched">Matched</option>
-          <option value="missing_in_registry">Not in registry</option>
-          <option value="missing_from_latest_discovery">
-            Not returned by the latest completed discovery
-          </option>
-          <option value="out_of_scope">Cannot be evaluated</option>
-          <option value="unknown">Unknown</option>
+          <option value="all">{t('inv.allStatuses')}</option>
+          {STATUS_OPTIONS.map((option) => (
+            <option key={option} value={option}>
+              {reconciliationLabel(t, option)}
+            </option>
+          ))}
         </select>
-        <span className="text-[12px] text-ink-faint">
-          Showing {rows.length} of {result.reconciliation.length}
+        <span className="text-xs text-ink-faint">
+          {t('inv.showing', { shown: rows.length, total: result.reconciliation.length })}
         </span>
       </div>
 
       {result.reconciliation.length === 0 ? (
-        <EmptyState
-          title="Nothing to reconcile yet"
-          description="This run returned no assets and no internal record was evaluated against it."
-        />
+        <EmptyState title={t('inv.empty.title')} description={t('inv.empty.body')} />
       ) : rows.length === 0 ? (
-        <InlineNote>
-          No row matches this filter. That is a statement about the filter, not about the Business
-          Manager.
-        </InlineNote>
+        <Note role="note">{t('inv.noMatch')}</Note>
       ) : (
-        <ul className="divide-y divide-line rounded-md border border-line">
+        <ul className="divide-y divide-line rounded-lg border border-line bg-surface">
           {rows.map((row) => (
             <li
               key={`${row.external_id ?? 'none'}-${row.internal_entity_id ?? 'none'}`}
-              className="flex items-start justify-between gap-3 px-3 py-2 text-[12.5px]"
+              className="flex flex-wrap items-start justify-between gap-3 px-4 py-2.5 text-sm"
             >
               <span className="min-w-0">
-                <span className="block truncate font-medium">{row.display_name || '(no name)'}</span>
-                <span className="font-mono text-[11px] text-ink-faint">{row.external_id ?? '—'}</span>
-                <span className="mt-0.5 block text-[11px] text-ink-faint">
+                <span className="block truncate font-medium">{row.display_name || t('meta.noName')}</span>
+                <span className="font-mono text-2xs text-ink-faint">{row.external_id ?? '—'}</span>
+                <span className="mt-0.5 block text-2xs text-ink-faint">
                   {row.source_edge
-                    ? `Returned by ${edgeLabel(row.source_edge)}`
-                    : 'No observation from this run matched this internal record'}
+                    ? t('disc.returnedBy', { edge: edgeLabel(t, row.source_edge) })
+                    : t('disc.noObservation')}
                   {row.detail ? ` · ${row.detail}` : ''}
                 </span>
-                {pendingId === row.external_id && (
-                  // Worth one deliberate step: this product never hard-deletes a domain entity, so
-                  // a mis-click leaves a registry record that can only be archived, and an audit
-                  // row that is permanent. The sentence says both halves — what it does not touch
-                  // (Meta) and what cannot be taken back (the record).
-                  <span className="mt-1 block text-[11px] text-amber-700">
-                    Adds this account to the internal registry. Nothing in Meta is created, shared
-                    or changed. A registry record cannot be deleted afterwards — only archived.
-                  </span>
-                )}
               </span>
               <span className="flex shrink-0 items-center gap-2">
                 <ReconciliationBadge status={row.status} />
-                {onImport &&
-                  row.status === 'missing_in_registry' &&
-                  row.external_id &&
-                  (pendingId === row.external_id ? (
-                    <span className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        className="btn-primary"
-                        onClick={() => {
-                          onImport(row.external_id as string)
-                          setPendingId(null)
-                        }}
-                        disabled={importingId === row.external_id}
-                      >
-                        {importingId === row.external_id ? 'Adding…' : 'Confirm'}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        onClick={() => setPendingId(null)}
-                        disabled={importingId === row.external_id}
-                      >
-                        Cancel
-                      </button>
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      onClick={() => setPendingId(row.external_id as string)}
-                      disabled={importingId === row.external_id}
-                    >
-                      {importingId === row.external_id ? 'Adding…' : 'Add to registry'}
-                    </button>
-                  ))}
+                {onImport && row.status === 'missing_in_registry' && row.external_id && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setPending({ external_id: row.external_id as string, name: row.display_name })}
+                    disabled={importingId === row.external_id}
+                  >
+                    {importingId === row.external_id ? t('disc.adding') : t('disc.addToRegistry')}
+                  </Button>
+                )}
               </span>
             </li>
           ))}
         </ul>
+      )}
+      {onImport && (
+        <ImportConfirmDialog
+          row={pending}
+          onClose={() => setPending(null)}
+          onConfirm={(externalId, name) => onImport(externalId, name)}
+          fallbackFocus={() => rootRef.current?.focus()}
+        />
       )}
     </div>
   )

@@ -2,7 +2,8 @@ import type { OperationsOverview } from '../../lib/types'
 import { STATE_META } from '../../lib/operations'
 import { formatRelative } from '../../lib/format'
 import { useI18n } from '../../i18n'
-import { Badge, Card, InlineNote } from '../ui'
+import { Badge } from '../primitives/badge'
+import { Note, Panel } from '../../pages/account/parts'
 
 /**
  * O4. System Status line for the scheduled check of vault reader credentials. "Never" is its own
@@ -17,7 +18,7 @@ export function CredentialCheckStatus({ data }: { data: OperationsOverview }) {
   const reconnect = counts.reconnect_required ?? 0
   const lastRun = data.credential_check_last_run
   return (
-    <Card title={t('systemStatus.credentialCheck')}>
+    <Panel title={t('systemStatus.credentialCheck')}>
       <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
         <Badge tone={state.tone}>{state.label}</Badge>
         {lastRun && <span className="text-ink-muted">{formatRelative(lastRun.started_at)}</span>}
@@ -32,14 +33,14 @@ export function CredentialCheckStatus({ data }: { data: OperationsOverview }) {
       </div>
       {data.meta_login_configured === false && (
         <div className="mt-2">
-          <InlineNote>{t('metaReader.notConfigured')}</InlineNote>
+          <Note>{t('metaReader.notConfigured')}</Note>
         </div>
       )}
       {data.meta_login_configured && data.credential_vault_configured === false && (
         <div className="mt-2">
-          <InlineNote tone="attention">{t('metaReader.vaultUnavailable')}</InlineNote>
+          <Note tone="attention">{t('metaReader.vaultUnavailable')}</Note>
         </div>
       )}
-    </Card>
+    </Panel>
   )
 }

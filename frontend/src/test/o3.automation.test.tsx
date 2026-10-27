@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
-import { describe, expect, it } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { render } from './renderEn'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   AutomationBadge,
@@ -96,18 +97,59 @@ describe('the automation switches', () => {
     expect(imports.disabled).toBe(false)
   })
 
-  it('asks for a deliberate confirmation and says a registry record cannot be deleted', () => {
+  it('asks for a deliberate confirmation and says a registry record cannot be deleted', async () => {
     wrap(<AutomationControls connection={connection()} />)
     const [discovery, imports] = screen.getAllByRole('checkbox') as HTMLInputElement[]
     fireEvent.click(discovery)
     fireEvent.click(imports)
-    expect(screen.getByText('Confirm')).toBeTruthy()
-    expect(screen.getByText(/cannot be deleted from the registry afterwards/)).toBeTruthy()
-    expect(screen.getByText(/Nothing\s+in Meta is created, shared or changed/)).toBeTruthy()
+    // Ticking a box only drafts the change; nothing is written until the dialog is confirmed.
+    fireEvent.click(screen.getByRole('button', { name: 'Review change' }))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(within(dialog).getByText(/cannot be deleted from the registry afterwards/)).toBeTruthy()
+    expect(within(dialog).getByText(/Nothing in Meta is created, shared or changed/)).toBeTruthy()
+    // The old value and the new one are both stated.
+    expect(within(dialog).getByText('Discover automatically: off → on')).toBeTruthy()
+    expect(within(dialog).getByText('Add new accounts automatically: off → on')).toBeTruthy()
+  })
+
+  it('writes on confirm and then reports what the server stored, not what was asked', async () => {
+    const calls: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        calls.push(String(init?.method))
+        // The server stores discovery on but import off: not what was asked for.
+        return new Response(
+          JSON.stringify({ ...connection(), automation: automation({ auto_discovery_enabled: true, auto_import_enabled: false }) }),
+          { status: 200 },
+        )
+      }),
+    )
+    wrap(<AutomationControls connection={connection()} />)
+    const [discovery, imports] = screen.getAllByRole('checkbox') as HTMLInputElement[]
+    fireEvent.click(discovery)
+    fireEvent.click(imports)
+    fireEvent.click(screen.getByRole('button', { name: 'Review change' }))
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Apply change' }))
+    // A mismatch is a caution, never "saved".
+    expect(await screen.findByText(/different from what was asked/)).toBeTruthy()
+    expect(calls).toContain('PATCH')
+    vi.unstubAllGlobals()
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+  })
+
+  it('does nothing when the change is discarded', () => {
+    wrap(<AutomationControls connection={connection()} />)
+    const [discovery] = screen.getAllByRole('checkbox') as HTMLInputElement[]
+    fireEvent.click(discovery)
+    fireEvent.click(screen.getByRole('button', { name: 'Discard change' }))
+    expect(discovery.checked).toBe(false)
+    expect(screen.queryByRole('button', { name: 'Review change' })).toBeNull()
   })
 
   it('names a missing reader as configuration, not as a refusal', () => {
-    expect(ineligibleText('reader_not_configured')).toMatch(/nothing will be read until one is configured/)
+    expect(ineligibleText('reader_not_configured', 'en')).toMatch(/nothing will be read until one is configured/)
     expect(ineligibleText(null)).toBeNull()
   })
 })
