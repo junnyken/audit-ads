@@ -10,6 +10,7 @@ projects' own licence web pages were **not** opened; this is the package metadat
 | `@fontsource-variable/jetbrains-mono` | OFL-1.1 | ids and raw amounts, self-hosted woff2 | yes (font files) |
 | `lucide-react` | ISC | icons (tree-shaken per icon) | yes |
 | `@radix-ui/react-dialog`, `react-dropdown-menu` (2.1.16), `react-tooltip` (1.2.8), `react-slot` | MIT | Sheet, menus, tooltip primitives | yes |
+| `@radix-ui/react-tabs` (1.2.1), `@radix-ui/react-alert-dialog` (1.2.1) | MIT (U1c; `npm view <pkg> license`, 2026-10-27) | account-detail Tabs, archive/restore confirmation | yes |
 | `class-variance-authority` | **Apache-2.0** (the U1 spec said MIT) | Button variants | yes |
 | `clsx`, `tailwind-merge` | MIT | class merging | yes |
 | `tailwindcss-animate` | MIT | Sheet / menu enter-exit animation | build-time CSS |

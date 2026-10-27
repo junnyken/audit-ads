@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import { Menu } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { useI18n } from '../i18n'
 import { Button } from './primitives/button'
+import { Skeleton } from './primitives/skeleton'
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from './primitives/sheet'
 import { TooltipProvider } from './primitives/tooltip'
 import { BrandMark } from './shell/BrandMark'
@@ -83,7 +84,16 @@ export default function AppShell() {
             tabIndex={-1}
             className="min-w-0 flex-1 px-4 py-5 outline-none min-[769px]:px-6"
           >
-            <Outlet />
+            <Suspense
+              fallback={
+                <div role="status" aria-busy="true" aria-label={t('common.loading')} className="space-y-3">
+                  <Skeleton className="h-8 w-1/3" />
+                  <Skeleton className="h-40 w-full" />
+                </div>
+              }
+            >
+              <Outlet />
+            </Suspense>
           </main>
 
           <footer className="border-t border-line bg-surface px-4 py-3 text-xs text-ink-faint min-[769px]:px-6">

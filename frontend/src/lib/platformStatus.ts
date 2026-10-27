@@ -7,6 +7,8 @@ import type {
 } from './types'
 import type { Tone } from './readiness'
 import { formatDateTime, formatRelative } from './format'
+import { getActiveLanguage, translate } from '../i18n/translate'
+import type { Language, TranslationKey } from '../i18n/types'
 
 /**
  * S2 — how Meta's account status looks. The ONLY place that decides its colour (rule 5).
@@ -114,32 +116,54 @@ export function disableReasonText(reason: string | null | undefined, raw: string
   return raw ? `${label} (${raw})` : label
 }
 
-const FRESHNESS_CONTEXT: Partial<Record<SpendFreshness, string>> = {
-  stale: 'last word, not recent',
-  not_observable: 'last word, no reader now',
+const FRESHNESS_CONTEXT_KEY: Partial<Record<SpendFreshness, TranslationKey>> = {
+  stale: 'platformStatus.contextStale',
+  not_observable: 'platformStatus.contextNoReader',
 }
 
-/** Everything a badge needs. `null`/`undefined` → muted "—", never a default state. */
-export function platformStatusBadge(value: PlatformStatusCompact | null | undefined): {
+/**
+ * Everything a badge needs, in the viewer's language (Vietnamese by default). `null`/`undefined`
+ * → muted "—", never a default state. The TONE still comes from `PLATFORM_STATUS_META` above and
+ * nowhere else; only the words are looked up in the dictionary.
+ */
+export function platformStatusBadge(
+  value: PlatformStatusCompact | null | undefined,
+  language: Language = getActiveLanguage(),
+): {
   label: string
   tone: Tone
   title: string
   context: string | null
 } {
   if (!value) {
-    return { label: PLATFORM_STATUS_NONE.label, tone: PLATFORM_STATUS_NONE.tone, title: PLATFORM_STATUS_NONE.description, context: null }
+    return {
+      label: PLATFORM_STATUS_NONE.label,
+      tone: PLATFORM_STATUS_NONE.tone,
+      title: translate(language, 'platformStatus.noneHint'),
+      context: null,
+    }
   }
-  const meta = PLATFORM_STATUS_META[value.status] ?? PLATFORM_STATUS_META.unknown
-  const label =
-    value.status === 'unknown' || !PLATFORM_STATUS_META[value.status]
-      ? `${PLATFORM_STATUS_META.unknown.label} ${value.account_status_raw}`
-      : meta.label
-  const freshness = FRESHNESS_CONTEXT[value.freshness]
-  const context = `per Meta · ${formatRelative(value.observed_at)}${freshness ? ` · ${freshness}` : ''}`
+  const known = value.status !== 'unknown' && value.status in PLATFORM_STATUS_META
+  const meta = known ? PLATFORM_STATUS_META[value.status] : PLATFORM_STATUS_META.unknown
+  const statusKey = known ? value.status : 'unknown'
+  const label = known
+    ? translate(language, `platformStatus.${statusKey}` as TranslationKey)
+    : translate(language, 'platformStatus.unknownCode', { code: value.account_status_raw })
+  const freshnessKey = FRESHNESS_CONTEXT_KEY[value.freshness]
+  const context = [
+    translate(language, 'platformStatus.context', { time: formatRelative(value.observed_at, language) }),
+    freshnessKey ? translate(language, freshnessKey) : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
   return {
     label,
     tone: meta.tone,
-    title: `${meta.description} Observed ${formatDateTime(value.observed_at)}.`,
+    title: `${translate(language, `platformStatusHint.${statusKey}` as TranslationKey)} ${translate(
+      language,
+      'platformStatus.observed',
+      { time: formatDateTime(value.observed_at, language) },
+    )}`,
     context,
   }
 }

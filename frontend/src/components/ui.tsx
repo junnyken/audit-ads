@@ -1,27 +1,8 @@
 import type { ReactNode } from 'react'
 import { TONE_CLASS, TONE_DOT, type Tone } from '../lib/readiness'
 
-export function Badge({
-  tone = 'neutral',
-  children,
-  dot = false,
-  title,
-}: {
-  tone?: Tone
-  children: ReactNode
-  dot?: boolean
-  title?: string
-}) {
-  return (
-    <span
-      title={title}
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11.5px] font-medium whitespace-nowrap ${TONE_CLASS[tone]}`}
-    >
-      {dot && <span className={`h-1.5 w-1.5 rounded-full ${TONE_DOT[tone]}`} />}
-      {children}
-    </span>
-  )
-}
+// Badge moved to primitives/badge.tsx (U1b); re-exported so existing imports keep working.
+export { Badge } from './primitives/badge'
 
 export function Card({
   title,
@@ -112,12 +93,12 @@ export function ErrorState({
   return (
     <div
       role="alert"
-      className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-[12.5px] text-rose-900"
+      className={`rounded-lg border px-4 py-3 text-[12.5px] ${TONE_CLASS.attention}`}
     >
       <p className="font-semibold">Something went wrong</p>
       <p className="mt-0.5">{apiError?.message ?? 'Unexpected error.'}</p>
       {apiError?.requestId && (
-        <p className="mt-1 font-mono text-[11px] text-rose-700">
+        <p className="mt-1 font-mono text-[11px]">
           Reference ID: {apiError.requestId}
         </p>
       )}
@@ -157,7 +138,7 @@ export function Field({
     <>
       {label}
       {required ? (
-        <span className="ml-1 text-rose-600">*</span>
+        <span className="ml-1 text-tone-attention-fg">*</span>
       ) : (
         <span className="ml-1 font-normal text-ink-faint">(optional)</span>
       )}
@@ -264,13 +245,21 @@ export function Tabs({
 }
 
 export function Progress({ value, total }: { value: number; total: number }) {
-  const percent = total > 0 ? Math.round((value / total) * 100) : 0
+  // No required items determined is "no figure", not "0 of 0" (U1b data honesty).
+  if (total <= 0) {
+    return (
+      <span className="text-ink-faint" title="No required items have been determined">
+        —
+      </span>
+    )
+  }
+  const percent = Math.round((value / total) * 100)
   const complete = total > 0 && value >= total
   return (
     <div className="flex items-center gap-2" title={`${value} of ${total} required items satisfied`}>
       <div className="h-1.5 w-16 overflow-hidden rounded-full bg-surface-sunken">
         <div
-          className={`h-full rounded-full ${complete ? 'bg-emerald-500' : 'bg-slate-400'}`}
+          className={`h-full rounded-full ${complete ? 'bg-tone-positive-fg' : 'bg-ink-faint'}`}
           style={{ width: `${percent}%` }}
         />
       </div>

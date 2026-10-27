@@ -1,14 +1,32 @@
+import type { ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { api, query } from '../lib/api'
-import type { AdAccount, AlertSummary, AuditEntry, HealthSummary, Paged, ReadinessSummary } from '../lib/types'
-import { Badge, Card, ErrorState, InlineNote, Progress, Skeleton, StatTile } from '../components/ui'
+import type {
+  AdAccount,
+  AlertSummary,
+  AuditEntry,
+  HealthSummary,
+  Paged,
+  ReadinessSummary,
+  SpendSummary,
+} from '../lib/types'
+import { Badge } from '../components/primitives/badge'
+import { Button } from '../components/primitives/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/primitives/card'
+import { Skeleton } from '../components/primitives/skeleton'
+import { EmptyState, ErrorState, LoadingRegion, NoPermissionState, PartialDataNote } from '../components/states'
+import { ChecklistProgress } from '../components/dashboard/ChecklistProgress'
+import { SegmentBar, type Segment } from '../components/dashboard/SegmentBar'
+import { StatTile, type StatTileState } from '../components/dashboard/StatTile'
 import { READINESS_META, accountStatusTone } from '../lib/readiness'
-import { FRESHNESS_META, HEALTH_META } from '../lib/health'
-import { ALERT_SEVERITY_META, ALERT_STATUS_META, DELIVERY_STATUS_META, TRANSPORT_NOT_CONFIGURED } from '../lib/alerts'
-import { formatRelative, humanise } from '../lib/format'
+import { HEALTH_META } from '../lib/health'
+import { ALERT_SEVERITY_META, DELIVERY_STATUS_META } from '../lib/alerts'
+import { formatCount, formatDateTime, formatRelative } from '../lib/format'
 import { useAuth } from '../hooks/useAuth'
-import SpendSummaryCard from '../components/SpendSummaryCard'
+import { useI18n } from '../i18n'
+import { useEnumLabel } from '../i18n/labels'
+import SpendSummaryCard, { SpendFreshnessCounts } from '../components/SpendSummaryCard'
 import PlatformStatusSummaryCard from '../components/PlatformStatusSummaryCard'
 import { DiscoveryOverview } from '../components/meta/DiscoveryOverview'
 
@@ -47,351 +65,461 @@ function useOverview() {
     queryKey: ['audit', 'latest'],
     queryFn: () => api.get<Paged<AuditEntry>>(`/api/v1/audit-logs${query({ page_size: 8 })}`),
   })
-  return { summary, attention, recent, all, audit, healthSummary, alertSummary }
+  // Same key as the spend and Meta-status cards, so React Query serves all three from one request.
+  const spend = useQuery({
+    queryKey: ['spend-summary'],
+    queryFn: () => api.get<SpendSummary>('/api/v1/spend/summary'),
+  })
+  return { summary, attention, recent, all, audit, healthSummary, alertSummary, spend }
+}
+
+type Q<T> = { isLoading: boolean; isError: boolean; data: T | undefined; refetch: () => unknown }
+
+function tileState<T>(q: Q<T>, pick: (data: T) => number): StatTileState {
+  if (q.isLoading) return { status: 'loading' }
+  if (q.isError || q.data === undefined) return { status: 'error', onRetry: () => void q.refetch() }
+  return { status: 'ready', value: pick(q.data) }
 }
 
 export default function Overview() {
-  const navigate = useNavigate()
+  const { t, language } = useI18n()
+  const enumLabel = useEnumLabel()
   const { user } = useAuth()
-  const { summary, attention, recent, all, audit, healthSummary, alertSummary } = useOverview()
+  const { summary, attention, recent, all, audit, healthSummary, alertSummary, spend } = useOverview()
 
-  if (summary.isLoading) return <Skeleton rows={6} />
-  if (summary.isError) return <ErrorState error={summary.error} onRetry={() => summary.refetch()} />
-
-  const counts = summary.data!
+  const readiness = summary.data
+  const registryEmpty = readiness !== undefined && readiness.total_active === 0 && readiness.archived === 0
   const accounts = all.data?.items ?? []
+  const allTotal = all.data?.total ?? 0
+  const sampled = all.data !== undefined && allTotal > accounts.length
+
+  // ---- "needs attention today" hints (every figure here comes from a summary endpoint) ----------
+  const criticalHintParts = [t('overview.kpi.criticalHint')]
+  if (healthSummary.data && healthSummary.data.stale_data > 0)
+    criticalHintParts.push(t('overview.kpi.criticalStale', { count: formatCount(healthSummary.data.stale_data) }))
+  const blocking = spend.data?.platform_status_counts?.blocking
+  if (blocking !== undefined && blocking > 0)
+    criticalHintParts.push(t('overview.kpi.criticalMeta', { count: formatCount(blocking) }))
+
+  // ---- distribution segments (tones come from the META maps, never chosen here) -----------------
+  const readinessKeys = ['operationally_ready', 'ready_with_warnings', 'not_ready', 'unknown'] as const
+  const readinessSegments: Segment[] = readiness
+    ? readinessKeys.map((key) => ({
+        key,
+        label: enumLabel('readiness', key),
+        count: readiness[key],
+        tone: READINESS_META[key].tone,
+        to: `/accounts?readiness_status=${key}`,
+      }))
+    : []
+  const healthKeys = ['critical', 'warning', 'attention_needed', 'unknown', 'clear_signals'] as const
+  const healthSegments: Segment[] = healthSummary.data
+    ? healthKeys.map((key) => ({
+        key,
+        label: enumLabel('health', key),
+        count: healthSummary.data![key],
+        tone: HEALTH_META[key].tone,
+        to: `/account-health?health_status=${key}`,
+      }))
+    : []
+
+  // ---- checklist buckets ------------------------------------------------------------------------
+  const hasRequired = (a: AdAccount) => (a.required_item_count ?? 0) > 0
+  const ratio = (a: AdAccount) => (a.completed_item_count ?? 0) / (a.required_item_count ?? 1)
   const buckets = [
-    { label: 'Complete', test: (a: AdAccount) => (a.required_item_count ?? 0) > 0 && a.completed_item_count === a.required_item_count },
-    { label: '50–99%', test: (a: AdAccount) => ratio(a) >= 0.5 && ratio(a) < 1 },
-    { label: 'Under 50%', test: (a: AdAccount) => ratio(a) < 0.5 },
+    { key: 'complete', label: t('overview.lists.bucketComplete'), test: (a: AdAccount) => hasRequired(a) && ratio(a) >= 1 },
+    { key: 'mid', label: t('overview.lists.bucketMid'), test: (a: AdAccount) => hasRequired(a) && ratio(a) >= 0.5 && ratio(a) < 1 },
+    { key: 'low', label: t('overview.lists.bucketLow'), test: (a: AdAccount) => hasRequired(a) && ratio(a) < 0.5 },
+    // No required items determined is its own bucket — never counted as "0% complete".
+    { key: 'none', label: t('overview.lists.bucketNone'), test: (a: AdAccount) => !hasRequired(a) },
   ]
   const neverSynced = accounts.filter((account) => !account.last_synced_at).length
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <header>
-        <h1 className="text-[17px] font-semibold">Overview</h1>
-        <p className="mt-0.5 text-[12.5px] text-ink-muted">
-          Readiness below is an internal operational state built from records you entered. It is
-          not a platform approval and does not predict whether an account will be restricted.
+        <h1 className="text-xl font-semibold leading-7 min-[1024px]:text-2xl min-[1024px]:leading-8">{t('overview.title')}</h1>
+        <p className="mt-0.5 text-xs text-ink-muted">
+          {user?.workspace?.name ? `${t('overview.workspace', { name: user.workspace.name })} · ` : ''}
+          {summary.dataUpdatedAt > 0
+            ? t('format.updatedAt', { time: formatDateTime(new Date(summary.dataUpdatedAt).toISOString(), language) })
+            : '—'}
         </p>
       </header>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <StatTile label="Active accounts" value={counts.total_active} tone="neutral" onClick={() => navigate('/accounts')} />
-        <StatTile
-          label={READINESS_META.operationally_ready.label}
-          value={counts.operationally_ready}
-          tone="positive"
-          hint={READINESS_META.operationally_ready.description}
-          onClick={() => navigate('/accounts?readiness_status=operationally_ready')}
-        />
-        <StatTile
-          label={READINESS_META.ready_with_warnings.label}
-          value={counts.ready_with_warnings}
-          tone="caution"
-          hint={READINESS_META.ready_with_warnings.description}
-          onClick={() => navigate('/accounts?readiness_status=ready_with_warnings')}
-        />
-        <StatTile
-          label={READINESS_META.not_ready.label}
-          value={counts.not_ready}
-          tone="attention"
-          hint={READINESS_META.not_ready.description}
-          onClick={() => navigate('/accounts?readiness_status=not_ready')}
-        />
-        <StatTile
-          label={READINESS_META.unknown.label}
-          value={counts.unknown}
-          tone="neutral"
-          hint={READINESS_META.unknown.description}
-          onClick={() => navigate('/accounts?readiness_status=unknown')}
-        />
-        <StatTile label="Archived" value={counts.archived} tone="muted" onClick={() => navigate('/accounts?archived=true')} />
-      </div>
-
-      <section className="space-y-3">
-        <header className="flex flex-wrap items-baseline justify-between gap-2">
-          <div>
-            <h2 className="text-[15px] font-semibold">Account health</h2>
-            <p className="text-[12.5px] text-ink-muted">
-              What needs attention right now. This is a separate question from readiness above:
-              an account can be operationally ready and still have an open signal, and vice versa.
-            </p>
-          </div>
-          <Link to="/account-health" className="text-[12px] font-medium text-brand hover:underline">
-            Open account health
-          </Link>
-        </header>
-
-        {healthSummary.isLoading ? (
-          <Skeleton rows={2} />
-        ) : healthSummary.isError ? (
-          <ErrorState error={healthSummary.error} onRetry={() => healthSummary.refetch()} />
-        ) : (
-          <>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-              <StatTile
-                label={HEALTH_META.critical.label}
-                value={healthSummary.data!.critical}
-                tone={HEALTH_META.critical.tone}
-                hint={HEALTH_META.critical.description}
-                onClick={() => navigate('/account-health?health_status=critical')}
-              />
-              <StatTile
-                label="Warnings"
-                value={healthSummary.data!.warning}
-                tone={HEALTH_META.warning.tone}
-                hint={HEALTH_META.warning.description}
-                onClick={() => navigate('/account-health?health_status=warning')}
-              />
-              <StatTile
-                label={HEALTH_META.attention_needed.label}
-                value={healthSummary.data!.attention_needed}
-                tone={HEALTH_META.attention_needed.tone}
-                hint={HEALTH_META.attention_needed.description}
-                onClick={() => navigate('/account-health?health_status=attention_needed')}
-              />
-              <StatTile
-                label={HEALTH_META.unknown.label}
-                value={healthSummary.data!.unknown}
-                tone={HEALTH_META.unknown.tone}
-                hint={HEALTH_META.unknown.description}
-                onClick={() => navigate('/account-health?health_status=unknown')}
-              />
-              <StatTile
-                label={HEALTH_META.clear_signals.label}
-                value={healthSummary.data!.clear_signals}
-                tone={HEALTH_META.clear_signals.tone}
-                hint={HEALTH_META.clear_signals.description}
-                onClick={() => navigate('/account-health?health_status=clear_signals')}
-              />
-              <StatTile
-                label="Stale data"
-                value={healthSummary.data!.stale_data}
-                tone={FRESHNESS_META.stale.tone}
-                hint={FRESHNESS_META.stale.description}
-                onClick={() => navigate('/account-health?freshness_status=stale')}
-              />
-            </div>
-
-            <InlineNote>
-              <strong>Last health evaluation:</strong>{' '}
-              {healthSummary.data!.last_evaluation_at
-                ? formatRelative(healthSummary.data!.last_evaluation_at)
-                : 'never'}
-              {healthSummary.data!.never_evaluated > 0 &&
-                ` · ${healthSummary.data!.never_evaluated} account(s) have never been evaluated`}
-              {healthSummary.data!.failed_runs_recent > 0 &&
-                ` · ${healthSummary.data!.failed_runs_recent} evaluation(s) failed in the last 24 hours`}
-              . Health is recalculated when an account changes and when you ask for it; nothing is
-              fetched from an advertising platform.
-            </InlineNote>
-          </>
-        )}
-      </section>
-
-      <section className="space-y-3">
-        <header className="flex flex-wrap items-baseline justify-between gap-2">
-          <div>
-            <h2 className="text-[15px] font-semibold">Alert Center</h2>
-            <p className="text-[12.5px] text-ink-muted">
-              What is waiting for you, and whether it reached you. These counts describe this
-              product&apos;s own records — they are not a statement about any advertising platform.
-            </p>
-          </div>
-          <Link to="/alerts" className="text-[12px] font-medium text-brand hover:underline">
-            Open Alert Center
-          </Link>
-        </header>
-
-        {alertSummary.isLoading ? (
-          <Skeleton rows={2} />
-        ) : alertSummary.isError ? (
-          <ErrorState error={alertSummary.error} onRetry={() => alertSummary.refetch()} />
-        ) : (
-          <>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-              <StatTile
-                label="Open critical alerts"
-                value={alertSummary.data!.open_critical}
-                tone={ALERT_SEVERITY_META.critical.tone}
-                hint={ALERT_SEVERITY_META.critical.description}
-                onClick={() => navigate('/alerts?severity=critical&status=open')}
-              />
-              <StatTile
-                label="Open warnings"
-                value={alertSummary.data!.open_warning}
-                tone={ALERT_SEVERITY_META.warning.tone}
-                hint={ALERT_SEVERITY_META.warning.description}
-                onClick={() => navigate('/alerts?severity=warning&status=open')}
-              />
-              <StatTile
-                label="Acknowledged alerts"
-                value={alertSummary.data!.acknowledged}
-                tone={ALERT_STATUS_META.acknowledged.tone}
-                hint={ALERT_STATUS_META.acknowledged.hint}
-                onClick={() => navigate('/alerts?status=acknowledged')}
-              />
-              <StatTile
-                label="Suppressed alerts"
-                value={alertSummary.data!.suppressed}
-                tone={ALERT_STATUS_META.suppressed.tone}
-                hint={ALERT_STATUS_META.suppressed.hint}
-                onClick={() => navigate('/alerts?suppressed=true')}
-              />
-              <StatTile
-                label="Failed final notifications"
-                value={alertSummary.data!.failed_final_notifications}
-                tone={DELIVERY_STATUS_META.failed_final.tone}
-                hint={DELIVERY_STATUS_META.failed_final.hint}
-                onClick={() => navigate('/alerts?delivery_status=failed_final')}
-              />
-              <StatTile
-                label="Deferred by quiet hours"
-                value={alertSummary.data!.deferred_by_quiet_hours}
-                tone="info"
-                hint="Warnings raised inside your quiet window. They are scheduled for the end of it, never discarded."
-                onClick={() => navigate('/alerts?delivery_status=pending')}
-              />
-            </div>
-
-            <InlineNote>
-              <strong>Last successful notification:</strong>{' '}
-              {alertSummary.data!.last_successful_notification_at
-                ? formatRelative(alertSummary.data!.last_successful_notification_at)
-                : 'never'}
-              {(!alertSummary.data!.telegram_transport_configured ||
-                !alertSummary.data!.recipient_configured) &&
-                ` · ${TRANSPORT_NOT_CONFIGURED}`}
-            </InlineNote>
-          </>
-        )}
-      </section>
-
-      <SpendSummaryCard />
-
-      <PlatformStatusSummaryCard />
-
-      <DiscoveryOverview isOwner={user?.role === 'owner'} />
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        <Card
-          title="Accounts needing manual review now"
+      {registryEmpty ? (
+        <EmptyState
+          title={t('overview.empty.title')}
+          description={t('overview.empty.body')}
           action={
-            <Link to="/readiness" className="text-[12px] font-medium text-brand hover:underline">
-              Open readiness
-            </Link>
+            <>
+              <Button asChild variant="secondary">
+                <Link to="/business-managers">{t('accounts.empty.addBm')}</Link>
+              </Button>
+              <Button asChild>
+                <Link to="/accounts">{t('accounts.register')}</Link>
+              </Button>
+            </>
           }
-        >
-          {attention.isLoading ? (
-            <Skeleton rows={3} />
-          ) : attention.data?.items.length ? (
+        />
+      ) : (
+        <>
+          <section aria-labelledby="overview-todo" className="space-y-3">
+            <div className="flex flex-wrap items-baseline gap-x-3">
+              <h2 id="overview-todo" className="text-lg font-semibold leading-7">
+                {t('overview.todo.title')}
+              </h2>
+              <span className="text-xs text-ink-muted">{t('overview.todo.hint')}</span>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <StatTile
+                label={t('overview.kpi.notReady')}
+                tone={READINESS_META.not_ready.tone}
+                to="/accounts?readiness_status=not_ready"
+                hint={readiness ? t('overview.kpi.notReadyHint', { total: formatCount(readiness.total_active) }) : undefined}
+                state={tileState(summary, (d) => d.not_ready)}
+              />
+              <StatTile
+                label={t('overview.kpi.critical')}
+                tone={HEALTH_META.critical.tone}
+                to="/account-health?health_status=critical"
+                hint={criticalHintParts.join(' · ')}
+                state={tileState(healthSummary, (d) => d.critical)}
+              />
+              <StatTile
+                label={t('overview.kpi.alerts')}
+                tone={ALERT_SEVERITY_META.critical.tone}
+                to="/alerts?severity=critical&status=open"
+                hint={t('overview.kpi.alertsHint')}
+                state={tileState(alertSummary, (d) => d.open_critical)}
+              />
+              <StatTile
+                label={t('overview.kpi.failed')}
+                tone={DELIVERY_STATUS_META.failed_final.tone}
+                to="/alerts?delivery_status=failed_final"
+                hint={t('overview.kpi.failedHint')}
+                state={tileState(alertSummary, (d) => d.failed_final_notifications)}
+              />
+            </div>
+          </section>
+
+          <section className="grid gap-4 xl:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <div>
+                  <CardTitle>{t('overview.dist.readinessTitle')}</CardTitle>
+                  <CardDescription>{t('overview.dist.readinessSub')}</CardDescription>
+                </div>
+                <Link to="/accounts" className="text-xs font-medium text-brand-text hover:underline">
+                  {t('overview.dist.openList')}
+                </Link>
+              </CardHeader>
+              <CardContent>
+                {summary.isLoading ? (
+                  <LoadingRegion className="space-y-3">
+                    <Skeleton className="h-3 w-full rounded-full" />
+                    <Skeleton className="h-4 w-3/4" />
+                  </LoadingRegion>
+                ) : summary.isError ? (
+                  <ErrorState error={summary.error} onRetry={() => summary.refetch()} title={t('overview.dist.readinessTitle')} />
+                ) : readinessSegments.every((s) => s.count === 0) ? (
+                  <p className="text-sm text-ink-muted">{t('overview.dist.empty')}</p>
+                ) : (
+                  <div className="space-y-3">
+                    <SegmentBar segments={readinessSegments} ariaPrefix={t('overview.dist.readinessTitle')} />
+                    <p className="text-xs text-ink-muted">
+                      <Link to="/accounts?archived=true" className="hover:underline">
+                        {t('overview.dist.archivedOutside', { count: formatCount(readiness!.archived) })}
+                      </Link>
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <div>
+                  <CardTitle>{t('overview.dist.healthTitle')}</CardTitle>
+                  <CardDescription>{t('overview.dist.healthSub')}</CardDescription>
+                </div>
+                <Link to="/account-health" className="text-xs font-medium text-brand-text hover:underline">
+                  {t('overview.dist.openHealth')}
+                </Link>
+              </CardHeader>
+              <CardContent>
+                {healthSummary.isLoading ? (
+                  <LoadingRegion className="space-y-3">
+                    <Skeleton className="h-3 w-full rounded-full" />
+                    <Skeleton className="h-4 w-3/4" />
+                  </LoadingRegion>
+                ) : healthSummary.isError ? (
+                  <ErrorState error={healthSummary.error} onRetry={() => healthSummary.refetch()} title={t('overview.dist.healthTitle')} />
+                ) : healthSegments.every((s) => s.count === 0) ? (
+                  <p className="text-sm text-ink-muted">{t('overview.dist.empty')}</p>
+                ) : (
+                  <div className="space-y-3">
+                    <SegmentBar segments={healthSegments} ariaPrefix={t('overview.dist.healthTitle')} />
+                    {healthSummary.data!.stale_data > 0 && (
+                      <p className="text-xs text-ink-muted">
+                        {t('overview.dist.staleNote', { count: formatCount(healthSummary.data!.stale_data) })}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </section>
+
+          <section className="grid gap-4 xl:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>{t('overview.sources.title')}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <dl className="grid gap-x-4 gap-y-3 text-sm sm:grid-cols-[minmax(0,13rem)_1fr]">
+                  <dt className="text-ink-muted">{t('overview.sources.healthEval')}</dt>
+                  <dd>
+                    {healthSummary.isLoading ? (
+                      <Skeleton className="h-4 w-1/2" />
+                    ) : healthSummary.isError ? (
+                      <ErrorState error={healthSummary.error} onRetry={() => healthSummary.refetch()} compact />
+                    ) : (
+                      <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        {healthSummary.data!.last_evaluation_at ? (
+                          <span title={formatDateTime(healthSummary.data!.last_evaluation_at, language)}>
+                            {formatRelative(healthSummary.data!.last_evaluation_at, language)}
+                          </span>
+                        ) : (
+                          <Badge tone="neutral">{t('overview.sources.never')}</Badge>
+                        )}
+                        {healthSummary.data!.never_evaluated > 0 && (
+                          <span className="text-xs text-ink-muted">
+                            {t('overview.sources.neverEvaluated', { count: formatCount(healthSummary.data!.never_evaluated) })}
+                          </span>
+                        )}
+                        {healthSummary.data!.failed_runs_recent > 0 && (
+                          <Badge tone="caution">
+                            {t('overview.sources.failedRuns', { count: formatCount(healthSummary.data!.failed_runs_recent) })}
+                          </Badge>
+                        )}
+                      </span>
+                    )}
+                  </dd>
+
+                  <dt className="text-ink-muted">{t('overview.sources.notification')}</dt>
+                  <dd>
+                    {alertSummary.isLoading ? (
+                      <Skeleton className="h-4 w-1/2" />
+                    ) : alertSummary.isError ? (
+                      <ErrorState error={alertSummary.error} onRetry={() => alertSummary.refetch()} compact />
+                    ) : (
+                      <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        {alertSummary.data!.last_successful_notification_at ? (
+                          <span title={formatDateTime(alertSummary.data!.last_successful_notification_at, language)}>
+                            {formatRelative(alertSummary.data!.last_successful_notification_at, language)}
+                          </span>
+                        ) : (
+                          <Badge tone="neutral">{t('overview.sources.never')}</Badge>
+                        )}
+                        {(!alertSummary.data!.telegram_transport_configured || !alertSummary.data!.recipient_configured) && (
+                          <span className="text-xs text-ink-muted">{t('overview.sources.notConfigured')}</span>
+                        )}
+                      </span>
+                    )}
+                  </dd>
+
+                  <dt className="text-ink-muted">{t('overview.sources.spendFreshness')}</dt>
+                  <dd>
+                    {spend.isLoading ? (
+                      <Skeleton className="h-6 w-2/3" />
+                    ) : spend.isError ? (
+                      <ErrorState error={spend.error} onRetry={() => spend.refetch()} compact />
+                    ) : (
+                      <SpendFreshnessCounts counts={spend.data!.freshness_counts} />
+                    )}
+                  </dd>
+
+                  <dt className="text-ink-muted">{t('overview.sources.neverSynced')}</dt>
+                  <dd>
+                    {all.isLoading ? (
+                      <Skeleton className="h-4 w-1/3" />
+                    ) : all.isError ? (
+                      <ErrorState error={all.error} onRetry={() => all.refetch()} compact />
+                    ) : (
+                      <span className="tabular-nums">
+                        {t('overview.sources.neverSyncedValue', {
+                          count: formatCount(neverSynced),
+                          total: formatCount(accounts.length),
+                        })}
+                      </span>
+                    )}
+                  </dd>
+                </dl>
+                {sampled && (
+                  <PartialDataNote>
+                    {t('overview.sources.sample', { count: formatCount(accounts.length), total: formatCount(allTotal) })}
+                  </PartialDataNote>
+                )}
+                <p className="text-xs text-ink-faint">{t('overview.sources.footer')}</p>
+              </CardContent>
+            </Card>
+
+            <PlatformStatusSummaryCard />
+          </section>
+
+          <SpendSummaryCard />
+        </>
+      )}
+
+      {user?.role === 'owner' ? (
+        <DiscoveryOverview isOwner />
+      ) : (
+        // Not hidden: the card says why it is empty for this role (U1 section 11).
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('overview.discovery.title')}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <NoPermissionState compact description={t('overview.discovery.ownerOnly')} />
+          </CardContent>
+        </Card>
+      )}
+
+      {!registryEmpty && (
+        <section className="grid gap-4 xl:grid-cols-2">
+          <ListCard
+            title={t('overview.lists.reviewTitle')}
+            action={<Link to="/readiness" className="text-xs font-medium text-brand-text hover:underline">{t('overview.lists.reviewOpen')}</Link>}
+            loading={attention.isLoading}
+            error={attention.isError ? { error: attention.error, retry: () => attention.refetch() } : undefined}
+            empty={attention.data?.items.length === 0 ? t('overview.lists.reviewEmpty') : undefined}
+          >
             <ul className="divide-y divide-line">
-              {attention.data.items.map((account) => (
+              {attention.data?.items.map((account) => (
                 <li key={account.id} className="flex items-center justify-between gap-3 py-2">
-                  <Link to={`/accounts/${account.id}`} className="min-w-0 truncate font-medium text-brand hover:underline">
+                  <Link to={`/accounts/${account.id}`} className="min-w-0 truncate font-medium text-brand-text hover:underline">
                     {account.display_name}
                   </Link>
                   <div className="flex shrink-0 items-center gap-2">
-                    <Badge tone={accountStatusTone(account.status)}>{humanise(account.status)}</Badge>
-                    <Progress value={account.completed_item_count ?? 0} total={account.required_item_count ?? 0} />
+                    <Badge tone={accountStatusTone(account.status)}>{enumLabel('accountStatus', account.status)}</Badge>
+                    <ChecklistProgress done={account.completed_item_count} total={account.required_item_count} />
                   </div>
                 </li>
               ))}
             </ul>
-          ) : (
-            <p className="py-4 text-center text-[12.5px] text-ink-muted">
-              No account is currently in the <strong>not ready</strong> state.
-            </p>
-          )}
-        </Card>
+          </ListCard>
 
-        <Card title="Recently changed accounts">
-          {recent.isLoading ? (
-            <Skeleton rows={3} />
-          ) : recent.data?.items.length ? (
+          <ListCard
+            title={t('overview.lists.recentTitle')}
+            loading={recent.isLoading}
+            error={recent.isError ? { error: recent.error, retry: () => recent.refetch() } : undefined}
+            empty={recent.data?.items.length === 0 ? t('overview.lists.recentEmpty') : undefined}
+          >
             <ul className="divide-y divide-line">
-              {recent.data.items.map((account) => (
-                <li key={account.id} className="flex items-center justify-between gap-3 py-2">
-                  <Link to={`/accounts/${account.id}`} className="min-w-0 truncate font-medium text-brand hover:underline">
-                    {account.display_name}
-                  </Link>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <Badge tone={READINESS_META[account.readiness_status].tone} dot>
-                      {READINESS_META[account.readiness_status].label}
-                    </Badge>
-                    <span className="text-[11.5px] text-ink-faint">{formatRelative(account.updated_at)}</span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="py-4 text-center text-[12.5px] text-ink-muted">Nothing recorded yet.</p>
-          )}
-        </Card>
-
-        <Card title="Checklist completion">
-          {all.isLoading ? (
-            <Skeleton rows={3} />
-          ) : accounts.length === 0 ? (
-            <p className="py-4 text-center text-[12.5px] text-ink-muted">No accounts registered yet.</p>
-          ) : (
-            <ul className="space-y-2">
-              {buckets.map((bucket) => {
-                const matched = accounts.filter(bucket.test).length
-                const percent = Math.round((matched / accounts.length) * 100)
+              {recent.data?.items.map((account) => {
+                const meta = READINESS_META[account.readiness_status]
                 return (
-                  <li key={bucket.label} className="flex items-center gap-3">
-                    <span className="w-24 shrink-0 text-[12.5px] text-ink-muted">{bucket.label}</span>
-                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-sunken">
-                      <div
-                        className={`h-full rounded-full ${bucket.label === 'Complete' ? 'bg-emerald-500' : 'bg-slate-400'}`}
-                        style={{ width: `${percent}%` }}
-                      />
+                  <li key={account.id} className="flex items-center justify-between gap-3 py-2">
+                    <Link to={`/accounts/${account.id}`} className="min-w-0 truncate font-medium text-brand-text hover:underline">
+                      {account.display_name}
+                    </Link>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Badge tone={meta?.tone ?? 'neutral'} dot>
+                        {enumLabel('readiness', account.readiness_status)}
+                      </Badge>
+                      <span className="text-xs text-ink-faint">{formatRelative(account.updated_at, language)}</span>
                     </div>
-                    <span className="w-16 shrink-0 text-right tabular-nums text-[12px] text-ink-muted">
-                      {matched} ({percent}%)
-                    </span>
                   </li>
                 )
               })}
             </ul>
-          )}
-        </Card>
+          </ListCard>
 
-        <Card title="Latest audit activity" action={<Link to="/audit-log" className="text-[12px] font-medium text-brand hover:underline">Open audit log</Link>}>
-          {audit.isLoading ? (
-            <Skeleton rows={4} />
-          ) : audit.data?.items.length ? (
+          <ListCard
+            title={t('overview.lists.checklistTitle')}
+            loading={all.isLoading}
+            error={all.isError ? { error: all.error, retry: () => all.refetch() } : undefined}
+            empty={all.data && accounts.length === 0 ? t('overview.lists.checklistEmpty') : undefined}
+          >
+            <ul className="space-y-2">
+              {buckets.map((bucket) => {
+                const matched = accounts.filter(bucket.test).length
+                const percent = accounts.length ? (matched / accounts.length) * 100 : 0
+                return (
+                  <li key={bucket.key} className="flex items-center gap-3">
+                    <span className="w-36 shrink-0 text-sm text-ink-muted">{bucket.label}</span>
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-sunken" aria-hidden="true">
+                      <div className="h-full rounded-full bg-ink-faint" style={{ width: `${percent}%` }} />
+                    </div>
+                    <span className="w-10 shrink-0 text-right text-xs tabular-nums text-ink-muted">{formatCount(matched)}</span>
+                  </li>
+                )
+              })}
+            </ul>
+          </ListCard>
+
+          <ListCard
+            title={t('overview.lists.auditTitle')}
+            action={<Link to="/audit-log" className="text-xs font-medium text-brand-text hover:underline">{t('overview.lists.auditOpen')}</Link>}
+            loading={audit.isLoading}
+            error={audit.isError ? { error: audit.error, retry: () => audit.refetch() } : undefined}
+            empty={audit.data?.items.length === 0 ? t('overview.lists.auditEmpty') : undefined}
+          >
             <ul className="divide-y divide-line">
-              {audit.data.items.map((entry) => (
+              {audit.data?.items.map((entry) => (
                 <li key={entry.id} className="flex items-center justify-between gap-3 py-1.5">
-                  <span className="min-w-0 truncate font-mono text-[11.5px]">{entry.action}</span>
-                  <span className="shrink-0 text-[11.5px] text-ink-faint">
-                    {entry.actor_email ?? 'system'} · {formatRelative(entry.created_at)}
+                  <code className="min-w-0 truncate font-mono text-xs">{entry.action}</code>
+                  <span className="shrink-0 text-xs text-ink-faint">
+                    {entry.actor_email ?? t('overview.lists.system')} · {formatRelative(entry.created_at, language)}
                   </span>
                 </li>
               ))}
             </ul>
-          ) : (
-            <p className="py-4 text-center text-[12.5px] text-ink-muted">No activity recorded yet.</p>
-          )}
-        </Card>
-      </div>
-
-      <InlineNote>
-        <strong>Data freshness:</strong>{' '}
-        {accounts.length === 0
-          ? 'No accounts registered yet.'
-          : `${neverSynced} of ${accounts.length} account${accounts.length === 1 ? '' : 's'} have never been synced with an advertising platform. A1 stores operator-entered records only, so "last synced" stays empty until a later phase adds an authorised integration.`}
-      </InlineNote>
+          </ListCard>
+        </section>
+      )}
     </div>
   )
 }
 
-function ratio(account: AdAccount): number {
-  const required = account.required_item_count ?? 0
-  if (required === 0) return 0
-  return (account.completed_item_count ?? 0) / required
+/** A card with its own loading / error / empty states, so one failing query never blanks the page. */
+function ListCard({
+  title,
+  action,
+  loading,
+  error,
+  empty,
+  children,
+}: {
+  title: string
+  action?: ReactNode
+  loading: boolean
+  error?: { error: unknown; retry: () => unknown }
+  empty?: string
+  children: ReactNode
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        {action}
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <LoadingRegion className="space-y-2">
+            <Skeleton className="h-6 w-full" />
+            <Skeleton className="h-6 w-full" />
+            <Skeleton className="h-6 w-full" />
+          </LoadingRegion>
+        ) : error ? (
+          <ErrorState error={error.error} onRetry={() => void error.retry()} title={title} />
+        ) : empty ? (
+          <p className="py-4 text-center text-sm text-ink-muted">{empty}</p>
+        ) : (
+          children
+        )}
+      </CardContent>
+    </Card>
+  )
 }

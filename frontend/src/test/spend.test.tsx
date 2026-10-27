@@ -7,6 +7,9 @@ import SpendTab from '../pages/account/SpendTab'
 import { SpendSummaryView } from '../components/SpendSummaryCard'
 import { SPEND_FRESHNESS_META } from '../lib/readiness'
 import { ApiError } from '../lib/api'
+import { formatDay } from '../lib/format'
+import { translate } from '../i18n/translate'
+import { vi as viDict } from '../i18n/vi'
 import type { AdAccount, SpendFreshness, SpendSummary, SpendView } from '../lib/types'
 
 const apiMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
@@ -74,6 +77,22 @@ function mount(v: SpendView) {
   )
 }
 
+function mountArchived() {
+  apiMock.get.mockImplementation((path: string) =>
+    Promise.resolve(
+      path.includes('/spend/observations') ? { items: [], page: 1, page_size: 10, total: 0, total_pages: 0 } : view(),
+    ),
+  )
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <SpendTab account={{ id: 'acc-1', archived_at: '2026-10-01T00:00:00Z' } as AdAccount} />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+}
+
 afterEach(() => {
   vi.clearAllMocks()
   authMock.role = 'owner'
@@ -90,24 +109,25 @@ describe('spend freshness styling', () => {
     'renders %s without success styling',
     async (freshness) => {
       mount(view({ freshness }))
-      const badge = await screen.findByText(SPEND_FRESHNESS_META[freshness].label, { selector: 'span' })
+      const badge = await screen.findByText(translate('vi', `spendFreshness.${freshness}`), { selector: 'span' })
       expect(badge.className).not.toMatch(/emerald|green/)
     },
   )
 
   it('keeps never observed and stale as different labels', () => {
     expect(SPEND_FRESHNESS_META.never_observed.label).not.toBe(SPEND_FRESHNESS_META.stale.label)
+    expect(viDict['spendFreshness.never_observed']).not.toBe(viDict['spendFreshness.stale'])
   })
 })
 
 describe('daily table', () => {
   it('shows a dash for a day without a row, a real zero for a zero row, and today separately', async () => {
     mount(view())
-    const missing = (await screen.findByText('2026-10-24')).closest('tr')!
+    const missing = (await screen.findByText(formatDay('2026-10-24'))).closest('tr')!
     expect(missing).toHaveTextContent('—')
     expect(missing).not.toHaveTextContent(/\b0\b/)
-    expect(screen.getByText('2026-10-23').closest('tr')).toHaveTextContent('0 VND')
-    expect(screen.getByText('Incomplete day')).toBeInTheDocument()
+    expect(screen.getByText(formatDay('2026-10-23')).closest('tr')).toHaveTextContent('0 VND')
+    expect(screen.getByText('Ngày chưa kết thúc')).toBeInTheDocument()
     expect(screen.getByText('77 VND')).toBeInTheDocument()
     expect(screen.getByText('Disclaimer from backend.')).toBeInTheDocument()
     expect(screen.getByText('123456700 VND')).toBeInTheDocument()
@@ -119,34 +139,47 @@ describe('daily table', () => {
         latest_attempt: { id: 'o2', observed_at: '2026-10-25T20:00:00+00:00', status: 'failed', failure_code: 'token_expired', failure_summary: 'Token expired' },
       }),
     )
-    expect(await screen.findByText(/Latest attempt failed/)).toBeInTheDocument()
+    expect(await screen.findByText(/Lần đọc gần nhất thất bại/)).toBeInTheDocument()
     expect(screen.getByText('token_expired')).toBeInTheDocument()
   })
 })
 
 describe('refresh', () => {
-  it('is hidden for non-owners', async () => {
+  it('is disabled for non-owners, and says why instead of vanishing (U1c)', async () => {
     authMock.role = 'member'
     mount(view())
     await screen.findByText('Disclaimer from backend.')
-    expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull()
+    const button = screen.getByRole('button', { name: 'Làm mới' })
+    expect(button).toBeDisabled()
+    expect(button.closest('[aria-describedby]')).toHaveTextContent('Làm mới')
+    const reason = document.getElementById(button.closest('[aria-describedby]')!.getAttribute('aria-describedby')!)
+    expect(reason).toHaveTextContent('Chỉ chủ workspace mới làm mới được chi tiêu.')
+    await userEvent.click(button)
+    expect(apiMock.post).not.toHaveBeenCalled()
+  })
+
+  it('is disabled for an archived account with its own reason', async () => {
+    mountArchived()
+    const button = await screen.findByRole('button', { name: 'Làm mới' })
+    expect(button).toBeDisabled()
+    expect(screen.getByText(/Tài khoản đã lưu trữ không làm mới được/, { selector: '.sr-only' })).toBeInTheDocument()
   })
 
   it('shows the 403 message', async () => {
     apiMock.post.mockRejectedValue(new ApiError('forbidden', 403, 'forbidden', null, {}))
     mount(view())
-    await userEvent.click(await screen.findByRole('button', { name: 'Refresh' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('Only a workspace owner')
+    await userEvent.click(await screen.findByRole('button', { name: 'Làm mới' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Chỉ chủ workspace')
   })
 
   it('shows the 409 not_observable and entity_archived messages', async () => {
     apiMock.post.mockRejectedValueOnce(new ApiError('cannot read', 409, 'conflict', null, {}))
     mount(view())
-    await userEvent.click(await screen.findByRole('button', { name: 'Refresh' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('cannot be read')
+    await userEvent.click(await screen.findByRole('button', { name: 'Làm mới' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Không đọc được')
     apiMock.post.mockRejectedValueOnce(new ApiError('archived', 409, 'entity_archived', null, {}))
-    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('archived'))
+    await userEvent.click(screen.getByRole('button', { name: 'Làm mới' }))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('đã lưu trữ'))
   })
 
   it('treats a 200 carrying a failed observation as failed', async () => {
@@ -156,9 +189,9 @@ describe('refresh', () => {
       }),
     )
     mount(view())
-    await userEvent.click(await screen.findByRole('button', { name: 'Refresh' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Làm mới' }))
     const alerts = await screen.findAllByRole('alert')
-    expect(alerts[0]).toHaveTextContent('recorded as failed')
+    expect(alerts[0]).toHaveTextContent('được ghi nhận là thất bại')
     expect(alerts[0]).toHaveTextContent('rate_limited')
   })
 })
@@ -182,9 +215,9 @@ describe('spend summary', () => {
     expect(screen.getByText('12.25 USD')).toBeInTheDocument()
     expect(screen.getByText('3000.5 VND')).toBeInTheDocument()
     expect(screen.queryByText(/3012/)).toBeNull()
-    expect(screen.getByText('1 without a row')).toBeInTheDocument()
-    expect(screen.getAllByText('Incomplete').length).toBeGreaterThanOrEqual(2)
-    expect(screen.getByText(/Never observed: 1/)).toBeInTheDocument()
-    expect(screen.getByText(/2 accounts with no successful read/)).toBeInTheDocument()
+    expect(screen.getByText('1 không có dòng')).toBeInTheDocument()
+    expect(screen.getAllByText('Thiếu').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText(/Tổng chưa đầy đủ/)).toBeInTheDocument()
+    expect(screen.getByText(/2 tài khoản chưa có lần đọc thành công/)).toBeInTheDocument()
   })
 })

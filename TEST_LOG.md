@@ -3481,3 +3481,102 @@ no request; unknown reason shown as a code; not-observable sentence; explicit sw
 - No click-through by a person; the Settings section, badges and System Status card are covered by
   mocked-API tests only.
 - The production configuration (5 variables + vault key) was not set anywhere.
+## Session 2026-10-27 — U1b (Overview and Accounts on the new design system)
+
+Scope: `docs/AUDIT_BEFORE_BUILD_U1_UI.md` slice U1b. No API call, queryKey, enum or route changed.
+`pages/MetaConnections*`, `pages/meta-connection/*`, `components/meta/*`, Settings untouched (O4).
+
+- Built: Overview as template T1 (4 "needs attention" tiles that link to filtered lists, then
+  readiness and health distribution bars with legend and counts, Sources & freshness, Meta status,
+  spend per currency, discovery card, 4 detail cards); Accounts as T2 (8 default columns, "Cột"
+  chooser persisted per viewer in localStorage with try/catch, condensed filters + "Bộ lọc khác"
+  disclosure + removable chips, rows become cards at <=640px via `.tbl-cards`, five states).
+  New primitives `badge`, `card`, `skeleton`, `table`, `DropdownMenuCheckboxItem`; `components/states`
+  (Empty / four-part Error / NoPermission / Partial / LoadingRegion); `components/dashboard`
+  (StatTile, SegmentBar, ChecklistProgress); `i18n/labels.ts` replaces `humanise()` in these two
+  pages; `platformStatusBadge` now returns Vietnamese/English words (tone logic untouched).
+- Routes are code-split (`React.lazy` + `Suspense` inside the shell).
+- `no-raw-palette` allowlist: removed `Overview.tsx`, `SpendSummaryCard.tsx`, `ui.tsx` (24 -> 21).
+- Results (run in this worktree): `npx vitest run` 333 passed, 20 skipped (was 297 / 20), 27 files
+  + 1 skipped live file; `npm run typecheck` clean; `npx eslint .` clean; `npm run build` succeeds.
+  New `u1b.overview-accounts.test.tsx`: 36 tests (KPI numbers/links/no success tone, bar
+  proportions, per-currency spend and no cross-currency sum, complete:false stated, failed block
+  shows dash + retry not 0, empty/error/403/partial/loading states, column chooser + persistence +
+  throwing storage, "—" never 0, cards class, axe on both pages with the contrast rule off because
+  jsdom has no layout).
+- Existing tests edited only where wording changed language (English to Vietnamese labels):
+  `accounts-spend`, `platform-status`, `spend`, `live.app` (skipped). No tone / rule-5 assertion
+  weakened. The "Never observed: n" count assertion moved with its markup to `SpendFreshnessCounts`
+  (covered by the Overview test); "Incomplete" x2 became "Thiếu" plus the explicit
+  "Tổng chưa đầy đủ" note.
+- Bundle (vite build): entry JS 706.50 kB -> 445.75 kB (gzip 189.68 -> 134.95 kB); CSS 42.60 -> 45.02 kB
+  (gzip 10.15 -> 10.69). Largest lazy chunks: AccountDetail 49.5 kB, Overview 25.2 kB, Alerts 19.9 kB.
+- NOT done / NOT verified: no click-through by a person; no screenshots; the 375 px card layout and
+  the column-chooser menu positioning are only class-checked (jsdom has no layout); dark mode not
+  looked at; Vietnamese diacritics in Chrome unchecked. Wording is `[ĐỀ XUẤT — chờ duyệt]`.
+  `DiscoveryOverview` still returns null when the owner has no connections (file belongs to O4).
+  `agy` was not used (no login in this run); UI was written directly.
+
+## Session 2026-10-27 — U1c (Account detail and its seven tabs on the new design system)
+
+Scope: `docs/AUDIT_BEFORE_BUILD_U1_UI.md` slice U1c. Branch `u1c-account-detail` on top of U1b (`20449d2`). No API
+call, queryKey, enum or route changed; `pages/MetaConnections*`, `pages/meta-connection/*`, `components/meta/*`,
+Settings, Overview, Accounts untouched.
+
+- Built: `AccountDetail` as template T3 (breadcrumb, header card with recorded status + readiness + health + Meta
+  badges, id and Business Manager, checklist progress, one secondary action, one primary action, a "..." menu holding
+  Archive), Radix Tabs synced to `?tab=` (same seven keys; an unknown key falls back to Overview), seven tabs on the
+  primitives (`Panel`, `Table`, `Badge`, `Button`, `states/*`), `AccountFormDrawer` as a right-hand Sheet (480 px,
+  title + description, footer Cancel / Save, field-level error on the name, focus returned to the opener),
+  Archive and Restore through an AlertDialog (object, effect, scope, "can be undone", focus starts on Cancel, Esc
+  cancels, stays open on a refusal). After archive / restore / save the page re-reads the account and states what the
+  server now holds; if the re-read does not show the change it says so instead of "success". The spend Refresh
+  button is disabled with a stated reason (non-owner, archived) instead of vanishing.
+- No `humanise()` / `titleCase()` / `window.confirm` / `components/ui` import left in these files (a test scans the
+  sources). Server enums go through `useEnumLabel` (new keys: severity, signalStatus, healthFreshness, runStatus,
+  runTrigger, signalSource, eventStatus, eventSource, obsTrigger, itemState, reviewStatus, evidenceStatus,
+  checklistCategory, dataFreshness); an unknown code is shown as the code, never a guessed word.
+- New packages: `@radix-ui/react-tabs` 1.2.1 and `@radix-ui/react-alert-dialog` 1.2.1, both MIT (package metadata,
+  `docs/ui/LICENSES.md`). New primitives: `tabs`, `alert-dialog`, `field`; `Button` gains a `destructive` variant
+  painted with the attention tone; `ErrorState` gains `noPermissionText` so a refused write does not say "view".
+- `no-raw-palette` allowlist: removed `pages/account/HealthTab.tsx`, `ReadinessTab.tsx`, `SpendTab.tsx` (21 -> 18).
+  `ui.tsx` is still used by other pages (U1d), so it stays.
+- i18n: +396 keys in `vi.ts` and `en.ts` (parity test green), all `[ĐỀ XUẤT — chờ duyệt]`. Sentences written by the
+  server (readiness reasons, checklist item labels and messages, disclaimers, health signal text, audit actions)
+  are shown as the server sent them; they are not translated by the client.
+- Results (run in this worktree): `npx vitest run` **408 passed, 20 skipped** (28 files passed + 1 skipped live file;
+  U1b was 333 / 20, so +75). `npm run typecheck`, `npx eslint .` clean; `npm run build` succeeds.
+  New `u1c.account-detail.test.tsx`: 72 tests (header badges never success-toned for unknown readiness, unknown or
+  stale health, Meta "active"; dash not 0/0 and a health failure reason; tabs by arrow / Home / End keys, URL sync,
+  roving tabindex, unknown key falls back; AlertDialog replaces confirm, names object/effect/scope/reversibility,
+  focus on Cancel, Esc and Cancel write nothing, archive read-back, mismatch wording, 403 inside the dialog, restore;
+  focus return; Sheet role/name/description, Esc, focus trap over 40 Tab and 12 Shift+Tab presses, focus return to
+  the opener, Save disabled with reason, save read-back; per tab loading / error with four parts / 403 as
+  no-permission; empty states with reason and next action; partial states; raw money string, "—" with its reason,
+  right-aligned mono numbers; i18n key coverage by source scan, enum label coverage, no guarantee wording; axe on
+  the page, six tabs, the Sheet and the AlertDialog with the colour-contrast rule off because jsdom has no layout).
+- Existing tests edited only where wording or markup legitimately changed: `spend` (Vietnamese labels, `formatDay`,
+  non-owner Refresh is now disabled-with-reason instead of hidden, the 403/409 messages), `platform-status`
+  (Vietnamese labels), `components` (credentials sentence), `account.provenance` and `o3.automation` (the two pure
+  sentence builders now take a language; the English assertions are kept verbatim with `'en'` passed, and
+  Vietnamese ones were added), `no-raw-palette` (allowlist shrank). No tone / rule-5 / rule-6 / rule-13 assertion was
+  weakened.
+- Bundle (vite build): entry JS 445.75 kB -> 493.00 kB (gzip 134.95 -> 148.21 kB); CSS 45.02 -> 46.95 kB
+  (gzip 10.69 -> 11.03 kB); `AccountDetail` chunk 49.5 -> 76.32 kB (gzip 20.14 kB). The entry grew because the two
+  dictionaries (88 kB of source) are bundled eagerly; not split yet.
+- Real defects found while testing: (1) Radix `Dialog` / `AlertDialog` return focus only to a `Trigger`, and these
+  are opened from state, so focus dropped to `<body>` on close; fixed by remembering the opener and falling back to
+  the page heading. (2) A modal `DropdownMenu` that opens a modal dialog left the page with `pointer-events: none`
+  after close; the menu is `modal={false}`. (3) `SpendTab` computed the daily rows before checking a read existed
+  and would throw on a payload without `daily`; now only computed when there is an observation.
+- NOT done / NOT verified: no click-through by a person; no screenshots; layout at 375 / 768 / 1280 px not looked at
+  (the `.tbl-cards` conversion of the history table and the two-column grid are class-checked only); dark mode not
+  looked at; menu and tooltip positioning untested (the floating-ui mock from U1a still applies); focus return is
+  tested in jsdom, not with a screen reader; Vietnamese diacritics in Chrome unchecked; `agy` was not used.
+  `HealthSignalDrawer`, `AuditDiff` (shown inside the Audit tab) and the Meta `disable_reason` glosses still
+  contain English text and, for the first two, raw palette classes: they belong to U1d. Wording is
+  `[ĐỀ XUẤT — chờ duyệt]` (BA review pending).
+- Follow-ups for U1d: convert `HealthSignalDrawer` to the Sheet (opened from the Health tab; still the
+  old `Drawer` with no focus trap), `AuditDiff`, `DISABLE_REASON_LABEL` glosses; the same
+  focus-return fix applies to every Sheet opened by state; consider lazy-loading the `en` dictionary; the form has
+  no pre-save diff step (edits are reversible and audited, so only archive / restore got the confirmation).

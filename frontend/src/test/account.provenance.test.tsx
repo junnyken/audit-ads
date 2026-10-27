@@ -12,7 +12,7 @@ const IMPORTED: ImportProvenance = {
 describe('what a never-synced account is told about itself', () => {
   it('still says nothing was fetched when nobody imported it', () => {
     // True, and unchanged: this is what A1 has always said about a record someone typed in.
-    const text = freshnessText('unknown', null)
+    const text = freshnessText('unknown', null, 'en')
 
     expect(text).toContain('operator-entered records only')
     expect(text).toContain('nothing here was fetched from a platform')
@@ -22,7 +22,7 @@ describe('what a never-synced account is told about itself', () => {
     // The defect. An imported account's name and external ID came from Meta's owned_ad_accounts
     // edge; saying nothing was fetched is false. "Never synced" stays true, which is why the
     // wrong half survived — the sentence was half right.
-    const text = freshnessText('unknown', IMPORTED)
+    const text = freshnessText('unknown', IMPORTED, 'en')
 
     expect(text).not.toContain('nothing here was fetched from a platform')
     expect(text).not.toContain('operator-entered records only')
@@ -31,11 +31,27 @@ describe('what a never-synced account is told about itself', () => {
   })
 
   it('leaves the synced and stale sentences alone', () => {
-    expect(freshnessText('current', IMPORTED)).toContain('synced recently')
-    expect(freshnessText('stale', IMPORTED)).toContain('historical')
+    expect(freshnessText('current', IMPORTED, 'en')).toContain('synced recently')
+    expect(freshnessText('stale', IMPORTED, 'en')).toContain('historical')
   })
 
   it('says nothing at all for a status it does not know', () => {
-    expect(freshnessText('something-new', null)).toBe('')
+    expect(freshnessText('something-new', null, 'en')).toBe('')
+  })
+})
+
+describe('the same claims in Vietnamese (the default language)', () => {
+  it('keeps the two different sentences for a typed-in and an imported record', () => {
+    const typed = freshnessText('unknown', null, 'vi')
+    const imported = freshnessText('unknown', IMPORTED, 'vi')
+    expect(typed).toContain('do người vận hành nhập')
+    expect(typed).toContain('không có gì ở đây được lấy từ nền tảng')
+    expect(imported).not.toContain('do người vận hành nhập')
+    expect(imported).toContain('chưa từng được đồng bộ')
+    expect(imported).toContain('khám phá chỉ-đọc')
+  })
+
+  it('follows the active language when none is passed', () => {
+    expect(freshnessText('unknown', null)).toBe(freshnessText('unknown', null, 'vi'))
   })
 })

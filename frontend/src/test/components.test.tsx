@@ -108,6 +108,6 @@ describe('account form', () => {
 
   it('tells the operator that credentials are never stored', () => {
     wrap(<AccountFormDrawer open onClose={() => {}} />)
-    expect(screen.getByText(/never stores passwords, cookies, session data/i)).toBeInTheDocument()
+    expect(screen.getByText(/không bao giờ lưu mật khẩu, cookie, dữ liệu phiên/i)).toBeInTheDocument()
   })
 })

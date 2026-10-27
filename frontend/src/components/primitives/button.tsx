@@ -12,6 +12,9 @@ const buttonVariants = cva(
         default: 'border-brand bg-brand text-brand-fg hover:border-brand-dark hover:bg-brand-dark',
         secondary: 'border-line-strong bg-surface text-ink hover:bg-surface-sunken',
         ghost: 'border-transparent bg-transparent text-ink-muted hover:bg-surface-sunken hover:text-ink',
+        // A consequential action (archive). Painted with the attention tone so its contrast is
+        // already checked in both themes; sits apart from the safe button in the dialog footer.
+        destructive: 'border-tone-attention-border bg-tone-attention-bg font-semibold text-tone-attention-fg hover:brightness-95',
       },
       size: {
         default: 'h-9 px-3',

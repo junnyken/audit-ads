@@ -2,16 +2,15 @@ import { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import type { AdAccount, ChecklistEntry } from '../../lib/types'
-import { Badge, Card, ErrorState, Field, InlineNote, Skeleton } from '../../components/ui'
+import { Badge } from '../../components/primitives/badge'
+import { Button } from '../../components/primitives/button'
+import { Field } from '../../components/primitives/field'
+import { EmptyState, ErrorState } from '../../components/states'
 import { evidenceTone, itemStateTone, reviewTone } from '../../lib/readiness'
-import { formatDateTime, humanise, titleCase } from '../../lib/format'
-
-const STATE_LABEL: Record<string, string> = {
-  satisfied: 'Satisfied',
-  unknown: 'Incomplete',
-  problem: 'Blocking',
-  not_required: 'Not required',
-}
+import { formatDateTime } from '../../lib/format'
+import { useEnumLabel } from '../../i18n/labels'
+import { useI18n } from '../../i18n'
+import { Note, Panel, TabSkeleton } from './parts'
 
 export default function ReadinessTab({
   account,
@@ -20,15 +19,22 @@ export default function ReadinessTab({
   account: AdAccount
   onChanged: () => void
 }) {
+  const { t } = useI18n()
+  const enumLabel = useEnumLabel()
   const checklist = useQuery({
     queryKey: ['checklist', account.id],
     queryFn: () => api.get<ChecklistEntry[]>(`/api/v1/ad-accounts/${account.id}/readiness/checklist`),
   })
 
-  if (checklist.isLoading) return <Skeleton rows={8} />
-  if (checklist.isError) return <ErrorState error={checklist.error} onRetry={() => checklist.refetch()} />
+  if (checklist.isLoading) return <TabSkeleton cards={4} />
+  if (checklist.isError) {
+    return <ErrorState error={checklist.error} onRetry={() => checklist.refetch()} title={t('rd.error.title')} />
+  }
 
   const entries = checklist.data!
+  if (entries.length === 0) {
+    return <EmptyState title={t('rd.empty.title')} description={t('rd.empty.body')} />
+  }
   const byCategory = entries.reduce<Record<string, ChecklistEntry[]>>((groups, entry) => {
     const key = entry.item.category
     ;(groups[key] ??= []).push(entry)
@@ -37,29 +43,27 @@ export default function ReadinessTab({
 
   return (
     <div className="space-y-4">
-      <InlineNote>
-        Items marked <strong>derived</strong> are computed from records the system already holds —
-        an active mapping or a review timestamp — and cannot be ticked by hand. Every other item
-        needs an explicit review, and some also need verified evidence.
-      </InlineNote>
+      <Note>{t('rd.intro')}</Note>
 
-      {Object.entries(byCategory).map(([category, items]) => (
-        <Card key={category} title={titleCase(category)}>
-          <ul className="divide-y divide-line">
-            {items.map((entry) => (
-              <ChecklistRow
-                key={entry.item.id}
-                entry={entry}
-                account={account}
-                onChanged={() => {
-                  onChanged()
-                  void checklist.refetch()
-                }}
-              />
-            ))}
-          </ul>
-        </Card>
-      ))}
+      <div className="grid items-start gap-4 xl:grid-cols-2">
+        {Object.entries(byCategory).map(([category, items]) => (
+          <Panel key={category} title={enumLabel('checklistCategory', category)}>
+            <ul className="divide-y divide-line">
+              {items.map((entry) => (
+                <ChecklistRow
+                  key={entry.item.id}
+                  entry={entry}
+                  account={account}
+                  onChanged={() => {
+                    onChanged()
+                    void checklist.refetch()
+                  }}
+                />
+              ))}
+            </ul>
+          </Panel>
+        ))}
+      </div>
     </div>
   )
 }
@@ -73,6 +77,8 @@ function ChecklistRow({
   account: AdAccount
   onChanged: () => void
 }) {
+  const { t } = useI18n()
+  const enumLabel = useEnumLabel()
   const [expanded, setExpanded] = useState(false)
   const { item, evaluation, evidence } = entry
   const state = evaluation?.state ?? 'unknown'
@@ -80,61 +86,73 @@ function ChecklistRow({
   const editable = account.archived_at === null && !derived && evaluation?.state !== 'not_required'
 
   return (
-    <li className="py-3">
+    <li className="py-3 first:pt-0 last:pb-0">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-medium">{item.label}</span>
-            <Badge tone={itemStateTone(state)}>{STATE_LABEL[state] ?? state}</Badge>
+            <Badge tone={itemStateTone(state)}>{enumLabel('itemState', state)}</Badge>
             {evaluation?.required ? (
-              <Badge tone="neutral">{item.is_mandatory ? 'Mandatory' : 'Required (conditional)'}</Badge>
+              <Badge tone="neutral">{item.is_mandatory ? t('rd.mandatory') : t('rd.conditional')}</Badge>
             ) : (
-              <Badge tone="muted">Not required</Badge>
+              <Badge tone="muted">{t('rd.notRequired')}</Badge>
             )}
-            {derived && <Badge tone="muted">Derived</Badge>}
-            {evaluation?.requires_evidence && <Badge tone="muted">Evidence required</Badge>}
+            {derived && <Badge tone="muted">{t('rd.derived')}</Badge>}
+            {evaluation?.requires_evidence && <Badge tone="muted">{t('rd.evidenceRequired')}</Badge>}
           </div>
-          <p className="mt-1 text-[12.5px] text-ink-muted">{evaluation?.message}</p>
-          <p className="mt-0.5 text-[11.5px] text-ink-faint">
-            <strong>Why required?</strong> {evaluation?.requirement_reason}
+          {/* Sentences below come from the server's readiness engine, shown as sent. */}
+          <p className="mt-1 text-sm text-ink-muted">{evaluation?.message}</p>
+          <p className="mt-0.5 text-xs text-ink-muted">
+            <strong>{t('rd.why')}</strong> {evaluation?.requirement_reason}
           </p>
-          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11.5px]">
-            <Badge tone={reviewTone(item.review_status)}>Review: {humanise(item.review_status)}</Badge>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+            <Badge tone={reviewTone(item.review_status)}>
+              {t('rd.review', { value: enumLabel('reviewStatus', item.review_status) })}
+            </Badge>
             <Badge tone={evidenceTone(item.evidence_status)}>
-              Evidence: {humanise(item.evidence_status)}
+              {t('rd.evidence', { value: enumLabel('evidenceStatus', item.evidence_status) })}
             </Badge>
             {item.expires_at && (
-              <span className="text-ink-faint">Expires {formatDateTime(item.expires_at)}</span>
+              <span className="text-ink-muted tabular-nums">{t('rd.expires', { time: formatDateTime(item.expires_at) })}</span>
             )}
             {item.reviewed_at && (
-              <span className="text-ink-faint">Reviewed {formatDateTime(item.reviewed_at)}</span>
+              <span className="text-ink-muted tabular-nums">{t('rd.reviewedAt', { time: formatDateTime(item.reviewed_at) })}</span>
             )}
           </div>
           {item.waiver_reason && (
-            <p className="mt-1 text-[11.5px] text-amber-800">Waiver reason: {item.waiver_reason}</p>
+            <Note tone="caution" className="mt-1.5">
+              {t('rd.waiver.reason', { reason: item.waiver_reason })}
+            </Note>
           )}
         </div>
-        <button type="button" className="btn-secondary shrink-0" onClick={() => setExpanded((open) => !open)}>
-          {expanded ? 'Hide' : 'Details'}
-        </button>
+        <Button
+          variant="secondary"
+          size="sm"
+          className="shrink-0"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((open) => !open)}
+        >
+          {expanded ? t('rd.hide') : t('rd.details')}
+          <span className="sr-only"> — {item.label}</span>
+        </Button>
       </div>
 
       {expanded && (
         <div className="mt-3 space-y-3 rounded-md border border-line bg-surface-muted p-3">
           <div>
-            <h4 className="mb-1.5 text-[12px] font-semibold">Evidence</h4>
+            <h3 className="mb-1.5 text-xs font-semibold">{t('rd.evidenceHeading')}</h3>
             {evidence.length === 0 ? (
-              <p className="text-[12px] text-ink-muted">No evidence attached.</p>
+              <p className="text-xs text-ink-muted">{t('rd.noEvidence')}</p>
             ) : (
               <ul className="space-y-1.5">
                 {evidence.map((record) => (
-                  <li key={record.id} className="flex flex-wrap items-center gap-2 text-[12px]">
-                    <Badge tone={evidenceTone(record.status)}>{humanise(record.status)}</Badge>
+                  <li key={record.id} className="flex flex-wrap items-center gap-2 text-xs">
+                    <Badge tone={evidenceTone(record.status)}>{enumLabel('evidenceStatus', record.status)}</Badge>
                     <span className="min-w-0 break-words">{record.summary}</span>
-                    <span className="text-ink-faint">
+                    <span className="text-ink-muted tabular-nums">
                       {formatDateTime(record.provided_at)}
-                      {record.expires_at ? ` · expires ${formatDateTime(record.expires_at)}` : ''}
-                      {record.archived_at ? ' · archived' : ''}
+                      {record.expires_at ? ` · ${t('rd.expires', { time: formatDateTime(record.expires_at) })}` : ''}
+                      {record.archived_at ? ` · ${t('rd.evArchived')}` : ''}
                     </span>
                   </li>
                 ))}
@@ -142,12 +160,7 @@ function ChecklistRow({
             )}
           </div>
 
-          {derived && (
-            <InlineNote>
-              This item is derived from <code>{evaluation?.derived_from}</code>. Change the
-              underlying mapping or review timestamp instead of marking it here.
-            </InlineNote>
-          )}
+          {derived && <Note>{t('rd.derivedNote', { source: evaluation?.derived_from ?? '' })}</Note>}
 
           {editable && <ItemActions account={account} entry={entry} onChanged={onChanged} />}
         </div>
@@ -165,6 +178,7 @@ function ItemActions({
   entry: ChecklistEntry
   onChanged: () => void
 }) {
+  const { t } = useI18n()
   const { item, evaluation } = entry
   const [summary, setSummary] = useState('')
   const [externalUrl, setExternalUrl] = useState('')
@@ -208,8 +222,8 @@ function ItemActions({
             addEvidence.mutate()
           }}
         >
-          <h4 className="text-[12px] font-semibold">Add verified evidence</h4>
-          <Field label="What did you verify, and how?" required>
+          <h3 className="text-xs font-semibold">{t('rd.addEvidence')}</h3>
+          <Field label={t('rd.ev.summary')} required>
             <textarea
               className="input min-h-[56px]"
               value={summary}
@@ -219,79 +233,59 @@ function ItemActions({
             />
           </Field>
           <div className="grid gap-2 sm:grid-cols-2">
-            <Field label="Reference link" hint="Must start with http:// or https://">
-              <input
-                className="input"
-                type="url"
-                value={externalUrl}
-                onChange={(event) => setExternalUrl(event.target.value)}
-              />
+            <Field label={t('rd.ev.url')} hint={t('rd.ev.urlHint')}>
+              <input className="input" type="url" value={externalUrl} onChange={(event) => setExternalUrl(event.target.value)} />
             </Field>
-            <Field label="Expires on" hint="After this date the item stops counting as satisfied.">
-              <input
-                className="input"
-                type="date"
-                value={expiresAt}
-                onChange={(event) => setExpiresAt(event.target.value)}
-              />
+            <Field label={t('rd.ev.expires')} hint={t('rd.ev.expiresHint')}>
+              <input className="input" type="date" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} />
             </Field>
           </div>
-          {addEvidence.isError && <ErrorState error={addEvidence.error} />}
-          <button type="submit" className="btn-primary" disabled={!summary.trim() || addEvidence.isPending}>
-            {addEvidence.isPending ? 'Saving…' : 'Attach evidence'}
-          </button>
+          {addEvidence.isError && <ErrorState error={addEvidence.error} compact />}
+          <Button type="submit" disabled={!summary.trim() || addEvidence.isPending}>
+            {addEvidence.isPending ? t('rd.ev.saving') : t('rd.ev.submit')}
+          </Button>
         </form>
       )}
 
       <div className="space-y-2 border-t border-line pt-3">
-        <h4 className="text-[12px] font-semibold">Review state</h4>
+        <h3 className="text-xs font-semibold">{t('rd.reviewState')}</h3>
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            className="btn-secondary"
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={() => setReview.mutate({ review_status: 'in_review' })}
             disabled={setReview.isPending}
           >
-            Mark in review
-          </button>
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={() => setReview.mutate({ review_status: 'completed' })}
-            disabled={setReview.isPending}
-          >
-            Mark review complete
-          </button>
-          <button
-            type="button"
-            className="btn-secondary"
+            {t('rd.markInReview')}
+          </Button>
+          <Button size="sm" onClick={() => setReview.mutate({ review_status: 'completed' })} disabled={setReview.isPending}>
+            {t('rd.markComplete')}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={() => setReview.mutate({ review_status: 'needs_update' })}
             disabled={setReview.isPending}
           >
-            Needs update
-          </button>
+            {t('rd.needsUpdate')}
+          </Button>
         </div>
         <div className="flex flex-wrap items-end gap-2">
-          <div className="min-w-[220px] flex-1">
-            <Field label="Waiver reason" hint="A waiver is recorded with its reason and still does not satisfy a required item.">
-              <input
-                className="input"
-                value={waiverReason}
-                onChange={(event) => setWaiverReason(event.target.value)}
-                maxLength={2000}
-              />
+          <div className="min-w-[14rem] flex-1">
+            <Field label={t('rd.waiver.label')} hint={t('rd.waiver.hint')}>
+              <input className="input" value={waiverReason} onChange={(event) => setWaiverReason(event.target.value)} maxLength={2000} />
             </Field>
           </div>
-          <button
-            type="button"
-            className="btn-secondary"
+          <Button
+            variant="secondary"
+            size="sm"
             disabled={!waiverReason.trim() || setReview.isPending}
             onClick={() => setReview.mutate({ review_status: 'waived', waiver_reason: waiverReason })}
           >
-            Record waiver
-          </button>
+            {t('rd.waiver.submit')}
+          </Button>
         </div>
-        {setReview.isError && <ErrorState error={setReview.error} />}
+        {setReview.isError && <ErrorState error={setReview.error} compact />}
       </div>
     </div>
   )
