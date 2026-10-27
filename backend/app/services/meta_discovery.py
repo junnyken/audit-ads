@@ -291,13 +291,22 @@ class MetaDiscoveryService:
     # ------------------------------------------------------------------- import
 
     def import_ad_account(
-        self, run: BusinessManagerDiscoveryRun, external_account_id: str
+        self,
+        run: BusinessManagerDiscoveryRun,
+        external_account_id: str,
+        *,
+        automatic: bool = False,
+        extra_metadata: dict | None = None,
     ) -> AdAccount:
-        """Register one observed ad account in the A1 registry, on an explicit request.
+        """Register one observed ad account in the A1 registry.
 
-        One row at a time, never automatic. Discovery reads Meta; the registry is what this
-        workspace has decided to track and is answerable for. Collapsing the two would turn every
-        scan into a silent writer, and A10.1 deliberately shipped with no such path.
+        Two callers, one path. A person imports one row they are looking at
+        (`POST …/discoveries/{run}/imports`); since O3 the discovery sweep also calls this, one
+        account at a time inside its own SAVEPOINT, for a connection whose owner set
+        `auto_import_enabled` — never for a fake connection, never from a failed run. Discovery
+        still never writes the registry by itself: an import is this method, with its own audit
+        row, whoever asked. `automatic=True` changes only the provenance row's action
+        (`meta_discovery.ad_account_auto_imported`), so the record says the system did it.
 
         **Coverage and authority are not gates here**, and the asymmetry is the whole point. They
         gate conclusions about *absence*: "this account is gone" only means something against a
@@ -338,16 +347,18 @@ class MetaDiscoveryService:
                 "business_manager_id": business_manager.id,
             }
         )
-        AccountHealthEvaluationService(
-            self.session, self.workspace_id, self.audit, self.audit.actor_id
-        ).evaluate_account_safe(
-            account, trigger=EvaluationTrigger.ACCOUNT_MUTATION, trigger_reference_id=str(run.id)
-        )
         # `registry.create` already writes `ad_account.created`. This second row is the
-        # provenance: which run, which identity read it, and which edge produced it — the facts
-        # that answer "where did this record come from" a month from now.
+        # provenance: which run, which identity read it, which edge produced it, and — for a
+        # client account, when Meta said — which Business Manager owns it. Written *before* the
+        # health evaluation below so the notification planner can already see that this account
+        # was imported automatically (O3's `auto_import_grace`).
+        owner = observation.safe_metadata_json or {}
         self.audit.record(
-            action="meta_discovery.ad_account_imported",
+            action=(
+                "meta_discovery.ad_account_auto_imported"
+                if automatic
+                else "meta_discovery.ad_account_imported"
+            ),
             entity_type="ad_account",
             entity_id=account.id,
             metadata={
@@ -355,9 +366,41 @@ class MetaDiscoveryService:
                 "business_manager_reference": run.configured_business_manager_reference,
                 "source_edge": observation.source_edge,
                 "read_as": run.provider_actor_name,
+                "trigger": run.trigger.value,
+                "owner_business_reference": owner.get("owner_business_id"),
+                "owner_business_name": owner.get("owner_business_name"),
+                **(extra_metadata or {}),
             },
         )
+        AccountHealthEvaluationService(
+            self.session, self.workspace_id, self.audit, self.audit.actor_id
+        ).evaluate_account_safe(
+            account, trigger=EvaluationTrigger.ACCOUNT_MUTATION, trigger_reference_id=str(run.id)
+        )
         return account
+
+    def registry_account_any_state(self, external_account_id: str) -> AdAccount | None:
+        """The registry row for this canonical id, **archived or not**.
+
+        `reconcile_ad_accounts` loads only active rows, so an archived account Meta still returns
+        shows as `missing_in_registry`. Importing it would hit the uniqueness guard every pass,
+        and restoring it would be the system undoing a person's decision (rule 2). The sweep asks
+        here first and reports it instead. Matched by exact canonical id only (rule 31): the
+        stored value may carry an `act_` prefix or different case, never a different number.
+        """
+        canonical = canonical_external_id(external_account_id)
+        if not canonical:
+            return None
+        candidates = self.session.execute(
+            sa.select(AdAccount).where(
+                AdAccount.workspace_id == self.workspace_id,
+                sa.func.lower(AdAccount.external_account_id).in_([canonical, f"act_{canonical}"]),
+            )
+        ).scalars().all()
+        for account in candidates:
+            if canonical_external_id(account.external_account_id) == canonical:
+                return account
+        return None
 
     def _registry_business_manager(self, run: BusinessManagerDiscoveryRun) -> BusinessManager:
         """The registry row for the Business Manager this run read, created if absent.

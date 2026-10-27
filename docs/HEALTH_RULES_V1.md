@@ -1,13 +1,14 @@
 # Health rules — version 1 (`a2-v1`)
 
 Ten typed rules from A2, plus four spend rules added by S1 (2026-10-26) and four Meta account-status
-rules added by S2 (2026-10-27), evaluated in this order. Each is a Python function in a fixed registry
+rules added by S2 (2026-10-27), and one discovery rule added by O3 (2026-10-27), evaluated in this
+order. Each is a Python function in a fixed registry
 (`backend/app/services/health_rules.py`); there is no user-authored rule code, no expression
 parser and nothing evaluated from a string.
 
 Every rule reads only facts already stored in this product — A1 records, and since S1 spend
 observations (which also carry Meta's `account_status` / `disable_reason` codes, interpreted by S2)
-that were read from Meta and stored *before* evaluation. No rule contacts an
+that were read from Meta and stored *before* evaluation, and since O3 stored discovery runs. No rule contacts an
 advertising platform, and no rule predicts platform enforcement.
 
 | # | `rule_key` | Category | Severity | Fires when | Closes when |
@@ -30,6 +31,7 @@ advertising platform, and no rule predicts platform enforcement.
 | 16 | `platform_account_status_pending` | account_status | warning | That code is `3` unsettled, `7` pending risk review, `8` pending settlement or `9` in grace period | As above |
 | 17 | `platform_account_status_unrecognised` | data_quality | attention | That code is present but not on the allowlist (`201`/`202`, any other number, anything non-numeric, `01`, too long) — `unknown`, never `active` | The code is back on the allowlist, or no code is stored |
 | 18 | `platform_vs_recorded_status_mismatch` | account_status | attention | The observation is **current** and Meta `active` while the record says `restricted`/`disabled`, or Meta not-operable/pending while the record says `active`. Records `unknown`/`warning`/`archived` and Meta `unknown` are never compared | The two agree, or the observation is no longer current |
+| 19 | `account_not_returned_by_latest_discovery` | data_quality | attention | The latest usable **production** discovery run of the account's Business Manager, completed within `DISCOVERY_STALE_AFTER_HOURS` (24) and not read by the fake identity, had ad-account coverage **`complete`** and did not return this account — exactly reconciliation's `missing_from_latest_discovery` branch. `partial` / `incomplete` / `unknown` coverage never fires it | A newer complete run returns it; the newest run is no longer complete; no usable run is left in the window (which is not a clear result); or the account is archived |
 
 Spend signals carry `source_type = provider_observation`. Missing data never fires a spend rule
 (no row ≠ 0; no timezone ⇒ no "yesterday"; no baseline ⇒ no comparison), and no spend rule raises
@@ -47,6 +49,15 @@ unchanged). Returning to `1` closes the signal through the engine's usual wordin
 condition is no longer true.") — there is no "recovered" message (A3 v1). Health never writes
 `AdAccount.status`: the dashboard's "Record Meta status in the registry" opens the ordinary edit
 form, and a person saves it. Details: `ARCH.md` §4k.
+
+Discovery signals (19, O3) carry `source_type = provider_observation`, `source_entity_type =
+business_manager_discovery_run`, and a message that says *"This says nothing about whether Meta
+removed or restricted it."* Absence never archives an account and never changes its status: the next
+step is a person's. `discovery_run_id` and `discovery_completed_at` are volatile, so a daily repeat is
+one unchanged signal; a different reader (`read_as`) supersedes it. Facts come from
+`services/discovery_facts.py`, stored runs only. The discovery sweep re-evaluates the Business
+Manager's accounts after each usable run (`trigger = discovery_sweep`), so the signal opens and closes
+with the run that decides it. Details: `ARCH.md` §4l.
 
 ## Interactions
 
@@ -70,12 +81,13 @@ must never be reported as "we looked and found nothing".
 |---|---|---|
 | `manual_review_due_after_days` | 30 | Reuses the A1 setting `READINESS_MANUAL_REVIEW_INTERVAL_DAYS` rather than introducing a second, divergable value |
 | `health_evaluation_stale_after_hours` | 24 | `HEALTH_EVALUATION_STALE_AFTER_HOURS` |
+| `discovery_stale_after_hours` | 24 | `DISCOVERY_STALE_AFTER_HOURS` — rule 19's window, the sweep's cadence and the discovery freshness badge |
 | `signal_default_expiry_days` | none | Status- and event-derived signals close when their source fact ends, not on a timer |
 
 ## Limitations
 
 - Rules 1–10 read operator-entered records only, so their signals describe what *you recorded*.
-  Rules 11–18 read stored Meta observations — what Meta returned to the named reader when it was
+  Rules 11–19 read stored Meta observations (19: stored discovery runs) — what Meta returned to the named reader when it was
   read, not what Meta thinks now. No rule contacts Meta during evaluation. (The sentence that used
   to stand here, "nothing here observes an advertising platform", stopped being true with S1.)
 - A1's "platform sync" freshness (`last_synced_at`) is still never written by a Meta read; spend and

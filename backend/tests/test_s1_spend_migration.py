@@ -9,6 +9,7 @@ import sqlalchemy as sa
 
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from app.db.session import engine
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -30,8 +31,14 @@ def _revision() -> str:
         return connection.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one()
 
 
-def test_head_is_0016_and_the_table_has_the_planned_shape(migrated_database):
-    assert _revision() == "0016_s1_spend_observations"
+def _head() -> str:
+    """O3 added `0017` on top, so "at head" is read from the scripts rather than pinned here."""
+    return ScriptDirectory.from_config(_config()).get_current_head()
+
+
+def test_0016_is_applied_and_the_table_has_the_planned_shape(migrated_database):
+    assert _revision() == _head()
+    assert ScriptDirectory.from_config(_config()).get_revision("0016_s1_spend_observations") is not None
     columns = {column["name"] for column in sa.inspect(engine).get_columns(TABLE)}
     assert {
         "workspace_id", "ad_account_id", "meta_connection_id", "reader_source", "observed_at",
@@ -56,4 +63,4 @@ def test_downgrade_removes_only_the_new_table_and_upgrade_restores_it(migrated_d
     finally:
         command.upgrade(_config(), "head")
     assert _tables() == before
-    assert _revision() == "0016_s1_spend_observations"
+    assert _revision() == _head()

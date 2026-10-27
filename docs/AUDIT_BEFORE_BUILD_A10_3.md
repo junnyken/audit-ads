@@ -242,6 +242,8 @@ first time the authority gate will be demonstrated on real data.
   keeps it true, which cannot be written today because a second BM does not exist in any fixture.
 - No fan-out. N Business Managers discovered in one request multiplies a bounded operation into
   an unbounded one; discovery stays one connection per request, operator-initiated.
+  *(Note added 2026-10-27, O3: a request is still one connection. Discovery is no longer only
+  operator-initiated — Discovery and import run either because a person pressed a button, or because the workspace owner switched a production connection to automatic and the release enabled the sweep — never because a page loaded, and never from a fake connection; the sweep is bounded per pass.)*
 - `environment == production` plus a configured token remains the only path to a real call.
 
 ### Call cost, counted rather than estimated
@@ -265,6 +267,9 @@ Overview card ("Discovery reads Meta; it does not create records here"); wording
 The fix is its own slice: an **operator-initiated import**, per row, confirmed, writing an audit
 record in the same transaction (rule 3), never automatic. It needs no new Meta call — the
 observations are already stored — and it does not depend on §4.
+*(Note added 2026-10-27, O3: the per-row import stays as described. O3 adds automatic import for a
+production connection whose owner switched it on, through the same service call, one audit row per
+account — `docs/AUDIT_BEFORE_BUILD_O3_AUTO_IMPORT.md`.)*
 
 ## 7. Recommendation
 

@@ -135,9 +135,20 @@ label, and nothing acted on it. The effect was a product that read 8 ad accounts
 its own Business Managers and Accounts pages showed zero — correct by design, and indistinguishable
 from broken.
 
-A10.3 adds one: an explicit, per-row import. Never automatic, never in bulk. Discovery reads Meta;
-the registry is what this workspace has decided to track and is answerable for, and collapsing the
-two would make every scan a silent writer.
+A10.3 adds one: an explicit, per-row import. Discovery reads Meta; the registry is what this
+workspace has decided to track and is answerable for, and collapsing the two would make every scan a
+silent writer.
+
+**O3 (2026-10-27) adds a second, deliberate way in — still never a silent writer.** The workspace
+owner can switch a `production` connection to automatic (`PATCH /meta-connections/{id}/automation`,
+audited with their name). When the release has also switched the sweep on
+(`DISCOVERY_SWEEP_EVERY_N_PASSES > 0`, off by default), the dispatcher runs this same discovery about
+once a day and — only if `auto_import_enabled` is on too — imports each `missing_in_registry` ad
+account of *that* run through the same `import_ad_account`, one SAVEPOINT and one audit row
+(`meta_discovery.ad_account_auto_imported`, actor = the system) per account. It never imports from a
+failed run or from a fake/sandbox connection, never re-imports or restores an archived account, and
+never archives anything because it was not returned. One summary alert per pass per connection says
+what it did. In one sentence: Discovery and import run either because a person pressed a button, or because the workspace owner switched a production connection to automatic and the release enabled the sweep — never because a page loaded, and never from a fake connection.
 
 What it does **not** do is as important:
 
@@ -250,8 +261,15 @@ side as though they were one.
 
 ## Bounds
 
-Every **discovery** call is explicit — a person pressed a button. There is no timer, no page-load
-trigger and no automatic retry. Reading the latest run makes no provider call at all.
+Discovery runs either because a person pressed a button, or — **since O3 (2026-10-27)** — because
+the workspace owner switched a production connection to automatic and the release enabled the sweep
+(`discovery_sweep_pass`, `DISCOVERY_SWEEP_EVERY_N_PASSES`, **off by default**; enabling it in
+production is a release decision with a named approver, recorded in `TEST_LOG.md`, rule 22). It
+never runs because a page loaded, never for a fake or sandbox connection, and never retries. The
+sweep reads each automatic connection at most once per `DISCOVERY_STALE_AFTER_HOURS` (24 h), at most
+`DISCOVERY_SWEEP_BATCH` connections per workspace per pass (about six GETs each), and stops reading
+through a credential on its first `rate_limited`. Reading the latest run makes no provider call at
+all.
 
 **Since S1 (2026-10-26) this is no longer true of every Meta call the product makes.** The spend
 sweep (`python -m app.commands.run_dispatcher`, `spend_sweep_pass`) reads `act_<id>` and
@@ -261,7 +279,7 @@ accounts per workspace per pass, two GETs each), GET-only, and it stops reading 
 on its first `rate_limited` — no sleep, no retry. Switching it on in production is a release decision
 with a named approver, recorded in `TEST_LOG.md` (rule 22; `docs/AUDIT_BEFORE_BUILD_SPEND.md` §6.7).
 It shares the same per-ad-account rate-limit budget as discovery. `POST /ad-accounts/{id}/spend/refresh`
-is the other S1 read, and is human-initiated like discovery.
+is the other S1 read, and is human-initiated like a manual discovery.
 
 Each edge is capped at 10 pages of 100 items. Hitting the cap sets `truncated`, which makes
 coverage `partial`: a bounded read is not a full inventory. Pagination follows Meta's

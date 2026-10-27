@@ -39,12 +39,22 @@ class DiscoveryImportRequest(StrictPayload):
     """A10.3. One ad account, named by the id the run itself returned.
 
     Deliberately not a list: an import writes a registry record this workspace is then answerable
-    for, so each one is its own decision with its own audit row. A bulk variant would need A7's
-    preview/confirm machinery, and A10.1 already established that copying that state machine a
-    fourth time is the thing to avoid.
+    for, so each one has its own audit row. A person's import is one row they are looking at.
+    Since O3 the other way in is not a bulk variant of this request but a per-connection decision
+    taken once, by the owner: `PATCH /meta-connections/{id}/automation` with
+    `auto_import_enabled`, after which the discovery sweep imports each new account through the
+    same service call — still one row, one audit record each.
     """
 
     external_account_id: str = Field(min_length=1, max_length=120)
+
+
+class MetaConnectionAutomationUpdate(StrictPayload):
+    """O3. The owner's two switches for one connection. Both are stated every time, so the
+    request reads as the decision it records rather than as a patch of whatever was there."""
+
+    auto_discovery_enabled: bool
+    auto_import_enabled: bool
 
 
 class MetaConnectionOut(TimestampsOut):

@@ -24,6 +24,7 @@ from app.core.enums import (
     SignalSeverity,
 )
 from app.models.entities import AccountEvent, AdAccount, ReadinessChecklistItem
+from app.services.discovery_facts import DiscoveryFacts
 from app.services.platform_status import (
     BLOCKING,
     PENDING,
@@ -76,6 +77,9 @@ class HealthFacts:
     #: observations, no extra read. `None`: no observation carries a status code, and every
     #: platform-status rule then stays silent (rule 4: missing is never positive, nor negative).
     platform_status: PlatformStatusFacts | None = None
+    #: O3. The latest usable production discovery of the account's Business Manager, from stored
+    #: runs only. `None`: no such run in the window, and the discovery rule stays silent.
+    discovery: DiscoveryFacts | None = None
 
     @property
     def critical_events(self) -> list[AccountEvent]:
@@ -804,6 +808,48 @@ def _platform_vs_recorded(facts: HealthFacts) -> list[SignalCandidate]:
     ]
 
 
+# ----------------------------------------------------------------- discovery (O3)
+def _not_returned_by_latest_discovery(facts: HealthFacts) -> list[SignalCandidate]:
+    """`missing_from_latest_discovery`, on the account. Only from a **complete** inventory.
+
+    The latest usable run of the account's Business Manager decides, as in reconciliation: if it
+    returned the account there is nothing to say; if its ad-account coverage was anything less
+    than `complete`, absence means nothing and the rule is silent — even when an older complete
+    run exists, because the newest look is the one that counts. Never archives, never changes the
+    record: the next step is always a person's (rule 2).
+    """
+    discovery = facts.discovery
+    if discovery is None or discovery.returned or not discovery.complete:
+        return []
+    return [
+        SignalCandidate(
+            rule_key="account_not_returned_by_latest_discovery",
+            rule_version=1,
+            scope="discovery",
+            severity=SignalSeverity.ATTENTION,
+            category=HealthCategory.DATA_QUALITY,
+            source_type=HealthSourceType.PROVIDER_OBSERVATION,
+            source_entity_type="business_manager_discovery_run",
+            source_entity_id=discovery.run_id,
+            evidence={
+                "message": (
+                    "Not returned by the latest completed discovery of Business Manager "
+                    f"{discovery.business_manager_reference} (read as "
+                    f"{discovery.read_as or 'an unknown identity'}). This says nothing about "
+                    "whether Meta removed or restricted it."
+                ),
+                "discovery_run_id": discovery.run_id,
+                "discovery_completed_at": _iso(_aware(discovery.completed_at)),
+                "business_manager_reference": discovery.business_manager_reference,
+                "read_as": discovery.read_as,
+                "coverage_status": discovery.coverage_status.value,
+                "source": "Meta read-only discovery",
+            },
+            observed_at=_aware(discovery.completed_at) or facts.now,
+        )
+    ]
+
+
 _PLATFORM_RESOLUTION = (
     "Closes automatically when the latest Meta observation no longer shows this state. This is "
     "not a statement that the account is in good standing or will stay active."
@@ -1124,6 +1170,43 @@ HEALTH_RULES_V1: tuple[HealthRule, ...] = (
             "current."
         ),
         evaluate=_platform_vs_recorded,
+    ),
+    HealthRule(
+        rule_key="account_not_returned_by_latest_discovery",
+        version=1,
+        name="Not returned by the latest complete discovery",
+        description=(
+            "Attention signal when the latest discovery of the account's Business Manager — a "
+            "production run, inside the discovery freshness window, whose ad-account coverage was "
+            "complete — did not return this account. Partial, incomplete or unknown coverage "
+            "never raises it."
+        ),
+        category=HealthCategory.DATA_QUALITY,
+        default_severity=SignalSeverity.ATTENTION,
+        applicability=(
+            "Non-archived accounts mapped to a Business Manager that has a recent production "
+            "discovery run."
+        ),
+        input_facts=(
+            "business_manager_discovery_run.ad_account_coverage_status",
+            "discovered_ad_account_observation.external_account_id",
+        ),
+        why_it_matters=(
+            "The reader could see every ad account of this Business Manager and this one was not "
+            "among them: access may have been removed, or the account moved. It is not evidence "
+            "that Meta deleted or restricted it."
+        ),
+        recommended_next_step=(
+            "Check in Business Settings whether the account is still shared with this Business "
+            "Manager and assigned to the reader. Archive it yourself if it no longer belongs here "
+            "— this product never archives anything on its own."
+        ),
+        resolution_guidance=(
+            "Closes automatically when a newer complete discovery returns it, when no complete "
+            "discovery is left inside the window (which is not a clear result), or when the "
+            "account is archived."
+        ),
+        evaluate=_not_returned_by_latest_discovery,
     ),
 )
 

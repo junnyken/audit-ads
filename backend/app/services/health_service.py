@@ -40,6 +40,7 @@ from app.models.health import (
 from app.services.alert_triggers import derive_alerts_safe
 from app.services.audit import AuditLogService
 from app.services.base import snapshot as orm_snapshot
+from app.services.discovery_facts import build_discovery_facts
 from app.services.health_engine import HealthRollup, build_candidates, derive_freshness, roll_up
 from app.services.health_rules import (
     ENGINE_VERSION,
@@ -72,6 +73,11 @@ VOLATILE_EVIDENCE_KEYS = frozenset(
         "previous_account_status_raw",
         "previous_observed_at",
         "since_observed_at",
+        # O3: each daily discovery is a new run saying the same thing — "still not returned".
+        # Which run, and when, slide; the Business Manager, the reader and the coverage stay
+        # material, so a different reader does supersede the signal.
+        "discovery_run_id",
+        "discovery_completed_at",
     }
 )
 
@@ -563,6 +569,10 @@ class AccountHealthEvaluationService:
             spend=spend,
             # S2: from the same stored observations — no extra read, no platform call.
             platform_status=spend.platform_status,
+            # O3: stored discovery runs only, never Meta.
+            discovery=build_discovery_facts(
+                self.session, self.workspace_id, account, now=now, settings=self.settings
+            ),
         )
 
     # -------------------------------------------------------------------- evaluation

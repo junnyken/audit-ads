@@ -60,6 +60,24 @@ class MetaConnection(UUIDPrimaryKey, Timestamped, Archivable, Base):
     notes: Mapped[str] = mapped_column(sa.Text(), nullable=False, default="")
     created_by: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), nullable=False)
     updated_by: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid(), nullable=True)
+    #: O3. The owner allowed the dispatcher to run discovery for this connection on a schedule.
+    #: `false` in code and in the database: nothing drifts into automatic. Only
+    #: `PATCH /meta-connections/{id}/automation` changes it, and a `fake`/`sandbox` connection
+    #: can never turn it on — automatic discovery of fake data would be fabricated evidence.
+    auto_discovery_enabled: Mapped[bool] = mapped_column(
+        sa.Boolean(), nullable=False, default=False, server_default=sa.false()
+    )
+    #: O3. A scheduled run may also import the ad accounts it returned that the registry does
+    #: not hold. Meaningless — and refused — without `auto_discovery_enabled`.
+    auto_import_enabled: Mapped[bool] = mapped_column(
+        sa.Boolean(), nullable=False, default=False, server_default=sa.false()
+    )
+    #: Who last left automation on, and when. NULL while both switches are off; the full history
+    #: is in the `meta_connection.automation_changed` audit rows.
+    automation_enabled_by: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid(), nullable=True)
+    automation_enabled_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
 
 
 class AccountCreationBatch(UUIDPrimaryKey, Timestamped, Archivable, Base):

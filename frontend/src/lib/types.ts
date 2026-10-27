@@ -36,6 +36,14 @@ export interface ImportProvenance {
   business_manager_reference: string | null
   source_edge: string | null
   imported_at: string | null
+  /** O3. `scheduled_sweep` when the discovery sweep imported it on its own; `manual` when a
+   * person pressed "Add to registry". Absent on responses from before O3. */
+  trigger?: 'manual' | 'scheduled_sweep'
+  automatic?: boolean
+  /** O3. Provenance only: the Business Manager Meta said owns this (client) account. `null` means
+   * Meta did not return one — never a guess. The account itself stays under the hub. */
+  owner_business_reference?: string | null
+  owner_business_name?: string | null
 }
 
 export interface AdAccount {
@@ -387,7 +395,7 @@ export interface EvaluationRun {
 
 export type AlertSeverity = 'info' | 'warning' | 'critical'
 export type AlertStatus = 'open' | 'acknowledged' | 'suppressed' | 'resolved' | 'expired' | 'archived'
-export type AlertSourceType = 'health_signal' | 'health_evaluation_run'
+export type AlertSourceType = 'health_signal' | 'health_evaluation_run' | 'discovery_sweep'
 
 export type DeliveryStatus =
   | 'pending'
@@ -408,6 +416,7 @@ export type DeliverySkipReason =
   | 'timezone_not_configured'
   | 'duplicate_suppressed_by_dedupe'
   | 'reminders_disabled'
+  | 'auto_import_grace'
 
 export interface AlertRow {
   id: string
@@ -801,6 +810,20 @@ export interface MetaConnection {
   created_at: string
   updated_at: string
   archived_at: string | null
+  /** O3. The owner's switches for the scheduled discovery sweep. Optional so older fixtures and
+   * responses still type-check; absent reads as "both off". */
+  automation?: MetaConnectionAutomation
+}
+
+/** O3. `eligible` is whether the sweep could read this connection at all — production, a
+ * Business Manager id, and a configured reader. Computed on the server, never stored. */
+export interface MetaConnectionAutomation {
+  auto_discovery_enabled: boolean
+  auto_import_enabled: boolean
+  enabled_by: string | null
+  enabled_at: string | null
+  eligible: boolean
+  ineligible_reason: 'not_production' | 'business_manager_not_configured' | 'reader_not_configured' | 'archived' | null
 }
 
 /** A10.1. One edge's outcome. `not_attempted` is the value a boolean cannot express, and the
@@ -879,10 +902,23 @@ export interface DiscoveryRun {
  * deliberately no reconciliation. Reconciliation is recomputed against the registry as it is
  * *now*, so showing it beside a week-old observation would put today's registry and an old
  * reading side by side and invite reading one as evidence about the other. */
+/** O3. How a run started. Anything else is shown as-is rather than guessed into one of these. */
+export type DiscoveryTrigger = 'manual' | 'scheduled_sweep' | 'internal_test'
+
+/** O3. What the sweep did with a scheduled run's results; `null` for a manual run. */
+export interface DiscoveryAutoImport {
+  imported: number
+  already_in_registry: number
+  archived_returned: number
+  conflicts: number
+  awaiting_import: number
+}
+
 export interface DiscoveryRunSummary {
   id: string
   status: DiscoveryRun['status']
-  trigger: string
+  trigger: DiscoveryTrigger | string
+  auto_import?: DiscoveryAutoImport | null
   environment: MetaEnvironment
   business_manager: { reference: string | null; name: string | null }
   read_as: { external_id: string | null; name: string | null }

@@ -54,18 +54,30 @@ def _import_provenance(session, workspace_id, ad_account_id) -> dict[str, Any] |
             # entity_id is String(64), not a UUID column — comparing a UUID to it makes Postgres
             # refuse the whole query. Every other caller in this codebase writes str(...) here.
             AuditLog.entity_id == str(ad_account_id),
-            AuditLog.action == "meta_discovery.ad_account_imported",
+            AuditLog.action.in_(
+                ("meta_discovery.ad_account_imported", "meta_discovery.ad_account_auto_imported")
+            ),
         )
         .order_by(AuditLog.created_at.desc())
     ).scalars().first()
     if row is None:
         return None
     metadata = row.metadata_json or {}
+    automatic = row.action == "meta_discovery.ad_account_auto_imported"
     return {
         "discovery_run_id": metadata.get("discovery_run_id"),
         "business_manager_reference": metadata.get("business_manager_reference"),
         "source_edge": metadata.get("source_edge"),
         "imported_at": row.created_at.isoformat() if row.created_at else None,
+        # O3. `scheduled_sweep` when the discovery sweep imported it on its own; `manual` when a
+        # person pressed "Add to registry". Rows written before O3 carry no trigger: manual.
+        "trigger": "scheduled_sweep" if automatic else (metadata.get("trigger") or "manual"),
+        "automatic": automatic,
+        # Provenance only, never a registry relationship: the account stays under the Business
+        # Manager whose connection can read it (the hub). `None` means Meta did not return an
+        # owner for this row — never a guess.
+        "owner_business_reference": metadata.get("owner_business_reference"),
+        "owner_business_name": metadata.get("owner_business_name"),
     }
 
 

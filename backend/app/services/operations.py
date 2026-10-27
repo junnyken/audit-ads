@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -36,6 +37,12 @@ SAFE_SUMMARY_KEYS = frozenset(
         # S1 spend sweep. `never_observed` and `stale` stay apart for the same reason as above;
         # `not_observable` counts accounts nothing can read, which are never due at all.
         "never_observed", "observed", "rate_limited", "not_observable",
+        # O3 discovery sweep. `never_discovered` and `stale` stay apart (rule 28);
+        # `not_configured` counts automatic connections with no reader or no Business Manager —
+        # nothing was asked, which is not the same as "Meta returned nothing".
+        "never_discovered", "runs", "succeeded", "warnings", "not_configured", "imported",
+        "already_in_registry", "archived_returned", "conflicts", "awaiting_import", "pixels_new",
+        "not_returned_complete", "summaries",
         "size_bytes", "table_count", "revision", "checksum_algorithm", "database_label",
         "duration_seconds", "message_count", "transport",
     }
@@ -73,9 +80,13 @@ class OperationalRunService:
         summary: dict | None = None,
         error_code: str | None = None,
         error_summary: str | None = None,
+        run_id: uuid.UUID | None = None,
     ) -> OperationalRun:
+        """`run_id` lets a pass name its run before recording it (O3: every audit row the
+        discovery sweep writes carries the id of the run that will describe it)."""
         finished = finished_at or datetime.now(UTC)
         run = OperationalRun(
+            **({"id": run_id} if run_id else {}),
             kind=kind,
             status=status,
             started_at=started_at,

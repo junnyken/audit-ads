@@ -4,6 +4,10 @@ The import is the first path in this product that lets a Meta observation *write
 record, so these tests are mostly about what it refuses to do: invent an account nobody observed,
 duplicate one that already exists, or fabricate readiness because Meta returned something.
 
+Since O3 there is a second caller: the discovery sweep imports through the same
+`import_ad_account` for a production connection whose owner allowed it (`test_o3_auto_import.py`).
+These tests are about the person's path, which is unchanged.
+
 Presence and absence are deliberately asymmetric. Coverage and authority gate conclusions about
 absence — "this account is gone" is only meaningful against a full inventory read by an identity
 allowed to see it. An account that was *returned* needs neither gate: it was observed.

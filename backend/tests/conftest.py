@@ -41,6 +41,7 @@ from app.main import create_app  # noqa: E402
 from app.models.entities import User, Workspace, WorkspaceMember  # noqa: E402
 from app.services.meta_provider import reset_fake_provider  # noqa: E402
 from app.services.notification_transport import reset_fake_transport  # noqa: E402
+from tests.o3_helpers import sweep_env  # noqa: E402,F401 - O3 fixture, shared
 from tests.s1_spend_helpers import spend_env  # noqa: E402,F401 - S1 fixture, shared
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

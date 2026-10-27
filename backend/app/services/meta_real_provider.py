@@ -76,7 +76,13 @@ AD_ACCOUNT_EDGES: tuple[str, ...] = ("owned_ad_accounts", "client_ad_accounts")
 PIXEL_EDGES: tuple[str, ...] = ("adspixels",)
 
 #: Allowlisted fields only. The raw row never leaves this module.
-AD_ACCOUNT_FIELDS = "id,account_id,name,account_status,currency,timezone_name"
+#:
+#: O3 adds `business{id,name}` — the AdAccount reference documents `business` as "the Business
+#: Manager, if this ad account is owned by one". Asked so a **client** account (shared into the
+#: hub) can say which Business Manager owns it, as provenance only. **[CHƯA KIỂM]**: nobody has
+#: yet read it on `{hub}/client_ad_accounts` with the hub's token. Absent from a row, the
+#: metadata simply has no owner keys and the UI says "owning Business Manager not returned".
+AD_ACCOUNT_FIELDS = "id,account_id,name,account_status,currency,timezone_name,business{id,name}"
 PIXEL_FIELDS = "id,name"
 
 #: S1. The ad account node fields a spend read asks for. Allowlisted and fixed.
@@ -151,6 +157,15 @@ def _ad_account_from_row(row: dict[str, Any], edge: str) -> DiscoveredAsset | No
         for key in ("account_status", "currency", "timezone_name")
         if row.get(key) is not None
     }
+    # O3: the owning Business Manager, when Meta returns one. Only an id that canonicalises and a
+    # bounded name are kept; anything else in the nested object is dropped here.
+    owner = row.get("business")
+    if isinstance(owner, dict):
+        owner_id = canonical_external_id(owner.get("id"))
+        if owner_id:
+            metadata["owner_business_id"] = owner_id
+            if owner.get("name"):
+                metadata["owner_business_name"] = str(owner["name"])[:200]
     return DiscoveredAsset(
         external_id=external_id,
         name=str(row.get("name") or ""),
@@ -221,9 +236,11 @@ class RealMetaBusinessProvider(MetaBusinessProvider):
         ], response
 
     def check_capability(self) -> CapabilityCheck:
-        """One bounded call. Never runs on a page load or a timer — only when an operator
-        explicitly asks (`POST /meta-connections/{id}/check-capability`), because rate limit
-        budget on a real BM is a real cost.
+        """One bounded call, never on a page load. A person asks for it
+        (`POST /meta-connections/{id}/check-capability`, or a manual discovery), or — since O3 —
+        the discovery sweep does, for a connection its owner switched to automatic and only when
+        the release set `DISCOVERY_SWEEP_EVERY_N_PASSES > 0`. Rate limit budget on a real BM is a
+        real cost, which is why the sweep stops on the first `rate_limited`.
 
         What it can honestly answer is "can this token list this BM". Whether the token may
         *create* an account or *share* access is not asserted from a read: this build cannot

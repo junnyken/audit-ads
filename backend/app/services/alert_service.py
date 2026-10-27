@@ -507,8 +507,8 @@ def severity_of(alert: Alert) -> AlertSeverity:
 
 
 def source_label(alert: Alert) -> str:
-    return (
-        "Health signal"
-        if alert.source_type == AlertSourceType.HEALTH_SIGNAL
-        else "Health evaluation"
-    )
+    if alert.source_type == AlertSourceType.HEALTH_SIGNAL:
+        return "Health signal"
+    if alert.source_type == AlertSourceType.DISCOVERY_SWEEP:
+        return "Discovery sweep"
+    return "Health evaluation"

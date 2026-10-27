@@ -194,10 +194,13 @@ chứng có quyền (rule 4).
 
 ## 6. Chuyện rate limit
 
-Mọi cú gọi discovery đều là tường minh — do người bấm nút, hoặc do người chạy probe. Không có
-gì poll, không có gì tự gọi lại khi tải trang, không có gì tự retry nền. Nếu thấy `rate_limited`
-nghĩa là có thứ gì đó đang gọi nhiều hơn mức đáng ra — hãy tìm ra nó trước khi nghĩ đến chuyện
-nâng giới hạn.
+Discovery chạy khi người bấm nút, khi người chạy probe, hoặc — **từ O3 (2026-10-27)** — khi chủ
+workspace đã bật "tự động" cho một connection `production` **và** bản phát hành đã bật nhịp
+(`DISCOVERY_SWEEP_EVERY_N_PASSES > 0`, mặc định `0` = tắt). Khi đó dispatcher quét mỗi connection
+tự động tối đa một lần mỗi 24 giờ, dừng ngay ở `rate_limited`, không retry. Không có gì tự gọi khi
+tải trang, không bao giờ quét connection `fake`/`sandbox`. Nếu thấy `rate_limited` mà nhịp đang tắt
+nghĩa là có thứ gì đó đang gọi nhiều hơn mức đáng ra — hãy tìm ra nó trước khi nghĩ đến chuyện nâng
+giới hạn. Mô hình chia sẻ đối tác sang BM hub cho chủ BM: `docs/RUNBOOK_PARTNER_SHARE_TO_HUB.md`.
 
 Header `X-Business-Use-Case-Usage` của Meta có được ghi lại và probe sẽ in ra, nhưng chỉ để quan
 sát. Bản build này **không** tự điều tiết theo nó, và cũng không giả vờ là có.

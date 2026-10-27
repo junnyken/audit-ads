@@ -17,6 +17,29 @@ const FRESHNESS_TEXT: Record<string, string> = {
     'This account has never been synced with an advertising platform. A1 stores operator-entered records only — nothing here was fetched from a platform.',
 }
 
+/** Where an imported record came from, in one sentence. O3 adds two facts: whether the discovery
+ * sweep added it on its own, and — for an account shared into the hub — which Business Manager
+ * Meta said owns it. That owner is provenance only; the record stays under the Business Manager
+ * whose connection can read it. When Meta did not return an owner, the sentence says so rather
+ * than guessing. */
+export function provenanceText(imported: ImportProvenance): string {
+  const bm = imported.business_manager_reference ?? 'not recorded'
+  const how = imported.automatic
+    ? `Imported automatically by the discovery sweep from a read-only discovery of Business Manager ${bm}`
+    : `Added to the registry from a read-only discovery of Business Manager ${bm}`
+  const edge = imported.source_edge ? `, returned by ${imported.source_edge}` : ''
+  const when = imported.imported_at ? ` on ${formatDateTime(imported.imported_at)}` : ''
+  let owner = ''
+  if (imported.source_edge === 'client_ad_accounts') {
+    owner = imported.owner_business_reference
+      ? ` Shared from Business Manager ${imported.owner_business_reference}${
+          imported.owner_business_name ? ` (${imported.owner_business_name})` : ''
+        }.`
+      : ' Owning Business Manager not returned by Meta.'
+  }
+  return `${how}${edge}${when}.${owner} Nothing in Meta was created or changed by that import.`
+}
+
 /** The `unknown` sentence above was written when every record in A1 was typed by hand, and A10.3's
  * registry import made half of it false: an imported account's name and external id *were* fetched
  * from a platform, by a read-only discovery. "Never synced" stays true — no figures or platform
@@ -237,17 +260,7 @@ export default function OverviewTab({
           // blob. Saying it here costs one sentence and answers the question an operator actually
           // has in front of the record: where did this come from?
           <p className="mt-2 text-[11.5px] text-ink-faint">
-            Added to the registry from a read-only discovery of Business Manager{' '}
-            <span className="font-mono">
-              {account.imported_from_discovery.business_manager_reference ?? 'not recorded'}
-            </span>
-            {account.imported_from_discovery.source_edge
-              ? `, returned by ${account.imported_from_discovery.source_edge}`
-              : ''}
-            {account.imported_from_discovery.imported_at
-              ? ` on ${formatDateTime(account.imported_from_discovery.imported_at)}`
-              : ''}
-            . Nothing in Meta was created or changed by that import.
+            {provenanceText(account.imported_from_discovery)}
           </p>
         )}
 

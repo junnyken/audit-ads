@@ -590,8 +590,9 @@ This is separate from A5's own `ExtensionInstallation` registry, which is untouc
 ## Meta connections and the real provider (A10)
 
 `POST /meta-connections/{id}/check-capability` was the only endpoint in this product that could
-reach Meta until A10.1 added `POST /meta-connections/{id}/discoveries`; those two remain the
-whole list. Either reaches Meta only when **both** conditions hold: the connection's
+reach Meta until A10.1 added `POST /meta-connections/{id}/discoveries`; S1 added
+`POST /ad-accounts/{id}/spend/refresh`. Those remain the whole list of *endpoints* — the S1 spend
+sweep and the O3 discovery sweep read Meta from the dispatcher, not from a route. Either reaches Meta only when **both** conditions hold: the connection's
 `environment` is
 `production` **and** `META_ACCESS_TOKEN` is set on the server. Anything else — `fake`,
 `sandbox`, or `production` with no token — uses `FakeMetaBusinessProvider`, so a misconfigured
@@ -782,7 +783,13 @@ returned was observed; requiring complete coverage would block the first import 
 Manager whose client edge happens to be refused, for no gain in truth.
 
 A second audit row, `meta_discovery.ad_account_imported`, carries the provenance: the run id, the
-Business Manager reference, the edge that produced the account, and the identity that read it.
+Business Manager reference, the edge that produced the account, the identity that read it and —
+since O3 — `trigger` and `owner_business_reference`/`owner_business_name` when Meta returned an
+owning Business Manager for the row. Since O3 it is written before the health evaluation, not after.
+
+The discovery sweep (O3) imports through the same service call for a connection whose owner set
+`auto_import_enabled`; its provenance row is `meta_discovery.ad_account_auto_imported` (same keys,
+plus `decision: "imported"`), with `actor_id = null` and `metadata.actor = "system:discovery_sweep"`.
 
 ### Reconciliation
 
@@ -1116,3 +1123,103 @@ signal derives a critical alert through the unchanged A3 path (critical bypasses
 default); return to `1` resolves the signal and the alert from the source, with no recovery
 message. No route writes `AdAccount.status` from Meta: recording Meta's status is the ordinary
 `PATCH /ad-accounts/{id}` a person submits.
+
+
+## Scheduled discovery and automatic import, Meta read-only (O3)
+
+Two switches, held by different people. The release's `DISCOVERY_SWEEP_EVERY_N_PASSES` (default
+`0` = off) decides whether the dispatcher runs `discovery_sweep_pass` at all; the owner's
+per-connection switches below decide which connections it may read, and whether it may import.
+Neither alone reaches Meta or writes the registry. No route below calls a provider.
+
+| Method | Path | Notes |
+|---|---|---|
+| `PATCH` | `/meta-connections/{id}/automation` | **Owner only.** Body (`StrictPayload`, both required): `{"auto_discovery_enabled": bool, "auto_import_enabled": bool}`. `422` when import is on and discovery off. `409` when anything is switched **on** for a `fake` or `sandbox` connection (switching off is always allowed). Sets `automation_enabled_by` (the caller) and `automation_enabled_at` while anything is on; clears both when both are off. Audit `meta_connection.automation_changed` (before/after) in the same transaction, real actor. `404` for another workspace's connection. Returns the connection |
+| `GET` | `/meta-connections`, `/meta-connections/{id}` | Every connection now carries the four columns at top level and an `automation` block (below) |
+| `GET` | `/meta-connections/{id}/discoveries` | Each run carries `trigger` (`manual` / `scheduled_sweep` / `internal_test`) and `auto_import` (below) |
+| `GET` | `/ad-accounts/{id}` | `imported_from_discovery` carries `trigger`, `automatic`, `owner_business_reference`, `owner_business_name` |
+| `GET` | `/operations/runs?kind=discovery_sweep` | The sweep's `OperationalRun`s, through the existing endpoint |
+| `GET` | `/alerts?source_type=discovery_sweep` | The sweep's summary alerts, through the existing endpoint; `ad_account_id` is `null` |
+
+### `automation` on a connection
+
+```json
+{
+  "auto_discovery_enabled": true,
+  "auto_import_enabled": false,
+  "enabled_by": "<user id>",
+  "enabled_at": "2026-10-27T03:00:00+00:00",
+  "eligible": true,
+  "ineligible_reason": null
+}
+```
+
+`eligible` is computed from the row and server configuration on every response, never stored:
+`production`, a Business Manager id (the connection's or `META_BUSINESS_ID`), and a reader
+credential for it. `ineligible_reason` is one of `not_production`, `business_manager_not_configured`,
+`reader_not_configured`, `archived`. A switched-on but ineligible connection is counted
+`not_configured` by the sweep and costs no call.
+
+### `auto_import` on a history row
+
+`{"imported", "already_in_registry", "archived_returned", "conflicts", "awaiting_import"}` for a
+`scheduled_sweep` run, read back from that pass's `meta_discovery.sweep_pass_recorded` audit row;
+`null` for a manual run — which is not "imported nothing".
+
+### `imported_from_discovery` (on `GET /ad-accounts/{id}`)
+
+```json
+{
+  "discovery_run_id": "…",
+  "business_manager_reference": "1993884657458857",
+  "source_edge": "client_ad_accounts",
+  "imported_at": "…",
+  "trigger": "scheduled_sweep",
+  "automatic": true,
+  "owner_business_reference": "7770001",
+  "owner_business_name": "Partner Shop"
+}
+```
+
+`owner_business_*` is provenance only — the account stays under the hub's Business Manager row,
+whose connection can read it. `null` means Meta did not return an owner for that row (the
+`business{id,name}` field on `client_ad_accounts` is **[CHƯA KIỂM]** against the hub's token), never
+a guess. Rows imported before O3 have no `trigger` key in their audit row and report `"manual"`.
+
+### The sweep's records
+
+- **Runs:** `trigger = "scheduled_sweep"`, `created_by = null`.
+- **Audit:** every row the pass writes has `actor_id = null`, `metadata.actor =
+  "system:discovery_sweep"` and `metadata.operational_run_id`. One
+  `meta_discovery.sweep_pass_recorded` row per workspace per pass (`after.connections[]` with
+  per-connection counters and run id, `after.ad_account_ids` imported).
+- **`OperationalRun(kind=discovery_sweep)`** summary keys: `never_discovered`, `stale`, `runs`,
+  `succeeded`, `warnings`, `failed`, `rate_limited`, `not_configured`, `imported`,
+  `already_in_registry`, `archived_returned`, `conflicts`, `awaiting_import`, `pixels_new`,
+  `not_returned_complete`, `summaries`, `due_remaining`, `workspaces`. `partial` on any failure,
+  rate limit or conflict.
+- **Summary alert:** `source_type = "discovery_sweep"`, `ad_account_id = null`, `severity =
+  "warning"`, `category = "discovery"`, `alert_key = "discovery_sweep:<connection>:<run>"`. At most
+  one per pass per connection, only when something is new (an import, or a changed set of standing
+  conditions); a newer one resolves the previous one. Its delivery uses template `a3-v1-summary`
+  (`message_template_version`), at most 10 account ids, no account names. `source_label` is
+  `"Discovery sweep"`.
+- **Delivery skip reason** `auto_import_grace`: a `warning` delivery for an account auto-imported
+  within `AUTO_IMPORT_TELEGRAM_GRACE_HOURS` (24). Never `critical`.
+
+### Health changes
+
+One rule (registry 18 → 19), enabled by default: `account_not_returned_by_latest_discovery`
+(attention, `data_quality`, `source_type: "provider_observation"`, scope `discovery`,
+`source_entity_type: "business_manager_discovery_run"`). Evidence keys: `message`,
+`discovery_run_id`, `discovery_completed_at`, `business_manager_reference`, `read_as`,
+`coverage_status`, `source`. Fires only from the latest usable production run of the account's
+Business Manager inside `DISCOVERY_STALE_AFTER_HOURS` whose ad-account coverage is `complete`. New
+evaluation trigger value: `discovery_sweep`.
+
+### Changed in O3
+
+- `freshness` on discovery payloads reads `DISCOVERY_STALE_AFTER_HOURS` (default 24) instead of a
+  router constant — same default, same values.
+- Discovered ad-account observations may carry `owner_business_id` / `owner_business_name` in
+  `safe_metadata_json` (the real provider now asks for `business{id,name}`).

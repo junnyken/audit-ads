@@ -17,6 +17,7 @@ It is deliberately unexciting:
     python -m app.commands.run_dispatcher              # loop until stopped
     python -m app.commands.run_dispatcher --once       # a single pass, for a timer or a check
     python -m app.commands.run_dispatcher --spend-sweep  # one S1 spend read pass, then exit
+    python -m app.commands.run_dispatcher --discovery-sweep  # one O3 discovery pass, then exit
 """
 from __future__ import annotations
 
@@ -40,8 +41,12 @@ from app.core.logging import configure_logging
 from app.db.session import session_scope
 from app.models.entities import AdAccount, Workspace, WorkspaceMember
 from app.models.health import AccountHealthSnapshot
-from app.services import spend_service
-from app.services.audit import AuditLogService
+from app.services import discovery_sweep, spend_service
+from app.services.audit import (
+    SYSTEM_DISCOVERY_SWEEP_ACTOR,
+    AuditLogService,
+    SystemAuditLogService,
+)
 from app.services.health_service import AccountHealthEvaluationService
 from app.services.meta_provider import MetaFailureCode
 from app.services.notification_service import NotificationDispatcherService
@@ -370,6 +375,136 @@ def spend_sweep_pass(*, batch: int) -> dict[str, int]:
     return totals
 
 
+def discovery_sweep_pass(*, batch: int) -> dict[str, int]:
+    """O3. Run discovery for automatic connections that are due, and — where the owner allowed
+    it — import the ad accounts a usable run returned that the registry does not hold.
+
+    The second path in this product that calls Meta without a person pressing a button, and the
+    first that **writes the registry** without one, so it carries every fence S1 has and more:
+
+    * two switches held by different people — this cadence (`discovery_sweep_every_n_passes`,
+      **0 = off, the default**: a release decision) and the per-connection
+      `auto_discovery_enabled` / `auto_import_enabled` the owner sets with an audited PATCH;
+    * `fake`/`sandbox` connections are never selected, so fake data can never be imported;
+    * bounded (`batch` connections per workspace, about six GETs each), one 24 h cadence per
+      connection (`discovery_stale_after_hours`), read-only, and it stops reading through a
+      credential the moment Meta says `rate_limited` — no sleep, no retry;
+    * one SAVEPOINT per connection and one per imported account, so a race or a defect costs
+      that one row, not the pass; an archived account Meta still returns is counted, never
+      imported and never restored; absence archives nothing;
+    * the actor is the system — `actor_id = NULL`, `metadata.actor = "system:discovery_sweep"` —
+      never "the first member of the workspace";
+    * one summary alert per pass per connection when there is something new, never one message
+      per imported account.
+
+    Each workspace commits on its own, with its audit rows (rule 3).
+    """
+    settings = get_settings()
+    totals = {
+        "never_discovered": 0, "stale": 0, "runs": 0, "succeeded": 0, "warnings": 0,
+        "failed": 0, "rate_limited": 0, "not_configured": 0, "imported": 0,
+        "already_in_registry": 0, "archived_returned": 0, "conflicts": 0, "awaiting_import": 0,
+        "pixels_new": 0, "not_returned_complete": 0, "summaries": 0, "due_remaining": 0,
+        "workspaces": 0,
+    }
+    started = datetime.now(UTC)
+    cutoff = started - timedelta(hours=settings.discovery_stale_after_hours)
+    operational_run_id = uuid.uuid4()
+
+    with session_scope() as session:
+        runs = OperationalRunService(session)
+        try:
+            workspaces = list(
+                session.execute(
+                    sa.select(Workspace).where(Workspace.archived_at.is_(None))
+                ).scalars().all()
+            )
+            for workspace in workspaces:
+                audit = SystemAuditLogService(
+                    session,
+                    workspace.id,
+                    actor=SYSTEM_DISCOVERY_SWEEP_ACTOR,
+                    operational_run_id=operational_run_id,
+                )
+                service = discovery_sweep.DiscoverySweepService(
+                    session, workspace.id, audit, settings=settings
+                )
+                totals["workspaces"] += 1
+                selection = discovery_sweep.select_due_connections(
+                    session, workspace.id, cutoff=cutoff, settings=settings
+                )
+                totals["not_configured"] += selection.not_configured
+                stopped: set[str] = set()
+                swept: list[dict] = []
+                imported_ids: list[str] = []
+                for position, due in enumerate(selection.due):
+                    if position >= batch:
+                        totals["due_remaining"] += len(selection.due) - position
+                        break
+                    budget = discovery_sweep.budget_key(due.reader)
+                    if budget in stopped:
+                        # Meta already said "slow down" to this credential in this pass.
+                        totals["due_remaining"] += 1
+                        continue
+                    totals["never_discovered" if due.never_discovered else "stale"] += 1
+                    provider = spend_service.provider_for_connection(due.reader)
+                    outcome = service.sweep_connection(due, provider)
+                    totals["runs"] += 1
+                    totals[outcome.status] += 1
+                    if outcome.rate_limited:
+                        totals["rate_limited"] += 1
+                        stopped.add(budget)
+                    for key, value in outcome.counters().items():
+                        totals[key] += value
+                    if outcome.summary_alert is not None:
+                        totals["summaries"] += 1
+                    imported_ids.extend(account_id for account_id, _, _ in outcome.imported)
+                    swept.append(
+                        {
+                            "meta_connection_id": str(due.connection.id),
+                            "discovery_run_id": str(outcome.run.id) if outcome.run else None,
+                            "status": outcome.status,
+                            **outcome.counters(),
+                        }
+                    )
+                if swept:
+                    # One row per workspace per pass (the S1 precedent), naming every account the
+                    # pass imported — the per-account provenance rows sit beside it.
+                    audit.record(
+                        action="meta_discovery.sweep_pass_recorded",
+                        entity_type="discovery_sweep_pass",
+                        entity_id=operational_run_id,
+                        after={"connections": swept, "ad_account_ids": imported_ids},
+                        metadata={"trigger": "scheduled_sweep"},
+                    )
+                session.commit()
+        except Exception as exc:
+            session.rollback()
+            runs.record(
+                kind=OperationalRunKind.DISCOVERY_SWEEP,
+                status=OperationalRunStatus.FAILED,
+                started_at=started,
+                error_code=type(exc).__name__[:64],
+                error_summary="The discovery sweep failed; see the process log.",
+                run_id=operational_run_id,
+            )
+            session.commit()
+            raise
+
+        runs.record(
+            kind=OperationalRunKind.DISCOVERY_SWEEP,
+            status=(
+                OperationalRunStatus.PARTIAL
+                if totals["failed"] or totals["rate_limited"] or totals["conflicts"]
+                else OperationalRunStatus.SUCCEEDED
+            ),
+            started_at=started,
+            summary=totals,
+            run_id=operational_run_id,
+        )
+    return totals
+
+
 def run_loop(
     *,
     batch: int,
@@ -379,6 +514,8 @@ def run_loop(
     health_batch: int = 10,
     spend_every: int = 0,
     spend_batch: int = 10,
+    discovery_every: int = 0,
+    discovery_batch: int = 5,
 ) -> int:
     settings = get_settings()
     logger.info(
@@ -390,8 +527,10 @@ def run_loop(
             # Logged so the answer to "is the sweep on?" is in the first line of the log rather
             # than inferred from whether runs appear later.
             "health_sweep_every_n_passes": health_every,
-            # S1: the one pass here that calls Meta. Zero means it never runs.
+            # S1: a pass here that calls Meta. Zero means it never runs.
             "spend_sweep_every_n_passes": spend_every,
+            # O3: calls Meta and may write the registry. Zero means it never runs.
+            "discovery_sweep_every_n_passes": discovery_every,
         },
     )
     passes = 0
@@ -409,6 +548,11 @@ def run_loop(
             if spend_every and passes % spend_every == 0:
                 spend = spend_sweep_pass(batch=spend_batch)
                 logger.info("spend sweep", extra=spend)
+            if discovery_every and passes % discovery_every == 0:
+                # An account imported here is `never_observed`, so the next spend pass puts it
+                # first in line — S1/S2 take over without anyone pressing anything.
+                discovery = discovery_sweep_pass(batch=discovery_batch)
+                logger.info("discovery sweep", extra=discovery)
         except Exception:  # pragma: no cover - the loop must outlive one bad pass
             logger.exception("dispatcher pass failed; continuing")
 
@@ -438,6 +582,14 @@ def main() -> None:
             "missing or stale, bounded by SPEND_SWEEP_BATCH."
         ),
     )
+    parser.add_argument(
+        "--discovery-sweep",
+        action="store_true",
+        help=(
+            "One discovery pass only, then exit. Reads Meta (GET only) for connections whose owner "
+            "switched them to automatic, and imports new ad accounts where that is allowed too."
+        ),
+    )
     parser.add_argument("--batch", type=int, default=None, help="Deliveries per workspace.")
     parser.add_argument("--interval", type=int, default=None, help="Seconds between passes.")
     args = parser.parse_args()
@@ -465,6 +617,13 @@ def main() -> None:
         print(" ".join(f"{key}={value}" for key, value in sorted(totals.items())))
         raise SystemExit(0)
 
+    if args.discovery_sweep:
+        # One pass by hand before the cadence is switched on. It still only touches connections
+        # whose owner turned `auto_discovery_enabled` on — a person's switch, not this flag.
+        totals = discovery_sweep_pass(batch=settings.discovery_sweep_batch)
+        print(" ".join(f"{key}={value}" for key, value in sorted(totals.items())))
+        raise SystemExit(0)
+
     if args.once or args.recovery_sweep:
         totals = one_pass(batch=batch, recovery=args.recovery_sweep)
         print(" ".join(f"{key}={value}" for key, value in sorted(totals.items())))
@@ -481,6 +640,8 @@ def main() -> None:
             health_batch=settings.health_sweep_batch,
             spend_every=settings.spend_sweep_every_n_passes,
             spend_batch=settings.spend_sweep_batch,
+            discovery_every=settings.discovery_sweep_every_n_passes,
+            discovery_batch=settings.discovery_sweep_batch,
         )
     )
 

@@ -13,6 +13,15 @@ function RunStatusBadge({ status }: { status: DiscoveryRunSummary['status'] }) {
   return <Badge tone="attention">Failed</Badge>
 }
 
+/** O3. How a run started, as a badge rather than the raw value. `Scheduled` is neutral on
+ * purpose: a run the sweep started is not better or worse than one a person started. */
+export function TriggerBadge({ trigger }: { trigger: DiscoveryRunSummary['trigger'] }) {
+  if (trigger === 'manual') return <Badge tone="neutral">Manual</Badge>
+  if (trigger === 'scheduled_sweep') return <Badge tone="info">Scheduled</Badge>
+  if (trigger === 'internal_test') return <Badge tone="muted">Internal test</Badge>
+  return <Badge tone="muted">{trigger}</Badge>
+}
+
 /** Every run, newest first — each with the coverage, the authority and the identity that produced
  * it, so two runs that returned different counts can be compared on what they were able to see
  * rather than on the numbers alone.
@@ -46,6 +55,7 @@ export function DiscoveryHistoryList({ runs }: { runs: DiscoveryRunSummary[] }) 
                 </span>
                 <span className="flex flex-wrap items-center gap-1.5">
                   <RunStatusBadge status={run.status} />
+                  <TriggerBadge trigger={run.trigger} />
                   {run.environment === 'fake' && <Badge tone="neutral">Fake data</Badge>}
                   {run.business_authority === 'not_established' && (
                     <Badge tone="attention">Access to the Business Manager not established</Badge>
@@ -76,6 +86,16 @@ export function DiscoveryHistoryList({ runs }: { runs: DiscoveryRunSummary[] }) 
                     .join(', ')}
                 </p>
               )}
+              {run.auto_import && (
+                <p className="mt-1 text-[11.5px] text-ink-muted">
+                  Imported automatically: {run.auto_import.imported}
+                  {run.auto_import.awaiting_import > 0 &&
+                    ` · new, not imported (automatic import off): ${run.auto_import.awaiting_import}`}
+                  {run.auto_import.archived_returned > 0 &&
+                    ` · archived here but still returned: ${run.auto_import.archived_returned} (not restored)`}
+                  {run.auto_import.conflicts > 0 && ` · conflicts: ${run.auto_import.conflicts}`}
+                </p>
+              )}
               {run.failure_code && (
                 <p className="mt-1 text-[11.5px] text-rose-700">
                   {run.failure_summary ?? 'The run did not complete.'} ({run.failure_code})
@@ -83,7 +103,7 @@ export function DiscoveryHistoryList({ runs }: { runs: DiscoveryRunSummary[] }) 
               )}
               <p className="mt-1 text-[11px] text-ink-faint">
                 Business Manager {run.business_manager.name ?? run.business_manager.reference ?? 'not configured'} · read
-                as {run.read_as.name || run.read_as.external_id || 'an unknown identity'} · {run.trigger}
+                as {run.read_as.name || run.read_as.external_id || 'an unknown identity'}
               </p>
             </li>
           )

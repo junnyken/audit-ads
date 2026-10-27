@@ -6,6 +6,7 @@ import type { MetaConnection, MetaEnvironment } from '../lib/types'
 import { Badge, Card, EmptyState, ErrorState, Field, Skeleton } from '../components/ui'
 import { DiscoverySection } from '../components/meta/DiscoverySection'
 import { ReaderSourceBadge } from '../components/meta/ReaderSource'
+import { AutomationBadge, AutomationControls, automationOf } from '../components/meta/AutomationControls'
 import { formatDateTime } from '../lib/format'
 
 function EnvironmentBadge({ environment }: { environment: string }) {
@@ -42,6 +43,7 @@ function ConnectionCard({ connection }: { connection: MetaConnection }) {
         <span className="flex items-center gap-2">
           {connection.label}
           <EnvironmentBadge environment={connection.environment} />
+          <AutomationBadge automation={automationOf(connection)} />
           {connection.business_manager_source === 'server' && (
             // Inheriting is legitimate, but it means this card is not about a business of its
             // own: every inheriting connection reads the one configured Business Manager.
@@ -86,6 +88,7 @@ function ConnectionCard({ connection }: { connection: MetaConnection }) {
             </ul>
           </div>
         )}
+        <AutomationControls connection={connection} />
         <DiscoverySection connectionId={connection.id} connectionLabel={connection.label} />
       </div>
     </Card>
@@ -182,7 +185,8 @@ export default function MetaConnections() {
           Only <strong>Production</strong> can reach Meta, and only when the server also has a
           token configured — either condition missing and the connection quietly uses the fake
           provider rather than making a surprise call. Everything this build does against Meta is
-          read-only: it cannot create, share or change anything.
+          read-only: it cannot create, share or change anything. A Production connection can also
+          be switched to scheduled discovery on its card; it starts off.
         </p>
       </Card>
 

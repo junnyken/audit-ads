@@ -1,7 +1,7 @@
 # AdsOps Control Center — agent instructions
 
 Governing process: `MINI_SPEC_PLAYBOOK.md`. Read it, plus `FEATURES.md`, `ARCH.md`, `API.md` and
-`TEST_LOG.md`, before changing code. Current release: S2 (Meta account status: four health
+`TEST_LOG.md`, before changing code. Current release: O3 (scheduled discovery + automatic import, Meta read-only: off by default on two switches — `DISCOVERY_SWEEP_EVERY_N_PASSES` and the owner's per-connection flags; never fake connections, never archive/restore; never run live), on S2 (Meta account status: four health
 rules read from S1's stored observations, so no extra Meta call; never shown with success
 styling; extension 0.3.0), on S1 (spend tracking: read-only spend observations, four spend
 health rules, a sweep that is off by default, the Spend tab and the Accounts column), on O1.1

@@ -3331,3 +3331,53 @@ transport; `conftest.py` still forces `META_ACCESS_TOKEN` empty. Real output:
   `adsops-extension-0.3.0.zip` (manifest at root, 25 entries) rebuilt; the 0.2.0 store zip deleted.
 - NOT done: no live Meta read (every §2f **[CHƯA KIỂM]** item is still open), no browser
   click-through against a live backend, no deploy.
+
+## 2026-10-27 - O3: scheduled discovery and automatic import, Meta read-only (backend + dashboard)
+
+Design A of `docs/AUDIT_BEFORE_BUILD_O3_AUTO_IMPORT.md` with the owner's §9 decisions. Not
+committed. **No live Meta read was made**, no Telegram message was sent, nothing was deployed. Every
+test ran against the fake provider (behind the `spend_service.provider_for_connection` seam) and the
+fake notification transport; `conftest.py` still forces `META_ACCESS_TOKEN` empty. Migrations ran
+only against the test database `adsops_test` (asserted by `test_o3_migration.py`); the dev database
+`adsops` was not migrated or downgraded. Real output:
+
+- Backend, full suite, one session (`.venv/bin/python -m pytest -q`, junit count):
+  **1199 passed, 0 failed, 0 errors, 0 skipped** in 1708.7 s, exit 0. `ruff check .`: All checks passed.
+  - An earlier full run with `-p no:logging` collected the same 1199 tests: 1194 passed, 0 failed,
+    5 **errors** — all `fixture 'caplog' not found` in `test_a4_configuration.py` /
+    `test_startup_migration.py`, caused by that flag disabling the logging plugin, not by O3. Those
+    two files alone without the flag: 41 passed. The run above is the one that counts.
+  - New, 69 tests: `test_o3_discovery_sweep.py` 19, `test_o3_automation_api.py` 12,
+    `test_o3_auto_import.py` 11, `test_o3_absence_rule.py` 12, `test_o3_summary_alert.py` 11,
+    `test_o3_migration.py` 4. The audit's degradation table (§4b) is the contract; each row has a
+    test whose docstring names the row (cadence 0, flags off, fake/sandbox never — also when the
+    row is forced `true` in SQL, no credential → `not_configured` with zero calls, failed
+    validation imports nothing, partial coverage imports but concludes no absence, empty +
+    `not_established` concludes nothing, rate limit stops the rest of that credential's budget,
+    already-in-registry untouched, `act_` form matched, both edges once, **archived but returned →
+    not imported, not restored, counted, summary raised**, uniqueness race → `conflict` (service
+    pre-check and the database's own `IntegrityError`), Pixels counted never imported, discovery-only
+    awaits import).
+  - Every audit row a pass writes: `actor_id IS NULL`, `metadata.actor = "system:discovery_sweep"`,
+    `metadata.operational_run_id` = the pass's `OperationalRun.id`; runs `trigger=scheduled_sweep`,
+    `created_by NULL`; counters ⊆ `SAFE_SUMMARY_KEYS`.
+  - Storm control through the real planner: 12 imported accounts → **one** summary alert, one
+    `PENDING` delivery (`a3-v1-summary`); every rule-9 warning of the imported accounts skipped with
+    `auto_import_grace`, alert still open; a `critical` for the same account → `PENDING`, never graced;
+    after 25 h → sent again; unchanged condition next window → no new summary; changed condition →
+    previous summary resolved, new one open. Dispatched through the fake transport: message text
+    checked (no account names, no "safe"/"approved"/"token").
+  - Pins moved: health registry 18 → 19 (`test_health_api.py`, `test_health_engine.py`,
+    `test_s1_spend_rules.py`, `test_s2_platform_status_rules.py`); `test_s1_spend_migration.py` now
+    reads the head from the scripts instead of pinning `0016`.
+  - Migration `0017_o3_conn_automation` on the test DB: head = 0017, downgrade to 0016 removes exactly
+    the four columns (tables unchanged), upgrade restores them; a pre-existing row reads both switches
+    `false`.
+- Frontend: `npx vitest run` 21 files passed + 1 skipped (live), **220 passed**, 20 skipped
+  (13 new in `src/test/o3.automation.test.tsx`; `alerts.test.ts` skip-reason count 8 → 9).
+  `npm run typecheck` (`tsc -b`), `npm run build`, `npx eslint .`: clean.
+- Measured while building: `AuditLog.tsx` / `AuditTab.tsx` already print `system` when `actor_email`
+  is null, so the audit's [CHƯA KIỂM] on how a NULL actor renders is answered; no change needed.
+- NOT done: no live Meta read (both §8.2 questions — `business{id,name}` on `client_ad_accounts`,
+  and whether the hub token reads `act_<id>`/`insights` of a client account — are still open), no
+  browser click-through against a live backend, no deploy, no production cadence enabled.

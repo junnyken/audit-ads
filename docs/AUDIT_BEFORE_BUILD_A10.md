@@ -74,6 +74,8 @@ provider should look like that, not like a generic SDK wrapper.
   *(Note added 2026-10-26, S1: discovery still follows this. The S1 spend sweep is the first Meta
   read on a timer — off by default, bounded, stopping on `rate_limited`; see
   `docs/META_READ_ONLY_DISCOVERY.md` §Bounds and `docs/AUDIT_BEFORE_BUILD_SPEND.md` §4c.)*
+  *(Note added 2026-10-27, O3: discovery no longer follows this either, on purpose. Discovery and import run either because a person pressed a button, or because the workspace owner switched a production connection to automatic and the release enabled the sweep — never because a page loaded, and never from a fake connection. Off by default on both switches; see
+  `docs/AUDIT_BEFORE_BUILD_O3_AUTO_IMPORT.md` §4b.)*
 - **Token expiry is normal, not exceptional.** A long-lived system-user token still expires; the
   UI must show `token_configured` + last successful check, and degrade to `unknown` rather than
   showing a stale `true`.

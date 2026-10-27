@@ -164,6 +164,8 @@ hostnames tried). O1.1 can only be verified locally, and this report will not cl
 ## 11. Explicit confirmations
 
 No Meta write is added or executed. No new discovery engine, provider transport, coverage
-calculator, authority evaluator or reconciliation engine. No auto-import, no bulk import. No fuzzy
+calculator, authority evaluator or reconciliation engine. No auto-import, no bulk import *(O1.1
+scope; O3 — 2026-10-27 — later added automatic import for a production connection the owner switches
+to automatic, through the same per-row import service)*. No fuzzy
 matching. No hard delete. No Pixel→BM mapping. No deployment, ingress change, Telegram send or
 secret configuration. A6 Preflight untouched.

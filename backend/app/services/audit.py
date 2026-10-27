@@ -47,3 +47,39 @@ class AuditLogService:
         )
         self.session.add(entry)
         return entry
+
+
+#: O3. The actor a scheduled pass writes into every audit row's metadata. Not a user: there is
+#: no fake user in this product, and naming a person for work no person did is what the older
+#: "first member of the workspace" pattern did (S1/A4 still do — a separate follow-up).
+SYSTEM_DISCOVERY_SWEEP_ACTOR = "system:discovery_sweep"
+
+
+class SystemAuditLogService(AuditLogService):
+    """Audit for work the system did on its own (O3's discovery sweep).
+
+    `actor_id` is always NULL — the column has always allowed it — and every row, including the
+    ones written deep inside the registry, checklist, health and alert services on the way, gets
+    `metadata.actor` and `metadata.operational_run_id`. Rule 3 still holds: same session, same
+    transaction, redacted. What changes is only that the row says truthfully who acted.
+    """
+
+    def __init__(
+        self,
+        session: Session,
+        workspace_id: uuid.UUID,
+        *,
+        actor: str,
+        operational_run_id: uuid.UUID | None = None,
+    ) -> None:
+        super().__init__(session, workspace_id, None)
+        self.system_actor = actor
+        self.operational_run_id = operational_run_id
+
+    def record(self, *, metadata: dict[str, Any] | None = None, **kwargs: Any) -> AuditLog:
+        stamped = {
+            **(metadata or {}),
+            "actor": self.system_actor,
+            "operational_run_id": str(self.operational_run_id) if self.operational_run_id else None,
+        }
+        return super().record(metadata=stamped, **kwargs)

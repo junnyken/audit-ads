@@ -23,6 +23,7 @@ from app.core.enums import (
     ACTIVE_ALERT_STATUSES,
     TRANSIENT_FAILURE_CODES,
     AlertSeverity,
+    AlertSourceType,
     AlertStatus,
     DeliveryChannel,
     DeliveryFailureCode,
@@ -32,15 +33,18 @@ from app.core.enums import (
 )
 from app.core.redaction import redact
 from app.models.alerts import Alert, AlertPolicy, NotificationDelivery, NotificationDeliveryAttempt
-from app.models.entities import AdAccount
+from app.models.entities import AdAccount, AuditLog
 from app.services import quiet_hours
 from app.services.audit import AuditLogService
 from app.services.base import snapshot as orm_snapshot
 from app.services.notification_templates import (
+    SUMMARY_TEMPLATE_VERSION,
     TEMPLATE_VERSION,
     MessageInputs,
+    SummaryMessageInputs,
     build_dashboard_link,
     render,
+    render_summary,
 )
 from app.services.notification_transport import NotificationTransport, OutboundMessage
 from app.services.telegram_transport import build_transport
@@ -100,9 +104,56 @@ class NotificationPlannerService:
             return policy.warning_telegram_enabled
         return policy.attention_telegram_enabled
 
+    def _summary_payload(self, alert: Alert, policy: AlertPolicy) -> tuple[dict, str]:
+        """O3. A discovery-sweep summary has no account, so it cannot use `a3-v1`."""
+        snapshot = alert.source_snapshot_json or {}
+        inputs = SummaryMessageInputs(
+            severity=alert.severity.value,
+            alert_title=alert.title,
+            connection_label=str(snapshot.get("connection_label") or "—"),
+            business_manager_reference=str(snapshot.get("business_manager_reference") or "—"),
+            business_manager_name=str(snapshot.get("business_manager_name") or "—"),
+            read_as=str(snapshot.get("read_as") or "an unknown identity"),
+            coverage_status=str(snapshot.get("ad_account_coverage_status") or "unknown"),
+            observed_at=alert.last_observed_at,
+            counters=dict(snapshot.get("counters") or {}),
+            new_accounts=tuple(snapshot.get("new_accounts") or ()),
+            recommended_next_step=str(snapshot.get("recommended_next_step", "")),
+            timezone_name=policy.timezone,
+            dashboard_link=build_dashboard_link(self.settings.public_app_url, None),
+        )
+        return redact(inputs.to_payload()), render_summary(inputs)
+
+    def _in_auto_import_grace(self, alert: Alert, now: datetime) -> bool:
+        """O3 §9 8.4: a `warning` of an account the discovery sweep imported within the grace
+        window is not sent on its own — the pass's summary already said "N new accounts".
+
+        Never for `critical`: an account that arrives already disabled must still page. Never for
+        an alert without an account. Grace `0` turns it off.
+        """
+        hours = self.settings.auto_import_telegram_grace_hours
+        if hours <= 0 or alert.severity != AlertSeverity.WARNING or alert.ad_account_id is None:
+            return False
+        return (
+            self.session.execute(
+                sa.select(AuditLog.id)
+                .where(
+                    AuditLog.workspace_id == self.workspace_id,
+                    AuditLog.entity_type == "ad_account",
+                    AuditLog.entity_id == str(alert.ad_account_id),
+                    AuditLog.action == "meta_discovery.ad_account_auto_imported",
+                    AuditLog.created_at >= now - timedelta(hours=hours),
+                )
+                .limit(1)
+            ).first()
+            is not None
+        )
+
     def _payload(
         self, alert: Alert, account: AdAccount | None, policy: AlertPolicy
     ) -> tuple[dict, str]:
+        if alert.source_type == AlertSourceType.DISCOVERY_SWEEP:
+            return self._summary_payload(alert, policy)
         snapshot = alert.source_snapshot_json or {}
         inputs = MessageInputs(
             severity=alert.severity.value,
@@ -143,7 +194,7 @@ class NotificationPlannerService:
             recipient_reference=recipient,
             reason=reason,
             idempotency_key=key,
-            message_template_version=TEMPLATE_VERSION,
+            message_template_version=str(payload.get("template_version") or TEMPLATE_VERSION),
             payload_snapshot_json=payload,
             status=status,
             scheduled_for=scheduled_for,
@@ -217,6 +268,8 @@ class NotificationPlannerService:
             return skip(DeliverySkipReason.SEVERITY_DELIVERY_DISABLED)
         if reason == DeliveryReason.REMINDER and not policy.reminder_enabled:
             return skip(DeliverySkipReason.REMINDERS_DISABLED)
+        if self._in_auto_import_grace(alert, now):
+            return skip(DeliverySkipReason.AUTO_IMPORT_GRACE)
         if recipient is None:
             # The alert still exists and stays fully usable in the Alert Center; only the
             # outbound message is impossible.
@@ -407,7 +460,17 @@ class NotificationDispatcherService:
             return
 
         payload = delivery.payload_snapshot_json or {}
-        text = render(
+        if payload.get("template_version") == SUMMARY_TEMPLATE_VERSION:
+            text = render_summary(
+                SummaryMessageInputs.from_payload(payload, observed_at=alert.last_observed_at)
+            )
+        else:
+            text = self._render_account_message(payload, alert)
+        self._deliver(delivery, alert, text, result)
+
+    @staticmethod
+    def _render_account_message(payload: dict, alert: Alert) -> str:
+        return render(
             MessageInputs(
                 severity=str(payload.get("severity", alert.severity.value)),
                 alert_title=str(payload.get("alert_title", alert.title)),
@@ -423,6 +486,9 @@ class NotificationDispatcherService:
             )
         )
 
+    def _deliver(
+        self, delivery: NotificationDelivery, alert: Alert, text: str, result: DispatchResult
+    ) -> None:
         started_at = datetime.now(UTC)
         delivery.attempt_count += 1
         delivery.last_attempt_at = started_at

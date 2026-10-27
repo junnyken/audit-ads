@@ -115,7 +115,7 @@ export default function Alerts() {
         <Select label="Status" value={filters.status} onChange={(value) => update({ status: value })}
           options={[['', 'Active'], ['open', 'Open'], ['acknowledged', 'Acknowledged'], ['suppressed', 'Suppressed'], ['resolved', 'Resolved'], ['expired', 'Expired']]} />
         <Select label="Source" value={filters.source_type} onChange={(value) => update({ source_type: value })}
-          options={[['', 'Any'], ['health_signal', 'Health signal'], ['health_evaluation_run', 'Health evaluation']]} />
+          options={[['', 'Any'], ['health_signal', 'Health signal'], ['health_evaluation_run', 'Health evaluation'], ['discovery_sweep', 'Discovery sweep']]} />
         <Select label="Health" value={filters.health_status} onChange={(value) => update({ health_status: value })}
           options={[['', 'Any'], ['critical', 'Critical'], ['warning', 'Warning'], ['attention_needed', 'Attention needed'], ['unknown', 'Unknown health'], ['clear_signals', 'Clear signals']]} />
         <Select label="Readiness" value={filters.readiness_status} onChange={(value) => update({ readiness_status: value })}

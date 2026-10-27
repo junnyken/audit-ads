@@ -171,6 +171,28 @@ class Settings(BaseSettings):
     #: `spend_cap_approaching` fires when amount_spent / spend_cap reaches this ratio.
     spend_cap_ratio_threshold: float = 0.9
 
+    # ---- O3 scheduled discovery and automatic import (Meta, read-only) ------------------
+    #: How often the dispatcher also runs discovery for connections whose owner switched them to
+    #: automatic, counted in dispatch passes.
+    #:
+    #: **Zero disables it, and zero is the default.** It is one of two switches, held by
+    #: different people: this one is a release decision with a named approver (rule 22,
+    #: `docs/AUDIT_BEFORE_BUILD_O3_AUTO_IMPORT.md` §9); the other is the per-connection
+    #: `auto_discovery_enabled` / `auto_import_enabled` an owner sets through
+    #: `PATCH /meta-connections/{id}/automation`. Neither alone reaches Meta or writes the
+    #: registry. `python -m app.commands.run_dispatcher --discovery-sweep` runs one pass by hand.
+    discovery_sweep_every_n_passes: int = 0
+    #: Connections per workspace per pass. About six GETs per connection.
+    discovery_sweep_batch: int = 5
+    #: A discovery run older than this is `stale`: the badge on screen, the sweep's "due" and
+    #: `account_not_returned_by_latest_discovery`'s window all read this one value, so they agree
+    #: by construction. It replaced the router constant `DISCOVERY_STALE_AFTER` (24 h).
+    discovery_stale_after_hours: int = 24
+    #: A `warning` alert of an account the sweep imported within this many hours is not sent on
+    #: its own (`skip_reason=auto_import_grace`); the pass's summary already announced it.
+    #: Never applies to `critical`. Zero turns the grace off.
+    auto_import_telegram_grace_hours: int = 24
+
     # ---- A5 Chrome context extension ------------------------------------------------
     #: Extension tokens are short-lived on purpose: they live in browser storage, so a stolen
     #: one should stop working in hours rather than the 12 hours a dashboard session gets.

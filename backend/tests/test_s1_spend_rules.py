@@ -128,8 +128,9 @@ def steady_week(latest: str, base: str = "1000000") -> dict[date, str]:
 def test_the_registry_grows_by_exactly_the_four_spend_rules():
     keys = {rule.rule_key for rule in HEALTH_RULES_V1}
     assert keys >= SPEND_KEYS
-    # 14 after S1; S2 adds its four platform-status rules (test_s2_platform_status_rules.py).
-    assert len(HEALTH_RULES_V1) == 18
+    # 14 after S1; S2 adds its four platform-status rules (test_s2_platform_status_rules.py), O3
+    # one discovery rule (test_o3_absence_rule.py).
+    assert len(HEALTH_RULES_V1) == 19
     for key in SPEND_KEYS:
         rule = HEALTH_RULES_BY_KEY[key]
         assert rule.category == HealthCategory.SPEND

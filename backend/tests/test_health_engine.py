@@ -343,8 +343,8 @@ def test_clear_signals_is_never_described_as_safe():
 
 
 def test_every_rule_carries_guidance_for_the_operator():
-    # 10 A2 rules + the 4 S1 spend rules + the 4 S2 platform-status rules.
-    assert len(HEALTH_RULES_BY_KEY) == 18
+    # 10 A2 rules + the 4 S1 spend rules + the 4 S2 platform-status rules + O3's discovery rule.
+    assert len(HEALTH_RULES_BY_KEY) == 19
     for rule in HEALTH_RULES_BY_KEY.values():
         assert rule.why_it_matters and rule.recommended_next_step and rule.resolution_guidance
         assert rule.version >= 1

@@ -811,6 +811,92 @@ existing edit drawer pre-selecting `disabled`/`active` only; the person saves �
 while the sweep runs. Behaviour of Meta toward a disabled account's node is **unmeasured** — no live
 read has been made.
 
+### 4l. Scheduled discovery and automatic import, Meta read-only (O3)
+
+**What it answers:** when a Business Manager's owner shares a new ad account into the hub, the
+product notices on its own, adds it to the registry (if the workspace owner allowed that), and S1/S2
+start following it — without anyone pressing a button, and without anything ever being written to
+Meta. Design A of `docs/AUDIT_BEFORE_BUILD_O3_AUTO_IMPORT.md`, owner decisions §9.
+
+```
+release: DISCOVERY_SWEEP_EVERY_N_PASSES > 0  (0 = off, default)      owner: PATCH …/automation
+        │                                                              (auto_discovery_enabled,
+        ▼                                                               auto_import_enabled; audited)
+run_dispatcher.discovery_sweep_pass ── per workspace, SystemAuditLogService (actor_id NULL,
+        │                              metadata.actor = "system:discovery_sweep")
+        ▼
+discovery_sweep.select_due_connections  ── production + auto_discovery_enabled (query) +
+        │                                  reader_for_connection; latest run older than 24 h
+        ▼ (per connection, SAVEPOINT)
+MetaDiscoveryService.validate → discover_assets   (trigger=scheduled_sweep, created_by NULL)
+        │  rate_limited → stop that credential's budget for the rest of the pass
+        ▼
+reconcile_ad_accounts(run)
+   matched ─────────────► already_in_registry (untouched)
+   missing_in_registry ─► archived row?  → archived_returned (never imported, never restored)
+                          auto_import off → awaiting_import
+                          else SAVEPOINT import_ad_account(automatic=True) → imported | conflict
+   missing_from_latest ─► not_returned_complete (signal only — reachable only from `complete`)
+        ▼
+evaluate_account_safe for the BM's registry accounts (trigger=discovery_sweep) → rule 19
+        ▼
+summary alert (≤ 1 per pass per connection, AlertSourceType.DISCOVERY_SWEEP, a3-v1-summary)
+        ▼
+OperationalRun(kind=discovery_sweep) + audit meta_discovery.sweep_pass_recorded per workspace
+```
+
+**Two switches, two people.** The cadence is a release decision; the per-connection flags are the
+owner's named decision, stored with `automation_enabled_by/at` (migration `0017`, the only schema
+change) and audited as `meta_connection.automation_changed` with the real actor. Neither alone
+reaches Meta or writes the registry. `fake`/`sandbox` connections are refused by the PATCH (409) and
+excluded by the sweep's own query, so the seeded fake inventory can never reach the registry.
+
+**One eligibility predicate.** `spend_service.reader_for_connection` (production, not archived, a
+Business Manager id, a reader credential) is shared by S1's `_connections_by_business` and O3's
+selection, and `discovery_sweep.automation_eligibility` reports it as `eligible`/`ineligible_reason`
+on every connection response. A future reader source (mb-connect) is a branch of `resolve_reader`,
+not of the sweep. The provider is built per connection per pass through the single seam
+`spend_service.provider_for_connection`; nothing caches a credential across passes.
+
+**Import is the person's import.** The sweep calls the same `MetaDiscoveryService.import_ad_account`
+as `POST …/imports` — same uniqueness guard, same checklist, same `unknown` readiness, same BM-hub
+mapping (so S1 finds a reader for the new account at once and the next spend pass reads it). Only
+the provenance action differs (`meta_discovery.ad_account_auto_imported`, with `decision`,
+`trigger`, `owner_business_reference/name`), and it is now written *before* the health evaluation so
+the planner can see it. The owning Business Manager of a client account comes from
+`business{id,name}` on the ad-account edges (**[CHƯA KIỂM]** against the hub's token); it is
+provenance only — no BM row is created for it (variant D rejected: the account would become
+`not_observable`). Coverage and authority still do not gate import; they gate absence.
+
+**Absence → one attention rule, never an archive.** `account_not_returned_by_latest_discovery`
+(registry 18 → 19, `data_quality`, `provider_observation`) reads `HealthFacts.discovery`, assembled by
+`services/discovery_facts.py` from stored runs only: the latest usable **production** run of the
+account's Business Manager inside `DISCOVERY_STALE_AFTER_HOURS`, excluding runs read by the fake
+identity (a production connection with no reader still falls back to the fake provider in the
+router). It fires only when that run's ad-account coverage is `complete` and the account is not in
+its observations; a newer partial run silences it. `discovery_run_id`/`discovery_completed_at` are in
+`VOLATILE_EVIDENCE_KEYS`, so a daily repeat is one unchanged signal. The router's 24 h constant
+`DISCOVERY_STALE_AFTER` became the setting, so the badge, the sweep and the rule agree.
+
+**Storm control.** (1) One summary alert per pass per connection, only when something is new: any
+import, or a changed fingerprint of the standing conditions (awaiting import, archived-but-returned,
+not returned, new Pixels). A changed summary resolves the previous one (`newer_summary`); a summary
+whose conditions cleared is resolved by source. Severity `warning`, so it follows the existing
+policy (§9 8.3, no new column); template `a3-v1-summary` — at most 10 ids, no account names, owner
+BM ids for client accounts. (2) `NotificationPlannerService` skips a `warning` delivery with
+`skip_reason=auto_import_grace` when the account has an `ad_account_auto_imported` audit row within
+`AUTO_IMPORT_TELEGRAM_GRACE_HOURS` (24); never for `critical`, never for an account a person
+imported. The alert stays open and counted. Consequence, stated: under A3 dedupe, rule 9's warning
+for such an account is not sent on its own later unless it escalates.
+
+**Failure isolation.** One SAVEPOINT per connection (a provider exception rolls back that
+connection's run and counts `failed`), one per imported account (a `ConflictError`/`IntegrityError`
+race counts `conflict`), one around the summary alert (rule 21). Each workspace commits with its audit
+rows. `OperationalRun` is `PARTIAL` on any failure, rate limit or conflict.
+
+**Calls.** About six GETs per connection per run; hub model = one connection ≈ six GETs a day.
+Measured live: **none** — no Meta read has been made with this code.
+
 ## 5. Security model
 
 | Control | Implementation |

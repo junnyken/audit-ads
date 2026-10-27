@@ -174,6 +174,13 @@ class DiscoveredAsset:
     safe_metadata: dict[str, str] = field(default_factory=dict)
 
 
+#: The identity the fake provider reports. O3 reads it to keep a fake inventory from ever counting
+#: as evidence about a real account: a `production` connection with no reader credential still
+#: falls back to the fake provider in the router (`_provider_for`), and its run is stamped with
+#: the connection's environment.
+FAKE_IDENTITY_EXTERNAL_ID = "fake-system-user"
+
+
 @dataclass(frozen=True)
 class ProviderIdentity:
     """Who the provider was acting as when it read.
@@ -449,6 +456,11 @@ class FakeMetaBusinessProvider(MetaBusinessProvider):
     calls: list[tuple[str, str]] = field(default_factory=list)
     #: S1. Spend reads staged per canonical external account id, consumed in order.
     _staged_spend: dict[str, list[SpendRead]] = field(default_factory=dict)
+    #: O3. Who `identify()` says it is. `None` is the fake identity, which O3 never treats as
+    #: evidence about a real account. A test that stands this fake in for the *real* provider
+    #: behind a seam (`spend_service.provider_for_connection`) stages a reader identity here, the
+    #: same way it stages the inventory.
+    identity: ProviderIdentity | None = None
 
     def queue_spend_result(self, external_account_id: str, result: SpendRead) -> None:
         self._staged_spend.setdefault(external_account_id, []).append(result)
@@ -488,7 +500,9 @@ class FakeMetaBusinessProvider(MetaBusinessProvider):
 
     def identify(self) -> ProviderIdentity:
         self.calls.append(("identify", ""))
-        return ProviderIdentity(external_id="fake-system-user", name="Fake system user")
+        if self.identity is not None:
+            return self.identity
+        return ProviderIdentity(external_id=FAKE_IDENTITY_EXTERNAL_ID, name="Fake system user")
 
     def check_business_authority(self, business_id: str) -> BusinessAuthority:
         self.calls.append(("check_business_authority", business_id))
@@ -633,5 +647,6 @@ def reset_fake_provider() -> FakeMetaBusinessProvider:
     _FAKE_PROVIDER._staged_ad_account_discovery.clear()
     _FAKE_PROVIDER._staged_pixel_discovery.clear()
     _FAKE_PROVIDER._staged_spend.clear()
+    _FAKE_PROVIDER.identity = None
     _FAKE_PROVIDER.calls.clear()
     return _FAKE_PROVIDER

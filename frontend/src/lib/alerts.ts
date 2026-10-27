@@ -77,6 +77,8 @@ export const SKIP_REASON_LABEL: Record<DeliverySkipReason, string> = {
   timezone_not_configured: 'The policy timezone could not be resolved, so nothing was scheduled.',
   duplicate_suppressed_by_dedupe: 'An equivalent message was already planned.',
   reminders_disabled: 'Reminders are disabled in your policy.',
+  auto_import_grace:
+    'Held back: the discovery sweep imported this account less than a day ago, and its summary message already announced it. Critical alerts are never held back.',
 }
 
 export const ALERT_DISCLAIMER =

@@ -142,3 +142,135 @@ def render(inputs: MessageInputs) -> str:
     if len(message) > MAX_MESSAGE_LENGTH:
         message = message[: MAX_MESSAGE_LENGTH - 1].rstrip() + "…"
     return message
+
+
+# ------------------------------------------------------------------ O3 discovery summary
+#: A second template, not a variant of the first: `a3-v1` requires an `Account:` line, and a
+#: discovery-sweep summary is about a connection and many accounts at once. Same discipline —
+#: allowlisted named fields, sanitised, truncated, no raw provider body, no safety claim.
+SUMMARY_TEMPLATE_VERSION = "a3-v1-summary"
+#: At most this many new account ids are named in one message; the rest are counted.
+SUMMARY_MAX_IDS = 10
+
+#: Counter key -> the line label it renders as. Fixed order; only these keys can appear.
+SUMMARY_COUNTER_LABELS: tuple[tuple[str, str], ...] = (
+    ("imported", "Imported automatically"),
+    ("awaiting_import", "New, not imported (automatic import is off)"),
+    ("archived_returned", "Archived here but still returned by Meta"),
+    ("not_returned_complete", "Not returned by this complete discovery"),
+    ("pixels_new", "New Pixels (Pixels are never imported)"),
+    ("conflicts", "Import conflicts"),
+)
+
+
+@dataclass(frozen=True)
+class SummaryMessageInputs:
+    """The complete allowlist for a discovery-sweep summary."""
+
+    severity: str
+    alert_title: str
+    connection_label: str
+    business_manager_reference: str
+    business_manager_name: str
+    read_as: str
+    coverage_status: str
+    observed_at: datetime
+    counters: dict
+    #: `[{"external_id": ..., "owner_business_reference": ... | None}]`, at most
+    #: `SUMMARY_MAX_IDS`. Ids only — no name Meta returned for an account reaches the message.
+    new_accounts: tuple
+    recommended_next_step: str
+    timezone_name: str | None = None
+    dashboard_link: str | None = None
+
+    def to_payload(self) -> dict:
+        return {
+            "template_version": SUMMARY_TEMPLATE_VERSION,
+            "severity": self.severity,
+            "alert_title": self.alert_title,
+            "connection_label": self.connection_label,
+            "business_manager_reference": self.business_manager_reference,
+            "business_manager_name": self.business_manager_name,
+            "read_as": self.read_as,
+            "coverage_status": self.coverage_status,
+            "observed_at": self.observed_at.isoformat(),
+            "counters": {
+                key: int(self.counters.get(key) or 0) for key, _ in SUMMARY_COUNTER_LABELS
+            },
+            "new_accounts": [
+                {
+                    "external_id": str(item.get("external_id") or ""),
+                    "owner_business_reference": item.get("owner_business_reference"),
+                }
+                for item in list(self.new_accounts)[:SUMMARY_MAX_IDS]
+            ],
+            "recommended_next_step": self.recommended_next_step,
+            "timezone": self.timezone_name,
+            "dashboard_link": self.dashboard_link,
+        }
+
+    @classmethod
+    def from_payload(cls, payload: dict, *, observed_at: datetime) -> SummaryMessageInputs:
+        """Rebuilt by the dispatcher from the stored, already-redacted payload."""
+        return cls(
+            severity=str(payload.get("severity", "warning")),
+            alert_title=str(payload.get("alert_title", "Discovery sweep summary")),
+            connection_label=str(payload.get("connection_label", "—")),
+            business_manager_reference=str(payload.get("business_manager_reference", "—")),
+            business_manager_name=str(payload.get("business_manager_name", "—")),
+            read_as=str(payload.get("read_as", "—")),
+            coverage_status=str(payload.get("coverage_status", "unknown")),
+            observed_at=observed_at,
+            counters=dict(payload.get("counters") or {}),
+            new_accounts=tuple(
+                item for item in (payload.get("new_accounts") or []) if isinstance(item, dict)
+            ),
+            recommended_next_step=str(payload.get("recommended_next_step", "")),
+            timezone_name=payload.get("timezone"),
+            dashboard_link=payload.get("dashboard_link"),
+        )
+
+
+def render_summary(inputs: SummaryMessageInputs) -> str:
+    """Render `a3-v1-summary`. Counts, ids and the reader — nothing about safety or approval."""
+    lines = [
+        f"[AdsOps] {sanitise(inputs.severity, limit=32).upper()} — {sanitise(inputs.alert_title)}",
+        "",
+        f"Connection: {sanitise(inputs.connection_label)}",
+        "Business Manager: "
+        f"{sanitise(inputs.business_manager_name)} ({sanitise(inputs.business_manager_reference, limit=120)})",
+        f"Read as: {sanitise(inputs.read_as)}",
+        f"Ad account coverage: {sanitise(inputs.coverage_status, limit=48)}",
+        f"Observed: {format_observed_at(inputs.observed_at, inputs.timezone_name)}",
+        "",
+    ]
+    for key, label in SUMMARY_COUNTER_LABELS:
+        value = int(inputs.counters.get(key) or 0)
+        if value:
+            lines.append(f"{label}: {value}")
+    accounts = list(inputs.new_accounts)[:SUMMARY_MAX_IDS]
+    if accounts:
+        lines.append("")
+        lines.append("New ad accounts:")
+        for item in accounts:
+            external_id = sanitise(str(item.get("external_id") or ""), limit=120)
+            owner = item.get("owner_business_reference")
+            suffix = (
+                f" — shared from Business Manager {sanitise(str(owner), limit=120)}"
+                if owner
+                else ""
+            )
+            lines.append(f"- {external_id}{suffix}")
+        total_new = int(inputs.counters.get("imported") or 0) + int(
+            inputs.counters.get("awaiting_import") or 0
+        )
+        if total_new > len(accounts):
+            lines.append(f"…and {total_new - len(accounts)} more in the dashboard.")
+    lines += ["", f"Next step: {sanitise(inputs.recommended_next_step, limit=_SUMMARY_LIMIT)}"]
+    if inputs.dashboard_link and is_safe_public_url(inputs.dashboard_link):
+        lines += ["", inputs.dashboard_link]
+
+    message = "\n".join(lines)
+    if len(message) > MAX_MESSAGE_LENGTH:
+        message = message[: MAX_MESSAGE_LENGTH - 1].rstrip() + "…"
+    return message

@@ -1,9 +1,13 @@
-"""A7 — BM + ad account creation & sharing via the official Meta API. Every mutation goes
-through `WriteCtx`; every route is workspace-scoped through `Ctx.workspace_id`, never a payload.
+"""A7 — BM + ad account creation & sharing via the official Meta API, A10.x discovery and
+registry import, O3 connection automation. Every route is owner-only (`OwnerCtx`) and
+workspace-scoped through `Ctx.workspace_id`, never a payload.
 
-No route here calls a real Meta API — no real provider is wired anywhere yet
-(`get_fake_provider()` is the only provider this module can reach). Wiring a real one is a
-separate, later change that itself needs the user's explicit approval, per CLAUDE.md rule 22.
+Which provider a route reaches is decided in one place, `_provider_for`: the fake provider by
+default, and since A10 the real, **read-only** provider only for a `production` connection whose
+Business Manager has a configured reader credential (rule 40). The real provider cannot write —
+its transport is GET-only (rule 20). The scheduled discovery sweep (O3) does not go through these
+routes; it is `run_dispatcher.discovery_sweep_pass`, switched per connection by
+`PATCH /meta-connections/{id}/automation` below.
 """
 from __future__ import annotations
 
@@ -17,7 +21,8 @@ from fastapi import APIRouter, Query
 from app.api.deps import OwnerCtx
 from app.core.config import get_settings
 from app.core.enums import DataFreshness, DiscoveryRunStatus, MetaEnvironment
-from app.core.errors import NotFoundError
+from app.core.errors import ConflictError, NotFoundError, ValidationError
+from app.models.entities import AuditLog
 from app.models.meta_discovery import BusinessManagerDiscoveryRun
 from app.models.meta_operations import (
     AccessShareBatch,
@@ -28,6 +33,7 @@ from app.models.meta_operations import (
 from app.schemas import meta_operations as s
 from app.schemas.common import page_response
 from app.services.base import get_or_404, snapshot
+from app.services.discovery_sweep import serialize_automation
 from app.services.meta_access_share import AccessShareBatchService, DraftShareItem
 from app.services.meta_account_creation import AccountCreationBatchService, DraftAccountItem
 from app.services.meta_discovery import MetaDiscoveryService, ReconciliationRow
@@ -100,20 +106,26 @@ def _serialize_connection(connection: MetaConnection) -> dict[str, Any]:
         # UI has to be able to say so rather than implying each card is its own business.
         "business_manager_reference": business_id or None,
         "business_manager_source": "connection" if (connection.business_manager_reference or "").strip() else "server",
+        # O3. The owner's switches and whether the sweep could read this connection at all —
+        # computed from server configuration, never stored, never a credential.
+        "automation": serialize_automation(connection, settings),
     }
 
 
-#: A10.1. How long a discovery observation is treated as current. Reuses A1's freshness
-#: vocabulary rather than inventing a second one — the UI must never present a stale reading as
-#: though it were taken now.
-DISCOVERY_STALE_AFTER = timedelta(hours=24)
-
-
 def _freshness(completed_at: datetime | None) -> str:
+    """How long a discovery observation is treated as current. Reuses A1's freshness vocabulary
+    rather than inventing a second one — the UI must never present a stale reading as though it
+    were taken now.
+
+    O3 moved the threshold from a router constant (24 h) to `discovery_stale_after_hours`, the
+    value the discovery sweep's "due" and the not-returned rule's window also read — so the badge
+    and the sweep agree by construction.
+    """
     if completed_at is None:
         return DataFreshness.UNKNOWN.value
     age = datetime.now(UTC) - completed_at
-    return (DataFreshness.CURRENT if age <= DISCOVERY_STALE_AFTER else DataFreshness.STALE).value
+    stale_after = timedelta(hours=get_settings().discovery_stale_after_hours)
+    return (DataFreshness.CURRENT if age <= stale_after else DataFreshness.STALE).value
 
 
 def _serialize_reconciliation(rows: list[ReconciliationRow]) -> list[dict[str, Any]]:
@@ -351,6 +363,65 @@ def get_connection(ctx: OwnerCtx, connection_id: uuid.UUID) -> dict[str, Any]:
     return _serialize_connection(connection)
 
 
+@connections_router.patch("/{connection_id}/automation")
+def update_automation(
+    ctx: OwnerCtx, connection_id: uuid.UUID, payload: s.MetaConnectionAutomationUpdate
+) -> dict[str, Any]:
+    """O3. The owner's named decision to let the discovery sweep read — and optionally import
+    for — this connection. Makes no provider call.
+
+    One of two switches; the other is the release's `DISCOVERY_SWEEP_EVERY_N_PASSES`. Neither
+    alone reaches Meta or writes the registry. Refused for a `fake` or `sandbox` connection:
+    discovering fake data on a timer and importing it would be fabricating registry records.
+    Turning things **off** is always allowed. Audited in the same transaction, with the real
+    actor (rule 3).
+    """
+    connection = get_or_404(ctx.session, MetaConnection, connection_id, ctx.workspace_id, label="Meta connection")
+    if payload.auto_import_enabled and not payload.auto_discovery_enabled:
+        raise ValidationError(
+            "Automatic import needs automatic discovery: it only imports what a scheduled run returned.",
+            details={"field": "auto_import_enabled"},
+        )
+    turning_on = payload.auto_discovery_enabled or payload.auto_import_enabled
+    if turning_on and connection.environment != MetaEnvironment.PRODUCTION:
+        raise ConflictError(
+            "Only a production connection can be switched to automatic. A fake or sandbox "
+            "connection never reaches Meta, so automating it would import fabricated data.",
+            details={"field": "auto_discovery_enabled", "environment": connection.environment.value},
+        )
+    before = {
+        "auto_discovery_enabled": connection.auto_discovery_enabled,
+        "auto_import_enabled": connection.auto_import_enabled,
+        "automation_enabled_by": str(connection.automation_enabled_by) if connection.automation_enabled_by else None,
+        "automation_enabled_at": connection.automation_enabled_at.isoformat() if connection.automation_enabled_at else None,
+    }
+    connection.auto_discovery_enabled = payload.auto_discovery_enabled
+    connection.auto_import_enabled = payload.auto_import_enabled
+    if turning_on:
+        connection.automation_enabled_by = ctx.user.id
+        connection.automation_enabled_at = datetime.now(UTC)
+    else:
+        connection.automation_enabled_by = None
+        connection.automation_enabled_at = None
+    connection.updated_by = ctx.user.id
+    ctx.session.flush()
+    ctx.audit.record(
+        action="meta_connection.automation_changed",
+        entity_type="meta_connection",
+        entity_id=connection.id,
+        before=before,
+        after={
+            "auto_discovery_enabled": connection.auto_discovery_enabled,
+            "auto_import_enabled": connection.auto_import_enabled,
+            "automation_enabled_by": str(connection.automation_enabled_by) if connection.automation_enabled_by else None,
+            "automation_enabled_at": connection.automation_enabled_at.isoformat() if connection.automation_enabled_at else None,
+        },
+        metadata={"environment": connection.environment.value},
+    )
+    ctx.commit()
+    return _serialize_connection(connection)
+
+
 @connections_router.post("/{connection_id}/check-capability")
 def check_capability(ctx: OwnerCtx, connection_id: uuid.UUID) -> dict[str, Any]:
     connection = get_or_404(ctx.session, MetaConnection, connection_id, ctx.workspace_id, label="Meta connection")
@@ -380,11 +451,13 @@ def check_capability(ctx: OwnerCtx, connection_id: uuid.UUID) -> dict[str, Any]:
 def run_discovery(ctx: OwnerCtx, connection_id: uuid.UUID) -> dict[str, Any]:
     """Read the configured Business Manager, then its ad accounts and Pixels. Read-only.
 
-    Only ever runs because an operator asked: there is no timer, no page-load trigger and no
-    retry, so every discovery call against a real Business Manager's rate-limit budget is one a
-    person chose to spend. (Since S1 this is no longer true of *every* Meta call: the spend sweep
-    reads on a cadence that is off by default — see `run_dispatcher.spend_sweep_pass`. It shares
-    the same budget, which is why it stops on the first `rate_limited`.)
+    This route runs because a person asked: no page-load trigger and no retry. It is no longer
+    the only way discovery starts. Since O3, discovery and import run either because a person
+    pressed a button, or because the workspace owner switched a production connection to
+    automatic and the release enabled the sweep — never because a page loaded, and never from a
+    fake connection (`run_dispatcher.discovery_sweep_pass`). Both share the Business Manager's
+    rate-limit budget with the S1 spend sweep, which is why every sweep stops on the first
+    `rate_limited`.
     """
     connection = get_or_404(ctx.session, MetaConnection, connection_id, ctx.workspace_id, label="Meta connection")
     service = _discovery_service(ctx, connection)
@@ -447,6 +520,33 @@ def _serialize_run_summary(run: BusinessManagerDiscoveryRun) -> dict[str, Any]:
     }
 
 
+def _auto_import_counts(ctx: OwnerCtx, runs: list[BusinessManagerDiscoveryRun]) -> dict[str, dict]:
+    """O3. What the sweep did with each scheduled run's results, read back from the pass's own
+    audit row (`meta_discovery.sweep_pass_recorded`) — no new table, no provider call. A manual
+    run has no such row and reports `null`, which is not "imported nothing"."""
+    scheduled = {str(run.id) for run in runs if run.trigger.value == "scheduled_sweep"}
+    if not scheduled:
+        return {}
+    found: dict[str, dict] = {}
+    for row in ctx.session.execute(
+        sa.select(AuditLog)
+        .where(
+            AuditLog.workspace_id == ctx.workspace_id,
+            AuditLog.action == "meta_discovery.sweep_pass_recorded",
+        )
+        .order_by(AuditLog.created_at.desc())
+        .limit(500)
+    ).scalars():
+        for entry in (row.after_json or {}).get("connections") or []:
+            run_id = entry.get("discovery_run_id")
+            if run_id in scheduled and run_id not in found:
+                found[run_id] = {
+                    key: int(entry.get(key) or 0)
+                    for key in ("imported", "already_in_registry", "archived_returned", "conflicts", "awaiting_import")
+                }
+    return found
+
+
 @connections_router.get("/{connection_id}/discoveries")
 def list_discoveries(
     ctx: OwnerCtx,
@@ -485,8 +585,12 @@ def list_discoveries(
         .scalars()
         .all()
     )
+    auto_import = _auto_import_counts(ctx, list(runs))
     return page_response(
-        [_serialize_run_summary(run) for run in runs],
+        [
+            {**_serialize_run_summary(run), "auto_import": auto_import.get(str(run.id))}
+            for run in runs
+        ],
         page=page,
         page_size=page_size,
         total=int(total),
@@ -532,9 +636,11 @@ def import_discovered_ad_account(
 ) -> dict[str, Any]:
     """Register one ad account this run returned. Makes no provider call.
 
-    The run is named in the path rather than resolved as "the latest": the operator is acting on
-    a result they are looking at, and a run that completed between rendering and clicking must
-    not silently become the evidence for a write.
+    The run is named in the path rather than resolved as "the latest": a person importing here
+    is acting on a result they are looking at, and a run that completed between rendering and
+    clicking must not silently become the evidence for a write. (The discovery sweep imports
+    through the same service call for connections whose owner allowed it — O3 — always from the
+    run it has just read, never from "the latest".)
 
     Everything it writes goes through A1's own registry service, so the record is indistinguishable
     from one typed by hand — same uniqueness guard, same audit row, same checklist, same

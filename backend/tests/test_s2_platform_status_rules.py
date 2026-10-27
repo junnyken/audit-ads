@@ -114,7 +114,8 @@ def keys(facts: HealthFacts) -> set[str]:
 
 
 def test_the_registry_grows_from_14_to_18_by_the_four_status_rules():
-    assert len(HEALTH_RULES_V1) == 18
+    # 18 after S2; O3 adds `account_not_returned_by_latest_discovery` (test_o3_absence_rule.py).
+    assert len(HEALTH_RULES_V1) == 19
     assert {rule.rule_key for rule in HEALTH_RULES_V1} >= S2_KEYS
 
 

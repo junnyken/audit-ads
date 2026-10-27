@@ -112,7 +112,10 @@ non-disclosing (out-of-scope answers 404, never 403). The read endpoint makes no
 
 **Provider-call limits:** ad accounts 2 edges, Pixels 1; each edge capped at 10 pages × 100
 items; hitting the cap sets `truncated`, which makes coverage `partial`. No timer, no page-load
-trigger, no automatic retry.
+trigger, no automatic retry. *(Note added 2026-10-27, O3: no longer true of the timer, on purpose —
+a production connection the owner switched to automatic is discovered by the dispatcher's discovery
+sweep when the release enables it; off by default. Still no page-load trigger and no retry. See
+`docs/AUDIT_BEFORE_BUILD_O3_AUTO_IMPORT.md`.)*
 
 **Internal import/link:** not implemented (§2).
 

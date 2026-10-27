@@ -78,7 +78,8 @@ describe('alert presentation rules', () => {
   })
 
   it('explains every reason a message was not sent', () => {
-    expect(Object.keys(SKIP_REASON_LABEL)).toHaveLength(8)
+    // 8 from A3 + O3's `auto_import_grace`.
+    expect(Object.keys(SKIP_REASON_LABEL)).toHaveLength(9)
     for (const label of Object.values(SKIP_REASON_LABEL)) {
       expect(label.length).toBeGreaterThan(10)
     }

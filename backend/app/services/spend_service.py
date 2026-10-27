@@ -72,6 +72,26 @@ class SpendReader:
     business_id: str
 
 
+def reader_for_connection(connection: MetaConnection, settings=None) -> SpendReader | None:
+    """The one predicate for "can this connection read Meta at all": not archived, `production`,
+    a Business Manager id, and a configured reader credential for it. `None` otherwise.
+
+    Shared by spend (S1) and the discovery sweep (O3), so "eligible" cannot mean two things. A
+    later reader source (mb-connect, Phase 4) is a new branch of `resolve_reader`, not of this.
+    Reads server configuration and the row, never Meta; the credential itself is never returned.
+    """
+    settings = settings or get_settings()
+    if connection.archived_at is not None or connection.environment != MetaEnvironment.PRODUCTION:
+        return None
+    business_id = connection_business_id(connection, settings)
+    if not business_id:
+        return None
+    _, reader_source = resolve_reader(settings, business_id)
+    if reader_source == READER_NONE:
+        return None
+    return SpendReader(connection, reader_source, business_id)
+
+
 def _connections_by_business(session: Session, workspace_id: uuid.UUID, settings) -> dict[str, SpendReader]:
     """Business Manager id -> the one connection chosen to read it.
 
@@ -91,16 +111,14 @@ def _connections_by_business(session: Session, workspace_id: uuid.UUID, settings
     ).scalars().all()
     chosen: dict[str, tuple[int, SpendReader]] = {}
     for connection in rows:
-        business_id = connection_business_id(connection, settings)
-        if not business_id:
+        reader = reader_for_connection(connection, settings)
+        if reader is None:
             continue
-        _, reader_source = resolve_reader(settings, business_id)
-        if reader_source == READER_NONE:
-            continue
+        business_id = reader.business_id
         rank = 0 if (connection.business_manager_reference or "").strip() else 1
         current = chosen.get(business_id)
         if current is None or rank < current[0]:
-            chosen[business_id] = (rank, SpendReader(connection, reader_source, business_id))
+            chosen[business_id] = (rank, reader)
     return {key: value for key, (_, value) in chosen.items()}
 
 

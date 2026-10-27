@@ -216,6 +216,10 @@ class EvaluationTrigger(StrEnum):
     #: S1. Evaluation caused by a newly stored spend observation; `trigger_reference_id` is the
     #: observation id.
     SPEND_OBSERVATION = "spend_observation"
+    #: O3. Re-evaluation of a Business Manager's registry accounts after a scheduled discovery
+    #: run, so `account_not_returned_by_latest_discovery` opens and closes with the run that
+    #: decides it. `trigger_reference_id` is the discovery run id.
+    DISCOVERY_SWEEP = "discovery_sweep"
 
 
 class EvaluationRunStatus(StrEnum):
@@ -261,6 +265,9 @@ class AlertSeverity(StrEnum):
 class AlertSourceType(StrEnum):
     HEALTH_SIGNAL = "health_signal"
     HEALTH_EVALUATION_RUN = "health_evaluation_run"
+    #: O3. One summary per discovery-sweep pass per connection, carrying no ad account. It is
+    #: what keeps the first automatic import of many accounts from becoming one message each.
+    DISCOVERY_SWEEP = "discovery_sweep"
 
 
 class DeliveryChannel(StrEnum):
@@ -310,6 +317,11 @@ class DeliverySkipReason(StrEnum):
     TIMEZONE_NOT_CONFIGURED = "timezone_not_configured"
     DUPLICATE_SUPPRESSED_BY_DEDUPE = "duplicate_suppressed_by_dedupe"
     REMINDERS_DISABLED = "reminders_disabled"
+    #: O3. A `warning` alert of an account the discovery sweep imported within
+    #: `AUTO_IMPORT_TELEGRAM_GRACE_HOURS`. Set by the system, not by a person, so it is a skip
+    #: reason (like `severity_delivery_disabled`), never a suppression. Never applied to
+    #: `critical`. The alert itself stays open, counted and visible (rule 17).
+    AUTO_IMPORT_GRACE = "auto_import_grace"
 
 
 class DeliveryFailureCode(StrEnum):
@@ -358,6 +370,9 @@ class OperationalRunKind(StrEnum):
     #: S1. A bounded, rate-limit-aware pass that reads spend from Meta for accounts whose spend
     #: observation is missing or stale. Off by default; switching it on is a release decision.
     SPEND_SWEEP = "spend_sweep"
+    #: O3. Scheduled read-only discovery, plus automatic import for connections that allow it.
+    #: Off by default (`DISCOVERY_SWEEP_EVERY_N_PASSES=0`); switching it on is a release decision.
+    DISCOVERY_SWEEP = "discovery_sweep"
 
 
 class OperationalRunStatus(StrEnum):
@@ -516,16 +531,42 @@ class MetaBatchItemStatus(StrEnum):
 
 
 class DiscoveryTrigger(StrEnum):
-    """How a discovery run started. `scheduled_reconciliation` is deliberately absent: A10.1
-    only runs when a person asks, so there is no code path that could start one on a timer.
+    """How a discovery run started.
 
-    S1 (2026-10-26) changed the wider premise, not this one: discovery is still only ever started
-    by a person, but "every Meta call is human-initiated" is no longer true of the product. The
-    spend sweep (`run_dispatcher.spend_sweep_pass`, `OperationalRunKind.SPEND_SWEEP`) reads spend
-    on a cadence — off by default, bounded, GET-only, stopping on `rate_limited`."""
+    A10.1 shipped with `manual` only and said so: discovery ran when a person asked. **O3
+    (2026-10-27) changed that on purpose.** Discovery and import now run either because a person
+    pressed a button, or because the workspace owner switched a production connection to automatic
+    and the release enabled the sweep (`DISCOVERY_SWEEP_EVERY_N_PASSES`, off by default) — never
+    because a page loaded, and never from a fake connection. `scheduled_sweep` is that second
+    path; its runs carry `created_by = NULL`, because no person started them."""
 
     MANUAL = "manual"
     INTERNAL_TEST = "internal_test"
+    #: O3. Started by `run_dispatcher.discovery_sweep_pass` for a connection whose owner turned
+    #: `auto_discovery_enabled` on. Off by default on both switches.
+    SCHEDULED_SWEEP = "scheduled_sweep"
+
+
+class AutoImportDecision(StrEnum):
+    """O3. What the discovery sweep decided for one ad account a scheduled run returned.
+
+    Vocabulary only — never a column. Recorded in the audit row of an automatic import and in
+    the sweep's counters, so "why was this account not imported" always has a word.
+    """
+
+    IMPORTED = "imported"
+    #: The registry already tracks it (exact canonical id). Nothing is touched.
+    ALREADY_IN_REGISTRY = "already_in_registry"
+    #: The registry holds it **archived**. Never re-imported and never restored by the sweep —
+    #: restoring is a person's decision (rule 2). Counted and reported instead.
+    ARCHIVED_IN_REGISTRY = "archived_in_registry"
+    #: Lost a uniqueness race (two passes, or a person importing at the same moment). That one
+    #: account's SAVEPOINT is rolled back; the pass carries on.
+    CONFLICT = "conflict"
+    #: The connection allows scheduled discovery but not import: shown as today, a person imports.
+    SKIPPED_IMPORT_DISABLED = "skipped_import_disabled"
+    #: The run failed, so nothing it returned may be imported.
+    SKIPPED_RUN_UNUSABLE = "skipped_run_unusable"
 
 
 class DiscoveryRunStatus(StrEnum):

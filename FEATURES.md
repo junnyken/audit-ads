@@ -49,8 +49,10 @@ of the defects found in this project have been violations of that rule, not cras
   real ad account.
 - **A discovery describes what one identity could read**, not what a Business Manager holds. The
   same BM returned 4 accounts to an Employee token and 8 to an Admin one.
-- **Discovery never writes to the registry by itself.** Importing is one row, one action, one
-  audit record, always explicit.
+- **Discovery never writes to the registry by itself.** Importing is one row, one audit record,
+  through one service call — either because a person pressed "Add to registry", or (O3) because
+  the workspace owner switched a production connection to automatic import and the release enabled
+  the discovery sweep. Never from a fake connection, never a restore, never an archive.
 - **Readiness and health are separate questions** and neither is a score. Nothing here predicts
   whether Meta will approve or restrict anything.
 
@@ -70,6 +72,58 @@ Security** (complete, 2026-09-09) — built on **A8 — Bulk Pixel Share**, **A7
 Chrome Context Extension & Account Workspace Guard**, **A4 Stage A — Deployment Readiness**,
 **A3 — Alert Center & Telegram Notification Delivery**, **A2 — Evidence-Based Account Health**
 and **A1 — Account Registry & Stability Readiness**.
+
+## O3 (built, never run against live Meta) — scheduled discovery and automatic import, read-only
+
+Built 2026-10-27 in this workspace: backend, migration, dashboard and tests only. **No live Meta read
+has been made** with this code, the sweep has never run outside the test suite, nothing was deployed,
+and no Telegram message was sent. Design A of `docs/AUDIT_BEFORE_BUILD_O3_AUTO_IMPORT.md`, owner
+decisions §9.
+
+- **Two switches, two people.** `DISCOVERY_SWEEP_EVERY_N_PASSES` (env, **default 0 = off**; enabling
+  it in production is a separate named approval — not given) and, per connection, the owner's
+  `auto_discovery_enabled` / `auto_import_enabled` (migration `0017_o3_conn_automation`, both default
+  `false`; `PATCH /meta-connections/{id}/automation`, owner only, audited with the real actor, `409`
+  for `fake`/`sandbox`). `--discovery-sweep` runs one pass by hand.
+- **The sweep** (`run_dispatcher.discovery_sweep_pass`) runs the existing discovery for each automatic
+  production connection with a reader, at most once per 24 h per connection, `DISCOVERY_SWEEP_BATCH`
+  (5) connections per workspace per pass, stopping a credential's budget on `rate_limited`. Runs are
+  `trigger=scheduled_sweep`, `created_by=NULL`; every audit row has `actor_id=NULL` and
+  `metadata.actor="system:discovery_sweep"`.
+- **Automatic import** (only with `auto_import_enabled`, only from a usable run): each
+  `missing_in_registry` ad account goes through the same import a person's click uses, one SAVEPOINT
+  and one `meta_discovery.ad_account_auto_imported` audit row each. Already in the registry → untouched;
+  **archived but still returned → never imported, never restored**, counted and reported; a uniqueness
+  race → `conflict`, the pass carries on. Imported accounts sit under the hub BM, so S1/S2 pick them up
+  on the next spend pass. Pixels are counted, never imported. Absence never archives anything.
+- **Owning Business Manager** of a client account: the real provider now asks for
+  `business{id,name}` (**[CHƯA KIỂM]** on `client_ad_accounts` with the hub's token); kept as
+  provenance only (`imported_from_discovery.owner_business_*`), no BM row created. Absent ⇒ "not
+  returned", never guessed.
+- **Health rule 19** `account_not_returned_by_latest_discovery` (attention, registry 18 → 19), only
+  from a **complete** latest production run inside the window; partial/incomplete/unknown never fire it.
+- **Storm control:** one summary alert per pass per connection, only when something is new
+  (`AlertSourceType.DISCOVERY_SWEEP`, `warning`, template `a3-v1-summary`, ≤ 10 ids); 24 h
+  `auto_import_grace` skip for `warning` deliveries of freshly auto-imported accounts, never
+  `critical`.
+- **Dashboard:** automation switches + `Auto` / `Auto + import` badge on each connection card (switches
+  disabled with the reason when the connection is not eligible); `Manual` / `Scheduled` badge and
+  "Imported automatically: n" in Discovery History; the account Overview says "Imported automatically
+  by the discovery sweep … Shared from Business Manager …". Mocked-API tests only, not clicked through.
+- **Owner guide draft** `docs/RUNBOOK_PARTNER_SHARE_TO_HUB.md` (Vietnamese, every Meta menu label
+  [CHƯA KIỂM], awaiting BA review).
+
+**Not done / known limits:**
+
+- No live read: whether `business{id,name}` comes back on `client_ad_accounts`, and whether the hub's
+  token can read `act_<id>` + `insights` of a client account (if not, O3 imports but S1/S2 report
+  `permission_missing` for those accounts — §9 8.2 says record it and move the focus to O4).
+- Production runs no dispatcher and the compose `dispatcher` service passes no `META_*`/`SPEND_*`/
+  `DISCOVERY_*` settings (unchanged; S1's condition).
+- The hub connection does not exist in the rebuilt local dev database; creating it is operations.
+- Follow-up found while building: a `production` connection with no reader credential still uses the
+  seeded **fake** provider for a manual discovery, and its run is stamped `production`. O3 excludes
+  runs read by the fake identity from rule 19; the router behaviour itself is unchanged.
 
 ## S2 (built, never run against live Meta) — Meta account status monitoring, read-only
 
@@ -140,8 +194,8 @@ deployed, and the frontend is not built yet. Design and decisions: `docs/AUDIT_B
 - **Spend sweep** in the dispatcher, **off by default** (`SPEND_SWEEP_EVERY_N_PASSES=0`), bounded
   (`SPEND_SWEEP_BATCH`), stops a connection on `rate_limited`, records an `OperationalRun`
   (`spend_sweep`) and one audit row per workspace per pass; `--spend-sweep` runs one pass by hand.
-  **The first Meta read in the product that is not human-initiated** — enabling it in production
-  needs the owner's separate approval (not given).
+  **The first Meta read in the product that was not human-initiated** (O3's discovery sweep is the
+  second) — enabling it in production needs the owner's separate approval (not given).
 - **Health rules** (registry 10 → 14, category `spend`): `spend_observation_missing_or_stale`
   (attention), `spend_change_vs_baseline` (warning; ±50% vs median of ≥5 complete days **and** ≥
   VND 500 000 / USD 20; other currencies never fire), `spend_cap_approaching` (warning, ≥90%,
