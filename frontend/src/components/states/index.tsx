@@ -93,16 +93,19 @@ export function ErrorState({
   onRetry,
   title,
   compact = false,
+  noPermissionText,
 }: {
   error: unknown
   onRetry?: () => void
   title?: string
   compact?: boolean
+  /** What a 403 says when the failed call was a write ("not allowed to do this"), not a read. */
+  noPermissionText?: string
 }) {
   const { t } = useI18n()
   const apiError = (error ?? {}) as ErrorLike
   // A refusal for the viewer's role is not a failure of the system: say so instead of "try again".
-  if (apiError.status === 403) return <NoPermissionState compact={compact} />
+  if (apiError.status === 403) return <NoPermissionState compact={compact} description={noPermissionText} />
   const reference = apiError.requestId
   return (
     <div role="alert" className={cn('rounded-lg border px-4 py-3 text-sm', TONE_CLASS.attention)}>

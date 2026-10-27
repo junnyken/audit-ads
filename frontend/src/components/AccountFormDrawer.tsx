@@ -1,8 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError, query } from '../lib/api'
 import type { AccountStatus, AdAccount, Paged, ReferenceRecord } from '../lib/types'
-import { Drawer, ErrorState, Field, InlineNote } from './ui'
+import { Button } from './primitives/button'
+import { Field } from './primitives/field'
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from './primitives/sheet'
+import { ErrorState } from './states'
+import { useEnumLabel } from '../i18n/labels'
+import { useI18n } from '../i18n'
+import { cn } from '../lib/cn'
 
 interface FormState {
   display_name: string
@@ -95,18 +101,25 @@ export default function AccountFormDrawer({
   account?: AdAccount | null
   onClose: () => void
   onSaved?: (account: AdAccount) => void
-  /** S2: a recorded status to pre-select when the drawer was opened from "Record Meta status in
+  /** S2: a recorded status to pre-select when the sheet was opened from "Record Meta status in
    * the registry". Only pre-selects — nothing is saved until the person presses Save (rule 11). */
   statusSuggestion?: AccountStatus | null
-  /** S2: what Meta returned, shown above the status field when the drawer was opened that way. */
+  /** S2: what Meta returned, shown above the status field when the sheet was opened that way. */
   statusNote?: string | null
 }) {
+  const { t } = useI18n()
+  const enumLabel = useEnumLabel()
   const queryClient = useQueryClient()
   const [form, setForm] = useState<FormState>(EMPTY)
+  const [touchedName, setTouchedName] = useState(false)
+  // Radix returns focus only to a <Trigger>; this sheet is opened by state from several buttons,
+  // so remember who had focus when it opened and give it back when it closes.
+  const returnFocusTo = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     const base = account ? fromAccount(account) : EMPTY
     setForm(account && statusSuggestion ? { ...base, status: statusSuggestion } : base)
+    setTouchedName(false)
   }, [account, open, statusSuggestion])
 
   const businessManagers = useQuery({
@@ -140,229 +153,246 @@ export default function AccountFormDrawer({
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((current) => ({ ...current, [key]: value }))
 
+  const nameMissing = !form.display_name.trim()
+  const legend = 'mb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted'
+
   return (
-    <Drawer
-      open={open}
-      title={account ? 'Edit account' : 'Register ad account'}
-      onClose={onClose}
-      footer={
-        <div className="flex justify-end gap-2">
-          <button type="button" className="btn-secondary" onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            type="submit"
-            form="account-form"
-            className="btn-primary"
-            disabled={save.isPending || !form.display_name.trim()}
-          >
-            {save.isPending ? 'Saving…' : account ? 'Save changes' : 'Create account'}
-          </button>
-        </div>
-      }
-    >
-      <form
-        id="account-form"
-        className="space-y-6"
-        onSubmit={(event) => {
+    <Sheet open={open} onOpenChange={(next) => !next && onClose()}>
+      <SheetContent
+        side="right"
+        closeLabel={t('common.close')}
+        className="w-full sm:w-[30rem] sm:max-w-[30rem]"
+        onOpenAutoFocus={() => {
+          returnFocusTo.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+        }}
+        onCloseAutoFocus={(event) => {
           event.preventDefault()
-          save.mutate()
+          if (returnFocusTo.current?.isConnected) returnFocusTo.current.focus()
         }}
       >
-        {save.isError && <ErrorState error={save.error as ApiError} />}
+        <header className="space-y-1 border-b border-line px-4 py-3 pr-14">
+          <SheetTitle className="text-lg font-semibold">
+            {account ? t('form.title.edit') : t('form.title.create')}
+          </SheetTitle>
+          <SheetDescription className="text-sm text-ink-muted">
+            {account ? t('form.desc.edit') : t('form.desc.create')}
+          </SheetDescription>
+        </header>
 
-        <fieldset className="space-y-3">
-          <legend className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">
-            Identity
-          </legend>
-          <Field label="Account name" required htmlFor="display_name">
-            <input
-              id="display_name"
-              className="input"
-              value={form.display_name}
-              onChange={(event) => set('display_name', event.target.value)}
-              required
-              maxLength={200}
-            />
-          </Field>
-          <Field label="External account ID" hint="Unique within this workspace when provided.">
-            <input
-              className="input"
-              value={form.external_account_id}
-              onChange={(event) => set('external_account_id', event.target.value)}
-              maxLength={120}
-            />
-          </Field>
-          <Field label="Tags" hint="Comma separated.">
-            <input className="input" value={form.tags} onChange={(event) => set('tags', event.target.value)} />
-          </Field>
-        </fieldset>
+        <div className="flex-1 overflow-y-auto px-4 py-4">
+          <form
+            id="account-form"
+            className="space-y-6"
+            onSubmit={(event) => {
+              event.preventDefault()
+              save.mutate()
+            }}
+          >
+            {save.isError && (
+              <ErrorState error={save.error as ApiError} title={t('form.error.title')} noPermissionText={t('acct.error.noPermissionWrite')} compact />
+            )}
 
-        <fieldset className="space-y-3">
-          <legend className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">
-            Ownership
-          </legend>
-          <Field label="Account type" required>
-            <select
-              className="input"
-              value={form.account_type}
-              onChange={(event) => set('account_type', event.target.value)}
-            >
-              <option value="unknown">Unknown</option>
-              <option value="business_manager">Business Manager</option>
-              <option value="personal_reference">Personal reference</option>
-            </select>
-          </Field>
-          <Field label="Business Manager">
-            <select
-              className="input"
-              value={form.business_manager_id}
-              onChange={(event) => set('business_manager_id', event.target.value)}
-            >
-              <option value="">Not mapped</option>
-              {(businessManagers.data?.items ?? []).map((bm) => (
-                <option key={bm.id} value={bm.id}>
-                  {String(bm.name)}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Personal account reference">
-            <select
-              className="input"
-              value={form.personal_account_reference_id}
-              onChange={(event) => set('personal_account_reference_id', event.target.value)}
-            >
-              <option value="">Not mapped</option>
-              {(personalReferences.data?.items ?? []).map((reference) => (
-                <option key={reference.id} value={reference.id}>
-                  {String(reference.label)}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Owner label">
-            <input
-              className="input"
-              value={form.owner_label}
-              onChange={(event) => set('owner_label', event.target.value)}
-              maxLength={200}
-            />
-          </Field>
-        </fieldset>
+            <fieldset className="space-y-3">
+              <legend className={legend}>{t('form.group.identity')}</legend>
+              <Field
+                label={t('form.name')}
+                required
+                htmlFor="display_name"
+                error={touchedName && nameMissing ? t('form.name.required') : undefined}
+              >
+                <input
+                  id="display_name"
+                  className={cn('input', touchedName && nameMissing && 'border-tone-attention-border')}
+                  value={form.display_name}
+                  onChange={(event) => set('display_name', event.target.value)}
+                  onBlur={() => setTouchedName(true)}
+                  aria-invalid={touchedName && nameMissing}
+                  required
+                  maxLength={200}
+                />
+              </Field>
+              <Field label={t('form.externalId')} hint={t('form.externalId.hint')}>
+                <input
+                  className="input font-mono"
+                  value={form.external_account_id}
+                  onChange={(event) => set('external_account_id', event.target.value)}
+                  maxLength={120}
+                />
+              </Field>
+              <Field label={t('form.tags')} hint={t('form.tags.hint')}>
+                <input className="input" value={form.tags} onChange={(event) => set('tags', event.target.value)} />
+              </Field>
+            </fieldset>
 
-        <fieldset className="space-y-3">
-          <legend className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">
-            Operational metadata
-          </legend>
-          {statusNote && (
-            <p
-              className="rounded-md border border-line bg-surface-muted px-3 py-2 text-[12.5px] text-ink-muted"
-              data-testid="meta-status-note"
-            >
-              {statusNote}
-            </p>
-          )}
-          <Field label="Account status" required htmlFor="account-status" hint="Record what you observed. Leave as Unknown if you have not checked.">
-            <select id="account-status" className="input" value={form.status} onChange={(event) => set('status', event.target.value)}>
-              <option value="unknown">Unknown</option>
-              <option value="active">Active</option>
-              <option value="warning">Warning</option>
-              <option value="restricted">Restricted</option>
-              <option value="disabled">Disabled</option>
-            </select>
-          </Field>
-          <div className="grid grid-cols-3 gap-3">
-            <Field label="Country">
-              <input
-                className="input uppercase"
-                value={form.country}
-                onChange={(event) => set('country', event.target.value)}
-                maxLength={2}
-                placeholder="VN"
-              />
-            </Field>
-            <Field label="Currency">
-              <input
-                className="input uppercase"
-                value={form.currency}
-                onChange={(event) => set('currency', event.target.value)}
-                maxLength={3}
-                placeholder="VND"
-              />
-            </Field>
-            <Field label="Timezone">
-              <input
-                className="input"
-                value={form.timezone}
-                onChange={(event) => set('timezone', event.target.value)}
-                placeholder="Asia/Ho_Chi_Minh"
-              />
-            </Field>
-          </div>
-        </fieldset>
+            <fieldset className="space-y-3">
+              <legend className={legend}>{t('form.group.ownership')}</legend>
+              <Field label={t('form.type')} required>
+                <select
+                  className="input"
+                  value={form.account_type}
+                  onChange={(event) => set('account_type', event.target.value)}
+                >
+                  <option value="unknown">{enumLabel('accountType', 'unknown')}</option>
+                  <option value="business_manager">{enumLabel('accountType', 'business_manager')}</option>
+                  <option value="personal_reference">{enumLabel('accountType', 'personal_reference')}</option>
+                </select>
+              </Field>
+              <Field label={t('form.bm')}>
+                <select
+                  className="input"
+                  value={form.business_manager_id}
+                  onChange={(event) => set('business_manager_id', event.target.value)}
+                >
+                  <option value="">{t('ov.notMapped')}</option>
+                  {(businessManagers.data?.items ?? []).map((bm) => (
+                    <option key={bm.id} value={bm.id}>
+                      {String(bm.name)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label={t('form.personalRef')}>
+                <select
+                  className="input"
+                  value={form.personal_account_reference_id}
+                  onChange={(event) => set('personal_account_reference_id', event.target.value)}
+                >
+                  <option value="">{t('ov.notMapped')}</option>
+                  {(personalReferences.data?.items ?? []).map((reference) => (
+                    <option key={reference.id} value={reference.id}>
+                      {String(reference.label)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label={t('form.ownerLabel')}>
+                <input
+                  className="input"
+                  value={form.owner_label}
+                  onChange={(event) => set('owner_label', event.target.value)}
+                  maxLength={200}
+                />
+              </Field>
+            </fieldset>
 
-        <fieldset className="space-y-3">
-          <legend className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">
-            Assets
-          </legend>
-          <InlineNote>
-            These switches decide which conditional checklist items apply. Turning one on makes
-            the matching item required; the readiness panel always states why an item is required.
-          </InlineNote>
-          <label className="flex items-center gap-2 text-[13px]">
-            <input
-              type="checkbox"
-              checked={form.requires_page}
-              onChange={(event) => set('requires_page', event.target.checked)}
-            />
-            This account needs a Page for its operating workflow
-          </label>
-          <label className="flex items-center gap-2 text-[13px]">
-            <input
-              type="checkbox"
-              checked={form.requires_pixel}
-              onChange={(event) => set('requires_pixel', event.target.checked)}
-            />
-            This account needs a Pixel for its operating workflow
-          </label>
-          <Field label="Active landing page URL" hint="Setting this makes the landing-page and contact/policy checks required.">
-            <input
-              className="input"
-              type="url"
-              value={form.landing_page_url}
-              onChange={(event) => set('landing_page_url', event.target.value)}
-              placeholder="https://"
-            />
-          </Field>
-        </fieldset>
+            <fieldset className="space-y-3">
+              <legend className={legend}>{t('form.group.operational')}</legend>
+              {statusNote && (
+                <p
+                  className="rounded-md border border-line bg-surface-muted px-3 py-2 text-sm text-ink-muted"
+                  data-testid="meta-status-note"
+                >
+                  {statusNote}
+                </p>
+              )}
+              <Field label={t('form.status')} required htmlFor="account-status" hint={t('form.status.hint')}>
+                <select
+                  id="account-status"
+                  className="input"
+                  value={form.status}
+                  onChange={(event) => set('status', event.target.value)}
+                >
+                  {(['unknown', 'active', 'warning', 'restricted', 'disabled'] as const).map((value) => (
+                    <option key={value} value={value}>
+                      {enumLabel('accountStatus', value)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <div className="grid grid-cols-3 gap-3">
+                <Field label={t('form.country')}>
+                  <input
+                    className="input uppercase"
+                    value={form.country}
+                    onChange={(event) => set('country', event.target.value)}
+                    maxLength={2}
+                    placeholder="VN"
+                  />
+                </Field>
+                <Field label={t('form.currency')}>
+                  <input
+                    className="input uppercase"
+                    value={form.currency}
+                    onChange={(event) => set('currency', event.target.value)}
+                    maxLength={3}
+                    placeholder="VND"
+                  />
+                </Field>
+                <Field label={t('form.timezone')}>
+                  <input
+                    className="input"
+                    value={form.timezone}
+                    onChange={(event) => set('timezone', event.target.value)}
+                    placeholder="Asia/Ho_Chi_Minh"
+                  />
+                </Field>
+              </div>
+            </fieldset>
 
-        <fieldset className="space-y-3">
-          <legend className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">
-            Browser and proxy references
-          </legend>
-          <InlineNote>
-            Browser and proxy references are non-secret operator labels, and they are assigned
-            from the account&apos;s <strong>Assets &amp; References</strong> tab after creation.
-            This product never stores passwords, cookies, session data, tokens or proxy
-            credentials — the API refuses those fields.
-          </InlineNote>
-        </fieldset>
+            <fieldset className="space-y-3">
+              <legend className={legend}>{t('form.group.assets')}</legend>
+              <p className="rounded-md border border-line bg-surface-muted px-3 py-2 text-xs text-ink-muted">
+                {t('form.assets.note')}
+              </p>
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 accent-brand"
+                  checked={form.requires_page}
+                  onChange={(event) => set('requires_page', event.target.checked)}
+                />
+                {t('form.requiresPage')}
+              </label>
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 accent-brand"
+                  checked={form.requires_pixel}
+                  onChange={(event) => set('requires_pixel', event.target.checked)}
+                />
+                {t('form.requiresPixel')}
+              </label>
+              <Field label={t('form.landing')} hint={t('form.landing.hint')}>
+                <input
+                  className="input"
+                  type="url"
+                  value={form.landing_page_url}
+                  onChange={(event) => set('landing_page_url', event.target.value)}
+                  placeholder="https://"
+                />
+              </Field>
+            </fieldset>
 
-        <fieldset>
-          <legend className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">
-            Notes
-          </legend>
-          <Field label="Operator notes">
-            <textarea
-              className="input min-h-[80px]"
-              value={form.notes}
-              onChange={(event) => set('notes', event.target.value)}
-              maxLength={5000}
-            />
-          </Field>
-        </fieldset>
-      </form>
-    </Drawer>
+            <fieldset className="space-y-3">
+              <legend className={legend}>{t('form.group.refs')}</legend>
+              <p className="rounded-md border border-line bg-surface-muted px-3 py-2 text-xs text-ink-muted">
+                {t('form.refs.note')}
+              </p>
+            </fieldset>
+
+            <fieldset>
+              <legend className={legend}>{t('form.group.notes')}</legend>
+              <Field label={t('form.notes')}>
+                <textarea
+                  className="input min-h-[80px]"
+                  value={form.notes}
+                  onChange={(event) => set('notes', event.target.value)}
+                  maxLength={5000}
+                />
+              </Field>
+            </fieldset>
+          </form>
+        </div>
+
+        <footer className="flex justify-end gap-2 border-t border-line px-4 py-3">
+          <Button variant="secondary" onClick={onClose}>
+            {t('common.cancel')}
+          </Button>
+          <Button type="submit" form="account-form" disabled={save.isPending || nameMissing}>
+            {save.isPending ? t('form.saving') : account ? t('form.save') : t('form.create')}
+          </Button>
+        </footer>
+      </SheetContent>
+    </Sheet>
   )
 }

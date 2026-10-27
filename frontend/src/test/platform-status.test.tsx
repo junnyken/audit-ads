@@ -219,21 +219,21 @@ describe('Overview tab', () => {
   it('labels the registry row as recorded and adds the Meta rows', async () => {
     mountOverview(full())
     expect(await screen.findByText('Bị vô hiệu hoá (theo Meta)')).toBeInTheDocument()
-    expect(screen.getByText('Recorded status')).toBeInTheDocument()
+    expect(screen.getByText('Trạng thái ghi nhận')).toBeInTheDocument()
     expect(screen.queryByText('Platform status')).toBeNull()
-    expect(screen.getByText('Disable reason')).toBeInTheDocument()
+    expect(screen.getByText('Lý do bị tắt')).toBeInTheDocument()
     expect(screen.getByText('RISK_PAYMENT — payment (3)')).toBeInTheDocument()
   })
 
   it('shows a dash when no status was observed, and offers no record button', async () => {
     mountOverview(null)
     expect(await screen.findByTestId('platform-status-none')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Record Meta status/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Ghi trạng thái Meta vào sổ/ })).toBeNull()
   })
 
   it('the record button only opens the drawer with a suggestion; it writes nothing', async () => {
     const onRecord = mountOverview(full())
-    await userEvent.click(await screen.findByRole('button', { name: 'Record Meta status in the registry' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Ghi trạng thái Meta vào sổ' }))
     expect(onRecord).toHaveBeenCalledWith('disabled', expect.stringContaining('account_status 2'))
     expect(apiMock.patch).not.toHaveBeenCalled()
     expect(apiMock.post).not.toHaveBeenCalled()
@@ -241,7 +241,7 @@ describe('Overview tab', () => {
 
   it('suggests nothing for a pending or closed code', async () => {
     const onRecord = mountOverview(full({ status: 'unsettled', account_status_raw: '3' }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Record Meta status in the registry' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Ghi trạng thái Meta vào sổ' }))
     expect(onRecord).toHaveBeenCalledWith(null, expect.any(String))
   })
 
@@ -249,7 +249,7 @@ describe('Overview tab', () => {
     authMock.role = 'viewer'
     mountOverview(full())
     await screen.findByText('Bị vô hiệu hoá (theo Meta)')
-    expect(screen.queryByRole('button', { name: /Record Meta status/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Ghi trạng thái Meta vào sổ/ })).toBeNull()
   })
 })
 
@@ -263,11 +263,11 @@ describe('edit drawer opened from the record button', () => {
     wrap(
       <AccountFormDrawer open account={full} onClose={() => {}} statusSuggestion="disabled" statusNote="Meta returned account_status 2." />,
     )
-    const select = (await screen.findByLabelText(/Account status/)) as HTMLSelectElement
+    const select = (await screen.findByLabelText(/Trạng thái ghi nhận/)) as HTMLSelectElement
     expect(select.value).toBe('disabled')
     expect(screen.getByTestId('meta-status-note')).toHaveTextContent('Meta returned account_status 2.')
     expect(apiMock.patch).not.toHaveBeenCalled()
-    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }))
     await waitFor(() => expect(apiMock.patch).toHaveBeenCalledTimes(1))
     expect(apiMock.patch.mock.calls[0][1]).toMatchObject({ status: 'disabled' })
   })
@@ -276,7 +276,7 @@ describe('edit drawer opened from the record button', () => {
     apiMock.get.mockResolvedValue({ items: [], page: 1, page_size: 200, total: 0, total_pages: 0 })
     const full = { ...account, account_type: 'unknown', business_manager_id: null, personal_account_reference_id: null, owner_label: '', country: null, currency: null, timezone: null, requires_page: false, requires_pixel: false, landing_page_url: null } as AdAccount
     wrap(<AccountFormDrawer open account={full} onClose={() => {}} statusSuggestion={null} />)
-    const select = (await screen.findByLabelText(/Account status/)) as HTMLSelectElement
+    const select = (await screen.findByLabelText(/Trạng thái ghi nhận/)) as HTMLSelectElement
     expect(select.value).toBe('active')
   })
 })
@@ -297,7 +297,7 @@ describe('Spend tab observation history', () => {
       ),
     )
     wrap(<SpendTab account={account} />)
-    expect(await screen.findByRole('columnheader', { name: 'Account status (code)' })).toBeInTheDocument()
+    expect(await screen.findByRole('columnheader', { name: 'Mã trạng thái tài khoản' })).toBeInTheDocument()
     const cells = await screen.findAllByTestId('history-status-code')
     expect(cells.map((c) => c.textContent)).toEqual(['2', '—'])
   })

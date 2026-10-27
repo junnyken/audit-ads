@@ -1,14 +1,24 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
+import { RefreshCw } from 'lucide-react'
 import { api, query } from '../../lib/api'
 import type { AdAccount, Paged, SpendObservation, SpendView } from '../../lib/types'
-import { Badge, Card, EmptyState, ErrorState, InlineNote, Skeleton } from '../../components/ui'
+import { Badge } from '../../components/primitives/badge'
+import { Button } from '../../components/primitives/button'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/primitives/table'
+import { EmptyState, ErrorState, PartialDataNote } from '../../components/states'
 import { SPEND_FRESHNESS_META } from '../../lib/readiness'
 import { rawMoney, refreshErrorMessage } from '../../lib/spend'
-import { formatDateTime } from '../../lib/format'
+import { formatDateTime, formatDay } from '../../lib/format'
+import { useEnumLabel } from '../../i18n/labels'
+import { useI18n } from '../../i18n'
 import { useAuth } from '../../hooks/useAuth'
+import { DisabledReason, Note, Panel, TabSkeleton } from './parts'
 
 export default function SpendTab({ account }: { account: AdAccount }) {
+  const { t } = useI18n()
+  const enumLabel = useEnumLabel()
   const { user } = useAuth()
   const isOwner = user?.role === 'owner'
   const queryClient = useQueryClient()
@@ -41,273 +51,289 @@ export default function SpendTab({ account }: { account: AdAccount }) {
     },
   })
 
-  if (spend.isLoading) return <Skeleton rows={6} />
-  if (spend.isError) return <ErrorState error={spend.error} onRetry={() => spend.refetch()} />
+  if (spend.isLoading) return <TabSkeleton cards={3} />
+  if (spend.isError) return <ErrorState error={spend.error} onRetry={() => spend.refetch()} title={t('sp.error.title')} />
 
   const data = spend.data!
   const meta = SPEND_FRESHNESS_META[data.freshness]
   const obs = data.latest_observation
   const attempt = data.latest_attempt
   const refreshedFailed = refresh.isSuccess && refresh.data.latest_attempt?.status === 'failed'
+  const refreshedOk = refresh.isSuccess && !refreshedFailed
+  const refuseReason = !isOwner ? t('sp.refresh.ownerOnly') : archived ? t('sp.refresh.archived') : null
+
+  const refreshButton = (
+    <DisabledReason reason={refuseReason} id="spend-refresh-reason">
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={() => refresh.mutate()}
+        disabled={refresh.isPending || refuseReason !== null}
+      >
+        <RefreshCw className={refresh.isPending ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} aria-hidden="true" />
+        {refresh.isPending ? t('sp.refresh.working') : t('sp.refresh')}
+      </Button>
+    </DisabledReason>
+  )
+
+  // Only meaningful once a successful read exists; an account never read has no daily rows.
+  const days = !obs ? [] : [
+    ...data.daily.map((d) => ({ date: d.date, raw: d.spend_raw as string | null, cur: d.currency })),
+    ...data.days_without_row.map((date) => ({ date, raw: null, cur: null })),
+  ].sort((a, b) => b.date.localeCompare(a.date))
 
   return (
     <div className="space-y-4">
-      <Card
-        title="Spend freshness"
-        action={
-          isOwner ? (
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={() => refresh.mutate()}
-              disabled={refresh.isPending || archived}
-              title={archived ? 'Archived accounts cannot be refreshed.' : undefined}
-            >
-              {refresh.isPending ? 'Refreshing…' : 'Refresh'}
-            </button>
-          ) : undefined
-        }
-      >
+      <Panel title={t('sp.freshness.title')} action={refreshButton}>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge tone={meta.tone} title={meta.description}>
-            {meta.label}
+          <Badge tone={meta.tone} title={t(`spendFreshnessHint.${data.freshness}`)}>
+            {enumLabel('spendFreshness', data.freshness)}
           </Badge>
           {data.reader_source && (
-            <span className="text-[12px] text-ink-muted">Read via: {data.reader_source}</span>
+            <span className="text-xs text-ink-muted">
+              {t('sp.readVia')} <span className="font-mono">{data.reader_source}</span>
+            </span>
           )}
-          <span className="text-[12px] text-ink-muted">
-            Fresh for {data.stale_after_hours} hours after a successful read
-          </span>
+          <span className="text-xs text-ink-muted">{t('sp.freshFor', { hours: data.stale_after_hours })}</span>
         </div>
-        <p className="mt-2 text-[12.5px] text-ink-muted">{meta.description}</p>
+        <p className="text-sm text-ink-muted">{t(`spendFreshnessHint.${data.freshness}`)}</p>
 
         {refresh.isError && (
-          <p role="alert" className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12.5px] text-rose-800">
+          <Note role="alert" tone="attention">
             {refreshErrorMessage(refresh.error)}
-          </p>
+          </Note>
         )}
         {refreshedFailed && (
-          <p role="alert" className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12.5px] text-rose-800">
-            The refresh was recorded as failed ({refresh.data.latest_attempt?.failure_code ?? 'unknown'}
-            {refresh.data.latest_attempt?.failure_summary
-              ? `: ${refresh.data.latest_attempt.failure_summary}`
-              : ''}
-            ). The figures below are from the last successful read.
-          </p>
+          <Note role="alert" tone="attention">
+            {t('sp.refresh.failed', {
+              code: refresh.data.latest_attempt?.failure_code ?? t('common.unknownCode'),
+              detail: refresh.data.latest_attempt?.failure_summary ? `: ${refresh.data.latest_attempt.failure_summary}` : '',
+            })}
+          </Note>
+        )}
+        {refreshedOk && (
+          // Read-back (skill 6.4): what the server now holds, not just "done".
+          <Note role="status" tone="info">
+            {t('sp.refresh.readback', {
+              time: formatDateTime(refresh.data.latest_observation?.observed_at),
+              state: enumLabel('spendFreshness', refresh.data.freshness),
+            })}
+          </Note>
         )}
 
         {attempt?.status === 'failed' && (
-          <div className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12.5px] text-rose-800">
-            <strong>Latest attempt failed</strong> · {formatDateTime(attempt.observed_at)}
-            <div>
-              <span className="font-mono">{attempt.failure_code ?? 'unknown'}</span>
+          <Note tone="attention">
+            <strong>{t('sp.attemptFailed')}</strong> · <span className="tabular-nums">{formatDateTime(attempt.observed_at)}</span>
+            <span className="block">
+              <span className="font-mono">{attempt.failure_code ?? t('common.unknownCode')}</span>
               {attempt.failure_summary ? ` — ${attempt.failure_summary}` : ''}
-            </div>
-          </div>
+            </span>
+            {obs && <span className="block">{t('sp.attemptFailed.older')}</span>}
+          </Note>
         )}
 
         {data.currency_mismatch === true && (
-          <p className="mt-3 text-[12.5px] text-amber-900">
-            Currency differs: registry {data.registry_currency ?? '—'} vs observed{' '}
-            {data.observed_currency ?? '—'}.
-          </p>
+          <Note tone="caution">
+            {t('sp.currencyDiffers', { registry: data.registry_currency ?? '—', observed: data.observed_currency ?? '—' })}
+          </Note>
         )}
-        {data.insights_currency_conflict && (
-          <p className="mt-1 text-[12.5px] text-amber-900">
-            The daily rows carry contradictory currencies.
-          </p>
-        )}
+        {data.insights_currency_conflict && <Note tone="caution">{t('sp.currencyConflict')}</Note>}
         {data.missing_input && (
-          <p className="mt-1 text-[12.5px] text-ink-muted">
-            Missing input: <span className="font-mono">{data.missing_input}</span>
+          <p className="text-sm text-ink-muted">
+            {t('sp.missingInput')} <span className="font-mono">{data.missing_input}</span>
           </p>
         )}
-        <InlineNote>{data.disclaimer}</InlineNote>
-      </Card>
+        <Note>{data.disclaimer}</Note>
+      </Panel>
 
       {!obs ? (
         <EmptyState
-          title="No successful spend read yet"
-          description={
-            data.freshness === 'not_observable'
-              ? 'No connection can read this account.'
-              : 'Nothing has been read from Meta for this account, so no figure is shown.'
+          title={t('sp.empty.title')}
+          description={data.freshness === 'not_observable' ? t('sp.empty.notObservable') : t('sp.empty.never')}
+          action={
+            data.freshness === 'not_observable' ? (
+              <Button asChild variant="secondary" size="sm">
+                <Link to="/meta-connections">{t('sp.empty.openConnections')}</Link>
+              </Button>
+            ) : (
+              <span className="text-sm text-ink-muted">
+                {isOwner && !archived ? t('sp.empty.pressRefresh') : t('sp.empty.askOwner')}
+              </span>
+            )
           }
         />
       ) : (
-        <>
-          <Card title="Latest observation">
-            <dl className="grid gap-x-6 gap-y-2 text-[12.5px] sm:grid-cols-2 xl:grid-cols-3">
-              <Item label="Observed at" value={formatDateTime(obs.observed_at)} />
-              <Item label="Currency" value={obs.currency ?? '—'} />
-              <Item label="Timezone" value={obs.timezone_name ?? '—'} />
-              <Item label="Amount spent (raw)" value={rawMoney(obs.amount_spent_raw, obs.currency)} mono />
-              <Item label="Spend cap (raw)" value={rawMoney(obs.spend_cap_raw, obs.currency)} mono />
-              <Item label="Balance (raw)" value={rawMoney(obs.balance_raw, obs.currency)} mono />
+        <div className="grid items-start gap-4 xl:grid-cols-2">
+          <Panel title={t('sp.latest.title')}>
+            <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+              <Item label={t('sp.observedAt')} value={formatDateTime(obs.observed_at)} />
+              <Item label={t('sp.currency')} value={obs.currency ?? '—'} />
+              <Item label={t('sp.timezone')} value={obs.timezone_name ?? '—'} />
+              <Item label={t('sp.amountSpent')} value={rawMoney(obs.amount_spent_raw, obs.currency)} money />
+              <Item label={t('sp.spendCap')} value={rawMoney(obs.spend_cap_raw, obs.currency)} money />
+              <Item label={t('sp.balance')} value={rawMoney(obs.balance_raw, obs.currency)} money />
             </dl>
-            <p className="mt-2 text-[11.5px] text-ink-faint">
-              These three values are shown exactly as Meta returned them; their units are not
-              verified.
-            </p>
-          </Card>
+            <p className="text-xs text-ink-muted">{t('sp.latest.note')}</p>
+          </Panel>
 
-          <Card title="Daily spend (complete days)">
-            <p className="mb-2 text-[12px] text-ink-muted">
-              Latest complete day: {data.latest_complete_day ?? '—'}
+          <Panel title={t('sp.baseline.title')}>
+            {data.baseline ? (
+              <p className="text-sm">
+                {t('sp.baseline.median', { count: data.baseline.days_used.length })}{' '}
+                <span className="font-mono tabular-nums">{rawMoney(data.baseline.median_raw, data.baseline.currency)}</span>
+              </p>
+            ) : (
+              <p className="text-sm text-ink-muted">{t('sp.baseline.none', { count: data.baseline_days_available })}</p>
+            )}
+          </Panel>
+
+          <Panel title={t('sp.daily.title')} className="xl:col-span-2">
+            <p className="text-xs text-ink-muted">
+              {t('sp.daily.latest', { day: data.latest_complete_day ? formatDay(data.latest_complete_day) : '—' })}
             </p>
             {data.latest_complete_day === null ? (
-              <p className="text-[12.5px] text-ink-muted">
-                No complete day can be determined
-                {data.missing_input ? ` (missing ${data.missing_input})` : ''}.
+              <p className="text-sm text-ink-muted">
+                {t('sp.daily.none')}
+                {data.missing_input ? ` ${t('sp.daily.noneMissing', { input: data.missing_input })}` : ''}
               </p>
             ) : (
-              <div className="table-scroll">
-                <table className="w-full border-collapse">
-                  <thead className="bg-surface-muted">
-                    <tr>
-                      <th className="th">Date</th>
-                      <th className="th">Spend (raw)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[
-                      ...data.daily.map((d) => ({ date: d.date, raw: d.spend_raw as string | null, cur: d.currency })),
-                      ...data.days_without_row.map((date) => ({ date, raw: null, cur: null })),
-                    ]
-                      .sort((a, b) => b.date.localeCompare(a.date))
-                      .map((row) => (
-                        <tr key={row.date}>
-                          <td className="td font-mono text-[12px]">{row.date}</td>
-                          <td
-                            className="td font-mono text-[12px]"
-                            title={row.raw === null ? 'Meta returned no row for this day' : undefined}
-                          >
-                            {row.raw === null ? '—' : rawMoney(row.raw, row.cur)}
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t('sp.col.date')}</TableHead>
+                    <TableHead numeric>{t('sp.col.spend')}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {days.map((row) => (
+                    <TableRow key={row.date}>
+                      <TableCell className="font-mono text-xs">{formatDay(row.date)}</TableCell>
+                      <TableCell numeric className="font-mono text-xs">
+                        {row.raw === null ? (
+                          <span title={t('sp.noRow')}>
+                            <span aria-hidden="true">—</span>
+                            <span className="sr-only">{t('sp.noRow')}</span>
+                          </span>
+                        ) : (
+                          rawMoney(row.raw, row.cur)
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             )}
             {data.days_without_row.length > 0 && (
-              <p className="mt-2 text-[11.5px] text-ink-faint">
-                “—” means Meta returned no row for that day. It is not zero.
-              </p>
+              <>
+                <PartialDataNote>{t('sp.daily.partial', { count: data.days_without_row.length })}</PartialDataNote>
+                <p className="text-xs text-ink-muted">{t('sp.daily.dashNote')}</p>
+              </>
             )}
             {data.today_partial && (
-              <div className="mt-3 rounded-md border border-line bg-surface-muted px-3 py-2 text-[12.5px]">
-                <Badge tone="info">Incomplete day</Badge>{' '}
-                <span className="font-mono">{data.today_partial.date}</span> ·{' '}
-                <span className="font-mono">
+              <div className="rounded-md border border-line bg-surface-muted px-3 py-2 text-sm">
+                <Badge tone="info">{t('sp.today.badge')}</Badge>{' '}
+                <span className="font-mono tabular-nums">{formatDay(data.today_partial.date)}</span> ·{' '}
+                <span className="font-mono tabular-nums">
                   {rawMoney(data.today_partial.spend_raw, data.today_partial.currency)}
                 </span>
-                <span className="text-ink-muted"> — still running, not used by any rule.</span>
+                <span className="text-ink-muted"> — {t('sp.today.note')}</span>
               </div>
             )}
-          </Card>
-
-          <Card title="Baseline">
-            {data.baseline ? (
-              <p className="text-[12.5px]">
-                Median of {data.baseline.days_used.length} earlier complete days:{' '}
-                <span className="font-mono">{rawMoney(data.baseline.median_raw, data.baseline.currency)}</span>
-              </p>
-            ) : (
-              <p className="text-[12.5px] text-ink-muted">
-                No baseline yet: {data.baseline_days_available} earlier complete day
-                {data.baseline_days_available === 1 ? '' : 's'} with a row — not enough to
-                compute a baseline.
-              </p>
-            )}
-          </Card>
-        </>
+          </Panel>
+        </div>
       )}
 
-      <Card title="Observation history">
+      <Panel title={t('sp.history.title')}>
         {history.isLoading ? (
-          <Skeleton rows={3} />
+          <TabSkeleton cards={1} />
         ) : history.isError ? (
-          <ErrorState error={history.error} onRetry={() => history.refetch()} />
+          <ErrorState error={history.error} onRetry={() => history.refetch()} title={t('sp.history.error')} compact />
         ) : history.data!.items.length === 0 ? (
-          <p className="text-[12.5px] text-ink-muted">No observation has been recorded.</p>
+          <p className="text-sm text-ink-muted">{t('sp.history.empty')}</p>
         ) : (
           <>
-            <div className="table-scroll">
-              <table className="w-full border-collapse">
-                <thead className="bg-surface-muted">
-                  <tr>
-                    <th className="th">Observed at</th>
-                    <th className="th">Result</th>
-                    <th className="th">Trigger</th>
-                    <th className="th" title="The account_status code Meta returned on this read">
-                      Account status (code)
-                    </th>
-                    <th className="th">Detail</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {history.data!.items.map((item) => (
-                    <tr key={item.id}>
-                      <td className="td whitespace-nowrap text-[12px]">{formatDateTime(item.observed_at)}</td>
-                      <td className="td">
-                        <Badge tone={item.status === 'failed' ? 'attention' : 'neutral'}>
-                          {item.status === 'failed' ? 'Failed' : 'Read'}
-                        </Badge>
-                      </td>
-                      <td className="td text-[12px]">{item.trigger.replace(/_/g, ' ')}</td>
-                      <td className="td text-[12px]" data-testid="history-status-code">
-                        {item.account_status_raw === null ? (
-                          <span className="text-ink-faint" title="Meta returned no status on this read">—</span>
-                        ) : (
-                          <span className="font-mono">{item.account_status_raw}</span>
-                        )}
-                      </td>
-                      <td className="td text-[12px]">
-                        {item.status === 'failed' ? (
-                          <>
-                            <span className="font-mono">{item.failure_code ?? 'unknown'}</span>
-                            {item.failure_summary ? ` — ${item.failure_summary}` : ''}
-                          </>
-                        ) : (
-                          `${item.daily.length} daily row${item.daily.length === 1 ? '' : 's'}`
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="mt-2 flex items-center justify-between">
-              <p className="text-[12px] text-ink-muted">
-                Page {history.data!.page} of {history.data!.total_pages || 1}
+            <Table cards>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('sp.col.observedAt')}</TableHead>
+                  <TableHead>{t('sp.col.result')}</TableHead>
+                  <TableHead>{t('sp.col.trigger')}</TableHead>
+                  <TableHead title={t('sp.col.statusCodeHint')}>{t('sp.col.statusCode')}</TableHead>
+                  <TableHead>{t('sp.col.detail')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {history.data!.items.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell label={t('sp.col.observedAt')} className="whitespace-nowrap text-xs tabular-nums">
+                      {formatDateTime(item.observed_at)}
+                    </TableCell>
+                    <TableCell label={t('sp.col.result')}>
+                      <Badge tone={item.status === 'failed' ? 'attention' : 'neutral'}>
+                        {item.status === 'failed' ? t('sp.result.failed') : t('sp.result.read')}
+                      </Badge>
+                    </TableCell>
+                    <TableCell label={t('sp.col.trigger')} className="text-xs">
+                      {enumLabel('obsTrigger', item.trigger)}
+                    </TableCell>
+                    <TableCell label={t('sp.col.statusCode')} className="text-xs">
+                      {item.account_status_raw === null ? (
+                        <span title={t('sp.noStatus')}>
+                          <span aria-hidden="true" className="text-ink-faint" data-testid="history-status-code">
+                            —
+                          </span>
+                          <span className="sr-only">{t('sp.noStatus')}</span>
+                        </span>
+                      ) : (
+                        <span className="font-mono" data-testid="history-status-code">
+                          {item.account_status_raw}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell label={t('sp.col.detail')} className="text-xs">
+                      {item.status === 'failed' ? (
+                        <>
+                          <span className="font-mono">{item.failure_code ?? t('common.unknownCode')}</span>
+                          {item.failure_summary ? ` — ${item.failure_summary}` : ''}
+                        </>
+                      ) : (
+                        t('sp.dailyRows', { count: item.daily.length })
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-ink-muted tabular-nums">
+                {t('common.page', { page: history.data!.page, total: history.data!.total_pages || 1 })}
               </p>
               <div className="flex gap-2">
-                <button type="button" className="btn-secondary" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-                  Previous
-                </button>
-                <button
-                  type="button"
-                  className="btn-secondary"
+                <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+                  {t('common.prev')}
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
                   disabled={page >= (history.data!.total_pages || 1)}
                   onClick={() => setPage(page + 1)}
                 >
-                  Next
-                </button>
+                  {t('common.next')}
+                </Button>
               </div>
             </div>
           </>
         )}
-      </Card>
+      </Panel>
     </div>
   )
 }
 
-function Item({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+function Item({ label, value, money = false }: { label: string; value: string; money?: boolean }) {
   return (
     <div>
       <dt className="text-ink-muted">{label}</dt>
-      <dd className={mono ? 'font-mono' : ''}>{value}</dd>
+      <dd className={money ? 'font-mono tabular-nums' : 'tabular-nums'}>{value}</dd>
     </div>
   )
 }

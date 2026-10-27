@@ -172,19 +172,19 @@ describe('where an imported account came from', () => {
       automatic: true,
       owner_business_reference: '7770001',
       owner_business_name: 'Partner Shop',
-    })
+    }, 'en')
     expect(text).toContain('Imported automatically by the discovery sweep')
     expect(text).toContain('Shared from Business Manager 7770001 (Partner Shop)')
     expect(text).toContain('Nothing in Meta was created or changed')
   })
 
   it('says the owner was not returned instead of guessing it', () => {
-    const text = provenanceText({ ...base, automatic: true, owner_business_reference: null })
+    const text = provenanceText({ ...base, automatic: true, owner_business_reference: null }, 'en')
     expect(text).toContain('Owning Business Manager not returned by Meta')
   })
 
   it('keeps the manual wording for a person\'s import and says nothing about owners of owned accounts', () => {
-    const text = provenanceText({ ...base, source_edge: 'owned_ad_accounts' })
+    const text = provenanceText({ ...base, source_edge: 'owned_ad_accounts' }, 'en')
     expect(text).toContain('Added to the registry from a read-only discovery')
     expect(text).not.toContain('Shared from')
     expect(text).not.toContain('not returned')
