@@ -4,6 +4,7 @@
  * (Login, the shell), the original wording is kept.
  */
 import { o4En } from './o4'
+import { u1fEn } from './u1f'
 import type { TranslationKey } from './types'
 
 export const en = {
@@ -75,6 +76,8 @@ export const en = {
 
   // O4 — Meta reader credentials; strings live in ./o4.ts.
   ...o4En,
+  // U1f — Meta connections, discovery, reader credentials, Settings; strings live in ./u1f.ts.
+  ...u1fEn,
   // ---- U1b (Overview + Accounts) — proposed English ---------------------------------------------
   'format.noData': 'No data yet',
   'format.updatedAt': 'Updated {time}',

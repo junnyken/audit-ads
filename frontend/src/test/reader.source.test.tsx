@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { screen } from '@testing-library/react'
+import { render } from './renderEn'
 import { ReaderSourceBadge, readerSourceNote } from '../components/meta/ReaderSource'
 
 describe('which credential reads this Business Manager', () => {
@@ -17,15 +18,15 @@ describe('which credential reads this Business Manager', () => {
 
     expect(screen.getByText('Server default reader')).toBeTruthy()
     expect(screen.queryByText('Yes')).toBeNull()
-    expect(readerSourceNote('server_default')).toContain('may have no role in this business')
-    expect(readerSourceNote('server_default')).toContain('not evidence the business is empty')
+    expect(readerSourceNote('server_default', 'en')).toContain('may have no role in this business')
+    expect(readerSourceNote('server_default', 'en')).toContain('not evidence the business is empty')
   })
 
   it('states plainly when nothing can read the Business Manager', () => {
     render(<ReaderSourceBadge source="none" />)
 
     expect(screen.getByText('No reader configured')).toBeTruthy()
-    expect(readerSourceNote('none')).toContain('no result should be interpreted as absence')
+    expect(readerSourceNote('none', 'en')).toContain('no result should be interpreted as absence')
   })
 
   it('claims no credential at all for a fake connection', () => {

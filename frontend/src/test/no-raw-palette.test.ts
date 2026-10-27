@@ -11,14 +11,7 @@ import { describe, expect, it } from 'vitest'
  * U1b-U1d restyle them and REMOVE entries (U1d left only the Meta connection files O4 owns); the second test fails when an entry is stale, so the
  * list can only shrink. A new file can never be added.
  */
-const ALLOWLIST = new Set([
-  // O4 owns these until it lands; the next slice restyles them and empties this list.
-  'components/meta/AssetInventory.tsx',
-  'components/meta/DiscoveryOverview.tsx',
-  'components/meta/DiscoverySection.tsx',
-  'pages/MetaConnectionWorkspace.tsx',
-  'pages/MetaConnections.tsx',
-  'pages/meta-connection/HistoryTab.tsx',
+const ALLOWLIST = new Set<string>([
 ])
 
 const RAW_PALETTE =

@@ -95,7 +95,8 @@ describe('the reader badge with the vault', () => {
       else expect(container.textContent).not.toBe('')
       unmount()
     }
-    expect(readerSourceLabel('vault_reconnect_required')).toContain('reconnecting')
+    expect(readerSourceLabel('vault_reconnect_required', 'en')).toContain('reconnecting')
+    expect(readerSourceLabel('vault_reconnect_required', 'vi')).toContain('kết nối lại')
     expect(readerSourceLabel('none')).toBeNull()
   })
 })
@@ -151,7 +152,7 @@ describe('the Settings section', () => {
   it('shows an error state when the list fails', async () => {
     stubFetch({ error: { code: 'x', message: 'Broken' } }, 500)
     wrap(<ReaderCredentialsSection isOwner />)
-    expect(await screen.findByText('Broken')).toBeInTheDocument()
+    expect(await screen.findByText(/Broken/)).toBeInTheDocument()
   })
 
   it('tells a non-owner it is owner-only and makes no request', () => {

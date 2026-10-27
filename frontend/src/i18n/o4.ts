@@ -51,11 +51,7 @@ export const o4Vi = {
   'metaReader.verify': 'Kiểm lại',
   'metaReader.reconnect': 'Kết nối lại',
   'metaReader.revoke': 'Thu hồi',
-  'metaReader.revokeConfirm':
-    'Thu hồi là không hoàn tác. Các kết nối dùng quyền này sẽ ngừng đọc. Hãy gỡ thêm ứng dụng / System User trong Business Settings của Meta — sản phẩm không làm thay được bước đó.',
   'metaReader.revokeReason': 'Lý do thu hồi',
-  'metaReader.revokeSubmit': 'Thu hồi vĩnh viễn',
-  'metaReader.cancel': 'Huỷ',
   'metaReader.callback.ok': 'Đã kết nối và xác minh với Meta.',
   'metaReader.callback.error': 'Chưa kết nối được: {reason}',
   'metaReader.connectionsUsing': 'Kết nối đang dùng',
@@ -150,11 +146,7 @@ export const o4En = {
   'metaReader.verify': 'Check again',
   'metaReader.reconnect': 'Reconnect',
   'metaReader.revoke': 'Revoke',
-  'metaReader.revokeConfirm':
-    "Revoking cannot be undone. Connections using this credential stop reading. Also remove the app / System User in Meta's Business Settings — the product cannot do that step for you.",
   'metaReader.revokeReason': 'Reason for revoking',
-  'metaReader.revokeSubmit': 'Revoke permanently',
-  'metaReader.cancel': 'Cancel',
   'metaReader.callback.ok': 'Connected and verified with Meta.',
   'metaReader.callback.error': 'Not connected: {reason}',
   'metaReader.connectionsUsing': 'Connections using it',

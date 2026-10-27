@@ -18,6 +18,7 @@
  * will be approved (CLAUDE.md rule 6); the disclaimer keeps the meaning of READINESS_DISCLAIMER.
  */
 import { o4Vi } from './o4'
+import { u1fVi } from './u1f'
 
 export const vi = {
   'common.appName': 'AdsOps Control Center',
@@ -88,6 +89,8 @@ export const vi = {
 
   // O4 — Meta reader credentials [ĐỀ XUẤT — chờ duyệt]; strings live in ./o4.ts.
   ...o4Vi,
+  // U1f — Meta connections, discovery, reader credentials, Settings; strings live in ./u1f.ts.
+  ...u1fVi,
   // ---- U1b (Tổng quan + Tài khoản) — [ĐỀ XUẤT — chờ duyệt] -------------------------------------
   'format.noData': 'Chưa có dữ liệu',
   'format.updatedAt': 'Cập nhật lúc {time}',

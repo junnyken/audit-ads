@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { render } from './renderEn'
 import { AssetInventory, filterRows } from '../components/meta/AssetInventory'
 import { DiscoveryHistoryList } from '../pages/meta-connection/HistoryTab'
 import type { DiscoveryAssetResult, DiscoveryRunSummary, ReconciliationRow } from '../lib/types'
@@ -189,7 +190,7 @@ describe('the inventory of one asset type', () => {
     expect(screen.getByText(/statement about the filter, not about the Business Manager/)).toBeTruthy()
   })
 
-  it('offers Add to registry only on a row that is actually absent from the registry', () => {
+  it('offers Add to registry only on a row that is actually absent from the registry', async () => {
     const onImport = vi.fn()
     render(
       <AssetInventory
@@ -218,11 +219,12 @@ describe('the inventory of one asset type', () => {
 
     // Two steps since the confirmation was added — the offer, then the decision.
     fireEvent.click(buttons[0])
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
-    expect(onImport).toHaveBeenCalledWith('111')
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add to registry' }))
+    await waitFor(() => expect(onImport).toHaveBeenCalledWith('111', 'Not here yet'))
   })
 
-  it('asks once before importing, and says what cannot be taken back', () => {
+  it('asks once before importing, and says what cannot be taken back', async () => {
     const onImport = vi.fn()
     render(
       <AssetInventory
@@ -240,15 +242,18 @@ describe('the inventory of one asset type', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add to registry' }))
 
     // Nothing has been imported yet — the first click only asks.
+    // It is an AlertDialog, not window.confirm, and it says what cannot be taken back.
+    const dialog = await screen.findByRole('alertdialog')
     expect(onImport).not.toHaveBeenCalled()
-    expect(screen.getByText(/Nothing in Meta is created, shared or changed/)).toBeTruthy()
-    expect(screen.getByText(/cannot be deleted afterwards — only archived/)).toBeTruthy()
+    expect(within(dialog).getByText(/Nothing in Meta is created, shared or changed/)).toBeTruthy()
+    expect(within(dialog).getByText(/cannot be deleted afterwards — only archived/)).toBeTruthy()
+    expect(within(dialog).getByText('Cannot be undone')).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
-    expect(onImport).toHaveBeenCalledWith('111')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add to registry' }))
+    await waitFor(() => expect(onImport).toHaveBeenCalledWith('111', 'Not here yet'))
   })
 
-  it('imports nothing when the operator cancels', () => {
+  it('imports nothing when the operator cancels', async () => {
     const onImport = vi.fn()
     render(
       <AssetInventory
@@ -262,14 +267,16 @@ describe('the inventory of one asset type', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Add to registry' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
 
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
     expect(onImport).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: 'Add to registry' })).toBeTruthy()
     expect(screen.queryByText(/cannot be deleted afterwards/)).toBeNull()
   })
 
-  it('asks about one row at a time', () => {
+  it('asks about one row at a time', async () => {
     const onImport = vi.fn()
     render(
       <AssetInventory
@@ -286,8 +293,11 @@ describe('the inventory of one asset type', () => {
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Add to registry' })[0])
 
-    expect(screen.getAllByRole('button', { name: 'Confirm' })).toHaveLength(1)
-    expect(screen.getAllByRole('button', { name: 'Add to registry' })).toHaveLength(1)
+    const dialogs = await screen.findAllByRole('alertdialog')
+    expect(dialogs).toHaveLength(1)
+    // It names the row it is about; the other row is not part of the question.
+    expect(within(dialogs[0]).getByText(/111/)).toBeTruthy()
+    expect(within(dialogs[0]).queryByText(/222/)).toBeNull()
   })
 
   it('offers no import at all when the caller supplies none — Pixels have nothing to import into', () => {

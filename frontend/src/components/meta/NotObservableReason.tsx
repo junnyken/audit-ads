@@ -1,6 +1,6 @@
 import { useI18n } from '../../i18n'
 import { notObservableText } from '../../lib/metaReaders'
-import { InlineNote } from '../ui'
+import { Note } from '../../pages/account/parts'
 
 /**
  * O4. Why the product cannot read this account, in one sentence — not the raw code, and never
@@ -12,6 +12,8 @@ export function NotObservableReason({ reason }: { reason: string | null | undefi
   const text = notObservableText(t, reason)
   if (!text) return null
   return (
-    <InlineNote tone={reason === 'reader_reconnect_required' ? 'attention' : 'caution'}>{text}</InlineNote>
+    <Note role="note" tone={reason === 'reader_reconnect_required' ? 'attention' : 'caution'}>
+      {text}
+    </Note>
   )
 }

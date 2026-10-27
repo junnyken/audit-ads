@@ -1,6 +1,7 @@
 import type { MetaConnection } from '../../lib/types'
 import { getActiveLanguage, translate, useI18n } from '../../i18n'
-import { Badge } from '../ui'
+import type { Language } from '../../i18n'
+import { Badge } from '../primitives/badge'
 
 /** Which credential reads this connection's Business Manager.
  *
@@ -31,22 +32,22 @@ export function ReaderSourceBadge({
     )
   if (source === 'vault_reconnect_required')
     return <Badge tone="attention">{t('readerSource.vaultReconnect')}</Badge>
-  if (source === 'business_specific')
-    return <Badge tone="positive">Own reader for this Business Manager</Badge>
-  if (source === 'server_default')
-    return <Badge tone="neutral">Server default reader</Badge>
-  return <Badge tone="attention">No reader configured</Badge>
+  // `business_specific` is neutral, not positive: a reader that is configured says nothing about
+  // whether the accounts behind it are fine (rule 5's spirit). The only strong tone a reader
+  // state may carry is the one that says nothing is being read.
+  if (source === 'business_specific') return <Badge tone="neutral">{t('readerSource.businessSpecific')}</Badge>
+  if (source === 'server_default') return <Badge tone="neutral">{t('readerSource.serverDefault')}</Badge>
+  return <Badge tone="attention">{t('readerSource.none')}</Badge>
 }
 
-export function readerSourceNote(source: MetaConnection['reader_source']): string | null {
-  if (source === 'vault') return translate(getActiveLanguage(), 'readerSource.vaultNote')
-  if (source === 'vault_reconnect_required')
-    return translate(getActiveLanguage(), 'readerSource.vaultReconnectNote')
-  if (source === 'business_specific')
-    return 'This Business Manager has its own configured credential, so what comes back is what that credential can read here.'
-  if (source === 'server_default')
-    return 'This Business Manager has no credential of its own, so the single server credential is used. It may have no role in this business — in which case an empty result is not evidence the business is empty.'
-  if (source === 'none')
-    return 'No credential is configured that could read this Business Manager. Nothing is being read, and no result should be interpreted as absence.'
+export function readerSourceNote(
+  source: MetaConnection['reader_source'],
+  language: Language = getActiveLanguage(),
+): string | null {
+  if (source === 'vault') return translate(language, 'readerSource.vaultNote')
+  if (source === 'vault_reconnect_required') return translate(language, 'readerSource.vaultReconnectNote')
+  if (source === 'business_specific') return translate(language, 'readerSource.note.business_specific')
+  if (source === 'server_default') return translate(language, 'readerSource.note.server_default')
+  if (source === 'none') return translate(language, 'readerSource.note.none')
   return null
 }

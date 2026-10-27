@@ -1,4 +1,5 @@
-import type { TranslationKey, TranslationVars } from '../i18n'
+import { getActiveLanguage, translate } from '../i18n'
+import type { Language, TranslationKey, TranslationVars } from '../i18n'
 import type { Tone } from './readiness'
 import type { NotObservableReason, ReaderCredentialState } from './types'
 
@@ -59,22 +60,24 @@ export function readCallbackParams(search: string): { outcome: 'ok' | 'error'; r
   return { outcome, reason: params.get('reason') }
 }
 
-/** The reader as a label, never the raw `reader_source` string. */
-export function readerSourceLabel(source: string | null | undefined): string | null {
+/** The reader as a label, never the raw `reader_source` string. Follows the viewer's language:
+ * `SpendTab` calls it from a page the viewer can switch to English without a reload. */
+export function readerSourceLabel(
+  source: string | null | undefined,
+  language: Language = getActiveLanguage(),
+): string | null {
   switch (source) {
     case 'vault':
-      return 'Facebook Login (vault)'
     case 'vault_reconnect_required':
-      return 'Facebook Login — needs reconnecting'
     case 'business_specific':
-      return 'Own server reader for this Business Manager'
     case 'server_default':
-      return 'Server default reader'
+      return translate(language, `readerSource.label.${source}` as TranslationKey)
     case null:
     case undefined:
     case 'none':
       return null
     default:
+      // A source the client does not know is shown as the code the server sent, not guessed.
       return source
   }
 }

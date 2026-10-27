@@ -3709,3 +3709,62 @@ queryKey, enum or route changed. **Not touched (O4 owns them): `MetaConnections.
   Be Vietnam Pro rendering and Vietnamese diacritics on Windows/macOS Chrome; side panel width behaviour;
   keyboard and screen-reader pass; `prefers-color-scheme` switch live. Follow `docs/RUNBOOK_EXTENSION_UAT.md`.
   `agy` was not used. Wording is `[ĐỀ XUẤT — chờ duyệt]` (only the seven page-type labels are new).
+## Session 2026-10-27 — U1f (Meta connections, connection workspace, discovery, reader credentials and Settings on the new design system)
+
+Scope: `pages/MetaConnections.tsx`, `pages/MetaConnectionWorkspace.tsx`, `pages/meta-connection/HistoryTab.tsx`,
+`pages/Settings.tsx`, `components/meta/*` (DiscoveryOverview, DiscoverySection, AssetInventory, AutomationControls,
+ReaderSource, ReaderCredentialsSection, ConnectionReaderSwitch, NotObservableReason, CredentialCheckStatus) and
+`lib/metaReaders.ts`. No API call, queryKey, enum or route changed.
+
+- Pages follow the templates: connections list (cards, loading / empty / error / no-permission / partial), workspace
+  as T3 (breadcrumb, header card with badges, Radix tabs synced to `?tab=`, two-column panels), history list with
+  pagination, Settings as titled panels. Tokens only; the six files left the `no-raw-palette` allowlist
+  (`DiscoveryOverview`, `DiscoverySection`, `AssetInventory`, `HistoryTab`, `MetaConnections`,
+  `MetaConnectionWorkspace`; 18 -> 12). No file in scope imports the old `components/ui` or calls `window.confirm`
+  (a test scans the sources).
+- Writes follow skill 6.4 through one `ConfirmDialog` (AlertDialog; focus on Cancel; Esc / Cancel write nothing;
+  stays open until the write AND its read-back finish; a refusal stays inside the dialog; focus returns to the
+  opener or to a named fallback): connect and reconnect a Facebook reader, revoke a reader, change the two
+  scheduled-discovery switches (shows old -> new), switch which reader a connection uses, add a discovered account
+  to the registry, revoke a connected browser. Each ends in a read-back that is a caution, never a success, when the
+  re-read disagrees. Revoke says it clears the stored credential, cannot be undone, connections stop reading
+  without falling back, and that revoking at Meta is a separate manual step (O4 follow-up).
+- `DiscoveryOverview` no longer returns null for an owner with no connections: empty state with "Thêm kết nối" and
+  "Kết nối bằng Facebook"; it also shows a loading card instead of nothing.
+- i18n: new `src/i18n/u1f.ts` (+337 keys per language, all `[ĐỀ XUẤT — chờ duyệt]`) spread into `vi.ts` / `en.ts`
+  like `o4.ts`. `o4.ts` was already clean Vietnamese/English, so it was NOT merged into the main dictionaries
+  (a one-line spread each; merging would only create conflicts with U1d). Removed the three O4 strings the dialogs
+  replaced. `readerSourceLabel`, `readerSourceNote`, `ineligibleText` take a language (default: the active one);
+  `SpendTab` passes the viewer's language.
+- Tones: reader states are never `positive` (`business_specific` was green before; now neutral), a capability
+  "Allowed" is neutral, a configured Telegram transport is neutral, a connected browser is neutral;
+  `reconnect_required` / `vault_reconnect_required` / "no reader" stay `attention`.
+- Results (this worktree): `npx vitest run` **494 passed, 20 skipped** (30 files passed + 1 skipped live file;
+  before this slice on the same base: 422 / 20, so +72). `npm run typecheck`, `npx eslint .`, `npm run build` clean.
+  New `u1f.meta-settings.test.tsx`: 70 tests (states of the list / workspace / overview / Settings including 403 as
+  no-permission and partial pages; every AlertDialog flow incl. cancel, Esc, focus return, refusal in the dialog
+  and read-back mismatch; revoke wording; "token value never rendered" with a planted `access_token` /
+  `encrypted_secret` in the response; `readerSourceLabel` in vi and en and without a language; no reader tone is
+  success; key parity, no key collision with the base dictionaries, every `t('…')` key in the U1f files exists;
+  axe on the list (with data and empty), the four workspace tabs, Settings, the revoke and import dialogs and the
+  empty overview, colour-contrast off because jsdom has no layout). Two tests were added to `o3.automation`
+  (write -> read-back mismatch; discard).
+- Existing tests edited only where wording or markup legitimately changed: `connection.workspace`,
+  `discovery.components`, `discovery.overview`, `reader.source`, `o3.automation` now render through
+  `renderEn` (English interface, so their English rule assertions are kept verbatim and also exercise the English
+  dictionary); the three import tests now go through the AlertDialog; the card-level import (which used to write on
+  one click) too; `o4.reader-credentials` (the error text now carries "Vì sao:", `readerSourceLabel` takes a
+  language); `no-raw-palette` allowlist shrank. No tone / no-success / token-never-rendered assertion was weakened.
+- Real defects found: (1) `runStatus.succeeded` / `running` / `failed` already existed in the dictionary for
+  operations runs; a spread silently lets the later definition win, so discovery runs read "Hoàn tất" - caught by a
+  test, keys renamed `discRun.*`, and a test now fails on any key that collides. (2) The connection cards imported
+  an ad account into the registry on a single click (irreversible, rule 2) while the workspace asked first.
+  (3) `business_specific` reader was painted `positive`. (4) The "Label" field on Add connection was marked
+  optional. (5) A failed capability check showed nothing. (6) `DiscoveryOverview` returned null while loading and
+  when empty.
+- NOT done / NOT verified: no click-through by a person; no screenshots; layout at 375 / 768 / 1280 px and dark mode
+  not looked at (class-checked only); the redirect to Meta (`window.location.assign`) is not exercised against
+  real Meta (tests use a hash URL; no live call was made); focus return is tested in jsdom only; wording is
+  `[ĐỀ XUẤT — chờ duyệt]`. `CredentialCheckStatus` still prints `STATE_META[...]` English labels from
+  `lib/operations.ts` and `SystemStatus` itself is U1d. Server-sent sentences (`failure_summary`, edge `detail`,
+  capability `reason`) are shown as the server sent them.

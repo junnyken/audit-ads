@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { screen } from '@testing-library/react'
+import { render } from './renderEn'
 import { DiscoveryOverviewTable } from '../components/meta/DiscoveryOverview'
 import type { DiscoverySummaryRow } from '../lib/types'
 

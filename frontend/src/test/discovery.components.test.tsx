@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { render } from './renderEn'
 import { AssetResult } from '../components/meta/DiscoverySection'
 import type { DiscoveryAssetResult } from '../lib/types'
 
@@ -262,7 +263,7 @@ describe('discovery coverage wording', () => {
     expect(screen.queryByRole('button', { name: 'Add to registry' })).toBeNull()
   })
 
-  it('passes the external id of the row that was clicked', async () => {
+  it('passes the external id of the row that was clicked, after one confirmation', async () => {
     const clicked: string[] = []
     render(
       <AssetResult
@@ -279,13 +280,19 @@ describe('discovery coverage wording', () => {
             },
           ],
         })}
-        onImport={(id) => clicked.push(id)}
+        onImport={(id) => {
+          clicked.push(id)
+        }}
       />,
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Add to registry' }))
+    // The connection cards used to import on this single click. It now asks first.
+    expect(clicked).toEqual([])
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add to registry' }))
 
-    expect(clicked).toEqual(['1167063825546698'])
+    await waitFor(() => expect(clicked).toEqual(['1167063825546698']))
   })
 
   it('disables only the row being imported, not every row', () => {
