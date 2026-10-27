@@ -11,6 +11,14 @@ export const en = {
   'common.openSettings': 'Open settings',
   'common.none': 'None',
 
+  'pageType.account': 'Account overview',
+  'pageType.campaign': 'Campaigns',
+  'pageType.adset': 'Ad sets',
+  'pageType.ad': 'Ads',
+  'pageType.billing': 'Billing',
+  'pageType.settings': 'Account settings',
+  'pageType.unknown': 'Unrecognised Ads Manager page',
+
   'presentation.readiness.operationallyReady.label': 'Operationally ready',
   'presentation.readiness.readyWithWarnings.label': 'Ready with warnings',
   'presentation.readiness.notReady.label': 'Not ready',

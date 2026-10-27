@@ -23,6 +23,8 @@ Soạn 2026-10-26 từ mã trong `extension/` và tài liệu chính thức tạ
 >
 > **Cập nhật 2026-10-27 (S2):** bản **0.3.0** thêm một dòng "Trạng thái Meta" (mã `account_status` Meta trả, kèm thời điểm) vào popup và side panel; không đổi quyền, host permission hay dữ liệu gửi đi (extension chỉ **nhận** thêm một khối từ API). Gói tải lên Store nay là `extension/adsops-extension-0.3.0.zip`; gói 0.2.0 đã xoá. Mô tả/ảnh trên Store nên nhắc dòng mới trước khi nộp.
 
+> **Cập nhật 2026-10-27 (U1e):** bản **0.3.1** chỉ đổi giao diện (token, font Be Vietnam Pro đóng gói sẵn, icon SVG, chế độ tối theo hệ điều hành, `lang` theo ngôn ngữ, nhãn loại trang); **không đổi** quyền, host permission, content-script matches hay CSP. Gói tải lên Store nay là `extension/adsops-extension-0.3.1.zip`; ảnh chụp màn hình trên Store (nếu đã chuẩn bị) cần chụp lại theo giao diện mới.
+
 Ngoài ra: **URL chính sách quyền riêng tư công khai (HTTPS) chưa có** — xem mục 9.
 
 ---

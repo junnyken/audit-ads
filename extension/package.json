@@ -1,7 +1,7 @@
 {
   "name": "adsops-extension",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "description": "AdsOps Control Center — read-only account context for Meta Ads Manager.",
   "scripts": {

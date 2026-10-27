@@ -223,6 +223,9 @@ decisions in its §7.
   disabled/active — and nothing is saved until the person presses Save.
 - **Extension 0.3.0:** one "Meta status" line in the popup and side panel (VI + EN), no permission
   change.
+- **Extension 0.3.1 (U1e):** popup, side panel and options on the new design system (dashboard token values,
+  dark mode by OS, bundled Be Vietnam Pro, inline icons, `lang` follows the language, page-type labels);
+  freshness is neutral, never green. No permission change.
 
 **Not done / known limits:**
 

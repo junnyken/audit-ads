@@ -1,5 +1,7 @@
 import { useLanguage } from '../shared/i18n'
+import { Icon } from '../shared/Icon'
 import { LanguageToggle } from '../shared/LanguageToggle'
+import { Notice, RefreshButton } from '../shared/Notice'
 import { READ_ONLY_NOTE_KEY } from '../shared/presentation'
 import { dashboardLink, useConnection, useContext } from '../shared/useExtension'
 import { AccountIdentity, Disclaimer, OperationalState, SpendState, UnresolvedContext } from './ContextView'
@@ -23,7 +25,7 @@ export default function PopupApp() {
         <button type="button" className="primary" onClick={() => chrome.runtime.openOptionsPage()}>
           {t('common.openSettings')}
         </button>
-        <p className="notice">{t(READ_ONLY_NOTE_KEY)}</p>
+        <Notice>{t(READ_ONLY_NOTE_KEY)}</Notice>
       </div>
     )
   }
@@ -37,16 +39,14 @@ export default function PopupApp() {
         <h1>{t('common.appTitle')}</h1>
         <div className="row">
           <LanguageToggle />
-          <button type="button" className="link" onClick={() => void refresh()}>
-            {t('common.refresh')}
-          </button>
+          <RefreshButton onClick={() => void refresh()} />
         </div>
       </div>
       <p className="faint">
         {connection.workspaceName} · {connection.userEmail}
       </p>
 
-      {error && <p className="notice error">{error}</p>}
+      {error && <Notice kind="error">{error}</Notice>}
       {loading && !context && <p className="muted">{t('popup.readingContext')}</p>}
 
       {context && confirmed ? (
@@ -64,6 +64,7 @@ export default function PopupApp() {
                 })
               }
             >
+              <Icon name="external" />
               {t('popup.openAccount')}
             </button>
             <button
@@ -74,6 +75,7 @@ export default function PopupApp() {
                 })
               }
             >
+              <Icon name="external" />
               {t('popup.openAlerts')}
             </button>
           </div>
@@ -87,6 +89,7 @@ export default function PopupApp() {
                 type="button"
                 onClick={() => chrome.tabs.create({ url: dashboardLink(base, '/') })}
               >
+                <Icon name="external" />
                 {t('popup.openDashboard')}
               </button>
               <button

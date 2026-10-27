@@ -3678,3 +3678,34 @@ queryKey, enum or route changed. **Not touched (O4 owns them): `MetaConnections.
 - Follow-ups: restyle the Meta connection screens (`MetaConnections`, `MetaConnectionWorkspace`, `meta-connection/*`,
   `components/meta/*`) and `Settings` after O4 lands, then delete `components/ui.tsx` and empty the `no-raw-palette` allowlist;
   `Login` still imports `ui.Field`; split the Vietnamese dictionary per route (entry is 534 kB); U1e (extension) is untouched.
+## U1e — Chrome extension on the new design system (0.3.1) — 2026-10-27
+
+- Scope: popup, side panel and options restyled; same token VALUES as the dashboard (`extension/src/styles/tokens.css`
+  generated from `frontend/src/tokens.css`, light + `prefers-color-scheme: dark`; the extension has no theme setting
+  and none was added); Be Vietnam Pro 400/500/600/700, Latin + Vietnamese subsets, bundled as woff2 in
+  `dist/assets/` with its OFL licence (no remote font, `script-src 'self'` unchanged); four Lucide icons (refresh-cw,
+  external-link, triangle-alert, info) inlined as SVG path data in `src/shared/Icon.tsx` (ISC), no icon package added;
+  `<html lang>` is `vi` in the three pages and follows the active language at runtime; `page_type` has VI + EN labels
+  and an unrecognised value reads "Trang Ads Manager chưa nhận diện" / "Unrecognised Ads Manager page"; version 0.3.1.
+- DECISION (sync with dashboard, rule 5): `FRESHNESS_META.current` and `SPEND_FRESHNESS_META.current` -> `neutral`
+  (were `positive` and `info`); `not_observable` and `not_applicable` -> `muted`. Readiness `operationally_ready`,
+  health `clear_signals` and context `confirmed` keep `positive` exactly as in the dashboard. The options "Connected"
+  badge moved from `positive` to `info` (it states a session, not an account).
+- Unchanged and proven by `manifest.test.ts`: permissions `activeTab/sidePanel/storage`, the three host permissions,
+  content-script matches, CSP, no optional/web-accessible/externally-connectable keys.
+- Tests: extension `vitest` 74 -> 88 passed, 0 failed, 0 skipped (the 5 built-bundle tests now run against the fresh
+  `dist/`); `eslint .` and `tsc --noEmit` clean; `npm run build` clean. New: `tests/u1e.test.tsx` (token parity with the
+  dashboard file, no raw colour literal in the CSS, font + licence bundled and no remote URL in CSS/HTML, no `positive`
+  for any freshness / spend / Meta status / unknown / not_ready, "current" neutral, page-type and resolution labels in
+  VI + EN, i18n key parity and non-empty, `lang` follows the language, manifest key set); `manifest.test.ts` (0.3.1,
+  exact permission surface); `ui.test.tsx` (page type in words, "Current" neutral, icon refresh has an accessible name;
+  the old "current uses info tone" assertion was replaced by "neutral"). No rule assertion was weakened. Backend pytest
+  not run (out of scope).
+- Packages: `extension/dist/`, `extension/dist.zip` (folder `dist/` at the root, 229588 bytes),
+  `extension/adsops-extension-0.3.1.zip` (manifest.json at the root, 229110 bytes). The 0.3.0 store zip was not present
+  in this worktree (zips are untracked); nothing else to delete. JS bundle unchanged in size order (shared chunk
+  260 kB); fonts add 136 kB of woff2.
+- NOT verified: no load-unpacked in a real Chrome; no screenshots of popup / side panel / options in light or dark;
+  Be Vietnam Pro rendering and Vietnamese diacritics on Windows/macOS Chrome; side panel width behaviour;
+  keyboard and screen-reader pass; `prefers-color-scheme` switch live. Follow `docs/RUNBOOK_EXTENSION_UAT.md`.
+  `agy` was not used. Wording is `[ĐỀ XUẤT — chờ duyệt]` (only the seven page-type labels are new).

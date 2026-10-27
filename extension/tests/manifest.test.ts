@@ -6,10 +6,27 @@ const root = resolve(__dirname, '..')
 const manifest = JSON.parse(readFileSync(resolve(root, 'src/manifest.json'), 'utf8'))
 
 describe('manifest', () => {
-  it('carries the same version as package.json (0.3.0: the S2 Meta status line)', () => {
+  it('carries the same version as package.json (0.3.1: U1e, the new design system)', () => {
     const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'))
     expect(manifest.version).toBe(pkg.version)
-    expect(manifest.version).toBe('0.3.0')
+    expect(manifest.version).toBe('0.3.1')
+  })
+
+  it('keeps the exact permission surface of 0.3.0 (U1e is a visual slice: nothing may widen)', () => {
+    expect([...manifest.permissions].sort()).toEqual(['activeTab', 'sidePanel', 'storage'])
+    expect(manifest.host_permissions).toEqual([
+      'https://adsmanager.facebook.com/*',
+      'https://business.facebook.com/*',
+      'https://www.facebook.com/adsmanager/*',
+    ])
+    expect(manifest.content_scripts).toHaveLength(1)
+    expect(manifest.content_scripts[0].matches).toEqual(manifest.host_permissions)
+    expect(manifest.content_security_policy.extension_pages).toBe(
+      "script-src 'self'; object-src 'none'; base-uri 'none'",
+    )
+    expect(manifest.optional_permissions).toBeUndefined()
+    expect(manifest.web_accessible_resources).toBeUndefined()
+    expect(manifest.externally_connectable).toBeUndefined()
   })
 
   it('is Manifest V3', () => {

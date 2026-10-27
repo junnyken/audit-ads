@@ -22,6 +22,9 @@ export default defineConfig({
       closeBundle() {
         mkdirSync(out, { recursive: true })
         copyFileSync(resolve(src, 'manifest.json'), resolve(out, 'manifest.json'))
+        // Be Vietnam Pro is bundled (assets/*.woff2); its licence travels with it.
+        mkdirSync(resolve(out, 'assets'), { recursive: true })
+        copyFileSync(resolve(src, 'fonts/OFL.txt'), resolve(out, 'assets/OFL-BeVietnamPro.txt'))
         // Icons are drawn by `scripts/make-icons.py` and copied as-is, at the paths the manifest names.
         mkdirSync(resolve(out, 'icons'), { recursive: true })
         for (const size of [16, 32, 48, 128]) {
@@ -43,6 +46,8 @@ export default defineConfig({
     // what this extension actually does.
     minify: false,
     target: 'es2022',
+    // Fonts stay files: no data: URIs in the CSS, so what ships is readable and cacheable.
+    assetsInlineLimit: 0,
     rollupOptions: {
       input: {
         popup: resolve(src, 'popup/popup.html'),
