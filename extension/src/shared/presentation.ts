@@ -10,7 +10,7 @@
  */
 import type { TranslationKey } from './i18n'
 
-export type Tone = 'positive' | 'caution' | 'attention' | 'info' | 'neutral'
+export type Tone = 'positive' | 'caution' | 'attention' | 'info' | 'neutral' | 'muted'
 
 export const READINESS_META: Record<string, { label: TranslationKey; tone: Tone }> = {
   operationally_ready: { label: 'presentation.readiness.operationallyReady.label', tone: 'positive' },
@@ -28,10 +28,12 @@ export const HEALTH_META: Record<string, { label: TranslationKey; tone: Tone }> 
 }
 
 export const FRESHNESS_META: Record<string, { label: TranslationKey; tone: Tone }> = {
-  current: { label: 'presentation.freshness.current.label', tone: 'positive' },
+  // U1e: `neutral`, like the dashboard. A recent evaluation says the data is recent, not that the
+  // account is fine, so freshness is never success-coloured.
+  current: { label: 'presentation.freshness.current.label', tone: 'neutral' },
   stale: { label: 'presentation.freshness.stale.label', tone: 'caution' },
   never_evaluated: { label: 'presentation.freshness.neverEvaluated.label', tone: 'neutral' },
-  not_applicable: { label: 'presentation.freshness.notApplicable.label', tone: 'neutral' },
+  not_applicable: { label: 'presentation.freshness.notApplicable.label', tone: 'muted' },
 }
 
 /**
@@ -39,10 +41,10 @@ export const FRESHNESS_META: Record<string, { label: TranslationKey; tone: Tone 
  * recent, not that the account is fine. Anything unrecognised is neutral "unknown".
  */
 export const SPEND_FRESHNESS_META: Record<string, { label: TranslationKey; tone: Tone }> = {
-  current: { label: 'spend.freshness.current', tone: 'info' },
+  current: { label: 'spend.freshness.current', tone: 'neutral' },
   stale: { label: 'spend.freshness.stale', tone: 'caution' },
   never_observed: { label: 'spend.freshness.neverObserved', tone: 'neutral' },
-  not_observable: { label: 'spend.freshness.notObservable', tone: 'neutral' },
+  not_observable: { label: 'spend.freshness.notObservable', tone: 'muted' },
 }
 export const SPEND_FRESHNESS_UNKNOWN: { label: TranslationKey; tone: Tone } = {
   label: 'spend.freshness.unknown',
@@ -91,6 +93,21 @@ export const CONTEXT_META: Record<string, { label: TranslationKey; tone: Tone; h
     tone: 'neutral',
     hint: 'presentation.context.unsupportedPage.hint',
   },
+}
+
+/** Human labels for `page_type`; anything this build does not know reads as the "unrecognised" label. */
+export const PAGE_TYPE_LABEL: Record<string, TranslationKey> = {
+  account: 'pageType.account',
+  campaign: 'pageType.campaign',
+  adset: 'pageType.adset',
+  ad: 'pageType.ad',
+  billing: 'pageType.billing',
+  settings: 'pageType.settings',
+  unknown: 'pageType.unknown',
+}
+
+export function pageTypeKey(pageType: string | null | undefined): TranslationKey {
+  return (pageType && PAGE_TYPE_LABEL[pageType]) || 'pageType.unknown'
 }
 
 export const EVENT_LABEL: Record<string, TranslationKey> = {

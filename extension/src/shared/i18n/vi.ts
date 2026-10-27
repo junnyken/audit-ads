@@ -11,6 +11,14 @@ export const vi = {
   'common.openSettings': 'Mở cài đặt',
   'common.none': 'Không có',
 
+  'pageType.account': 'Tổng quan tài khoản',
+  'pageType.campaign': 'Chiến dịch',
+  'pageType.adset': 'Nhóm quảng cáo',
+  'pageType.ad': 'Quảng cáo',
+  'pageType.billing': 'Thanh toán',
+  'pageType.settings': 'Cài đặt tài khoản',
+  'pageType.unknown': 'Trang Ads Manager chưa nhận diện',
+
   'presentation.readiness.operationallyReady.label': 'Sẵn sàng vận hành',
   'presentation.readiness.readyWithWarnings.label': 'Sẵn sàng, có cảnh báo',
   'presentation.readiness.notReady.label': 'Chưa sẵn sàng',

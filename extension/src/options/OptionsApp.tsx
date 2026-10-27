@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ask } from '../shared/messaging'
 import { useLanguage } from '../shared/i18n'
 import { LanguageToggle } from '../shared/LanguageToggle'
+import { Notice } from '../shared/Notice'
 import { READ_ONLY_NOTE_KEY } from '../shared/presentation'
 import { isUsableDashboardUrl } from '../shared/validation'
 import { useConnection } from '../shared/useExtension'
@@ -68,7 +69,7 @@ export default function OptionsApp() {
             <dl className="kv">
               <dt>{t('options.connection.status')}</dt>
               <dd>
-                <span className="badge badge--positive">{t('options.connection.connectedBadge')}</span>
+                <span className="badge badge--info">{t('options.connection.connectedBadge')}</span>
               </dd>
               <dt>{t('options.connection.workspace')}</dt>
               <dd>{connection.workspaceName}</dd>
@@ -104,7 +105,7 @@ export default function OptionsApp() {
               />
             </label>
             {dashboardUrl.trim() !== '' && !urlOk && (
-              <p className="notice error">{t('options.connection.urlHint')}</p>
+              <Notice kind="error">{t('options.connection.urlHint')}</Notice>
             )}
             <label className="field">
               <span>{t('options.connection.emailLabel')}</span>
@@ -139,7 +140,11 @@ export default function OptionsApp() {
             </button>
           </>
         )}
-        {message && <p className={failed ? 'notice error' : 'notice'} style={{ marginTop: 10 }}>{message}</p>}
+        {message && (
+          <div style={{ marginTop: 10 }}>
+            <Notice kind={failed ? 'error' : 'info'}>{message}</Notice>
+          </div>
+        )}
       </div>
 
       <div className="card">

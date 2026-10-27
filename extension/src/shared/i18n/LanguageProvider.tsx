@@ -30,6 +30,12 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // The page's own `lang` follows the active language (screen readers pick the voice from it,
+  // and Chrome uses it for hyphenation and quote marks). The HTML files ship `lang="vi"`, the default.
+  useEffect(() => {
+    document.documentElement.lang = language
+  }, [language])
+
   useEffect(() => {
     function onChanged(changes: Record<string, chrome.storage.StorageChange>, area: string) {
       if (area !== 'local' || !changes['adsops.language']) return

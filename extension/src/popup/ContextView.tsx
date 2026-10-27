@@ -5,9 +5,11 @@
  * Nothing merges them, and nothing shows an unconfirmed context as if it were confirmed.
  */
 import { useLanguage } from '../shared/i18n'
+import { Notice } from '../shared/Notice'
 import {
   CONTEXT_META,
   DISCLAIMER_KEY,
+  pageTypeKey,
   FRESHNESS_META,
   HEALTH_META,
   PLATFORM_STATUS_META,
@@ -72,12 +74,12 @@ export function AccountIdentity({ context }: { context: ContextResolution }) {
         <dt>{t('contextView.owner')}</dt>
         <dd>{account.owner_label ?? '—'}</dd>
         <dt>{t('contextView.page')}</dt>
-        <dd>{context.page_type}</dd>
+        <dd>{t(pageTypeKey(context.page_type))}</dd>
       </dl>
       {account.archived && (
-        <p className="notice" style={{ marginTop: 8 }}>
-          {t('contextView.archivedNotice')}
-        </p>
+        <div style={{ marginTop: 8 }}>
+          <Notice kind="caution">{t('contextView.archivedNotice')}</Notice>
+        </div>
       )}
     </div>
   )
@@ -202,7 +204,7 @@ export function SpendState({ context }: { context: ContextResolution }) {
           <span className={toneClass(meta.tone)}>{t(meta.label)}</span>
         </dd>
         <dt>{t('spend.lastCompleteDay')}</dt>
-        <dd>
+        <dd className="amt">
           {amountText(complete, spend.currency)}
           {spend.latest_complete_day && <span className="faint"> ({spend.latest_complete_day.date})</span>}
           {spend.latest_complete_day && spend.latest_complete_day.spend_raw === null && !hideAmounts && (
@@ -210,7 +212,7 @@ export function SpendState({ context }: { context: ContextResolution }) {
           )}
         </dd>
         <dt>{t('spend.todayPartial')}</dt>
-        <dd>{amountText(partial, spend.currency)}</dd>
+        <dd className="amt">{amountText(partial, spend.currency)}</dd>
         <dt>{t('spend.observedAt')}</dt>
         <dd>{spend.observed_at ? new Date(spend.observed_at).toLocaleString() : '—'}</dd>
         <dt>{t('spend.signal')}</dt>
@@ -222,7 +224,7 @@ export function SpendState({ context }: { context: ContextResolution }) {
           )}
         </dd>
       </dl>
-      {hideAmounts && <p className="notice">{t('spend.conflict')}</p>}
+      {hideAmounts && <Notice kind="caution">{t('spend.conflict')}</Notice>}
       <p className="faint">{t('spend.note')}</p>
     </div>
   )
@@ -246,5 +248,5 @@ export function UnresolvedContext({ context }: { context: ContextResolution }) {
 
 export function Disclaimer() {
   const { t } = useLanguage()
-  return <p className="notice">{t(DISCLAIMER_KEY)}</p>
+  return <Notice>{t(DISCLAIMER_KEY)}</Notice>
 }

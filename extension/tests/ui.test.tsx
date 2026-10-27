@@ -116,6 +116,20 @@ describe('popup', () => {
     expect(await screen.findByText(/Payment method review is due/)).toBeInTheDocument()
   })
 
+  it('U1e: names the page type in words and paints "Current" freshness neutral, not success', async () => {
+    stubWorker({
+      getConnection: { ok: true, data: CONNECTED },
+      getContext: { ok: true, data: { ...CONFIRMED, page_type: 'billing' } },
+    })
+    renderPopup()
+    expect(await screen.findByText('Billing')).toBeInTheDocument()
+    expect(screen.queryByText('billing')).toBeNull()
+    const badge = await screen.findByText('Current')
+    expect(badge.className).toContain('neutral')
+    expect(badge.className).not.toContain('positive')
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument()
+  })
+
   describe('spend block', () => {
     const withSpend = (spend: ContextResolution['spend']): ContextResolution => ({ ...CONFIRMED, spend })
     const base = {
@@ -174,8 +188,11 @@ describe('popup', () => {
       expect(panel.queryByText(/\b0 VND/)).toBeNull()
     })
 
-    it('current freshness uses info tone, not positive', async () => {
-      expect((await show(base)).getByText('Recent').className).toContain('info')
+    it('current freshness is neutral (U1e): recent data is not a verdict on the account', async () => {
+      const badge = (await show(base)).getByText('Recent')
+      expect(badge.className).toContain('neutral')
+      expect(badge.className).not.toContain('positive')
+      expect(badge.className).not.toContain('info')
     })
 
     it('hides amounts when currencies conflict', async () => {

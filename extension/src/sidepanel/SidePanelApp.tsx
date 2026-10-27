@@ -7,7 +7,9 @@
  */
 import { useState } from 'react'
 import { useLanguage } from '../shared/i18n'
+import { Icon } from '../shared/Icon'
 import { LanguageToggle } from '../shared/LanguageToggle'
+import { Notice, RefreshButton } from '../shared/Notice'
 import { EVENT_LABEL, GUARD_CHECKLIST, READ_ONLY_NOTE_KEY } from '../shared/presentation'
 import { ask } from '../shared/messaging'
 import { dashboardLink, useConnection, useContext } from '../shared/useExtension'
@@ -45,13 +47,11 @@ export default function SidePanelApp() {
         <h1>{t('sidepanel.title')}</h1>
         <div className="row">
           <LanguageToggle />
-          <button type="button" className="link" onClick={() => void refresh()}>
-            {t('common.refresh')}
-          </button>
+          <RefreshButton onClick={() => void refresh()} />
         </div>
       </div>
 
-      {error && <p className="notice error">{error}</p>}
+      {error && <Notice kind="error">{error}</Notice>}
       {context && !confirmed && <UnresolvedContext context={context} />}
 
       {context && confirmed && account && (
@@ -73,6 +73,7 @@ export default function SidePanelApp() {
                 })
               }
             >
+              <Icon name="external" />
               {t('sidepanel.openAccountDetail')}
             </button>
             <button
@@ -86,6 +87,7 @@ export default function SidePanelApp() {
                 })
               }
             >
+              <Icon name="external" />
               {t('sidepanel.openRelatedAlerts')}
             </button>
           </div>
@@ -172,7 +174,7 @@ function WorkspaceGuard({
           {t('sidepanel.guard.hint')}
         </p>
       )}
-      {result && <p className="notice" style={{ marginTop: 8 }}>{result}</p>}
+      {result && <div style={{ marginTop: 8 }}><Notice>{result}</Notice></div>}
     </div>
   )
 }
@@ -244,7 +246,7 @@ function QuickActions({ accountId, onRecorded }: { accountId: string; onRecorded
       <button type="button" disabled={!ready || busy} onClick={() => void record()}>
         {busy ? t('sidepanel.quick.recording') : t('sidepanel.quick.record')}
       </button>
-      {result && <p className="notice" style={{ marginTop: 8 }}>{result}</p>}
+      {result && <div style={{ marginTop: 8 }}><Notice>{result}</Notice></div>}
     </div>
   )
 }
