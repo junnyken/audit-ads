@@ -3800,8 +3800,11 @@ ReaderSource, ReaderCredentialsSection, ConnectionReaderSwitch, NotObservableRea
     token → 401.
   - `MIGRATE_ON_START` could not be removed through the MCP (no delete, blank refused); the owner removed it
     in the Vibe Host panel and redeployed — backend v24 at 15:34, `list_env` no longer lists it.
-  - Not verified: an authenticated F1 call in production, a real email
-    encryption/reveal with the production vault key, browser UAT (mobile/dark mode).
+  - Verified on production (`audit-ads-backend` v26, `02c720e`): authenticated login (`POST /api/v1/auth/login` → 200),
+    `PUT /api/v1/me/reveal-pin` → 200 (`is_set: true`), `PUT /api/v1/personal-account-references/{id}/email` → 200
+    (`email_stored: true`, `email_hint: ki***@gmail.com`), `POST /api/v1/personal-account-references/{id}/reveal-email` → 200
+    (decrypted with the production vault key), then archived test profile (`POST .../archive` → 200).
+  - Not verified: browser UAT by a person (mobile/dark mode).
 - Follow-up fixes 2026-10-28 (archived identity filter, explicit-null 422 on NOT NULL profile fields, concurrent BM-link 409 conflict via savepoint + partial unique index):
   - `backend/.venv/bin/python -m pytest tests/test_f1_facebook_identities.py tests/test_registry_api.py -q -p no:cacheprovider` → **passed** (`test_f1_facebook_identities.py`: 55 passed, including 9 new regression cases across the 3 fixes).
   - `backend/.venv/bin/ruff check .` → **passed**.
