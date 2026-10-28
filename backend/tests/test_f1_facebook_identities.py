@@ -13,7 +13,7 @@ from cryptography.fernet import Fernet
 from alembic import command
 from alembic.config import Config
 from app.core.config import get_settings
-from app.core.enums import WorkspaceRole
+from app.core.enums import IdentityBusinessRole, WorkspaceRole
 from app.core.security import hash_password
 from app.db.session import engine
 from app.models.entities import AuditLog, PersonalAccountReference, User, WorkspaceMember
@@ -518,3 +518,103 @@ def test_the_pin_pattern_does_not_accept_a_trailing_newline_or_non_ascii_digits(
     url = f"{PROFILES}/{profile['id']}/reveal-email"
     assert client.post(url, headers=auth, json={"pin": PIN + "\n"}).status_code == 403
     assert client.post(url, headers=auth, json={"pin": PIN}).status_code == 200
+
+
+def test_filtering_ad_accounts_by_an_archived_profile_returns_nothing(api):
+    bm = _bm(api)
+    fb_bm = _profile(api, label="FB BM")
+    fb_direct = _profile(api, label="FB Direct")
+    api.post(f"{PROFILES}/{fb_bm['id']}/business-links", json={"business_manager_id": bm["id"]})
+    in_bm = api.post(
+        "/api/v1/ad-accounts",
+        json={"display_name": "TK BM", "business_manager_id": bm["id"]},
+    ).json()
+    direct = api.post(
+        "/api/v1/ad-accounts",
+        json={
+            "display_name": "TK Direct",
+            "account_type": "personal_reference",
+            "personal_account_reference_id": fb_direct["id"],
+        },
+    ).json()
+
+    assert [r["id"] for r in api.get("/api/v1/ad-accounts", params={"facebook_identity_id": fb_bm["id"]}).json()["items"]] == [in_bm["id"]]
+    assert [r["id"] for r in api.get("/api/v1/ad-accounts", params={"facebook_identity_id": fb_direct["id"]}).json()["items"]] == [direct["id"]]
+
+    assert api.post(f"{PROFILES}/{fb_bm['id']}/archive").status_code == 200
+    assert api.post(f"{PROFILES}/{fb_direct['id']}/archive").status_code == 200
+
+    assert api.get("/api/v1/ad-accounts", params={"facebook_identity_id": fb_bm["id"]}).json()["items"] == []
+    assert api.get("/api/v1/ad-accounts", params={"facebook_identity_id": fb_direct["id"]}).json()["items"] == []
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "label",
+        "display_name",
+        "status",
+        "notes",
+        "two_factor_method",
+        "vault_reference",
+        "recovery_note",
+    ],
+)
+def test_updating_a_profile_with_an_explicit_null_on_a_not_null_column_is_422(api, field):
+    profile = _profile(api, notes="ghi chú", vault_reference="Bitwarden → Agency/FB2", recovery_note="SIM 01")
+    response = api.patch(f"{PROFILES}/{profile['id']}", json={field: None})
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == "validation_error"
+
+
+def test_concurrent_business_links_for_the_same_pair_raise_conflict_instead_of_500(api, owner):
+    from app.core.errors import ConflictError
+    from app.db.session import SessionLocal
+    from app.models.entities import BusinessManager
+    from app.services.audit import AuditLogService
+    from app.services.facebook_identities import FacebookIdentityService
+
+    bm = _bm(api)
+    profile = _profile(api)
+    workspace_id = owner["workspace"].id
+    actor_id = owner["user"].id
+    identity_id = uuid.UUID(profile["id"])
+    bm_id = uuid.UUID(bm["id"])
+
+    first = SessionLocal()
+    second = SessionLocal()
+    try:
+        svc1 = FacebookIdentityService(first, workspace_id, AuditLogService(first, workspace_id, actor_id), get_settings())
+        svc2 = FacebookIdentityService(second, workspace_id, AuditLogService(second, workspace_id, actor_id), get_settings())
+
+        id1 = svc1.get(identity_id)
+        id2 = svc2.get(identity_id)
+
+        svc1.link_business(id1, business_manager_id=bm_id, role=IdentityBusinessRole.ADMIN, note="", actor_id=actor_id)
+        first.commit()
+
+        real_execute = second.execute
+        calls = 0
+
+        def race_execute(statement, *args, **kwargs):
+            nonlocal calls
+            calls += 1
+            # In link_business: call 1 is get_or_404(BusinessManager), call 2 is the existing-link pre-check.
+            if calls == 2:
+                class _Empty:
+                    def scalar_one_or_none(self_inner):
+                        return None
+                return _Empty()
+            return real_execute(statement, *args, **kwargs)
+
+        second.execute = race_execute  # type: ignore[method-assign]
+        with pytest.raises(ConflictError):
+            svc2.link_business(id2, business_manager_id=bm_id, role=IdentityBusinessRole.ADMIN, note="", actor_id=actor_id)
+        second.execute = real_execute  # type: ignore[method-assign]
+
+        # And the savepoint kept `second` usable after the IntegrityError.
+        assert second.get(BusinessManager, bm_id) is not None
+    finally:
+        first.close()
+        second.close()
+

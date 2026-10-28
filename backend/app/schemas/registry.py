@@ -128,6 +128,18 @@ class PersonalAccountReferenceCreate(StrictPayload):
     _https = field_validator("vault_reference")(_vault_reference)
 
 
+#: NOT NULL columns of `personal_account_references` that an update may touch.
+_NOT_NULL_UPDATE_FIELDS = (
+    "label",
+    "display_name",
+    "status",
+    "notes",
+    "two_factor_method",
+    "vault_reference",
+    "recovery_note",
+)
+
+
 class PersonalAccountReferenceUpdate(StrictPayload):
     label: OptName = None
     display_name: OptName = None
@@ -144,6 +156,16 @@ class PersonalAccountReferenceUpdate(StrictPayload):
 
     _no_secret = field_validator(*_PROFILE_TEXT_FIELDS)(_refuse_login_secret)
     _https = field_validator("vault_reference")(_vault_reference)
+
+    @field_validator(*_NOT_NULL_UPDATE_FIELDS, mode="before")
+    @classmethod
+    def _no_explicit_null(cls, value: object) -> object:
+        # These columns are NOT NULL. Omitting the key means "leave unchanged"; sending null is
+        # not a defined operation, so it is refused (422) instead of reaching the database (500).
+        # Validators do not run for omitted fields, so only an explicit null gets here.
+        if value is None:
+            raise ValueError("This field cannot be null. Omit it to leave it unchanged.")
+        return value
 
 
 class PersonalAccountReferenceOut(TimestampsOut):

@@ -3781,10 +3781,27 @@ ReaderSource, ReaderCredentialsSection, ConnectionReaderSwitch, NotObservableRea
   Covers list tone, unknown identity panel, https-only vault link, reveal dialog and lockout text.
 - Not verified by a person in a real browser: dark mode or 375px responsive layout; tested via token classes and
   mobile-card table primitive only. No migration, deployment, live provider call, Telegram action or browser automation.
-- Known follow-ups: PIN clear is per user across workspaces (owner decision); archived identity filtering,
-  explicit-null 500 and concurrent BM-link conflict remain to be designed/fixed.
+- Known follow-ups: PIN clear is per user across workspaces (owner decision).
 - Regression run 2026-10-28: `backend/.venv/bin/python -m pytest -q -p no:cacheprovider` → **exit 0, no failures** (output showed progress dots only, no total count recorded);
   `backend/.venv/bin/ruff check .` → **passed**; `frontend/npx vitest run` → **603 passed, 20 skipped**;
   `frontend/npm run typecheck` → **passed**; `frontend/npm run build` → **passed** (only the existing Rollup
   >500 kB chunk-size warning); `frontend/npx eslint .` → **passed**. No migration, deployment, live provider
   call, Telegram action or browser automation was run.
+- Production release 2026-10-28 (owner approved public deploy and migration **without a database backup** —
+  Vibe Host exposes no backup tool; an explicit owner exception to rule 23's backup step):
+  - Pre-deploy source-only security review of `dad0403`: 0 critical, 0 high, 2 low, 2 info
+    (`.vibe/vibesec-2026-10-28-1514.md`). Not a dynamic test.
+  - `MIGRATE_ON_START=0019_f1_facebook_identities` set; backend `audit-ads-backend` redeployed to version 23,
+    frontend `adsops-frontend` to version 3. Build logs of both show source `@ dad04035`.
+  - Backend runtime log 08:17:09Z: `applying migrations at startup because MIGRATE_ON_START names this head`,
+    alembic `running migrations`, then `migration complete`.
+  - curl afterwards: `/health/ready` → 200 `{"status":"ok","database":"reachable"}`, `/health/live` → 200,
+    frontend `/` → 200, `config.js` names the backend, `GET /api/v1/facebook-identities/summary` without a
+    token → 401.
+  - `MIGRATE_ON_START` could not be removed through the MCP (no delete, blank refused); the owner removed it
+    in the Vibe Host panel and redeployed — backend v24 at 15:34, `list_env` no longer lists it.
+  - Not verified: an authenticated F1 call in production, a real email
+    encryption/reveal with the production vault key, browser UAT (mobile/dark mode).
+- Follow-up fixes 2026-10-28 (archived identity filter, explicit-null 422 on NOT NULL profile fields, concurrent BM-link 409 conflict via savepoint + partial unique index):
+  - `backend/.venv/bin/python -m pytest tests/test_f1_facebook_identities.py tests/test_registry_api.py -q -p no:cacheprovider` → **passed** (`test_f1_facebook_identities.py`: 55 passed, including 9 new regression cases across the 3 fixes).
+  - `backend/.venv/bin/ruff check .` → **passed**.

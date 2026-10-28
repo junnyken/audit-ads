@@ -155,6 +155,18 @@ class AdAccountRegistryService:
                 AdAccount.personal_account_reference_id == filters.personal_account_reference_id
             )
         if filters.facebook_identity_id:
+            # Both branches (direct and through a Business Manager) require the profile itself to be
+            # active and in this workspace: an archived or foreign profile reaches nothing.
+            identity_active = (
+                sa.select(PersonalAccountReference.id)
+                .where(
+                    PersonalAccountReference.id == filters.facebook_identity_id,
+                    PersonalAccountReference.workspace_id == self.workspace_id,
+                    PersonalAccountReference.archived_at.is_(None),
+                )
+                .exists()
+            )
+            stmt = stmt.where(identity_active)
             managed_bm = (
                 sa.select(PersonalAccountBusinessLink.id)
                 .where(

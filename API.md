@@ -1292,4 +1292,6 @@ or plain words; other URL schemes are rejected. Changing `owner_member_id` is ow
 | `PUT /meta-reader-credentials/{id}/facebook-identity` | owner; which profile granted a reader |
 
 `GET /ad-accounts/{id}` adds `facebook_identities[]`; `GET /ad-accounts` adds `{id,label}` per row and a
-`facebook_identity_id` filter.
+`facebook_identity_id` filter (an archived or out-of-workspace profile matches nothing). `PATCH /personal-account-references/{id}`
+refuses an explicit `null` on NOT NULL columns (`422 validation_error`), and concurrent duplicate `POST .../business-links`
+requests return `409 conflict`.

@@ -25,7 +25,7 @@ not copy these forward — re-measure them at the moment you write about them.
 | Production runs the dispatcher in the API container and holds a Meta server token | 2026-10-27 | runtime log `dispatcher started` with `spend_sweep_every_n_passes: 60`, discovery and credential check `0`; `list_env` shows `RUN_DISPATCHER_IN_API`, `META_ACCESS_TOKEN`, `META_BUSINESS_ID` and no O4 variable (`CREDENTIAL_VAULT_KEY`, `META_APP_*`) yet |
 | Local dev database was rebuilt empty | 2026-10-26 | The old `adsops-db` container was gone. The new one holds 0 users, 0 BMs, 0 ad accounts. The 2026-09-14 rows above describe a database that no longer exists |
 | Extension never published | **not verifiable here** | no Chrome Web Store listing can be checked from this workspace; it rests on the operator's word |
-| Production schema at head (`0018_o4_reader_credentials`) | 2026-10-27 | runtime log `applying migrations at startup because MIGRATE_ON_START names this head` then `migration complete`; `MIGRATE_ON_START` removed afterwards (`list_env`). The database itself is internal-only |
+| Production schema at head (`0019_f1_facebook_identities`) | 2026-10-28 | backend v23 built from `dad0403`; runtime log `applying migrations at startup because MIGRATE_ON_START names this head` then `migration complete` at 08:17:09Z. Run without a backup by owner exception (no backup tool on Vibe Host). `MIGRATE_ON_START` removed by the owner in the panel, backend redeployed to v24 (`list_env`, 15:34). The database itself is internal-only |
 
 ## Hard rules (these are product requirements, not preferences)
 

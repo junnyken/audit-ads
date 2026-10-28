@@ -18,6 +18,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core import secret_vault
@@ -38,6 +39,8 @@ from app.services.base import get_or_404, require_active
 from app.services.references import ReferenceService
 
 ENTITY_TYPE = "personal_account_reference"
+#: The partial unique index that allows one active link per (profile, Business Manager) pair.
+ACTIVE_LINK_INDEX = "uq_pa_business_links_active"
 
 PIN_PATTERN = re.compile(r"[0-9]{6}")  # used with fullmatch: `$` would also accept a trailing newline
 PIN_MAX_FAILURES = 5
@@ -46,6 +49,12 @@ PIN_LOCK_MINUTES = 15
 REVEAL_ROLES = frozenset({WorkspaceRole.OWNER, WorkspaceRole.ADMIN})
 
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _violates_active_link_index(error: IntegrityError) -> bool:
+    """True only for the active-link unique index; any other integrity error is not ours to translate."""
+    diag = getattr(error.orig, "diag", None)
+    return getattr(diag, "constraint_name", None) == ACTIVE_LINK_INDEX
 
 
 class PinLockedError(DomainError):
@@ -305,8 +314,16 @@ class FacebookIdentityService:
             linked_at=_now(),
             linked_by=actor_id,
         )
-        self.session.add(link)
-        self.session.flush()
+        # The pre-check above is only a fast path: two requests can both pass it. The partial unique
+        # index decides the race, and the savepoint keeps the caller's transaction usable afterwards.
+        try:
+            with self.session.begin_nested():
+                self.session.add(link)
+                self.session.flush()
+        except IntegrityError as error:
+            if _violates_active_link_index(error):
+                raise ConflictError("This Facebook account is already linked to this Business Manager.") from None
+            raise
         self.audit.record(
             action=f"{ENTITY_TYPE}.business_linked",
             entity_type=ENTITY_TYPE,
