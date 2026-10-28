@@ -77,6 +77,14 @@ class MessageInputs:
                         if item.get("role")
                         else None
                     ),
+                    "ownership_type": str(
+                        getattr(item.get("ownership_type"), "value", item.get("ownership_type"))
+                        or "agency_owned"
+                    ),
+                    "client_name": str(item.get("client_name") or ""),
+                    "device_label": str(item.get("device_label") or ""),
+                    "browser_profile_label": str(item.get("browser_profile_label") or ""),
+                    "network_label": str(item.get("network_label") or ""),
                 }
                 for item in list(self.login_identities)[:5]
                 if isinstance(item, dict)
@@ -150,17 +158,37 @@ def format_observed_at(moment: datetime, timezone_name: str | None) -> str:
 
 
 def format_login_identity(item: dict) -> str:
-    """Format one operational Facebook profile for the Telegram line (F2).
+    """Format one operational Facebook profile for the Telegram line (F2 & F1.5).
 
-    Uses Vietnamese operational labels ('người giữ', '2FA', 'chỗ cất') so it matches the agency UI
-    and never emits English secret-like keywords ('password', 'token').
+    Uses Vietnamese operational labels ('người giữ', '2FA', 'chỗ cất', 'máy', 'trình duyệt', 'mạng')
+    so it matches the agency UI and never emits English secret-like keywords ('password', 'token').
     """
     label = sanitise(str(item.get("label") or "—"), limit=80)
     holder = sanitise(str(item.get("owner_member_name") or "chưa gán"), limit=60)
     two_factor_raw = getattr(item.get("two_factor_method"), "value", item.get("two_factor_method"))
     two_factor = sanitise(str(two_factor_raw or "unknown"), limit=24)
     vault = sanitise(str(item.get("vault_reference") or "chưa ghi"), limit=100)
-    return f"Đăng nhập {label} (người giữ: {holder}, 2FA: {two_factor}, chỗ cất: {vault})"
+    parts = [f"người giữ: {holder}", f"2FA: {two_factor}", f"chỗ cất: {vault}"]
+    ownership_raw = str(
+        getattr(item.get("ownership_type"), "value", item.get("ownership_type")) or "agency_owned"
+    )
+    client_raw = str(item.get("client_name") or "").strip()
+    if ownership_raw == "client_provided":
+        parts.append(
+            f"khách gửi: {sanitise(client_raw, limit=60)}" if client_raw else "nguồn: khách gửi"
+        )
+    elif client_raw:
+        parts.append(f"khách: {sanitise(client_raw, limit=60)}")
+    device_raw = str(item.get("device_label") or "").strip()
+    if device_raw:
+        parts.append(f"máy: {sanitise(device_raw, limit=60)}")
+    browser_raw = str(item.get("browser_profile_label") or "").strip()
+    if browser_raw:
+        parts.append(f"trình duyệt: {sanitise(browser_raw, limit=60)}")
+    network_raw = str(item.get("network_label") or "").strip()
+    if network_raw:
+        parts.append(f"mạng: {sanitise(network_raw, limit=60)}")
+    return f"Đăng nhập {label} ({', '.join(parts)})"
 
 
 def render(inputs: MessageInputs) -> str:

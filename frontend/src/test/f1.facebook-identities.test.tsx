@@ -50,4 +50,35 @@ describe('F1 Facebook identities', () => {
     await user.type(screen.getByLabelText(/Mã PIN 6 số/), '482913'); await user.click(screen.getByRole('button', { name: 'Xem email' }))
     await waitFor(() => expect(screen.getByText('PIN đang bị khóa. Hãy thử lại sau.')).toBeInTheDocument())
   })
+  it('renders client-provided ownership and fixed device/browser/network login environment in LoginToFixPanel (F1.5)', () => {
+    wrap(
+      <LoginToFixPanel
+        identities={[
+          {
+            id: 'fb-client-1',
+            label: 'FB Khách – Spa Ngọc Lan',
+            status: 'active',
+            two_factor_method: 'app',
+            vault_reference: 'Bitwarden → Khach/SpaLan',
+            email_hint: 'sp***@gmail.com',
+            owner_member_id: 'm1',
+            owner_member_name: 'Nguyễn Triệu',
+            via: 'business_manager',
+            role: 'admin',
+            ownership_type: 'client_provided',
+            client_name: 'Spa Ngọc Lan',
+            device_label: 'PC-Ads-02',
+            browser_profile_label: 'AdsPower #108 - Spa Lan',
+            network_label: 'Proxy Tĩnh VN-HCM-03',
+          },
+        ]}
+      />,
+    )
+    expect(screen.getByText('Khách gửi quản lý')).toBeInTheDocument()
+    expect(screen.getByText('Spa Ngọc Lan')).toBeInTheDocument()
+    const envBox = screen.getByTestId('login-to-fix-env')
+    expect(envBox).toHaveTextContent('PC-Ads-02')
+    expect(envBox).toHaveTextContent('AdsPower #108 - Spa Lan')
+    expect(envBox).toHaveTextContent('Proxy Tĩnh VN-HCM-03')
+  })
 })

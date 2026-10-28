@@ -1319,3 +1319,16 @@ requests return `409 conflict`.
   - Includes `budget_pacing`: `{ client_name, currency, planned_daily_budget_raw, planned_monthly_budget_raw, latest_complete_day, latest_day_spend_raw, daily_utilization_pct, month_prefix, mtd_spend_raw, mtd_days_counted, monthly_utilization_pct, pacing_status }`.
 - `GET /api/v1/spend/summary`:
   - Includes `budget_pacing_counts`: `{ unconfigured, insufficient_data, on_track, overspending, approaching_monthly_budget, underspending }`.
+
+
+## Slice F1.5 — Fixed Login Environment & Client Ownership on Facebook Profiles
+- `POST /api/v1/personal-account-references`, `PATCH /api/v1/personal-account-references/{id}`, `GET /api/v1/personal-account-references`, `GET /api/v1/personal-account-references/{id}`:
+  - Additional fields on `PersonalAccountReference`:
+    - `ownership_type`: `"agency_owned" | "client_provided"` (default `"agency_owned"`).
+    - `client_name`: `str` (max 200 chars, secret-checked).
+    - `device_label`: `str` (max 160 chars, secret-checked).
+    - `browser_profile_label`: `str` (max 160 chars, secret-checked).
+    - `network_label`: `str` (max 160 chars, secret-checked + rejects proxy URLs/credentials).
+  - `GET /api/v1/personal-account-references?search=...` searches across `label`, `display_name`, `external_reference_id`, `notes`, `email_hint`, `client_name`, `device_label`, `browser_profile_label`, and `network_label`.
+- `AccountIdentityOut` (on `GET /api/v1/ad-accounts/{id}/overview`, `GET /api/v1/alerts`, `GET /api/v1/alerts/{id}`):
+  - Includes `ownership_type`, `client_name`, `device_label`, `browser_profile_label`, and `network_label`.

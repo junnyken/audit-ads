@@ -133,6 +133,15 @@ export default function FacebookAccountDetail() {
       <div className="grid gap-4 xl:grid-cols-2">
         <Panel title={t('fb.detail.title')}>
           <dl className={DL_CLASS}>
+            <Row label={t('fb.ownership')}>
+              <Badge tone={String(r.ownership_type ?? 'agency_owned') === 'client_provided' ? 'info' : 'neutral'}>
+                {t(`fb.ownership.${String(r.ownership_type ?? 'agency_owned')}` as never)}
+              </Badge>
+            </Row>
+            <Row label={t('fb.clientName')}>{String(r.client_name || '—')}</Row>
+            <Row label={t('fb.deviceLabel')}>{String(r.device_label || '—')}</Row>
+            <Row label={t('fb.browserLabel')}>{String(r.browser_profile_label || '—')}</Row>
+            <Row label={t('fb.networkLabel')}>{String(r.network_label || '—')}</Row>
             <Row label={t('fb.owner')}>{p.owner_member_name ?? '—'}</Row>
             <Row label={t('fb.twoFactor')}>
               <Badge tone={twoFactorTone(String(r.two_factor_method))}>

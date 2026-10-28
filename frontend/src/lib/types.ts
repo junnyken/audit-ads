@@ -1463,6 +1463,7 @@ export interface PlatformStatusView extends PlatformStatusCompact {
 
 export type TwoFactorMethod = 'app' | 'sms' | 'security_key' | 'none' | 'unknown'
 export type IdentityBusinessRole = 'admin' | 'employee' | 'unknown'
+export type IdentityOwnershipType = 'agency_owned' | 'client_provided'
 
 export interface FacebookIdentity {
   id: string
@@ -1475,6 +1476,11 @@ export interface FacebookIdentity {
   owner_member_name: string | null
   via: 'direct' | 'business_manager'
   role: IdentityBusinessRole | null
+  ownership_type?: IdentityOwnershipType
+  client_name?: string
+  device_label?: string
+  browser_profile_label?: string
+  network_label?: string
 }
 
 export interface FacebookIdentitySummary {

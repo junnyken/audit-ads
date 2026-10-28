@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
-import type { ReferenceRecord, TeamMember } from '../../lib/types'
+import type { IdentityOwnershipType, ReferenceRecord, TeamMember } from '../../lib/types'
 import { useI18n } from '../../i18n'
 import { useEnumLabel } from '../../i18n/labels'
 import { Button } from '../primitives/button'
@@ -11,6 +11,7 @@ import { FormSheet } from '../page/FormSheet'
 
 const TWO_FACTOR_OPTIONS = ['unknown', 'app', 'sms', 'security_key', 'none'] as const
 const STATUS_OPTIONS = ['unknown', 'active', 'inactive', 'restricted'] as const
+const OWNERSHIP_OPTIONS: IdentityOwnershipType[] = ['agency_owned', 'client_provided']
 
 export function FacebookAccountFormSheet({
   open,
@@ -41,6 +42,11 @@ export function FacebookAccountFormSheet({
   const [vaultReference, setVaultReference] = useState('')
   const [recoveryNote, setRecoveryNote] = useState('')
   const [notes, setNotes] = useState('')
+  const [ownershipType, setOwnershipType] = useState<IdentityOwnershipType>('agency_owned')
+  const [clientName, setClientName] = useState('')
+  const [deviceLabel, setDeviceLabel] = useState('')
+  const [browserProfileLabel, setBrowserProfileLabel] = useState('')
+  const [networkLabel, setNetworkLabel] = useState('')
 
   useEffect(() => {
     if (!open) return
@@ -53,6 +59,11 @@ export function FacebookAccountFormSheet({
     setVaultReference(String(record?.vault_reference ?? ''))
     setRecoveryNote(String(record?.recovery_note ?? ''))
     setNotes(String(record?.notes ?? ''))
+    setOwnershipType((record?.ownership_type as IdentityOwnershipType) ?? 'agency_owned')
+    setClientName(String(record?.client_name ?? ''))
+    setDeviceLabel(String(record?.device_label ?? ''))
+    setBrowserProfileLabel(String(record?.browser_profile_label ?? ''))
+    setNetworkLabel(String(record?.network_label ?? ''))
   }, [open, record])
 
   const save = useMutation({
@@ -66,6 +77,11 @@ export function FacebookAccountFormSheet({
         vault_reference: vaultReference.trim(),
         recovery_note: recoveryNote.trim(),
         notes: notes.trim(),
+        ownership_type: ownershipType,
+        client_name: clientName.trim(),
+        device_label: deviceLabel.trim(),
+        browser_profile_label: browserProfileLabel.trim(),
+        network_label: networkLabel.trim(),
       }
       if (canAssignOwner) {
         payload.owner_member_id = ownerMemberId || null
@@ -118,6 +134,73 @@ export function FacebookAccountFormSheet({
             onChange={(e) => setLabel(e.target.value)}
           />
         </Field>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field htmlFor={`${formId}-ownership`} label={t('fb.ownership')}>
+            <select
+              id={`${formId}-ownership`}
+              className="input"
+              value={ownershipType}
+              onChange={(e) => setOwnershipType(e.target.value as IdentityOwnershipType)}
+              data-testid="fb-ownership-select"
+            >
+              {OWNERSHIP_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {t(`fb.ownership.${opt}` as never)}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field htmlFor={`${formId}-client`} label={t('fb.clientName')}>
+            <input
+              id={`${formId}-client`}
+              className="input"
+              maxLength={200}
+              placeholder={t('fb.clientPlaceholder')}
+              value={clientName}
+              onChange={(e) => setClientName(e.target.value)}
+              data-testid="fb-client-input"
+            />
+          </Field>
+        </div>
+
+        <div className="rounded-md border border-line bg-surface-muted p-3 space-y-2.5">
+          <p className="text-xs font-semibold text-ink">{t('fb.env.title')}</p>
+          <p className="text-xs text-ink-muted">{t('fb.env.desc')}</p>
+          <Field htmlFor={`${formId}-device`} label={t('fb.deviceLabel')}>
+            <input
+              id={`${formId}-device`}
+              className="input"
+              maxLength={160}
+              placeholder={t('fb.devicePlaceholder')}
+              value={deviceLabel}
+              onChange={(e) => setDeviceLabel(e.target.value)}
+              data-testid="fb-device-input"
+            />
+          </Field>
+          <Field htmlFor={`${formId}-browser`} label={t('fb.browserLabel')}>
+            <input
+              id={`${formId}-browser`}
+              className="input"
+              maxLength={160}
+              placeholder={t('fb.browserPlaceholder')}
+              value={browserProfileLabel}
+              onChange={(e) => setBrowserProfileLabel(e.target.value)}
+              data-testid="fb-browser-input"
+            />
+          </Field>
+          <Field htmlFor={`${formId}-network`} label={t('fb.networkLabel')}>
+            <input
+              id={`${formId}-network`}
+              className="input"
+              maxLength={160}
+              placeholder={t('fb.networkPlaceholder')}
+              value={networkLabel}
+              onChange={(e) => setNetworkLabel(e.target.value)}
+              data-testid="fb-network-input"
+            />
+          </Field>
+        </div>
+
         <Field htmlFor={`${formId}-display`} label={t('res.f.displayName')}>
           <input
             id={`${formId}-display`}

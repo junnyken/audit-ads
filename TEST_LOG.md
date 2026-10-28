@@ -3825,3 +3825,8 @@ ReaderSource, ReaderCredentialsSection, ConnectionReaderSwitch, NotObservableRea
 - Backend: `.venv/bin/pytest tests/test_c1_c2_budget_pacing.py tests/test_f3_business_users.py tests/test_o3_migration.py tests/test_o4_migration.py tests/test_f1_facebook_identities.py tests/test_s1_spend_api.py tests/test_s1_spend_rules.py tests/test_s1_spend_sweep.py -q` → **137 passed**.
 - Backend linter: `.venv/bin/ruff check .` → **All checks passed**.
 - Frontend: `npm run typecheck`, `npx eslint .`, `npx vitest run src/test/spend.test.tsx`, `npm run build` → **All passed**.
+
+
+## 2026-10-29 — Slice F1.5 (`ownership_type`, `client_name`, `device_label`, `browser_profile_label`, `network_label`)
+- Backend: `.venv/bin/pytest tests/test_f1_facebook_identities.py -k "test_f1_5 or migration" -q` & `.venv/bin/ruff check .` → **passed**.
+- Frontend: `npm run typecheck`, `npx eslint .`, `npx vitest run src/test/f1.facebook-identities.test.tsx`, `npm run build` → **passed**.

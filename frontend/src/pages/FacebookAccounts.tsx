@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { api, query } from '../lib/api'
 import type { FacebookIdentitySummary, Paged, ReferenceRecord, TeamMember } from '../lib/types'
 import { useAuth } from '../hooks/useAuth'
@@ -8,8 +8,8 @@ import { useI18n } from '../i18n'
 import { useEnumLabel } from '../i18n/labels'
 import { PageHeader } from '../components/page/PageHeader'
 import { SearchField, SelectField } from '../components/page/Filters'
-import { TableSkeleton } from '../components/page/TableSkeleton'
 import { EmptyState, ErrorState } from '../components/states'
+import { TableSkeleton } from '../components/page/TableSkeleton'
 import { Badge } from '../components/primitives/badge'
 import { Button } from '../components/primitives/button'
 import { Card } from '../components/primitives/card'
@@ -27,6 +27,7 @@ export default function FacebookAccounts() {
 
   const [search, setSearch] = useState('')
   const [holder, setHolder] = useState('')
+  const [ownershipFilter, setOwnershipFilter] = useState('')
   const [creating, setCreating] = useState(false)
 
   const list = useQuery({
@@ -43,8 +44,20 @@ export default function FacebookAccounts() {
     retry: false,
   })
   const bySummary = useMemo(() => new Map((summary.data ?? []).map((row) => [row.id, row])), [summary.data])
-  const rows = (list.data?.items ?? []).filter((row) => !holder || row.owner_member_id === holder)
-  const columns = [t('res.f.label'), t('fb.owner'), t('fb.twoFactor'), t('fb.businessManagers'), t('fb.adAccounts'), t('fb.status')]
+  const rows = (list.data?.items ?? []).filter((row) => {
+    if (holder && row.owner_member_id !== holder) return false
+    if (ownershipFilter && (row.ownership_type ?? 'agency_owned') !== ownershipFilter) return false
+    return true
+  })
+  const columns = [
+    t('res.f.label'),
+    t('fb.env.column'),
+    t('fb.owner'),
+    t('fb.twoFactor'),
+    t('fb.businessManagers'),
+    t('fb.adAccounts'),
+    t('fb.status'),
+  ]
 
   return (
     <div className="space-y-4">
@@ -61,6 +74,16 @@ export default function FacebookAccounts() {
       />
       <div className="flex flex-wrap items-end gap-2">
         <SearchField label={t('pg.search')} placeholder={t('fb.search')} value={search} onApply={setSearch} />
+        <SelectField
+          label={t('fb.ownership')}
+          value={ownershipFilter}
+          onChange={setOwnershipFilter}
+          options={[
+            ['', t('fb.ownership.all')],
+            ['agency_owned', t('fb.ownership.agency_owned')],
+            ['client_provided', t('fb.ownership.client_provided')],
+          ]}
+        />
         {members.data && (
           <SelectField
             label={t('fb.owner')}
@@ -99,22 +122,62 @@ export default function FacebookAccounts() {
             <TableBody>
               {rows.map((row) => {
                 const s = bySummary.get(row.id)
+                const ownership = String(row.ownership_type ?? 'agency_owned')
+                const clientName = String(row.client_name ?? '').trim()
+                const deviceLabel = String(row.device_label ?? '').trim()
+                const browserLabel = String(row.browser_profile_label ?? '').trim()
+                const networkLabel = String(row.network_label ?? '').trim()
+                const hasEnv = Boolean(deviceLabel || browserLabel || networkLabel)
                 return (
                   <TableRow key={row.id}>
                     <TableCell label={columns[0]} className="cell-title">
-                      <Link to={`/facebook-accounts/${row.id}`} className="font-medium text-brand-text hover:underline">
-                        {String(row.label)}
-                      </Link>
+                      <div className="space-y-1">
+                        <Link to={`/facebook-accounts/${row.id}`} className="font-medium text-brand-text hover:underline">
+                          {String(row.label)}
+                        </Link>
+                        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                          <Badge tone={ownership === 'client_provided' ? 'info' : 'neutral'}>
+                            {t(`fb.ownership.${ownership}` as never)}
+                          </Badge>
+                          {clientName && <span className="text-ink-muted">{clientName}</span>}
+                        </div>
+                      </div>
                     </TableCell>
-                    <TableCell label={columns[1]}>{s?.owner_member_name ?? '—'}</TableCell>
-                    <TableCell label={columns[2]}>
+                    <TableCell label={columns[1]} className="text-xs">
+                      {hasEnv ? (
+                        <div className="space-y-0.5" data-testid={`fb-env-${row.id}`}>
+                          {deviceLabel && (
+                            <p>
+                              <span className="text-ink-muted">{t('fb.deviceLabel')}:</span>{' '}
+                              <span className="font-medium text-ink">{deviceLabel}</span>
+                            </p>
+                          )}
+                          {browserLabel && (
+                            <p>
+                              <span className="text-ink-muted">{t('fb.browserLabel')}:</span>{' '}
+                              <span className="font-medium text-ink">{browserLabel}</span>
+                            </p>
+                          )}
+                          {networkLabel && (
+                            <p>
+                              <span className="text-ink-muted">IP/Mạng:</span>{' '}
+                              <span className="font-mono text-ink">{networkLabel}</span>
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-ink-faint">{t('fb.env.unconfigured')}</span>
+                      )}
+                    </TableCell>
+                    <TableCell label={columns[2]}>{s?.owner_member_name ?? '—'}</TableCell>
+                    <TableCell label={columns[3]}>
                       <Badge tone={twoFactorTone(String(row.two_factor_method))}>
                         {t(`twoFactor.${String(row.two_factor_method)}` as never)}
                       </Badge>
                     </TableCell>
-                    <TableCell label={columns[3]}>{s ? s.business_manager_count : '—'}</TableCell>
-                    <TableCell label={columns[4]}>{s ? s.ad_account_count : '—'}</TableCell>
-                    <TableCell label={columns[5]}>
+                    <TableCell label={columns[4]}>{s ? s.business_manager_count : '—'}</TableCell>
+                    <TableCell label={columns[5]}>{s ? s.ad_account_count : '—'}</TableCell>
+                    <TableCell label={columns[6]}>
                       <Badge tone={String(row.status) === 'active' ? 'positive' : 'neutral'}>
                         {enumLabel('refStatus', String(row.status))}
                       </Badge>

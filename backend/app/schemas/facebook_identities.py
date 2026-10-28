@@ -12,7 +12,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.core.enums import IdentityBusinessRole, ReferenceStatus, TwoFactorMethod
+from app.core.enums import IdentityBusinessRole, IdentityOwnershipType, ReferenceStatus, TwoFactorMethod
 from app.schemas.common import StrictPayload
 
 
@@ -116,6 +116,11 @@ class AccountIdentityOut(BaseModel):
     #: `direct` (the account is personal and points at this profile) or `business_manager`.
     via: str
     role: IdentityBusinessRole | None = None
+    ownership_type: IdentityOwnershipType = IdentityOwnershipType.AGENCY_OWNED
+    client_name: str = ""
+    device_label: str = ""
+    browser_profile_label: str = ""
+    network_label: str = ""
 
 
 class ReaderIdentityAssign(StrictPayload):

@@ -1221,3 +1221,16 @@ configuration findings rather than left for someone to discover.
 - **C2 — Cảnh báo tiến độ ngân sách (`spend_budget_pacing_drift`)**:
   - Tự động mở/cập nhật cảnh báo `Alert` (`alert_key = "budget_pacing:{account.id}"`, `rule_key = "spend_budget_pacing_drift"`) khi `pacing_status` rơi vào `overspending`, `approaching_monthly_budget`, hoặc `underspending`.
   - Gắn kèm hồ sơ Facebook đăng nhập (`facebook_identities` — F2) và checklist xử lý 3 bước cả trên Trung tâm Cảnh báo (`/alerts`) lẫn tin nhắn Telegram; tự động đóng (`source_cleared`) ngay khi tiến độ trở về `on_track`, `unconfigured`, hoặc `insufficient_data`.
+
+
+## Slice F1.5 — Quản lý Thiết bị, Hồ sơ Trình duyệt cố định & Tài khoản Khách gửi (`ownership_type`, `device_label`, `browser_profile_label`, `network_label`)
+- Thay thế hoàn toàn bảng Google Sheet quản lý via/nick khách hàng bằng định danh môi trường đăng nhập cố định ngay trên mỗi hồ sơ `PersonalAccountReference` (Migration `0022_f1_5_login_environment`):
+  - `ownership_type`: phân biệt rõ `agency_owned` (**Nội bộ Agency**) và `client_provided` (**Khách gửi quản lý**).
+  - `client_name`: tên khách hàng / dự án gắn với hồ sơ FB.
+  - `device_label`: thiết bị / máy tính / VPS cố định được phép mở nick này (VD: `PC-Ads-02`, `MacBook-Trieu`).
+  - `browser_profile_label`: hồ sơ trình duyệt cố định (VD: `AdsPower #108 - Spa Lan`, `Chrome Profile 14`, `GoLogin #22`).
+  - `network_label`: nhãn mạng / vị trí IP cố định (VD: `Proxy Tĩnh VN-HCM-03`, `4G Viettel Máy 1` — chặn tuyệt đối chuỗi chứa mật khẩu hoặc URL proxy có thông tin xác thực theo Rule 1).
+- Hiển thị trực tiếp môi trường đăng nhập cố định (`Máy`, `Trình duyệt`, `IP/Mạng`, `Nguồn khách hàng`) trên:
+  - Danh sách `/facebook-accounts` (kèm bộ lọc theo Nguồn tài khoản & tìm kiếm theo Tên máy / Profile trình duyệt / Khách hàng).
+  - Trang chi tiết `/facebook-accounts/{id}`.
+  - Khung **Đăng nhập để xử lý (`LoginToFixPanel`)** trên Trung tâm Cảnh báo (`/alerts`), trang Tổng quan tài khoản quảng cáo, và **tin nhắn cảnh báo Telegram**.

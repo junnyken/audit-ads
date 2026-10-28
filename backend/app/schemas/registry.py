@@ -11,6 +11,7 @@ from app.core.enums import (
     AccountStatus,
     AccountType,
     AssetType,
+    IdentityOwnershipType,
     ReadinessStatus,
     ReferenceStatus,
     TwoFactorMethod,
@@ -79,7 +80,17 @@ class BusinessManagerOut(TimestampsOut):
 # ------------------------------------------------------- Personal account reference
 #: F1. Free-text fields of a Facebook account profile. Each is refused when it looks like it
 #: carries the password, a one-time code or a 2FA seed (`looks_like_login_secret`).
-_PROFILE_TEXT_FIELDS = ("label", "display_name", "notes", "vault_reference", "recovery_note")
+_PROFILE_TEXT_FIELDS = (
+    "label",
+    "display_name",
+    "notes",
+    "vault_reference",
+    "recovery_note",
+    "client_name",
+    "device_label",
+    "browser_profile_label",
+    "network_label",
+)
 
 
 def _refuse_login_secret(value: str | None) -> str | None:
@@ -110,6 +121,26 @@ def _vault_reference(value: str | None) -> str | None:
         raise ValueError("A link to where the password is kept must be https.")
     return value
 
+
+
+def _refuse_network_secret(value: str | None) -> str | None:
+    if not value:
+        return value
+    lowered = value.lower()
+    if (
+        "://" in lowered
+        or "@" in value
+        or value.count(":") >= 3
+        or "pass=" in lowered
+        or "password" in lowered
+    ):
+        raise ValueError(
+            "network_label must be a display label only (for example 'Proxy VN-HCM-03'), "
+            "never a proxy URL or credential."
+        )
+    return value
+
+
 class PersonalAccountReferenceCreate(StrictPayload):
     label: Name
     display_name: str = Field(default="", max_length=200)
@@ -123,9 +154,16 @@ class PersonalAccountReferenceCreate(StrictPayload):
     two_factor_method: TwoFactorMethod = TwoFactorMethod.UNKNOWN
     vault_reference: str = Field(default="", max_length=2048)
     recovery_note: str = Field(default="", max_length=2000)
+    # ---- F1.5
+    ownership_type: IdentityOwnershipType = IdentityOwnershipType.AGENCY_OWNED
+    client_name: str = Field(default="", max_length=200)
+    device_label: str = Field(default="", max_length=160)
+    browser_profile_label: str = Field(default="", max_length=160)
+    network_label: str = Field(default="", max_length=160)
 
     _no_secret = field_validator(*_PROFILE_TEXT_FIELDS)(_refuse_login_secret)
     _https = field_validator("vault_reference")(_vault_reference)
+    _net = field_validator("network_label")(_refuse_network_secret)
 
 
 #: NOT NULL columns of `personal_account_references` that an update may touch.
@@ -137,6 +175,11 @@ _NOT_NULL_UPDATE_FIELDS = (
     "two_factor_method",
     "vault_reference",
     "recovery_note",
+    "ownership_type",
+    "client_name",
+    "device_label",
+    "browser_profile_label",
+    "network_label",
 )
 
 
@@ -153,9 +196,16 @@ class PersonalAccountReferenceUpdate(StrictPayload):
     two_factor_method: TwoFactorMethod | None = None
     vault_reference: str | None = Field(default=None, max_length=2048)
     recovery_note: str | None = Field(default=None, max_length=2000)
+    # ---- F1.5
+    ownership_type: IdentityOwnershipType | None = None
+    client_name: str | None = Field(default=None, max_length=200)
+    device_label: str | None = Field(default=None, max_length=160)
+    browser_profile_label: str | None = Field(default=None, max_length=160)
+    network_label: str | None = Field(default=None, max_length=160)
 
     _no_secret = field_validator(*_PROFILE_TEXT_FIELDS)(_refuse_login_secret)
     _https = field_validator("vault_reference")(_vault_reference)
+    _net = field_validator("network_label")(_refuse_network_secret)
 
     @field_validator(*_NOT_NULL_UPDATE_FIELDS, mode="before")
     @classmethod
@@ -184,6 +234,11 @@ class PersonalAccountReferenceOut(TimestampsOut):
     vault_reference: str = ""
     recovery_note: str = ""
     email_hint: str | None = None
+    ownership_type: IdentityOwnershipType = IdentityOwnershipType.AGENCY_OWNED
+    client_name: str = ""
+    device_label: str = ""
+    browser_profile_label: str = ""
+    network_label: str = ""
 
 
 # ------------------------------------------------------------------------------ Page

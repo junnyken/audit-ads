@@ -633,4 +633,9 @@ class FacebookIdentityService:
             "owner_member_name": members.get(identity.owner_member_id),
             "via": via,
             "role": role,
+            "ownership_type": identity.ownership_type,
+            "client_name": identity.client_name or "",
+            "device_label": identity.device_label or "",
+            "browser_profile_label": identity.browser_profile_label or "",
+            "network_label": identity.network_label or "",
         }

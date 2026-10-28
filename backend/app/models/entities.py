@@ -23,6 +23,7 @@ from app.core.enums import (
     EventStatus,
     EvidenceStatus,
     IdentityBusinessRole,
+    IdentityOwnershipType,
     ReadinessStatus,
     ReferenceStatus,
     TwoFactorMethod,
@@ -146,6 +147,16 @@ class PersonalAccountReference(UUIDPrimaryKey, Timestamped, Archivable, Base):
     recovery_note: Mapped[str] = mapped_column(sa.Text(), nullable=False, default="")
     email_hint: Mapped[str | None] = mapped_column(sa.String(320), nullable=True)
     email_ciphertext: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
+    # ---- F1.5 login environment & client ownership
+    ownership_type: Mapped[IdentityOwnershipType] = mapped_column(
+        _enum(IdentityOwnershipType, "identity_ownership_type"),
+        nullable=False,
+        default=IdentityOwnershipType.AGENCY_OWNED,
+    )
+    client_name: Mapped[str] = mapped_column(sa.String(200), nullable=False, default="")
+    device_label: Mapped[str] = mapped_column(sa.String(160), nullable=False, default="")
+    browser_profile_label: Mapped[str] = mapped_column(sa.String(160), nullable=False, default="")
+    network_label: Mapped[str] = mapped_column(sa.String(160), nullable=False, default="")
 
 
 class PersonalAccountBusinessLink(UUIDPrimaryKey, Timestamped, Base):

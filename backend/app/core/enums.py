@@ -798,3 +798,10 @@ class IdentityBusinessRole(StrEnum):
     UNKNOWN = "unknown"
     ADMIN = "admin"
     EMPLOYEE = "employee"
+
+
+class IdentityOwnershipType(StrEnum):
+    """F1.5. Whether a Facebook account profile belongs to the agency or was provided by a client."""
+
+    AGENCY_OWNED = "agency_owned"
+    CLIENT_PROVIDED = "client_provided"

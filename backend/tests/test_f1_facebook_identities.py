@@ -693,3 +693,124 @@ def test_f2_alerts_and_telegram_include_login_identity_and_remediation_checklist
     assert "Checklist: 1) " in msg_text
     assert EMAIL not in msg_text
     assert "ng***@gmail.com" not in msg_text
+
+
+def test_f1_5_login_environment_and_client_provided_account_directory(
+    api, client, auth, db_session, owner, transport
+):
+    from app.services.audit import AuditLogService
+    from app.services.notification_service import NotificationDispatcherService
+
+    # 1. Create a client-provided Facebook account profile with fixed device, browser profile & network label
+    created = api.post(
+        "/api/v1/personal-account-references",
+        json={
+            "label": "FB Khách – Spa Ngọc Lan",
+            "ownership_type": "client_provided",
+            "client_name": "Spa Ngọc Lan",
+            "device_label": "PC-Ads-02",
+            "browser_profile_label": "AdsPower #108 - Spa Lan",
+            "network_label": "Proxy Tĩnh VN-HCM-03",
+            "two_factor_method": "app",
+            "vault_reference": "Bitwarden → Khach/SpaNgocLan",
+        },
+    )
+    assert created.status_code == 201, created.text
+    fb = created.json()
+    assert fb["ownership_type"] == "client_provided"
+    assert fb["client_name"] == "Spa Ngọc Lan"
+    assert fb["device_label"] == "PC-Ads-02"
+    assert fb["browser_profile_label"] == "AdsPower #108 - Spa Lan"
+    assert fb["network_label"] == "Proxy Tĩnh VN-HCM-03"
+
+    # 2. Search by browser_profile_label and device_label
+    by_browser = api.get("/api/v1/personal-account-references?search=AdsPower%20%23108").json()
+    assert any(item["id"] == fb["id"] for item in by_browser["items"])
+    by_device = api.get("/api/v1/personal-account-references?search=PC-Ads-02").json()
+    assert any(item["id"] == fb["id"] for item in by_device["items"])
+    by_client = api.get("/api/v1/personal-account-references?search=Spa%20Ng%E1%BB%8Dc%20Lan").json()
+    assert any(item["id"] == fb["id"] for item in by_client["items"])
+
+    # 3. Reject proxy URLs/credentials in network_label and secrets in browser_profile_label (Rule 1)
+    bad_proxy = client.post(
+        "/api/v1/personal-account-references",
+        headers=auth,
+        json={
+            "label": "FB Bad Proxy",
+            "network_label": "socks5://user:pass123@103.1.2.3:1080",
+        },
+    )
+    assert bad_proxy.status_code == 422
+
+    bad_colon_proxy = client.patch(
+        f"/api/v1/personal-account-references/{fb['id']}",
+        headers=auth,
+        json={"network_label": "103.1.2.3:8080:myuser:mypass"},
+    )
+    assert bad_colon_proxy.status_code == 422
+
+    bad_secret_browser = client.patch(
+        f"/api/v1/personal-account-references/{fb['id']}",
+        headers=auth,
+        json={"browser_profile_label": "otpauth://totp/Facebook:test?secret=JBSWY3DPEHPK3PXP"},
+    )
+    assert bad_secret_browser.status_code == 422
+
+    # 4. Link to an ad account and verify alert & Telegram message include the fixed login environment
+    bm = api.post("/api/v1/business-managers", json={"name": "BM Spa Lan", "external_id": "99887766"}).json()
+    api.post(
+        f"/api/v1/personal-account-references/{fb['id']}/business-links",
+        json={"business_manager_id": bm["id"], "role": "admin", "note": "Cầm BM khách"},
+    )
+    client.patch(
+        "/api/v1/notification-policies/current",
+        headers=auth,
+        json={
+            "enabled": True,
+            "quiet_hours_enabled": False,
+            "warning_telegram_enabled": True,
+            "telegram_chat_id": "-100999888777",
+        },
+    )
+    acc = api.post(
+        "/api/v1/ad-accounts",
+        json={
+            "display_name": "TKQC Spa Lan 01",
+            "external_account_id": "act_99887766",
+            "business_manager_id": bm["id"],
+            "status": "disabled",
+        },
+    ).json()
+
+    # Check account overview identities
+    overview = api.get(f"/api/v1/ad-accounts/{acc['id']}").json()
+    assert len(overview["facebook_identities"]) == 1
+    ident = overview["facebook_identities"][0]
+    assert ident["ownership_type"] == "client_provided"
+    assert ident["client_name"] == "Spa Ngọc Lan"
+    assert ident["device_label"] == "PC-Ads-02"
+    assert ident["browser_profile_label"] == "AdsPower #108 - Spa Lan"
+    assert ident["network_label"] == "Proxy Tĩnh VN-HCM-03"
+
+    # Check alert & Telegram message
+    alerts = api.get(f"/api/v1/alerts?ad_account_id={acc['id']}").json()["items"]
+    assert len(alerts) >= 1
+    alert_ident = alerts[0]["facebook_identities"][0]
+    assert alert_ident["device_label"] == "PC-Ads-02"
+    assert alert_ident["browser_profile_label"] == "AdsPower #108 - Spa Lan"
+
+    wid = owner["workspace"].id
+    NotificationDispatcherService(
+        db_session,
+        wid,
+        AuditLogService(db_session, wid, owner["user"].id),
+        transport=transport,
+    ).dispatch_due()
+    db_session.commit()
+    assert len(transport.sent) >= 1
+    msg_text = transport.sent[-1].text
+    assert "FB Khách – Spa Ngọc Lan" in msg_text
+    assert "khách gửi: Spa Ngọc Lan" in msg_text
+    assert "máy: PC-Ads-02" in msg_text
+    assert "trình duyệt: AdsPower #108 - Spa Lan" in msg_text
+    assert "mạng: Proxy Tĩnh VN-HCM-03" in msg_text
