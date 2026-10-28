@@ -31,8 +31,22 @@ export const PERSONAL_REFERENCES: ResourceSpec = {
     { name: 'label', label: 'res.f.label', required: true, maxLength: 200 },
     { name: 'display_name', label: 'res.f.displayName', maxLength: 200 },
     { name: 'external_reference_id', label: 'res.f.externalReferenceId', maxLength: 120 },
-    { name: 'country', label: 'res.f.country', maxLength: 2, uppercase: true },
-    { name: 'timezone', label: 'res.f.timezone', maxLength: 64 },
+    {
+      name: 'two_factor_method',
+      label: 'fb.twoFactor',
+      type: 'select',
+      options: [
+        ['unknown', 'twoFactor.unknown'],
+        ['app', 'twoFactor.app'],
+        ['sms', 'twoFactor.sms'],
+        ['security_key', 'twoFactor.security_key'],
+        ['none', 'twoFactor.none'],
+      ],
+    },
+    { name: 'vault_reference', label: 'fb.form.vaultLabel', maxLength: 2048, hideInTable: true },
+    { name: 'recovery_note', label: 'fb.detail.recovery', type: 'textarea', maxLength: 2000, hideInTable: true },
+    { name: 'country', label: 'res.f.country', maxLength: 2, uppercase: true, hideInTable: true },
+    { name: 'timezone', label: 'res.f.timezone', maxLength: 64, hideInTable: true },
   ]),
 }
 

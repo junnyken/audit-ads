@@ -106,6 +106,14 @@ export default function MemberDrawer({
     return list.find((row) => row.id === member!.id)
   }
 
+  const clearPin = useMutation({
+    mutationFn: () => api.post(`/api/v1/team/members/${member!.id}/reveal-pin/clear`),
+    onSuccess: () => {
+      const name = member!.full_name || member!.email
+      refresh({ ok: true, text: t('fb.member.pinCleared', { name }) })
+    },
+  })
+
   const act = useMutation({
     mutationFn: async ({ path, body }: { path: string; body?: unknown }) => {
       await api.post(`/api/v1/team/members/${member!.id}/${path}`, body)
@@ -447,6 +455,14 @@ export default function MemberDrawer({
                   {t('mb.act.revokeAll')}
                 </Button>
               )}
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={clearPin.isPending}
+                onClick={() => clearPin.mutate()}
+              >
+                {t('fb.member.clearPin')}
+              </Button>
               <Button type="button" variant="ghost" onClick={() => setPending({ type: 'status', action: 'archive' })}>
                 {t('mb.act.archive')}
               </Button>

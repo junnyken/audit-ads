@@ -11,6 +11,7 @@ import { axeOptions, mountAt, paged, wrap } from './u1d-helpers'
 
 const apiMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), put: vi.fn() }))
 vi.mock('../lib/api', async (orig) => ({ ...(await orig<typeof import('../lib/api')>()), api: apiMock }))
+vi.mock('../hooks/useAuth', () => ({ useAuth: () => ({ user: { id: 'u1', email: 'owner@example.com', full_name: 'Owner', role: 'owner', workspace: { id: 'w1', name: 'AdsOps', slug: 'adsops' } } }) }))
 
 const profile = { id: 'fb1', label: 'FB2 – Nguyễn A', display_name: '', status: 'unknown', owner_member_id: null, two_factor_method: 'none', vault_reference: 'javascript:alert(1)', recovery_note: '', email_hint: 'ng***@gmail.com' }
 const detail = { business_links: [], ad_accounts: [], readers: [], owner_member_name: null, has_full_email: true, can_reveal_email: true }

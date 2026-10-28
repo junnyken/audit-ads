@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { KeyRound, Link2, RefreshCw, RotateCw, ShieldOff } from 'lucide-react'
 import { api } from '../../lib/api'
-import type { MetaReaderCredential, MetaReaderCredentialList } from '../../lib/types'
+import type { MetaReaderCredential, MetaReaderCredentialList, Paged, ReferenceRecord } from '../../lib/types'
 import { Badge } from '../primitives/badge'
 import { Button } from '../primitives/button'
 import { Field } from '../primitives/field'
@@ -71,6 +71,11 @@ export function ReaderCredentialsSection({ isOwner }: { isOwner: boolean }) {
 
 function ReaderList({ data }: { data: MetaReaderCredentialList }) {
   const { t } = useI18n()
+  const fbProfiles = useQuery({
+    queryKey: ['personal-account-references', 'options'],
+    queryFn: () => api.get<Paged<ReferenceRecord>>('/api/v1/personal-account-references?page_size=200'),
+    retry: false,
+  })
   return (
     <div className="space-y-3">
       {!data.configured && (
@@ -87,7 +92,7 @@ function ReaderList({ data }: { data: MetaReaderCredentialList }) {
         <ul aria-label={t('rc.list')} className="space-y-3">
           {data.items.map((item) => (
             <li key={item.id}>
-              <ReaderCard item={item} configured={data.configured} />
+              <ReaderCard item={item} configured={data.configured} fbProfiles={fbProfiles.data?.items ?? []} />
             </li>
           ))}
         </ul>
@@ -177,7 +182,7 @@ function ConnectForm({ disabled, bmRequired }: { disabled: boolean; bmRequired: 
   )
 }
 
-function ReaderCard({ item, configured }: { item: MetaReaderCredential; configured: boolean }) {
+function ReaderCard({ item, configured, fbProfiles = [] }: { item: MetaReaderCredential; configured: boolean; fbProfiles?: ReferenceRecord[] }) {
   const { t, language } = useI18n()
   const queryClient = useQueryClient()
   const [dialog, setDialog] = useState<'reconnect' | 'revoke' | null>(null)
@@ -206,6 +211,16 @@ function ReaderCard({ item, configured }: { item: MetaReaderCredential; configur
   const revoke = useMutation({
     mutationFn: () => api.post<MetaReaderCredential>(`/api/v1/meta-reader-credentials/${item.id}/revoke`, { reason }),
   })
+  const assignFb = useMutation({
+    mutationFn: (nextId: string | null) =>
+      api.put(`/api/v1/meta-reader-credentials/${item.id}/facebook-identity`, {
+        personal_account_reference_id: nextId,
+      }),
+    onSuccess: () => {
+      void refresh()
+      void queryClient.invalidateQueries({ queryKey: ['facebook-identities'] })
+    },
+  })
   const revoked = item.status === 'revoked'
   const canVerify = configured && (item.status === 'active' || item.status === 'pending_verification')
   const canReconnect = configured && !revoked
@@ -224,6 +239,22 @@ function ReaderCard({ item, configured }: { item: MetaReaderCredential; configur
 
       <dl className={`mt-3 ${DL_CLASS}`}>
         <Row label={t('metaReader.grantedBy')}>{item.provider_user_name ?? item.provider_user_external_id ?? '—'}</Row>
+        <Row label={t('fb.reader.label')}>
+          <select
+            className="input max-w-xs text-xs"
+            aria-label={t('fb.reader.label')}
+            disabled={revoked || assignFb.isPending}
+            value={item.personal_account_reference_id ?? ''}
+            onChange={(e) => assignFb.mutate(e.target.value || null)}
+          >
+            <option value="">{t('fb.reader.none')}</option>
+            {fbProfiles.map((fb) => (
+              <option key={fb.id} value={fb.id}>
+                {String(fb.label)}
+              </option>
+            ))}
+          </select>
+        </Row>
         <Row label={t('metaReader.scopes')}>
           <span className="font-mono text-xs">{item.scopes.length ? item.scopes.join(', ') : '—'}</span>
         </Row>

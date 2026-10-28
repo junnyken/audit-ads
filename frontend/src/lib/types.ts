@@ -863,6 +863,7 @@ export interface MetaReaderCredential {
   derived_state: ReaderCredentialState
   provider_user_external_id: string | null
   provider_user_name: string | null
+  personal_account_reference_id?: string | null
   scopes: string[]
   issued_at: string | null
   expires_at: string | null
