@@ -387,6 +387,10 @@ class MetaReaderCredentialService:
             "derived_state": derived_state(credential, self.settings, now=now),
             "provider_user_external_id": credential.provider_user_external_id,
             "provider_user_name": credential.provider_user_name,
+            # F1: the person, as the owner recorded it (with a System User, Meta only names the system user).
+            "personal_account_reference_id": (
+                str(credential.personal_account_reference_id) if credential.personal_account_reference_id else None
+            ),
             "scopes": list(credential.scopes_json or []),
             "issued_at": _iso(credential.issued_at),
             "expires_at": _iso(credential.expires_at),

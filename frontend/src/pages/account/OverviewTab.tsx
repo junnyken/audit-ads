@@ -17,6 +17,7 @@ import { useEnumLabel } from '../../i18n/labels'
 import { useI18n } from '../../i18n'
 import { useAuth } from '../../hooks/useAuth'
 import { DL_CLASS, Note, Panel, Row } from './parts'
+import { LoginToFixPanel } from '../../components/facebook/LoginToFixPanel'
 
 /** Where an imported record came from, in one sentence. O3 adds two facts: whether the discovery
  * sweep added it on its own, and — for an account shared into the hub — which Business Manager
@@ -216,6 +217,8 @@ export default function OverviewTab({
           </Row>
         </dl>
       </Panel>
+
+      <LoginToFixPanel identities={account.facebook_identities} />
 
       <Panel title={t('ov.readiness.title')}>
         {readiness.isLoading ? (

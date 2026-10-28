@@ -819,7 +819,10 @@ describe('Settings page', () => {
     const { container } = wrap(<Settings />, '/settings')
     await screen.findByText('Chính sách thông báo')
     expect(container.textContent).toMatch(/Token bot Telegram là cấu hình phía máy chủ/)
-    expect(container.querySelector('input[type="password"]')).toBeNull()
+    // F1 adds one legitimate field: the *login* password that authorises setting the reveal PIN.
+    // Any other password-type input (a bot token, for instance) is still forbidden.
+    const passwordInputs = [...container.querySelectorAll('input[type="password"]')]
+    expect(passwordInputs.filter((input) => input.getAttribute('autocomplete') !== 'current-password')).toEqual([])
   })
 
   it('revokes a browser only after an AlertDialog, then reads the list back', async () => {

@@ -37,7 +37,7 @@ const SORT_KEYS = ['updated_at', 'last_manual_review_at', 'readiness_status', 'd
  * The columns after the always-on "Tài khoản" and the row action. Default = 6 (so 8 including the
  * two fixed ones, U1 T2); the rest are opt-in through the "Cột" chooser.
  */
-const COLUMN_IDS = ['recorded', 'platform', 'readiness', 'checklist', 'spend', 'updated', 'type', 'browserRef', 'proxyRef', 'review'] as const
+const COLUMN_IDS = ['recorded', 'platform', 'readiness', 'checklist', 'spend', 'facebookIdentity', 'updated', 'type', 'browserRef', 'proxyRef', 'review'] as const
 type ColumnId = (typeof COLUMN_IDS)[number]
 const DEFAULT_COLUMNS: ColumnId[] = ['recorded', 'platform', 'readiness', 'checklist', 'spend', 'updated']
 
@@ -47,6 +47,7 @@ const COLUMN_LABEL: Record<ColumnId, TranslationKey> = {
   readiness: 'col.readiness',
   checklist: 'col.checklist',
   spend: 'col.spend',
+  facebookIdentity: 'fb.title',
   updated: 'col.updated',
   type: 'col.type',
   browserRef: 'col.browserRef',
@@ -74,6 +75,7 @@ export default function Accounts() {
     readiness_status: params.get('readiness_status') ?? '',
     account_type: params.get('account_type') ?? '',
     business_manager_id: params.get('business_manager_id') ?? '',
+    facebook_identity_id: params.get('facebook_identity_id') ?? '',
     has_browser_reference: params.get('has_browser_reference') ?? '',
     has_proxy_reference: params.get('has_proxy_reference') ?? '',
     archived: params.get('archived') === 'true',
@@ -107,6 +109,11 @@ export default function Accounts() {
     queryFn: () => api.get<Paged<ReferenceRecord>>(`/api/v1/business-managers${query({ page_size: 200 })}`),
   })
 
+  const facebookIdentities = useQuery({
+    queryKey: ['personal-account-references', 'facebook-options'],
+    queryFn: () => api.get<Paged<ReferenceRecord>>('/api/v1/personal-account-references?page_size=200'),
+  })
+
   const accounts = useQuery({
     queryKey: ['accounts', 'list', filters],
     queryFn: () => api.get<Paged<AdAccount>>(`/api/v1/ad-accounts${query(filters)}`),
@@ -114,6 +121,7 @@ export default function Accounts() {
 
   const rows = accounts.data?.items ?? []
   const bmOptions = (businessManagers.data?.items ?? []).map((bm) => [bm.id, String(bm.name)] as [string, string])
+  const facebookOptions = (facebookIdentities.data?.items ?? []).map((identity) => [identity.id, String(identity.label)] as [string, string])
 
   // ---- active-filter chips ----------------------------------------------------------------------
   const yesNo = (value: string) => (value === 'true' ? t('filter.assigned') : t('filter.notAssigned'))
@@ -129,6 +137,8 @@ export default function Accounts() {
       text: `${t('filter.bm')}: ${bmOptions.find(([id]) => id === filters.business_manager_id)?.[1] ?? filters.business_manager_id}`,
       clear: { business_manager_id: null },
     })
+  if (filters.facebook_identity_id)
+    chips.push({ key: 'facebook_identity_id', text: `${t('fb.title')}: ${facebookOptions.find(([id]) => id === filters.facebook_identity_id)?.[1] ?? filters.facebook_identity_id}`, clear: { facebook_identity_id: null } })
   if (filters.account_type)
     chips.push({ key: 'account_type', text: `${t('filter.type')}: ${enumLabel('accountType', filters.account_type)}`, clear: { account_type: null } })
   if (filters.has_browser_reference)
@@ -139,6 +149,7 @@ export default function Accounts() {
   const filtersActive = chips.length > 0
 
   const moreCount = [
+    filters.facebook_identity_id,
     filters.account_type,
     filters.has_browser_reference,
     filters.has_proxy_reference,
@@ -185,6 +196,8 @@ export default function Accounts() {
             <ChecklistProgress done={account.completed_item_count} total={account.required_item_count} />
           </TableCell>
         )
+      case 'facebookIdentity':
+        return <TableCell key={id} label={label}>{account.facebook_identities?.length ? <span className="flex flex-wrap gap-1">{account.facebook_identities.map((identity) => <Link key={identity.id} to={`/facebook-accounts/${identity.id}`} className="text-brand-text hover:underline">{identity.label}</Link>)}</span> : <span className="text-ink-faint">—</span>}</TableCell>
       case 'spend':
         return (
           <TableCell key={id} label={label} numeric>
@@ -286,6 +299,12 @@ export default function Accounts() {
             value={filters.business_manager_id}
             onChange={(value) => update({ business_manager_id: value })}
             options={[['', t('filter.any')], ...bmOptions]}
+          />
+          <SelectField
+            label={t('fb.title')}
+            value={filters.facebook_identity_id}
+            onChange={(value) => update({ facebook_identity_id: value })}
+            options={[['', t('filter.any')], ...facebookOptions]}
           />
           <SelectField
             label={t('filter.sort')}

@@ -239,6 +239,17 @@ def get_owner_context(ctx: Annotated[ApiContext, Depends(get_context)]) -> ApiCo
     return ctx
 
 
+def get_owner_or_admin_context(ctx: Annotated[ApiContext, Depends(get_context)]) -> ApiContext:
+    """Mutations that designate a Facebook-account holder or store its recoverable email.
+
+    Buyers can edit ordinary operational labels, but must not be able to make themselves the
+    holder and thereby gain access to a masked email's PIN-gated reveal path.
+    """
+    if ctx.membership.role not in {WorkspaceRole.OWNER, WorkspaceRole.ADMIN}:
+        raise AuthorizationError("Only a workspace owner or admin can change this Facebook account detail.")
+    return ctx
+
+
 def get_optional_authenticated_user(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
     session: Annotated[Session, Depends(get_db)],
@@ -277,4 +288,5 @@ ExtCtx = Annotated[ExtensionContext, Depends(get_extension_context)]
 WriteCtx = Annotated[ApiContext, Depends(get_write_context)]
 AuditCtx = Annotated[ApiContext, Depends(get_audit_context)]
 OwnerCtx = Annotated[ApiContext, Depends(get_owner_context)]
+OwnerOrAdminCtx = Annotated[ApiContext, Depends(get_owner_or_admin_context)]
 OptionalUser = Annotated[User | None, Depends(get_optional_authenticated_user)]

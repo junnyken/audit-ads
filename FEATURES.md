@@ -1036,6 +1036,29 @@ any of them.
 | Numeric risk score, restriction prediction | Rejected design — hides uncertainty and implies safety claims |
 | Team assignment UX, full RBAC | Data model supports it; UX belongs to MINI-SPEC F1 |
 
+## F1 — Facebook account profiles (2026-10-28)
+
+Answers "which Facebook account do I sign in to, to fix this?" for every ad account. It extends
+`PersonalAccountReference` (shown as **Tài khoản Facebook**): holder, two-factor method, where the password
+is kept (`vault_reference`), a masked email, recovery note, and links to Business Managers.
+
+- Never stores a password, 2FA seed/code or cookie; the schemas refuse them. The full email is Fernet-encrypted
+  and returned only by `POST …/reveal-email` after the viewer's own 6-digit PIN (hashed, 5 wrong tries lock
+  15 minutes, every reveal audited without the email). D1 is still **pending** with the owner; this follows the
+  proposal (the tool stores where the password is kept, not the password).
+- UI: `/facebook-accounts` list, `/facebook-accounts/:id` detail with the PIN dialog, an "Đăng nhập để xử lý"
+  panel on the ad-account Overview, a Facebook-account column and filter on Accounts, and a PIN section in Settings.
+  Written by hand without `agy` on the user's explicit decision (agy was not authenticated). `none`/`unknown`
+  two-factor never use success styling. The "open password vault" link renders only for `https://` values.
+- Fixed in review: a buyer could name themself holder (and read the email) and could set the email — both are now
+  owner/admin only; PIN attempts are serialised with a row lock; the profile, summary and link/unlink respect
+  Business Manager scope; `vault_reference` accepts only `https://` or plain text; the PIN pattern uses `fullmatch`.
+- **Follow-ups, not changed:** clearing a PIN is per-User across workspaces (owner decision needed); the archived
+  profile filter is inconsistent between routes; an explicit `null` on some fields returns 500; two concurrent
+  links to the same Business Manager return 500; the audit spec said `DELETE /team/members/{id}/reveal-pin`, the code
+  is `POST /team/members/{id}/reveal-pin/clear`.
+- Not verified here: dark mode and 375px in a real browser; migration `0019` on the production database.
+
 ## Known limits (follow-ups)
 
 Rewritten 2026-09-14 by checking every claim against the code, and **re-verified the same day**

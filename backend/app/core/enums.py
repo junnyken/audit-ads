@@ -775,3 +775,26 @@ class ReaderCredentialStatus(StrEnum):
     ACTIVE = "active"
     RECONNECT_REQUIRED = "reconnect_required"
     REVOKED = "revoked"
+
+
+class TwoFactorMethod(StrEnum):
+    """F1. How a Facebook account's second factor works, as the operator recorded it.
+
+    A label only: the product never holds the factor itself (no seed, no code, no backup code).
+    `unknown` is the default and is never shown with success styling (rule 5); `none` is a real
+    answer and reads as a warning, not as neutral.
+    """
+
+    UNKNOWN = "unknown"
+    APP = "app"
+    SMS = "sms"
+    SECURITY_KEY = "security_key"
+    NONE = "none"
+
+
+class IdentityBusinessRole(StrEnum):
+    """F1. The role a Facebook account holds in a Business Manager, as the operator recorded it."""
+
+    UNKNOWN = "unknown"
+    ADMIN = "admin"
+    EMPLOYEE = "employee"

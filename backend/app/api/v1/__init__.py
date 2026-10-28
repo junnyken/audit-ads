@@ -8,6 +8,7 @@ from app.api.v1.routers import (
     auth,
     events,
     extension,
+    facebook_identities,
     health,
     meta_operations,
     meta_reader_credentials,
@@ -42,3 +43,4 @@ api_router.include_router(meta_reader_credentials.router)
 api_router.include_router(security_sessions.router)
 api_router.include_router(team.router)
 api_router.include_router(spend.router)
+api_router.include_router(facebook_identities.router)

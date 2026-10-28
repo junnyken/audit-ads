@@ -1272,3 +1272,24 @@ evaluation trigger value: `discovery_sweep`.
   router constant — same default, same values.
 - Discovered ad-account observations may carry `owner_business_id` / `owner_business_name` in
   `safe_metadata_json` (the real provider now asks for `business{id,name}`).
+
+## F1 — Facebook account profiles
+
+`/personal-account-references` (generic CRUD) now accepts and returns `owner_member_id`, `two_factor_method`,
+`vault_reference`, `recovery_note` and `email_hint`; it never returns the full email. `vault_reference` is `https://…`
+or plain words; other URL schemes are rejected. Changing `owner_member_id` is owner/admin only.
+
+| Route | Notes |
+|---|---|
+| `GET /facebook-identities/summary` | per profile: BM count, ad-account count, holder name (scope-filtered) |
+| `GET /personal-account-references/{id}/profile` | links, derived ad accounts, readers, `has_full_email`, `can_reveal_email` |
+| `PUT /personal-account-references/{id}/email` | owner/admin; body `{email}`; stores only the hint if no vault key |
+| `POST /personal-account-references/{id}/reveal-email` | body `{pin}` -> `{email}`; 403 + `attempts_remaining`, 423 locked, 409 PIN not set |
+| `POST /personal-account-references/{id}/business-links` | body `{business_manager_id, role?, note?}`; 404 outside BM scope |
+| `POST /personal-account-references/{id}/business-links/{link_id}/unlink` | keeps the row |
+| `GET /me/reveal-pin`, `PUT /me/reveal-pin` | `{is_set, locked_until}`; set needs `{current_password, new_pin}` |
+| `POST /team/members/{member_id}/reveal-pin/clear` | owner only (not `DELETE`) |
+| `PUT /meta-reader-credentials/{id}/facebook-identity` | owner; which profile granted a reader |
+
+`GET /ad-accounts/{id}` adds `facebook_identities[]`; `GET /ad-accounts` adds `{id,label}` per row and a
+`facebook_identity_id` filter.

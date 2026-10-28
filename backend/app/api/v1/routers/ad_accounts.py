@@ -7,6 +7,7 @@ import sqlalchemy as sa
 from fastapi import APIRouter, Query
 
 from app.api.deps import Ctx, WriteCtx
+from app.core.config import get_settings
 from app.core.enums import AssetType, EvaluationTrigger
 from app.models.entities import (
     AccountAssetLink,
@@ -21,6 +22,7 @@ from app.schemas import registry as s
 from app.schemas.common import page_response
 from app.services import spend_service
 from app.services.base import get_or_404
+from app.services.facebook_identities import FacebookIdentityService
 from app.services.health_triggers import trigger_health
 from app.services.links import AssetLinkService
 from app.services.registry import AccountFilters, AdAccountRegistryService
@@ -81,6 +83,10 @@ def _import_provenance(session, workspace_id, ad_account_id) -> dict[str, Any] |
     }
 
 
+def _identity_service(ctx) -> FacebookIdentityService:
+    return FacebookIdentityService(ctx.session, ctx.workspace_id, ctx.audit, get_settings())
+
+
 def _serialize_account(account) -> dict[str, Any]:
     data = s.AdAccountOut.model_validate(account).model_dump()
     data["business_manager_name"] = account.business_manager.name if account.business_manager else None
@@ -99,6 +105,7 @@ def list_accounts(
     account_type: str | None = None,
     business_manager_id: uuid.UUID | None = None,
     personal_account_reference_id: uuid.UUID | None = None,
+    facebook_identity_id: uuid.UUID | None = None,
     country: str | None = None,
     currency: str | None = None,
     has_browser_reference: bool | None = None,
@@ -118,6 +125,7 @@ def list_accounts(
             account_type=account_type,
             business_manager_id=business_manager_id,
             personal_account_reference_id=personal_account_reference_id,
+            facebook_identity_id=facebook_identity_id,
             country=country,
             currency=currency,
             has_browser_reference=has_browser_reference,
@@ -144,6 +152,8 @@ def list_accounts(
     # One bounded pair of queries for the whole page; no Meta call (S1 follow-up). The same pair
     # carries Meta's latest account status (S2) — no extra query per account.
     reads = spend_service.list_compact_reads(ctx.session, ctx.workspace_id, list(rows))
+    # F1: bounded too — three queries for the page, whatever its size.
+    identities = _identity_service(ctx).identities_for_accounts(rows)
 
     items: list[dict[str, Any]] = []
     for account in rows:
@@ -157,6 +167,9 @@ def list_accounts(
         linked = active_links.get(account.id, set())
         data["has_browser_reference"] = AssetType.BROWSER_PROFILE in linked
         data["has_proxy_reference"] = AssetType.PROXY in linked
+        data["facebook_identities"] = [
+            {"id": item["id"], "label": item["label"]} for item in identities.get(account.id, [])
+        ]
         items.append(data)
     return page_response(items, page=page, page_size=page_size, total=total)
 
@@ -182,6 +195,8 @@ def get_account(ctx: Ctx, ad_account_id: uuid.UUID) -> dict[str, Any]:
     data["platform_status"] = spend_service.list_compact_reads(ctx.session, ctx.workspace_id, [account])[
         account.id
     ]["platform_status"]
+    # F1: "log in to fix this" — every Facebook account that reaches this one, directly or via its BM.
+    data["facebook_identities"] = _identity_service(ctx).identities_for_accounts([account])[account.id]
     return data
 
 

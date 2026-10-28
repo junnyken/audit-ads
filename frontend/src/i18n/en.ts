@@ -5,6 +5,7 @@
  */
 import { o4En } from './o4'
 import { u1fEn } from './u1f'
+import { f1En } from './f1'
 import type { TranslationKey } from './types'
 
 export const en = {
@@ -78,6 +79,8 @@ export const en = {
   ...o4En,
   // U1f — Meta connections, discovery, reader credentials, Settings; strings live in ./u1f.ts.
   ...u1fEn,
+  // F1 — Facebook account profiles; proposed wording pending BA review.
+  ...f1En,
   // ---- U1b (Overview + Accounts) — proposed English ---------------------------------------------
   'format.noData': 'No data yet',
   'format.updatedAt': 'Updated {time}',

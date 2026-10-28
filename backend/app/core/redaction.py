@@ -33,7 +33,33 @@ SENSITIVE_NAME_FRAGMENTS: tuple[str, ...] = (
     "api_key",
     "apikey",
     "access_key",
+    # F1: the stored email's ciphertext and the reveal-PIN hash never reach an audit diff.
+    "ciphertext",
+    "pin_hash",
 )
+
+#: F1. Short names that would match far too much as fragments ("pin" is in "mapping", "otp" in
+#: "otpauth" is fine but "seed" is in "seeded"), so these match the **whole** name, or a
+#: `_`-separated suffix (`new_pin`, `backup_code`).
+SENSITIVE_EXACT_NAMES: frozenset[str] = frozenset(
+    {
+        "pin",
+        "otp",
+        "totp",
+        "mfa",
+        "mfa_code",
+        "2fa",
+        "2fa_code",
+        "two_factor_code",
+        "otp_code",
+        "verification_code",
+        "recovery_code",
+        "backup_code",
+        "backup_codes",
+        "seed",
+    }
+)
+_SENSITIVE_SUFFIXES: tuple[str, ...] = ("_pin", "_otp", "_totp", "_mfa_code", "_2fa", "_backup_code")
 
 #: Values that look like transported credentials regardless of the field name.
 _CONNECTION_STRING = re.compile(r"^[a-z][a-z0-9+.\-]*://[^/\s:@]+:[^/\s@]+@", re.IGNORECASE)
@@ -43,7 +69,38 @@ _BEARER = re.compile(r"^(bearer|basic)\s+\S+$", re.IGNORECASE)
 
 def is_sensitive_name(name: str) -> bool:
     lowered = name.lower()
+    if lowered in SENSITIVE_EXACT_NAMES or lowered.endswith(_SENSITIVE_SUFFIXES):
+        return True
     return any(fragment in lowered for fragment in SENSITIVE_NAME_FRAGMENTS)
+
+
+# F1. Free text an operator types about a Facebook account (where the password is kept, how to
+# recover it) must never become the password or the second factor itself. These are heuristics with
+# a bias to refuse: a refused note is retyped, a stored password is a breach.
+_LABELLED_SECRET = re.compile(
+    r"(?:password|passwd|pass|pwd|pw|mk|m\u1eadt\s*kh\u1ea9u|mat\s*khau|2fa|otp|totp|pin)\s*[:=]\s*\S+",
+    re.IGNORECASE,
+)
+_STANDALONE_CODE = re.compile(r"(?<![\d.,/-])\d{6,8}(?![\d.,/-])")
+_BASE32_SEED = re.compile(r"(?<![A-Z2-7])(?:[A-Z2-7]{4}\s?){4,}(?![A-Z2-7])")
+_OTPAUTH = re.compile(r"otpauth://", re.IGNORECASE)
+
+
+def looks_like_login_secret(value: object) -> bool:
+    """True when free text seems to carry a password, a one-time code or a 2FA seed.
+
+    Phone numbers (9+ digits) and ids are not codes; a 6-8 digit run standing alone is.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return False
+    text = value.strip()
+    return bool(
+        looks_like_credential_value(text)
+        or _LABELLED_SECRET.search(text)
+        or _STANDALONE_CODE.search(text)
+        or _BASE32_SEED.search(text)
+        or _OTPAUTH.search(text)
+    )
 
 
 def looks_like_credential_value(value: object) -> bool:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime
 from typing import Annotated
@@ -12,7 +13,9 @@ from app.core.enums import (
     AssetType,
     ReadinessStatus,
     ReferenceStatus,
+    TwoFactorMethod,
 )
+from app.core.redaction import looks_like_login_secret
 from app.schemas.common import ORMModel, StrictPayload, reject_credential_like
 
 Name = Annotated[str, Field(min_length=1, max_length=200)]
@@ -74,6 +77,39 @@ class BusinessManagerOut(TimestampsOut):
 
 
 # ------------------------------------------------------- Personal account reference
+#: F1. Free-text fields of a Facebook account profile. Each is refused when it looks like it
+#: carries the password, a one-time code or a 2FA seed (`looks_like_login_secret`).
+_PROFILE_TEXT_FIELDS = ("label", "display_name", "notes", "vault_reference", "recovery_note")
+
+
+def _refuse_login_secret(value: str | None) -> str | None:
+    if value and looks_like_login_secret(value):
+        raise ValueError(
+            "This looks like a password, a one-time code or a 2FA seed. The product never stores "
+            "those: write where it is kept (for example 'Bitwarden → Agency/FB2') instead."
+        )
+    return value
+
+
+_SCHEME_WITHOUT_SPACE = re.compile(r"^[A-Za-z][A-Za-z0-9+.\-]*:\S")
+
+
+def _vault_reference(value: str | None) -> str | None:
+    """A link is `https://...` or it is plain words. Plain text such as `Bitwarden: Agency/FB2`
+    (a space after the colon) stays allowed. Anything else that looks like a URL scheme
+    (`javascript:`, `data:`, `ftp:`, `file:`, `http:`), a scheme-relative `//host`, a leading
+    space or a control character is refused: the UI turns an `https://` value into a clickable
+    link, so no other value may ever reach an `href`."""
+    if not value:
+        return value
+    if value != value.strip() or any(ord(ch) < 32 for ch in value):
+        raise ValueError("Write only where the password is kept, without leading spaces or control characters.")
+    if value.lower().startswith("https://"):
+        return value
+    if value.startswith("//") or _SCHEME_WITHOUT_SPACE.match(value):
+        raise ValueError("A link to where the password is kept must be https.")
+    return value
+
 class PersonalAccountReferenceCreate(StrictPayload):
     label: Name
     display_name: str = Field(default="", max_length=200)
@@ -82,6 +118,14 @@ class PersonalAccountReferenceCreate(StrictPayload):
     country: Country = None
     timezone: str | None = Field(default=None, max_length=64)
     notes: Notes = ""
+    # ---- F1
+    owner_member_id: uuid.UUID | None = None
+    two_factor_method: TwoFactorMethod = TwoFactorMethod.UNKNOWN
+    vault_reference: str = Field(default="", max_length=2048)
+    recovery_note: str = Field(default="", max_length=2000)
+
+    _no_secret = field_validator(*_PROFILE_TEXT_FIELDS)(_refuse_login_secret)
+    _https = field_validator("vault_reference")(_vault_reference)
 
 
 class PersonalAccountReferenceUpdate(StrictPayload):
@@ -92,9 +136,19 @@ class PersonalAccountReferenceUpdate(StrictPayload):
     country: Country = None
     timezone: str | None = Field(default=None, max_length=64)
     notes: str | None = Field(default=None, max_length=5000)
+    # ---- F1
+    owner_member_id: uuid.UUID | None = None
+    two_factor_method: TwoFactorMethod | None = None
+    vault_reference: str | None = Field(default=None, max_length=2048)
+    recovery_note: str | None = Field(default=None, max_length=2000)
+
+    _no_secret = field_validator(*_PROFILE_TEXT_FIELDS)(_refuse_login_secret)
+    _https = field_validator("vault_reference")(_vault_reference)
 
 
 class PersonalAccountReferenceOut(TimestampsOut):
+    """Never carries the full email: `email_hint` only. The full value has one route, behind a PIN."""
+
     id: uuid.UUID
     label: str
     display_name: str
@@ -103,6 +157,11 @@ class PersonalAccountReferenceOut(TimestampsOut):
     country: str | None
     timezone: str | None
     notes: str
+    owner_member_id: uuid.UUID | None = None
+    two_factor_method: TwoFactorMethod = TwoFactorMethod.UNKNOWN
+    vault_reference: str = ""
+    recovery_note: str = ""
+    email_hint: str | None = None
 
 
 # ------------------------------------------------------------------------------ Page

@@ -3768,3 +3768,23 @@ ReaderSource, ReaderCredentialsSection, ConnectionReaderSwitch, NotObservableRea
   `[ĐỀ XUẤT — chờ duyệt]`. `CredentialCheckStatus` still prints `STATE_META[...]` English labels from
   `lib/operations.ts` and `SystemStatus` itself is U1d. Server-sent sentences (`failure_summary`, edge `detail`,
   capability `reason`) are shown as the server sent them.
+
+## 2026-10-28 — F1 Facebook account profiles
+
+- Scope: secure Facebook-account profiles, BM links, PIN-gated email reveal, account "Đăng nhập để xử lý" panel,
+  account list filter/column and Settings PIN section. Frontend was written by hand by explicit user decision because
+  required `agy` consultation could not authenticate; no claim is made that agy generated it.
+- Focused backend result: `backend/.venv/bin/python -m pytest tests/test_f1_facebook_identities.py -q -p no:cacheprovider`
+  → **46 passed**. It adds regressions for owner/admin holder/email authority, serial PIN guesses, BM scope,
+  safe vault links and strict six-digit PINs.
+- Focused frontend result: `frontend/npx vitest run src/test/f1.facebook-identities.test.tsx` → **5 passed**.
+  Covers list tone, unknown identity panel, https-only vault link, reveal dialog and lockout text.
+- Not verified by a person in a real browser: dark mode or 375px responsive layout; tested via token classes and
+  mobile-card table primitive only. No migration, deployment, live provider call, Telegram action or browser automation.
+- Known follow-ups: PIN clear is per user across workspaces (owner decision); archived identity filtering,
+  explicit-null 500 and concurrent BM-link conflict remain to be designed/fixed.
+- Regression run 2026-10-28: `backend/.venv/bin/python -m pytest -q -p no:cacheprovider` → **exit 0, no failures** (output showed progress dots only, no total count recorded);
+  `backend/.venv/bin/ruff check .` → **passed**; `frontend/npx vitest run` → **603 passed, 20 skipped**;
+  `frontend/npm run typecheck` → **passed**; `frontend/npm run build` → **passed** (only the existing Rollup
+  >500 kB chunk-size warning); `frontend/npx eslint .` → **passed**. No migration, deployment, live provider
+  call, Telegram action or browser automation was run.

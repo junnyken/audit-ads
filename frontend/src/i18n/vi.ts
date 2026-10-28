@@ -19,6 +19,7 @@
  */
 import { o4Vi } from './o4'
 import { u1fVi } from './u1f'
+import { f1Vi } from './f1'
 
 export const vi = {
   'common.appName': 'AdsOps Control Center',
@@ -91,6 +92,8 @@ export const vi = {
   ...o4Vi,
   // U1f — Meta connections, discovery, reader credentials, Settings; strings live in ./u1f.ts.
   ...u1fVi,
+  // F1 — Facebook account profiles [ĐỀ XUẤT — chờ duyệt].
+  ...f1Vi,
   // ---- U1b (Tổng quan + Tài khoản) — [ĐỀ XUẤT — chờ duyệt] -------------------------------------
   'format.noData': 'Chưa có dữ liệu',
   'format.updatedAt': 'Cập nhật lúc {time}',

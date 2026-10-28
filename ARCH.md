@@ -1056,6 +1056,19 @@ skipped the frontend. One proxy on every path is what keeps
 `CORS_ORIGINS` must name the frontend origin, and CSP `connect-src` must name the API origin —
 both are configuration, and both fail loudly rather than silently.
 
+## 5d. F1 — Facebook account profiles
+
+`PersonalAccountReference` gains `owner_member_id`, `two_factor_method`, `vault_reference`, `email_hint`,
+`email_ciphertext` and `recovery_note`. `personal_account_business_links` links a profile to a Business Manager
+(`role`, `linked_at/by`, `unlinked_at/by`; history is never deleted). `meta_reader_credentials` gains
+`personal_account_reference_id`; `users` gains `reveal_pin_hash`, `reveal_pin_failed_count`, `reveal_pin_locked_until`.
+
+An ad account's "who do I sign in as" list is derived: the direct personal reference plus every active profile linked
+to its Business Manager; none known is an empty list, never a guess. `core/secret_vault.py` encrypts the email only;
+`RevealPinService.verify` locks the user row so concurrent guesses are counted. Holder assignment and email storage are
+owner/admin only; Business Manager reads and link changes obey `ctx.visible_business_manager_ids()`.
+Frontend: `pages/FacebookAccounts*.tsx`, `components/facebook/*`, tone in `lib/readiness.ts`, strings in `i18n/f1.ts`.
+
 ## 6. Deployment
 
 `docker-compose.yml` runs three services — `db`, `api`, `web` — each with a memory limit and a

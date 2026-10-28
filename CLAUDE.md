@@ -31,12 +31,15 @@ not copy these forward — re-measure them at the moment you write about them.
 
 1. Never store or accept passwords, cookies, session data, access/refresh tokens, credentials or
    raw proxy authentication secrets. `StrictPayload` refuses such fields by name — keep it that
-   way. Exactly two request bodies are allowed to opt out of it, each a plain `BaseModel` with
+   way. Exactly four request bodies are allowed to opt out of it, each a plain `BaseModel` with
    `extra="forbid"` and a docstring saying why: `LoginRequest` (a password, verified against a
-   PBKDF2 hash and never stored) and `InvitationAcceptRequest` (A9 — the one-time invitation
+   PBKDF2 hash and never stored), `InvitationAcceptRequest` (A9 — the one-time invitation
    token, compared by hash and never persisted, plus the password a brand-new employee is
-   choosing for the account being created in that same call). Adding a third needs the same
-   deliberate, documented justification, not a quiet swap of the base class.
+   choosing for the account being created in that same call), `RevealEmailRequest` (F1 — the
+   viewer's 6-digit PIN, compared with a PBKDF2 hash and never stored), and
+   `RevealPinSetRequest` (F1 — current login password verifies the caller while the new PIN is
+   hashed). Adding a fifth needs the same deliberate, documented justification, not a quiet swap
+   of the base class.
    **One exception, by design and not by drift (O4): a Meta reader credential that the product itself obtained
    from Meta's login flow — never typed, pasted or posted by a person, never read from a browser — may be stored
    in `meta_reader_credentials.encrypted_secret`, encrypted with `CREDENTIAL_VAULT_KEY` from server

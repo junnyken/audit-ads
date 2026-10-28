@@ -47,12 +47,12 @@ beforeEach(() => {
 })
 
 describe('AppShell navigation', () => {
-  it('renders seven labelled groups and fifteen links, in Vietnamese', () => {
+  it('renders seven labelled groups and sixteen links, in Vietnamese', () => {
     renderShell()
     const nav = screen.getByRole('navigation', { name: 'Điều hướng chính' })
     expect(within(nav).getAllByRole('heading', { level: 2 })).toHaveLength(7)
     expect(NAV_GROUPS).toHaveLength(7)
-    expect(within(nav).getAllByRole('link')).toHaveLength(15)
+    expect(within(nav).getAllByRole('link')).toHaveLength(16)
     for (const label of [
       'Tài khoản quảng cáo',
       'Sức khoẻ tài khoản',
@@ -123,7 +123,7 @@ describe('AppShell mobile menu (Sheet)', () => {
     const opener = screen.getByRole('button', { name: 'Mở menu điều hướng' })
     await userEvent.click(opener)
     const dialog = await screen.findByRole('dialog', { name: 'Menu điều hướng' })
-    expect(within(dialog).getAllByRole('link')).toHaveLength(15)
+    expect(within(dialog).getAllByRole('link')).toHaveLength(16)
     await userEvent.keyboard('{Escape}')
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(opener).toHaveFocus()

@@ -21,6 +21,7 @@ from app.models.entities import (
     AccountAssetLink,
     AdAccount,
     BusinessManager,
+    PersonalAccountBusinessLink,
     PersonalAccountReference,
 )
 from app.services.audit import AuditLogService
@@ -39,6 +40,8 @@ class AccountFilters:
     account_type: str | None = None
     business_manager_id: uuid.UUID | None = None
     personal_account_reference_id: uuid.UUID | None = None
+    #: F1. Accounts this Facebook account reaches: linked directly, or through a Business Manager it manages.
+    facebook_identity_id: uuid.UUID | None = None
     country: str | None = None
     currency: str | None = None
     has_browser_reference: bool | None = None
@@ -150,6 +153,20 @@ class AdAccountRegistryService:
         if filters.personal_account_reference_id:
             stmt = stmt.where(
                 AdAccount.personal_account_reference_id == filters.personal_account_reference_id
+            )
+        if filters.facebook_identity_id:
+            managed_bm = (
+                sa.select(PersonalAccountBusinessLink.id)
+                .where(
+                    PersonalAccountBusinessLink.workspace_id == self.workspace_id,
+                    PersonalAccountBusinessLink.personal_account_reference_id == filters.facebook_identity_id,
+                    PersonalAccountBusinessLink.business_manager_id == AdAccount.business_manager_id,
+                    PersonalAccountBusinessLink.unlinked_at.is_(None),
+                )
+                .exists()
+            )
+            stmt = stmt.where(
+                sa.or_(AdAccount.personal_account_reference_id == filters.facebook_identity_id, managed_bm)
             )
         if filters.country:
             stmt = stmt.where(AdAccount.country == filters.country.upper())

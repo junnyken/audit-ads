@@ -106,3 +106,37 @@ def verify_state(settings, state: str, *, ttl_seconds: int | None = None) -> dic
     if not isinstance(payload, dict):
         raise StateInvalidError("The state is not valid.")
     return payload
+
+
+# ---------------------------------------------------------------------------------------------- F1
+# A Facebook account's login email. Not a credential — it opens nothing by itself — but a list of
+# them is what an attacker needs first, so a copy of the database must not yield it. Same key, same
+# no-plaintext-fallback discipline; separate functions so `decrypt_secret`'s single caller stays
+# pinned, and `decrypt_contact` gets its own (`facebook_identities.reveal_email`).
+
+
+def encrypt_contact(settings, plaintext: str) -> str:
+    """Ciphertext for `personal_account_references.email_ciphertext`."""
+    if not plaintext:
+        raise ValueError("Refusing to encrypt an empty value.")
+    return _fernet(settings).encrypt(plaintext.encode("utf-8")).decode("ascii")
+
+
+def decrypt_contact(settings, ciphertext: str) -> str:
+    """Only `FacebookIdentityService.reveal_email` calls this, after the viewer's PIN matched."""
+    if not ciphertext:
+        raise SecretDecryptionError("There is no stored ciphertext to open.")
+    fernet = _fernet(settings)
+    try:
+        return fernet.decrypt(ciphertext.encode("ascii")).decode("utf-8")
+    except (InvalidToken, ValueError, UnicodeError):
+        raise SecretDecryptionError("The stored value cannot be opened with the configured key.") from None
+
+
+def mask_email(email: str) -> str:
+    """`nguyen.a@gmail.com` → `ng***@gmail.com`. Enough to recognise an account, not to log in."""
+    local, _, domain = email.strip().partition("@")
+    if not domain:
+        return "***"
+    head = local[:2] if len(local) > 3 else local[:1]
+    return f"{head}***@{domain.lower()}"

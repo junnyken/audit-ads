@@ -7,6 +7,7 @@ import {
   Link2,
   ListChecks,
   Package,
+  UserRoundCog,
   ScrollText,
   Server,
   Settings,
@@ -51,6 +52,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/accounts', labelKey: 'nav.item.accounts', icon: Wallet },
       { to: '/business-managers', labelKey: 'nav.item.businessManagers', icon: Building2 },
       { to: '/assets', labelKey: 'nav.item.assets', icon: Package },
+      { to: '/facebook-accounts', labelKey: 'nav.item.facebookAccounts', icon: UserRoundCog },
     ],
   },
   {

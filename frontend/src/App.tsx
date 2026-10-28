@@ -23,6 +23,8 @@ const CreateAccountWizard = lazy(() => import('./pages/operations/CreateAccountW
 const ShareAccessWizard = lazy(() => import('./pages/operations/ShareAccessWizard'))
 const PixelShareWizard = lazy(() => import('./pages/operations/PixelShareWizard'))
 const TeamSeats = lazy(() => import('./pages/TeamSeats'))
+const FacebookAccounts = lazy(() => import('./pages/FacebookAccounts'))
+const FacebookAccountDetail = lazy(() => import('./pages/FacebookAccountDetail'))
 const SecurityDevices = lazy(() => import('./pages/SecurityDevices'))
 import { Skeleton } from './components/primitives/skeleton'
 import { LoadingRegion } from './components/states'
@@ -49,6 +51,8 @@ export default function App() {
         <Route path="accounts/:accountId" element={<AccountDetail />} />
         <Route path="business-managers" element={<BusinessManagers />} />
         <Route path="assets" element={<Assets />} />
+        <Route path="facebook-accounts" element={<FacebookAccounts />} />
+        <Route path="facebook-accounts/:identityId" element={<FacebookAccountDetail />} />
         <Route path="readiness" element={<ReadinessPage />} />
         <Route path="account-health" element={<AccountHealth />} />
         <Route path="alerts" element={<Alerts />} />

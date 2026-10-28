@@ -25,6 +25,7 @@ from app.models.entities import (
 )
 from app.schemas import registry as s
 from app.schemas.common import page_response
+from app.services.facebook_identities import FacebookIdentityReferenceService
 from app.services.references import ReferenceService, ReferenceSpec
 
 router = APIRouter(tags=["references"])
@@ -40,9 +41,13 @@ def _mount(
     update_schema: type[Any],
     out_schema: type[Any],
     tag: str,
+    service_cls: type[ReferenceService] = ReferenceService,
 ) -> None:
     def service(ctx) -> ReferenceService:
-        return ReferenceService(ctx.session, ctx.workspace_id, ctx.audit, spec)
+        instance = service_cls(ctx.session, ctx.workspace_id, ctx.audit, spec)
+        # F1: the profile service decides who may designate a holder; it needs the caller's role.
+        instance.membership = ctx.membership
+        return instance
 
     @router.get(path, tags=[tag], name=f"list_{spec.entity_type}")
     def _list(
@@ -125,7 +130,7 @@ _mount(
         model=PersonalAccountReference,
         entity_type="personal_account_reference",
         label="Personal account reference",
-        search_fields=("label", "display_name", "external_reference_id", "notes"),
+        search_fields=("label", "display_name", "external_reference_id", "notes", "email_hint"),
         unique_fields=(("external_reference_id",),),
         sortable=SORTABLE | {"label"},
     ),
@@ -133,6 +138,8 @@ _mount(
     update_schema=s.PersonalAccountReferenceUpdate,
     out_schema=s.PersonalAccountReferenceOut,
     tag="personal-account-references",
+    # F1: the person holding the account must be a member of this workspace.
+    service_cls=FacebookIdentityReferenceService,
 )
 
 _mount(

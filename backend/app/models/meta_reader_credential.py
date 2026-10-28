@@ -69,6 +69,12 @@ class MetaReaderCredential(UUIDPrimaryKey, Timestamped, Archivable, Base):
     #: `[{external_id, name, permitted_roles}]` — what the credential could see at its last
     #: check: `me/businesses` for a user token, the verified Business Manager for a system user.
     businesses_seen_json: Mapped[list | None] = mapped_column(sa.JSON(), nullable=True)
+    #: F1. Which Facebook account (profile) granted this credential, as the owner recorded it. With a
+    #: System User configuration Meta names the system user, not the person, so this is the only place
+    #: the person is known.
+    personal_account_reference_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid(), sa.ForeignKey("personal_account_references.id", ondelete="RESTRICT"), nullable=True
+    )
     connected_by: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), nullable=False)
     connected_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
     revoked_by: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid(), nullable=True)

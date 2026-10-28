@@ -12,6 +12,7 @@ import { EmptyState, ErrorState, LoadingRegion, NoPermissionState } from '../com
 import { ConfirmDialog, ReadBackNote, type ReadBack } from '../components/meta/confirm'
 import { ReaderCredentialsSection } from '../components/meta/ReaderCredentialsSection'
 import { DL_CLASS, Note, Panel, Row } from './account/parts'
+import { RevealPinSection } from '../components/facebook/RevealPinSection'
 import { formatRelative } from '../lib/format'
 import { useAuth } from '../hooks/useAuth'
 import { useI18n } from '../i18n'
@@ -76,6 +77,8 @@ export default function Settings() {
           </div>
         </Panel>
       </div>
+
+      <RevealPinSection />
 
       <ReaderCredentialsSection isOwner={isOwner} />
 

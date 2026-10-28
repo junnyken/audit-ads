@@ -165,3 +165,15 @@ export const SPEND_FRESHNESS_META: Record<
     description: 'No connection can read this account, so spend cannot be observed.',
   },
 }
+
+/** F1. A recorded second factor is an operational reference, not evidence an account is secure.
+ * In particular `none` and `unknown` must never be green (CLAUDE.md rule 5). */
+export function twoFactorTone(method: string): Tone {
+  switch (method) {
+    case 'none': return 'caution'
+    case 'app':
+    case 'sms':
+    case 'security_key': return 'info'
+    default: return 'neutral'
+  }
+}

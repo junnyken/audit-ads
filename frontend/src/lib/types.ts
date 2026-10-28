@@ -84,6 +84,8 @@ export interface AdAccount {
   platform_status?: PlatformStatusCompact | null
   /** Detail responses only; the list endpoint omits it. */
   imported_from_discovery?: ImportProvenance | null
+  /** F1: detail gives full operational profiles; list gives each id and label. */
+  facebook_identities?: FacebookIdentity[]
 }
 
 export interface ReadinessReason {
@@ -1388,3 +1390,48 @@ export interface PlatformStatusView extends PlatformStatusCompact {
   since_observed_at: string | null
   disclaimer: string
 }
+
+export type TwoFactorMethod = 'app' | 'sms' | 'security_key' | 'none' | 'unknown'
+export type IdentityBusinessRole = 'admin' | 'employee' | 'unknown'
+
+export interface FacebookIdentity {
+  id: string
+  label: string
+  status: ReferenceStatus
+  two_factor_method: TwoFactorMethod
+  vault_reference: string
+  email_hint: string | null
+  owner_member_id: string | null
+  owner_member_name: string | null
+  via: 'direct' | 'business_manager'
+  role: IdentityBusinessRole | null
+}
+
+export interface FacebookIdentitySummary {
+  id: string
+  business_manager_count: number
+  ad_account_count: number
+  owner_member_name: string | null
+}
+
+export interface FacebookBusinessLink {
+  id: string
+  business_manager_id: string
+  business_manager_name: string
+  business_manager_external_id: string | null
+  role: IdentityBusinessRole
+  note: string
+  linked_at: string
+  unlinked_at: string | null
+}
+
+export interface FacebookIdentityProfile {
+  business_links: FacebookBusinessLink[]
+  ad_accounts: Pick<AdAccount, 'id' | 'display_name' | 'external_account_id' | 'business_manager_id' | 'status'>[]
+  readers: { id: string; label: string; status: string }[]
+  owner_member_name: string | null
+  has_full_email: boolean
+  can_reveal_email: boolean
+}
+
+export interface RevealPinStatus { is_set: boolean; locked_until: string | null }

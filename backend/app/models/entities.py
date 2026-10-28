@@ -22,8 +22,10 @@ from app.core.enums import (
     EventSeverity,
     EventStatus,
     EvidenceStatus,
+    IdentityBusinessRole,
     ReadinessStatus,
     ReferenceStatus,
+    TwoFactorMethod,
     WorkspaceMemberStatus,
     WorkspaceRole,
 )
@@ -49,6 +51,11 @@ class User(UUIDPrimaryKey, Timestamped, Base):
     full_name: Mapped[str] = mapped_column(sa.String(200), nullable=False, default="")
     password_hash: Mapped[str] = mapped_column(sa.String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(sa.Boolean(), nullable=False, default=True)
+    #: F1. A 6-digit PIN that unlocks a Facebook account's full email. PBKDF2 hash only, like the
+    #: password; five wrong tries lock it for 15 minutes. Never returned, never audited.
+    reveal_pin_hash: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
+    reveal_pin_failed_count: Mapped[int] = mapped_column(sa.Integer(), nullable=False, default=0)
+    reveal_pin_locked_until: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
 
 
 class Workspace(UUIDPrimaryKey, Timestamped, Archivable, Base):
@@ -100,7 +107,15 @@ class BusinessManager(UUIDPrimaryKey, Timestamped, Archivable, Base):
 
 
 class PersonalAccountReference(UUIDPrimaryKey, Timestamped, Archivable, Base):
-    """Metadata and ownership context only. Never an authentication container (A1 §A)."""
+    """Metadata and ownership context only. Never an authentication container (A1 §A).
+
+    F1 shows it as a **Facebook account** profile: who holds it, how its second factor works,
+    *where* its password is kept (`vault_reference` — a label or a link into a password manager,
+    never the password), and which Business Managers it manages. The full login email is stored
+    only as Fernet ciphertext (`email_ciphertext`, `core/secret_vault.encrypt_contact`) and is
+    returned by exactly one route, behind the viewer's PIN; every other response carries
+    `email_hint`. No column here may ever hold a password, a 2FA seed, a code or a cookie.
+    """
 
     __tablename__ = "personal_account_references"
     __table_args__ = (
@@ -120,6 +135,59 @@ class PersonalAccountReference(UUIDPrimaryKey, Timestamped, Archivable, Base):
     country: Mapped[str | None] = mapped_column(sa.String(2), nullable=True)
     timezone: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
     notes: Mapped[str] = mapped_column(sa.Text(), nullable=False, default="")
+    # ---- F1
+    owner_member_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid(), sa.ForeignKey("workspace_members.id", ondelete="RESTRICT"), nullable=True
+    )
+    two_factor_method: Mapped[TwoFactorMethod] = mapped_column(
+        _enum(TwoFactorMethod, "two_factor_method"), nullable=False, default=TwoFactorMethod.UNKNOWN
+    )
+    vault_reference: Mapped[str] = mapped_column(sa.String(2048), nullable=False, default="")
+    recovery_note: Mapped[str] = mapped_column(sa.Text(), nullable=False, default="")
+    email_hint: Mapped[str | None] = mapped_column(sa.String(320), nullable=True)
+    email_ciphertext: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
+
+
+class PersonalAccountBusinessLink(UUIDPrimaryKey, Timestamped, Base):
+    """F1. A Facebook account manages a Business Manager. Unlinking sets `unlinked_at`; the row
+    survives, so who managed what stays auditable (same shape as `AccountAssetLink`)."""
+
+    __tablename__ = "personal_account_business_links"
+    __table_args__ = (
+        sa.Index("ix_pa_business_links_ws_bm", "workspace_id", "business_manager_id"),
+        sa.Index("ix_pa_business_links_ref", "personal_account_reference_id"),
+        # One active link per pair; history rows (unlinked) may repeat.
+        sa.Index(
+            "uq_pa_business_links_active",
+            "personal_account_reference_id",
+            "business_manager_id",
+            unique=True,
+            postgresql_where=sa.text("unlinked_at IS NULL"),
+            sqlite_where=sa.text("unlinked_at IS NULL"),
+        ),
+    )
+
+    workspace_id: Mapped[uuid.UUID] = _ws_fk()
+    personal_account_reference_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), sa.ForeignKey("personal_account_references.id", ondelete="RESTRICT"), nullable=False
+    )
+    business_manager_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), sa.ForeignKey("business_managers.id", ondelete="RESTRICT"), nullable=False
+    )
+    role: Mapped[IdentityBusinessRole] = mapped_column(
+        _enum(IdentityBusinessRole, "identity_business_role"),
+        nullable=False,
+        default=IdentityBusinessRole.UNKNOWN,
+    )
+    note: Mapped[str] = mapped_column(sa.Text(), nullable=False, default="")
+    linked_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+    linked_by: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid(), nullable=True)
+    unlinked_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
+    unlinked_by: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid(), nullable=True)
+
+    @property
+    def is_active(self) -> bool:
+        return self.unlinked_at is None
 
 
 class AdAccount(UUIDPrimaryKey, Timestamped, Archivable, Base):
