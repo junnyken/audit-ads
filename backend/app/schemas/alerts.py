@@ -18,6 +18,7 @@ from app.core.enums import (
     DeliveryStatus,
 )
 from app.schemas.common import ORMModel, StrictPayload
+from app.schemas.facebook_identities import AccountIdentityOut
 
 #: Repeated on alert payloads. A3 adds no safety claim of its own and must not let one in.
 ALERT_DISCLAIMER = (
@@ -86,6 +87,8 @@ class AlertRow(BaseModel):
     quiet_hours_deferred: bool
     suppressed_until: datetime | None
     archived: bool
+    facebook_identities: list[AccountIdentityOut] = Field(default_factory=list)
+    remediation_checklist: list[str] = Field(default_factory=list)
 
 
 class AlertSummaryOut(BaseModel):

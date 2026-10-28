@@ -35,12 +35,13 @@ const HEALTH_OPTIONS = ['critical', 'warning', 'attention_needed', 'unknown', 'c
 const READINESS_OPTIONS = ['operationally_ready', 'ready_with_warnings', 'not_ready', 'unknown']
 const DELIVERY_OPTIONS = ['pending', 'sent', 'failed_transient', 'failed_final', 'skipped', 'cancelled']
 
-const COLUMN_IDS = ['severity', 'account', 'health', 'readiness', 'source', 'status', 'first', 'last', 'delivery', 'notified', 'suppression'] as const
+const COLUMN_IDS = ['severity', 'account', 'facebook_identity', 'health', 'readiness', 'source', 'status', 'first', 'last', 'delivery', 'notified', 'suppression'] as const
 type ColumnId = (typeof COLUMN_IDS)[number]
-const DEFAULT_COLUMNS: ColumnId[] = ['severity', 'account', 'health', 'status', 'last', 'delivery', 'suppression']
+const DEFAULT_COLUMNS: ColumnId[] = ['severity', 'account', 'facebook_identity', 'health', 'status', 'last', 'delivery', 'suppression']
 const COLUMN_LABEL: Record<ColumnId, TranslationKey> = {
   severity: 'al.col.severity',
   account: 'al.col.account',
+  facebook_identity: 'al.col.facebookIdentity',
   health: 'al.col.health',
   readiness: 'al.col.readiness',
   source: 'al.col.source',
@@ -156,6 +157,31 @@ export default function Alerts() {
             <span className="block font-mono text-xs text-ink-muted">{row.account_reference ?? '—'}</span>
           </TableCell>
         )
+      case 'facebook_identity': {
+        const identities = row.facebook_identities ?? []
+        return (
+          <TableCell key={id} label={label} className="text-xs">
+            {identities.length > 0 ? (
+              <div className="space-y-1">
+                {identities.map((identity) => (
+                  <div key={identity.id}>
+                    <Link to={`/facebook-accounts/${identity.id}`} className="font-medium text-brand-text hover:underline">
+                      {identity.label}
+                    </Link>
+                    <span className="block text-2xs text-ink-muted">
+                      {[identity.owner_member_name, t(`twoFactor.${identity.two_factor_method}`)].filter(Boolean).join(' · ')}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : row.ad_account_id ? (
+              <span className="text-ink-muted">{t('al.fb.unlinked')}</span>
+            ) : (
+              <span className="text-ink-faint">—</span>
+            )}
+          </TableCell>
+        )
+      }
       case 'health':
         return (
           <TableCell key={id} label={label}>

@@ -3808,3 +3808,8 @@ ReaderSource, ReaderCredentialsSection, ConnectionReaderSwitch, NotObservableRea
 - Follow-up fixes 2026-10-28 (archived identity filter, explicit-null 422 on NOT NULL profile fields, concurrent BM-link 409 conflict via savepoint + partial unique index):
   - `backend/.venv/bin/python -m pytest tests/test_f1_facebook_identities.py tests/test_registry_api.py -q -p no:cacheprovider` → **passed** (`test_f1_facebook_identities.py`: 55 passed, including 9 new regression cases across the 3 fixes).
   - `backend/.venv/bin/ruff check .` → **passed**.
+
+- Slice F2 implementation & verification 2026-10-28 (Alert Center + Telegram login identity & remediation checklist):
+  - `backend/.venv/bin/pytest tests/test_alert_engine.py tests/test_alert_api.py tests/test_alert_security.py tests/test_alert_performance.py tests/test_f1_facebook_identities.py -q` → **passed** (including `test_f2_alerts_and_telegram_include_login_identity_and_remediation_checklist_without_email` and `[A3 resource check] 30 accounts | derive+plan 1.62s`).
+  - `backend/.venv/bin/ruff check .` → **passed**.
+  - `frontend`: `npm run typecheck` → **passed**; `npx eslint .` → **passed**; `npx vitest run` → **34 passed | 1 skipped (35), 604 passed | 20 skipped (624)**; `npm run build` → **passed**.

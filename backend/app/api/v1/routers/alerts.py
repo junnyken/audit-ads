@@ -23,8 +23,10 @@ from app.models.health import AccountHealthSnapshot
 from app.schemas import alerts as s
 from app.schemas.audit import AuditLogOut
 from app.schemas.common import page_response
+from app.services.alert_rules import remediation_checklist_for_alert
 from app.services.alert_service import AlertLifecycleService, AlertPolicyService, source_label
 from app.services.base import get_or_404
+from app.services.facebook_identities import FacebookIdentityService
 from app.services.notification_service import NotificationDispatcherService
 
 router = APIRouter(tags=["alerts"])
@@ -236,6 +238,14 @@ def list_alerts(
             ).scalars().all()
         }
 
+    accounts_on_page = [row[1] for row in rows if row[1] is not None]
+    identities_by_account = (
+        FacebookIdentityService(ctx.session, ctx.workspace_id, ctx.audit, get_settings())
+        .identities_for_accounts(accounts_on_page)
+        if accounts_on_page
+        else {}
+    )
+
     items = []
     for alert, account, snapshot, *delivery in rows:
         delivery_status_value = delivery[1] if len(delivery) > 1 else None
@@ -267,6 +277,10 @@ def list_alerts(
                 "quiet_hours_deferred": bool(quiet and quiet.get("deferred")),
                 "suppressed_until": alert.suppression_expires_at,
                 "archived": alert.archived_at is not None,
+                "facebook_identities": (
+                    identities_by_account.get(account.id, []) if account else []
+                ),
+                "remediation_checklist": remediation_checklist_for_alert(alert),
             }
         )
     return page_response(items, page=page, page_size=page_size, total=total)
@@ -325,6 +339,14 @@ def alert_detail(ctx: Ctx, alert_id: uuid.UUID) -> dict[str, Any]:
             if account
             else None
         ),
+        "facebook_identities": (
+            FacebookIdentityService(ctx.session, ctx.workspace_id, ctx.audit, get_settings())
+            .identities_for_accounts([account])
+            .get(account.id, [])
+            if account
+            else []
+        ),
+        "remediation_checklist": remediation_checklist_for_alert(alert),
         "notifications": [_serialize_delivery(delivery) for delivery in deliveries],
         "policy_decision": {
             "timezone": policy.timezone if policy else None,

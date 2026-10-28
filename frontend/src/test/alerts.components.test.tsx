@@ -206,4 +206,38 @@ describe('alert drawer', () => {
     expect(await screen.findByRole('button', { name: 'Bật lại thông báo' })).toBeInTheDocument()
     vi.unstubAllGlobals()
   })
+
+  it('renders F2 LoginToFixPanel and remediation checklist in AlertDrawer', async () => {
+    stubFetch({
+      ...detail,
+      facebook_identities: [
+        {
+          id: 'fb-1',
+          label: 'FB2 – Nguyễn A',
+          display_name: 'Nguyễn Văn A',
+          status: 'active',
+          owner_member_id: 'mem-1',
+          owner_member_name: 'Nguyễn Văn A',
+          two_factor_method: 'app',
+          vault_reference: 'Bitwarden → Agency/FB2',
+          via: 'business_manager',
+          role: 'admin',
+        },
+      ],
+      remediation_checklist: [
+        'Đăng nhập đúng hồ sơ Facebook gắn với tài khoản quảng cáo và mở Chất lượng tài khoản (Account Quality).',
+        'Kiểm tra lý do hạn chế, hoàn tất xác minh danh tính hoặc gửi kháng nghị nếu đủ hồ sơ.',
+        'Chuyển ngân sách chiến dịch quan trọng sang tài khoản dự phòng và ghi sự kiện vào nhật ký.',
+      ],
+    })
+    wrap(<AlertDrawer alertId="alert-1" onClose={() => {}} onChanged={() => {}} />)
+    expect(await screen.findByText('Đăng nhập để xử lý')).toBeInTheDocument()
+    const profileLink = await screen.findByRole('link', { name: 'FB2 – Nguyễn A' })
+    expect(profileLink).toHaveAttribute('href', '/facebook-accounts/fb-1')
+    expect(await screen.findByText('Người giữ: Nguyễn Văn A')).toBeInTheDocument()
+    expect(await screen.findByText('Chỗ cất: Bitwarden → Agency/FB2')).toBeInTheDocument()
+    expect(await screen.findByText('Checklist xử lý sự cố')).toBeInTheDocument()
+    expect(await screen.findByText(/mở Chất lượng tài khoản/)).toBeInTheDocument()
+    vi.unstubAllGlobals()
+  })
 })

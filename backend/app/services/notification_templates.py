@@ -44,6 +44,11 @@ class MessageInputs:
     recommended_next_step: str
     timezone_name: str | None = None
     dashboard_link: str | None = None
+    #: F2 allowlist: operational Facebook profiles to log into (`label`, `owner_member_name`,
+    #: `two_factor_method`, `vault_reference`, `via`, `role`). Never an email or secret.
+    login_identities: tuple[dict, ...] = ()
+    #: F2 allowlist: step-by-step remediation checklist for the alert's rule/source.
+    remediation_checklist: tuple[str, ...] = ()
 
     def to_payload(self) -> dict:
         return {
@@ -57,6 +62,28 @@ class MessageInputs:
             "observed_at": self.observed_at.isoformat(),
             "safe_summary": self.safe_summary,
             "recommended_next_step": self.recommended_next_step,
+            "login_identities": [
+                {
+                    "label": str(item.get("label") or "—"),
+                    "owner_member_name": item.get("owner_member_name"),
+                    "two_factor_method": str(
+                        getattr(item.get("two_factor_method"), "value", item.get("two_factor_method"))
+                        or "unknown"
+                    ),
+                    "vault_reference": str(item.get("vault_reference") or ""),
+                    "via": str(item.get("via") or "business_manager"),
+                    "role": (
+                        str(getattr(item.get("role"), "value", item.get("role")))
+                        if item.get("role")
+                        else None
+                    ),
+                }
+                for item in list(self.login_identities)[:5]
+                if isinstance(item, dict)
+            ],
+            "remediation_checklist": [
+                str(step) for step in list(self.remediation_checklist)[:5] if step
+            ],
             "timezone": self.timezone_name,
             "dashboard_link": self.dashboard_link,
         }
@@ -122,6 +149,20 @@ def format_observed_at(moment: datetime, timezone_name: str | None) -> str:
     return f"{local.strftime('%Y-%m-%d %H:%M')} ({suffix})"
 
 
+def format_login_identity(item: dict) -> str:
+    """Format one operational Facebook profile for the Telegram line (F2).
+
+    Uses Vietnamese operational labels ('người giữ', '2FA', 'chỗ cất') so it matches the agency UI
+    and never emits English secret-like keywords ('password', 'token').
+    """
+    label = sanitise(str(item.get("label") or "—"), limit=80)
+    holder = sanitise(str(item.get("owner_member_name") or "chưa gán"), limit=60)
+    two_factor_raw = getattr(item.get("two_factor_method"), "value", item.get("two_factor_method"))
+    two_factor = sanitise(str(two_factor_raw or "unknown"), limit=24)
+    vault = sanitise(str(item.get("vault_reference") or "chưa ghi"), limit=100)
+    return f"Đăng nhập {label} (người giữ: {holder}, 2FA: {two_factor}, chỗ cất: {vault})"
+
+
 def render(inputs: MessageInputs) -> str:
     """Render the A3 v1 template. Concise, operational, and free of any safety claim."""
     lines = [
@@ -131,10 +172,28 @@ def render(inputs: MessageInputs) -> str:
         f"Health: {sanitise(inputs.health_status, limit=48)}",
         f"Readiness: {sanitise(inputs.readiness_status, limit=48)}",
         f"Observed: {format_observed_at(inputs.observed_at, inputs.timezone_name)}",
+    ]
+    if inputs.login_identities:
+        formatted_identities = "; ".join(
+            format_login_identity(item)
+            for item in list(inputs.login_identities)[:3]
+            if isinstance(item, dict)
+        )
+        if formatted_identities:
+            lines.append(f"Login to fix: {formatted_identities}")
+    lines += [
         "",
         f"Reason: {sanitise(inputs.safe_summary, limit=_SUMMARY_LIMIT)}",
         f"Next step: {sanitise(inputs.recommended_next_step, limit=_SUMMARY_LIMIT)}",
     ]
+    if inputs.remediation_checklist:
+        steps = " | ".join(
+            f"{idx}) {sanitise(str(step), limit=140)}"
+            for idx, step in enumerate(list(inputs.remediation_checklist)[:5], 1)
+            if step
+        )
+        if steps:
+            lines.append(f"Checklist: {steps}")
     if inputs.dashboard_link and is_safe_public_url(inputs.dashboard_link):
         lines += ["", inputs.dashboard_link]
 

@@ -17,6 +17,7 @@ import { ErrorState, LoadingRegion } from './states'
 import { FormSheet } from './page/FormSheet'
 import { ConfirmDialog } from './page/ConfirmDialog'
 import { Note } from '../pages/account/parts'
+import { LoginToFixPanel } from './facebook/LoginToFixPanel'
 
 function defaultExpiry(): string {
   const when = new Date(Date.now() + 4 * 60 * 60 * 1000)
@@ -139,6 +140,19 @@ export default function AlertDrawer({
                   {t('al.sheet.readinessOf', { value: enumLabel('readiness', data.account.readiness_status) })}
                 </Badge>
               </div>
+            </div>
+          )}
+
+          {data.account && <LoginToFixPanel identities={data.facebook_identities} />}
+
+          {data.remediation_checklist && data.remediation_checklist.length > 0 && (
+            <div>
+              <h3 className="mb-1 text-xs font-semibold">{t('al.sheet.checklist.title')}</h3>
+              <ol className="list-decimal space-y-1 pl-4 text-xs text-ink-muted">
+                {data.remediation_checklist.map((step, idx) => (
+                  <li key={idx}>{step}</li>
+                ))}
+              </ol>
             </div>
           )}
 

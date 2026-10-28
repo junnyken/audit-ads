@@ -1186,3 +1186,17 @@ divides the allowance (`RATE_LIMIT_PROCESS_COUNT` states how many, and productio
 is above one); and `X-Forwarded-For` is ignored until `RATE_LIMIT_TRUSTED_PROXY_HOPS` says a
 proxy is in front, because a client can set that header itself. Both are reported as
 configuration findings rather than left for someone to discover.
+
+
+## Slice F2 — Alerts point straight to the Facebook account to log into (`facebook_identities` + `remediation_checklist`)
+
+- Every alert row in `GET /api/v1/alerts` and every alert detail in `GET /api/v1/alerts/{id}` now includes:
+  - `facebook_identities`: the derived operational Facebook profile(s) (`AccountIdentityOut`) for that ad account, resolved via direct `personal_account_reference_id` and active Business Manager links (`personal_account_business_links`), with `label`, `owner_member_name`, `two_factor_method`, `vault_reference`, `email_hint` (masked only), `via`, and `role`.
+  - `remediation_checklist`: a deterministic 3-step operational remediation checklist matched by `rule_key` (for all 19 health rules) or `source_type` (`health_evaluation_run`, `discovery_sweep`, `reader_credential`).
+- Outbound Telegram messages (`MessageInputs` / `render` in `notification_templates.py` and `NotificationPlannerService` / `NotificationDispatcherService` in `notification_service.py`) now include:
+  - `Login to fix: Đăng nhập <label> (người giữ: <holder>, 2FA: <method>, chỗ cất: <vault_reference>)`
+  - `Checklist: 1) ... | 2) ... | 3) ...`
+  - Never includes full email, `email_hint`, passwords, 2FA seeds/codes, tokens, or safety/approval claims.
+- Frontend Alert Center (`/alerts` and `AlertDrawer`):
+  - Adds the `Tài khoản FB` (`facebook_identity`) column to `/alerts` with a 1-click link to `/facebook-accounts/{id}` plus holder and 2FA summary.
+  - Renders `LoginToFixPanel` (including `vault_reference`) and the ordered `Checklist xử lý sự cố` inside `AlertDrawer`.

@@ -1,0 +1,13 @@
+{
+  "timestamp": "2026-10-28T15:14:04+07:00",
+  "branch": "main",
+  "commit": "dad0403",
+  "scope": "F1 facebook identities",
+  "stack": "FastAPI+Postgres / Vite React",
+  "verdict": "pass_with_warnings",
+  "critical": 0,
+  "high": 0,
+  "medium": 0,
+  "low": 2,
+  "report_path": ".vibe/vibesec-2026-10-28-1514.md"
+}

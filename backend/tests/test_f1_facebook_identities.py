@@ -618,3 +618,78 @@ def test_concurrent_business_links_for_the_same_pair_raise_conflict_instead_of_5
         first.close()
         second.close()
 
+
+
+def test_f2_alerts_and_telegram_include_login_identity_and_remediation_checklist_without_email(
+    api, client, auth, db_session, owner, transport, vault
+):
+    member = _member(db_session, owner, email="holder@example.com", role=WorkspaceRole.ADMIN)
+    bm = _bm(api)
+    fb = _profile(
+        api,
+        label="FB2 – Nguyễn A",
+        owner_member_id=str(member.id),
+        two_factor_method="app",
+        vault_reference="Bitwarden → Agency/FB2",
+    )
+    assert client.put(f"{PROFILES}/{fb['id']}/email", headers=auth, json={"email": EMAIL}).status_code == 200
+    assert (
+        api.post(
+            f"{PROFILES}/{fb['id']}/business-links",
+            json={"business_manager_id": bm["id"], "role": "admin"},
+        ).status_code
+        == 201
+    )
+
+    assert (
+        api.patch(
+            "/api/v1/notification-policies/current",
+            json={"telegram_chat_id": "-1001234567890", "quiet_hours_enabled": False},
+        ).status_code
+        == 200
+    )
+
+    account = api.post(
+        "/api/v1/ad-accounts",
+        json={
+            "display_name": "TK Khách Hàng X",
+            "external_account_id": "act_998877",
+            "business_manager_id": bm["id"],
+            "status": "restricted",
+        },
+    ).json()
+
+    rows = api.get("/api/v1/alerts", params={"ad_account_id": account["id"], "severity": "critical"}).json()["items"]
+    assert len(rows) == 1
+    row = rows[0]
+    assert len(row["facebook_identities"]) == 1
+    identity = row["facebook_identities"][0]
+    assert identity["id"] == fb["id"]
+    assert identity["label"] == "FB2 – Nguyễn A"
+    assert identity["owner_member_name"] == "holder"
+    assert identity["two_factor_method"] == "app"
+    assert identity["vault_reference"] == "Bitwarden → Agency/FB2"
+    assert identity["via"] == "business_manager"
+    assert identity["role"] == "admin"
+    assert len(row["remediation_checklist"]) >= 3
+    assert EMAIL not in str(row)
+    assert identity["email_hint"] == "ng***@gmail.com"
+
+    detail = api.get(f"/api/v1/alerts/{row['id']}").json()
+    assert detail["facebook_identities"] == row["facebook_identities"]
+    assert detail["remediation_checklist"] == row["remediation_checklist"]
+    assert EMAIL not in str(detail)
+
+    from app.services.audit import AuditLogService
+    from app.services.notification_service import NotificationDispatcherService
+    wid = owner['workspace'].id
+    NotificationDispatcherService(db_session, wid, AuditLogService(db_session, wid, owner['user'].id), transport=transport).dispatch_due()
+    assert transport.sent, "Expected critical alert to be dispatched to Telegram"
+    msg_text = transport.sent[-1].text
+    assert "Login to fix: Đăng nhập FB2 – Nguyễn A" in msg_text
+    assert "người giữ: holder" in msg_text
+    assert "2FA: app" in msg_text
+    assert "chỗ cất: Bitwarden → Agency/FB2" in msg_text
+    assert "Checklist: 1) " in msg_text
+    assert EMAIL not in msg_text
+    assert "ng***@gmail.com" not in msg_text

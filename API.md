@@ -1295,3 +1295,10 @@ or plain words; other URL schemes are rejected. Changing `owner_member_id` is ow
 `facebook_identity_id` filter (an archived or out-of-workspace profile matches nothing). `PATCH /personal-account-references/{id}`
 refuses an explicit `null` on NOT NULL columns (`422 validation_error`), and concurrent duplicate `POST .../business-links`
 requests return `409 conflict`.
+
+
+### Slice F2 — `GET /api/v1/alerts` & `GET /api/v1/alerts/{alert_id}` additions
+
+- `AlertRow` (items in `GET /api/v1/alerts`) and `GET /api/v1/alerts/{alert_id}` now include:
+  - `facebook_identities`: `list[AccountIdentityOut]` — derived operational Facebook account profiles (`id`, `label`, `display_name`, `status`, `two_factor_method`, `vault_reference`, `email_hint`, `owner_member_id`, `owner_member_name`, `via`, `role`). Full email is never returned here.
+  - `remediation_checklist`: `list[str]` — ordered step-by-step operator remediation checklist for the alert's rule/source.

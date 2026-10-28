@@ -444,6 +444,8 @@ export interface AlertRow {
   quiet_hours_deferred: boolean
   suppressed_until: string | null
   archived: boolean
+  facebook_identities?: FacebookIdentity[]
+  remediation_checklist?: string[]
 }
 
 export interface AlertRecord {
@@ -528,6 +530,8 @@ export interface AlertDetail {
     latest_delivery: NotificationDelivery | null
   }
   disclaimer: string
+  facebook_identities?: FacebookIdentity[]
+  remediation_checklist?: string[]
 }
 
 export interface AlertSummary {

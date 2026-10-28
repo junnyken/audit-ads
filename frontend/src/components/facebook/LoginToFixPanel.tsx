@@ -6,6 +6,10 @@ import { Button } from '../primitives/button'
 import { twoFactorTone } from '../../lib/readiness'
 import { Panel } from '../../pages/account/parts'
 
+function isHttpsLink(value: string | null | undefined): value is string {
+  return Boolean(value && /^https:\/\//i.test(value.trim()))
+}
+
 export function LoginToFixPanel({ identities }: { identities: FacebookIdentity[] | undefined }) {
   const { t } = useI18n()
   return <Panel title={t('fb.login.title')} className="xl:col-span-2">
@@ -14,6 +18,15 @@ export function LoginToFixPanel({ identities }: { identities: FacebookIdentity[]
         <div className="flex flex-wrap items-start justify-between gap-2"><Link to={`/facebook-accounts/${identity.id}`} className="font-medium text-brand-text hover:underline">{identity.label}</Link><Badge tone={twoFactorTone(identity.two_factor_method)}>{t(`twoFactor.${identity.two_factor_method}`)}</Badge></div>
         {identity.owner_member_name && <p className="mt-1 text-xs text-ink-muted">{t('fb.login.holder', { name: identity.owner_member_name })}</p>}
         <p className="mt-1 text-xs text-ink-muted">{t(`fb.login.via.${identity.via}`)}</p>
+        {identity.vault_reference && (
+          isHttpsLink(identity.vault_reference) ? (
+            <a href={identity.vault_reference} target="_blank" rel="noreferrer noopener" className="mt-1 inline-block text-xs text-brand-text hover:underline">
+              {t('fb.detail.vault')}
+            </a>
+          ) : (
+            <p className="mt-1 text-xs text-ink-muted">{t('fb.login.vault', { vault: identity.vault_reference })}</p>
+          )
+        )}
         <Button asChild variant="ghost" size="sm" className="mt-2"><Link to={`/facebook-accounts/${identity.id}`}>{t('fb.open', { name: identity.label })}</Link></Button>
       </li>)}</ul>}
   </Panel>

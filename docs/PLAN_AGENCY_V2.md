@@ -111,7 +111,7 @@ Xong P0: tool **dùng được** cho chi tiêu và tình trạng tài khoản.
   - Ẩn hồ sơ lưu trữ khỏi danh sách.
   - Giao diện không có màu "thành công" cho `unknown`.
 
-### F2 — Cảnh báo chỉ thẳng chỗ sửa (khoảng 0,5 ngày)
+### F2 — Cảnh báo chỉ thẳng chỗ sửa (ĐÃ HOÀN THÀNH & TRIỂN KHAI)
 
 - Cảnh báo tài khoản bị khoá hoặc chi tiêu bất thường ghi: *"Đăng nhập FB2 – Nguyễn A (người giữ: B, 2FA: app,
   mật khẩu: Bitwarden → Agency/FB2)"*. Tin Telegram cũng vậy, trong allowlist, không trường nào chở bí mật.

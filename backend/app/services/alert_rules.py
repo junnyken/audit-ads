@@ -139,3 +139,140 @@ def from_evaluation_failure(
 
 def is_escalation(previous: AlertSeverity, candidate: AlertSeverity) -> bool:
     return SEVERITY_RANK[candidate] > SEVERITY_RANK[previous]
+
+
+#: F2 remediation checklists per rule key ([ĐỀ XUẤT — chờ BA duyệt]).
+#: Never claims safety, approval, or immunity (rule 6), and never names banned secret substrings.
+REMEDIATION_CHECKLISTS_BY_RULE: dict[str, tuple[str, ...]] = {
+    "account_restricted_status": (
+        "Đăng nhập đúng tài khoản Facebook ở mục 'Đăng nhập để xử lý' bên dưới.",
+        "Mở Chất lượng tài khoản (Account Quality) và Business Settings để đọc thông báo hạn chế của Meta.",
+        "Ghi nhận sự kiện tài khoản, gửi kháng nghị trên Meta nếu đủ điều kiện, hoặc chuyển ngân sách sang tài khoản dự phòng.",
+    ),
+    "account_disabled_status": (
+        "Đăng nhập đúng tài khoản Facebook ở mục 'Đăng nhập để xử lý' bên dưới.",
+        "Kiểm tra Chất lượng tài khoản (Account Quality) để xác nhận lý do tài khoản bị vô hiệu hoá.",
+        "Nộp kháng nghị trên Meta nếu có cơ sở, đồng thời chuyển ngân sách sang tài khoản quảng cáo khác và ghi nhận sự kiện.",
+    ),
+    "platform_account_status_blocking": (
+        "Đăng nhập đúng tài khoản Facebook quản lý Business Manager của tài khoản này.",
+        "Mở Account Quality và Ads Manager để kiểm tra mã trạng thái và lý do vô hiệu hoá do Meta trả về.",
+        "Kháng nghị trên Meta hoặc điều phối lại ngân sách, sau đó ghi nhận kết quả vào tab Sự kiện.",
+    ),
+    "platform_account_status_pending": (
+        "Đăng nhập tài khoản Facebook quản lý Business Manager của tài khoản này.",
+        "Mở mục Lập hoá đơn & Thanh toán (Billing) hoặc thông báo xét duyệt trong Ads Manager để xử lý khoản treo.",
+        "Ghi nhận sự kiện tài khoản và kiểm tra lại ở lần đọc trạng thái tiếp theo từ Meta.",
+    ),
+    "platform_account_status_unrecognised": (
+        "Đăng nhập tài khoản Facebook quản lý và mở Ads Manager để xem trạng thái thực tế của tài khoản.",
+        "Đối chiếu mã trạng thái lạ Meta trả về với thông báo trên giao diện Meta.",
+        "Ghi nhận kết quả kiểm tra vào tab Sự kiện của tài khoản.",
+    ),
+    "platform_vs_recorded_status_mismatch": (
+        "Mở tab Tổng quan của tài khoản để so sánh trạng thái Meta trả về với trạng thái đang ghi nhận.",
+        "Đăng nhập tài khoản Facebook quản lý nếu cần xác minh trực tiếp trên Ads Manager.",
+        "Bấm cập nhật trạng thái ghi nhận kèm ghi chú nếu thông tin từ Meta là trạng thái mới nhất.",
+    ),
+    "spend_change_vs_baseline": (
+        "Đăng nhập tài khoản Facebook quản lý và mở Ads Manager tại đúng ngày có biến động chi tiêu.",
+        "So sánh chi tiêu của từng chiến dịch/nhóm quảng cáo với trung vị các ngày hoàn chỉnh trước đó.",
+        "Điều chỉnh ngân sách trên Ads Manager nếu cần và ghi nhận nguyên nhân vào Sự kiện tài khoản.",
+    ),
+    "spend_cap_approaching": (
+        "Đăng nhập tài khoản Facebook quản lý và mở Cài đặt thanh toán (Billing Settings) trong Ads Manager.",
+        "Kiểm tra giới hạn chi tiêu của tài khoản (Account Spending Limit) so với tổng chi tiêu hiện tại.",
+        "Tăng hoặc đặt lại giới hạn chi tiêu trên Meta nếu chiến dịch cần tiếp tục phân phối.",
+    ),
+    "spend_observation_missing_or_stale": (
+        "Mở tab Chi tiêu của tài khoản quảng cáo để xem mã lỗi của các lần đọc gần nhất.",
+        "Kiểm tra kết nối Meta và quyền đọc của Business Manager trong trang Cài đặt.",
+        "Chủ không gian làm việc có thể bấm 'Đọc lại từ Meta' để kiểm tra lại ngay.",
+    ),
+    "spend_currency_mismatch": (
+        "Mở Ads Manager để xác nhận đơn vị tiền tệ chính thức của tài khoản quảng cáo.",
+        "So sánh với đơn vị tiền tệ đang lưu trong hồ sơ tài khoản trên hệ thống.",
+        "Cập nhật lại đơn vị tiền tệ trong hồ sơ nếu bản ghi nội bộ bị nhập sai.",
+    ),
+    "critical_account_event_open": (
+        "Mở tab Sự kiện của tài khoản quảng cáo để đọc chi tiết sự kiện nghiêm trọng đang mở.",
+        "Đăng nhập tài khoản Facebook quản lý để xử lý nguyên nhân gốc trên Ads Manager / Business Settings.",
+        "Đánh dấu hoàn tất (Resolve) sự kiện kèm lý do sau khi đã xử lý xong.",
+    ),
+    "warning_account_event_open": (
+        "Mở tab Sự kiện của tài khoản quảng cáo để xem nội dung cảnh báo đã ghi nhận.",
+        "Kiểm tra trên Ads Manager bằng tài khoản Facebook quản lý nếu sự kiện liên quan đến vận hành.",
+        "Đánh dấu hoàn tất sự kiện kèm ghi chú kết quả xử lý.",
+    ),
+    "mandatory_readiness_evidence_missing": (
+        "Mở tab Mức sẵn sàng (Readiness) của tài khoản để xem các mục bắt buộc còn thiếu bằng chứng.",
+        "Đính kèm bằng chứng xác minh hoặc hoàn tất rà soát cho từng mục.",
+        "Kiểm tra lại trạng thái sẵn sàng sau khi hệ thống tự động tính lại.",
+    ),
+    "mandatory_readiness_evidence_expired": (
+        "Mở tab Mức sẵn sàng (Readiness) để xem các mục có bằng chứng đã hết hạn hoặc bị từ chối.",
+        "Cập nhật bằng chứng mới còn hiệu lực hoặc ghi nhận lý do miễn trừ nếu phù hợp.",
+        "Bấm tính lại sức khoẻ tài khoản để đóng cảnh báo khi bằng chứng đã hợp lệ.",
+    ),
+    "readiness_not_ready": (
+        "Mở tab Mức sẵn sàng của tài khoản để xem danh sách các lý do đang chặn.",
+        "Xử lý từng mục checklist hoặc sự kiện đang mở theo hướng dẫn trên màn hình.",
+        "Ghi nhận rà soát thủ công sau khi hoàn tất.",
+    ),
+    "readiness_unknown": (
+        "Mở tab Mức sẵn sàng của tài khoản để bổ sung các thông tin rà soát còn trống.",
+        "Đính kèm bằng chứng cho các mục bắt buộc.",
+        "Tính lại mức sẵn sàng để xác định rõ trạng thái của tài khoản.",
+    ),
+    "manual_review_due_or_stale": (
+        "Đăng nhập tài khoản Facebook quản lý và rà soát tình trạng tài khoản trên Ads Manager.",
+        "Mở tab Tổng quan của tài khoản trên hệ thống và ghi nhận kết quả rà soát thủ công.",
+        "Cập nhật trạng thái hoặc thêm sự kiện nếu phát hiện thay đổi mới.",
+    ),
+    "account_data_stale_or_unknown": (
+        "Mở trang chi tiết tài khoản quảng cáo và bấm tính lại mức sẵn sàng.",
+        "Kiểm tra các mục checklist cơ bản của tài khoản.",
+        "Chạy lại đánh giá sức khoẻ tài khoản sau khi dữ liệu đầu vào đã đầy đủ.",
+    ),
+    "account_not_returned_by_latest_discovery": (
+        "Đăng nhập tài khoản Facebook quản lý BM và mở Business Settings → Tài khoản quảng cáo.",
+        "Kiểm tra xem tài khoản quảng cáo còn thuộc BM và còn được gán cho người đọc Meta hay không.",
+        "Nếu tài khoản đã chuyển sang BM khác hoặc ngừng dùng, hãy cập nhật BM hoặc lưu trữ hồ sơ.",
+    ),
+}
+
+REMEDIATION_CHECKLISTS_BY_SOURCE: dict[AlertSourceType, tuple[str, ...]] = {
+    AlertSourceType.HEALTH_EVALUATION_RUN: (
+        "Mở tab Sức khoẻ (Health) của tài khoản quảng cáo và bấm tính lại sức khoẻ.",
+        "Kiểm tra lịch sử các lần chạy đánh giá (Evaluation Runs) để xem mã lỗi.",
+        "Nếu lỗi tiếp diễn, kiểm tra trang Trạng thái hệ thống.",
+    ),
+    AlertSourceType.DISCOVERY_SWEEP: (
+        "Mở trang Kết nối Meta để xem kết quả quét khám phá tài sản mới nhất.",
+        "Rà soát các tài khoản quảng cáo mới phát hiện hoặc không còn xuất hiện trong lần quét.",
+        "Xác nhận nhập vào danh mục hoặc cập nhật hồ sơ tài khoản Facebook quản lý BM tương ứng.",
+    ),
+    AlertSourceType.READER_CREDENTIAL: (
+        "Mở trang Cài đặt → Quyền đọc Meta để xem trạng thái của kết nối đang báo lỗi hoặc sắp hết hạn.",
+        "Đăng nhập đúng tài khoản Facebook đã cấp quyền cho kết nối đó.",
+        "Thực hiện kết nối lại (Reconnect) để khôi phục việc đọc chi tiêu và trạng thái tự động.",
+    ),
+}
+
+DEFAULT_REMEDIATION_CHECKLIST: tuple[str, ...] = (
+    "Mở chi tiết cảnh báo và kiểm tra bằng chứng đã ghi nhận trên hệ thống.",
+    "Đăng nhập tài khoản Facebook quản lý ở mục 'Đăng nhập để xử lý' để kiểm tra trên Meta.",
+    "Thực hiện bước xử lý phù hợp và ghi nhận kết quả vào nhật ký cảnh báo.",
+)
+
+
+def remediation_checklist_for_alert(alert: Any) -> list[str]:
+    """Return the deterministic step-by-step remediation checklist for an alert (MINI-SPEC F2)."""
+    snapshot = getattr(alert, "source_snapshot_json", None) or {}
+    rule_key = snapshot.get("rule_key")
+    if isinstance(rule_key, str) and rule_key in REMEDIATION_CHECKLISTS_BY_RULE:
+        return list(REMEDIATION_CHECKLISTS_BY_RULE[rule_key])
+    source_type = getattr(alert, "source_type", None)
+    if source_type in REMEDIATION_CHECKLISTS_BY_SOURCE:
+        return list(REMEDIATION_CHECKLISTS_BY_SOURCE[source_type])
+    return list(DEFAULT_REMEDIATION_CHECKLIST)

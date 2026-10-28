@@ -35,8 +35,10 @@ from app.core.redaction import redact
 from app.models.alerts import Alert, AlertPolicy, NotificationDelivery, NotificationDeliveryAttempt
 from app.models.entities import AdAccount, AuditLog
 from app.services import quiet_hours
+from app.services.alert_rules import remediation_checklist_for_alert
 from app.services.audit import AuditLogService
 from app.services.base import snapshot as orm_snapshot
+from app.services.facebook_identities import FacebookIdentityService
 from app.services.notification_templates import (
     CREDENTIAL_TEMPLATE_VERSION,
     SUMMARY_TEMPLATE_VERSION,
@@ -186,6 +188,16 @@ class NotificationPlannerService:
         if alert.source_type == AlertSourceType.READER_CREDENTIAL:
             return self._credential_payload(alert, policy)
         snapshot = alert.source_snapshot_json or {}
+        login_identities: list[dict] = []
+        if account is not None:
+            login_identities = (
+                FacebookIdentityService(
+                    self.session, self.workspace_id, self.audit, self.settings
+                )
+                .identities_for_accounts([account])
+                .get(account.id, [])
+            )
+        checklist = remediation_checklist_for_alert(alert)
         inputs = MessageInputs(
             severity=alert.severity.value,
             alert_title=alert.title,
@@ -200,6 +212,8 @@ class NotificationPlannerService:
             dashboard_link=build_dashboard_link(
                 self.settings.public_app_url, str(alert.ad_account_id) if alert.ad_account_id else None
             ),
+            login_identities=tuple(login_identities),
+            remediation_checklist=tuple(checklist),
         )
         return redact(inputs.to_payload()), render(inputs)
 
@@ -518,6 +532,12 @@ class NotificationDispatcherService:
                 recommended_next_step=str(payload.get("recommended_next_step", "")),
                 timezone_name=payload.get("timezone"),
                 dashboard_link=payload.get("dashboard_link"),
+                login_identities=tuple(
+                    item for item in (payload.get("login_identities") or []) if isinstance(item, dict)
+                ),
+                remediation_checklist=tuple(
+                    str(step) for step in (payload.get("remediation_checklist") or []) if step
+                ),
             )
         )
 

@@ -1155,3 +1155,10 @@ Rejected again in A3:
   is the opposite of what this product is for.
 - **A message per evaluation** — alert fatigue, and operationally harmful. A3 sends only new or
   escalated conditions, plus bounded retries.
+
+
+### Slice F2 — Alert-to-Identity Derivation & Remediation Checklists
+
+- `GET /api/v1/alerts` batch-resolves `FacebookIdentityService.identities_for_accounts` for all distinct `AdAccount` rows on the current page in bounded SQL queries (preserving the A3 performance budget).
+- `remediation_checklist_for_alert(alert)` in `app/services/alert_rules.py` maps `alert.source_snapshot_json["rule_key"]` (or `alert.source_type`) to a deterministic tuple of operator steps without any platform-mutation claims or banned words.
+- `NotificationPlannerService._payload` snapshots `login_identities` (allowlisted to `label`, `owner_member_name`, `two_factor_method`, `vault_reference`, `via`, `role` — no `email_hint` or `email_ciphertext`) and `remediation_checklist` into `payload_snapshot_json`, which `NotificationDispatcherService._render_account_message` renders via `notification_templates.render`.
