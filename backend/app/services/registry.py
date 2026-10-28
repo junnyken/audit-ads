@@ -137,6 +137,7 @@ class AdAccountRegistryService:
                     AdAccount.display_name.ilike(needle),
                     AdAccount.external_account_id.ilike(needle),
                     AdAccount.owner_label.ilike(needle),
+                    AdAccount.client_name.ilike(needle),
                     sa.cast(AdAccount.tags, sa.String).ilike(needle),
                     bm_match,
                     personal_match,
@@ -270,6 +271,8 @@ class AdAccountRegistryService:
         }
         self._validate_ownership(merged)
 
+        if "client_name" in payload and payload["client_name"] is None:
+            payload["client_name"] = ""
         before = snapshot(account)
         for key, value in payload.items():
             setattr(account, key, value)

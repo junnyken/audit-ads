@@ -48,9 +48,10 @@ class _StubTransport:
 
 
 def test_0020_migration_round_trips_and_startup_migration_accepts_off(migrated_database, monkeypatch):
-    assert _revision() == "0020_f3_business_users"
+    assert _revision() in ("0020_f3_business_users", "0021_c1_client_budget_and_pacing")
     tables_before = set(sa.inspect(engine).get_table_names())
     assert "discovered_business_user_observations" in tables_before
+    engine.dispose()
     try:
         command.downgrade(_config(), "0019_f1_facebook_identities")
         assert _revision() == "0019_f1_facebook_identities"
@@ -61,7 +62,7 @@ def test_0020_migration_round_trips_and_startup_migration_accepts_off(migrated_d
         }
     finally:
         command.upgrade(_config(), "head")
-    assert _revision() == "0020_f3_business_users"
+    assert _revision() in ("0020_f3_business_users", "0021_c1_client_budget_and_pacing")
 
     calls: list[str] = []
     monkeypatch.setattr(startup_migration.command, "upgrade", lambda cfg, target: calls.append(target))

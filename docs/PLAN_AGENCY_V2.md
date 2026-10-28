@@ -118,7 +118,7 @@ Xong P0: tool **dùng được** cho chi tiêu và tình trạng tài khoản.
 - Mỗi loại sự cố có **checklist xử lý**, ví dụ: tài khoản bị vô hiệu → kiểm Account Quality → kháng nghị → chuyển
   ngân sách. Câu chữ do BA duyệt.
 
-### F3 — Tự biết ai có quyền trong BM (cần đo trước, khoảng 1 ngày)
+### F3 — Tự biết ai có quyền trong BM (ĐÃ HOÀN THÀNH & TRIỂN KHAI)
 
 - Dùng `GET {business-id}/business_users`, thuộc quyền `business_management` đã có, để liệt kê người có quyền
   trong từng BM. Tool **đề xuất** nối identity ↔ BM; người dùng bấm xác nhận.
@@ -141,3 +141,8 @@ C1 thương mại (nhiều khách, mb-connect, gói, thanh toán) → Google Ads
 - F1–F2: từ một cảnh báo bất kỳ, người dùng biết tài khoản FB cần đăng nhập trong **≤ 1 bước bấm**, và tool
   không chứa mật khẩu hay mã 2FA nào (có test ghim).
 - F3: có số đo thật về `business_users` trước khi build; cảnh báo "người lạ vào BM" có test.
+
+
+### C1 & C2 — Ngân sách cam kết & Cảnh báo tiến độ chi tiêu (ĐÃ HOÀN THÀNH & TRIỂN KHAI)
+- **C1 (`budget_pacing`)**: Lưu tên khách hàng (`client_name`), ngân sách ngày cam kết (`planned_daily_budget_raw`) và ngân sách tháng cam kết (`planned_monthly_budget_raw`) cho từng tài khoản quảng cáo; tự động đối chiếu chi tiêu ngày hoàn chỉnh gần nhất và lũy kế tháng (`mtd_spend_raw`) theo đúng tiền tệ gốc của tài khoản.
+- **C2 (`spend_budget_pacing_drift`)**: Tự động mở cảnh báo sớm và gửi tin nhắn Telegram (kèm hồ sơ FB đăng nhập và checklist 3 bước) khi chi tiêu vượt cam kết (`overspending`), chạm ngưỡng 90% ngân sách tháng (`approaching_monthly_budget`), hoặc thấp bất thường dưới 50% (`underspending`); tự động đóng khi tiến độ trở lại bình thường.

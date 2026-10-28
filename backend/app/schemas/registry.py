@@ -359,6 +359,27 @@ class ProxyReferenceOut(TimestampsOut):
     notes: str
 
 
+
+def _validate_positive_budget_raw(value: str | None) -> str | None:
+    if value is None:
+        return None
+    trimmed = value.strip()
+    if not trimmed:
+        return None
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        dec = Decimal(trimmed)
+    except (InvalidOperation, ValueError):
+        raise ValueError("Budget must be a valid positive number.") from None
+    if not dec.is_finite() or dec <= 0:
+        raise ValueError("Budget must be greater than zero.")
+    text = format(dec, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text or "0"
+
+
 # -------------------------------------------------------------------------- Ad account
 class AdAccountCreate(StrictPayload):
     display_name: Name
@@ -376,6 +397,14 @@ class AdAccountCreate(StrictPayload):
     landing_page_url: Url = None
     tags: list[Annotated[str, Field(max_length=48)]] = Field(default_factory=list, max_length=20)
     notes: Notes = ""
+    client_name: str = Field(default="", max_length=200)
+    planned_daily_budget_raw: str | None = Field(default=None, max_length=32)
+    planned_monthly_budget_raw: str | None = Field(default=None, max_length=32)
+
+    _no_secret_client = field_validator("client_name")(_refuse_login_secret)
+    _budget_fields = field_validator("planned_daily_budget_raw", "planned_monthly_budget_raw")(
+        _validate_positive_budget_raw
+    )
 
     @field_validator("country")
     @classmethod
@@ -411,6 +440,14 @@ class AdAccountUpdate(StrictPayload):
     landing_page_url: Url = None
     tags: list[Annotated[str, Field(max_length=48)]] | None = Field(default=None, max_length=20)
     notes: str | None = Field(default=None, max_length=5000)
+    client_name: str | None = Field(default=None, max_length=200)
+    planned_daily_budget_raw: str | None = Field(default=None, max_length=32)
+    planned_monthly_budget_raw: str | None = Field(default=None, max_length=32)
+
+    _no_secret_client = field_validator("client_name")(_refuse_login_secret)
+    _budget_fields = field_validator("planned_daily_budget_raw", "planned_monthly_budget_raw")(
+        _validate_positive_budget_raw
+    )
 
     @field_validator("landing_page_url")
     @classmethod
@@ -449,6 +486,9 @@ class AdAccountOut(TimestampsOut):
     landing_page_url: str | None
     tags: list[str]
     notes: str
+    client_name: str = ""
+    planned_daily_budget_raw: str | None = None
+    planned_monthly_budget_raw: str | None = None
 
 
 class AdAccountListItem(AdAccountOut):

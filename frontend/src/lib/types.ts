@@ -70,6 +70,9 @@ export interface AdAccount {
   landing_page_url: string | null
   tags: string[]
   notes: string
+  client_name?: string
+  planned_daily_budget_raw?: string | null
+  planned_monthly_budget_raw?: string | null
   created_at: string
   updated_at: string
   archived_at: string | null
@@ -1366,7 +1369,32 @@ export interface SpendView {
   baseline_days_available: number
   /** S2. `null` when no observation carries an `account_status` code; absent on older backends. */
   platform_status?: PlatformStatusView | null
+  /** C1/C2. Client budget and pacing evaluation. */
+  budget_pacing?: BudgetPacingView | null
   disclaimer: string
+}
+
+export type BudgetPacingStatus =
+  | 'unconfigured'
+  | 'insufficient_data'
+  | 'on_track'
+  | 'overspending'
+  | 'approaching_monthly_budget'
+  | 'underspending'
+
+export interface BudgetPacingView {
+  client_name: string
+  planned_daily_budget_raw: string | null
+  planned_monthly_budget_raw: string | null
+  currency: string | null
+  latest_complete_day: string | null
+  latest_day_spend_raw: string | null
+  daily_utilization_pct: number | null
+  month_prefix?: string | null
+  mtd_spend_raw: string | null
+  mtd_days_counted: number
+  monthly_utilization_pct: number | null
+  pacing_status: BudgetPacingStatus
 }
 
 export interface SpendCurrencyGroup {

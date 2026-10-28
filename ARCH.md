@@ -1171,3 +1171,9 @@ Rejected again in A3:
   - `personal_account_business_links`: thêm `external_business_user_id` (`String(120)`, nullable).
 - `MetaDiscoveryService.reconcile_business_users`, `confirm_business_user_link`, và `evaluate_business_user_drift_alert`.
 - Frontend `BusinessUsersSection.tsx` hiển thị danh sách người trong BM, gợi ý khớp hồ sơ FB và nút xác nhận nối 1 chạm.
+
+
+## Slice C1 & C2 — Budget Pacing Engine & Alert Derivation
+- Migration `0021_c1_client_budget_and_pacing`: adds nullable `client_name`, `planned_daily_budget_raw`, and `planned_monthly_budget_raw` columns to `ad_accounts`.
+- `evaluate_budget_pacing` in `app/services/spend_engine.py`: pure, deterministic calculation operating on decimal strings in the account's native currency (`BudgetPacingFacts`), keeping missing daily rows separate from `0` and never combining currencies.
+- `from_budget_pacing` in `app/services/alert_rules.py` and `AlertDerivationService._candidates` in `app/services/alert_service.py`: derives `AlertCandidate(alert_key=f"budget_pacing:{account.id}", source_type="health_signal", rule_key="spend_budget_pacing_drift")` whenever an unarchived account with configured budgets is in `overspending`, `approaching_monthly_budget`, or `underspending`, and auto-resolves the alert when the condition clears.

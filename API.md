@@ -1310,3 +1310,12 @@ requests return `409 conflict`.
 - `POST /api/v1/meta-connections/{connection_id}/discoveries/{run_id}/business-user-links`:
   - Body: `{"external_user_id": "...", "personal_account_reference_id": "<uuid>", "role": "admin" | "employee" | "unknown" | null}`.
   - Xác nhận nối một `business_user` trong BM với hồ sơ tài khoản Facebook nội bộ (`PersonalAccountReference`) và tự động đánh giá lại cảnh báo `bm_user_access_drift`.
+
+
+## Slice C1 & C2 — Client Budget & Spend Pacing
+- `POST /api/v1/ad-accounts`, `PATCH /api/v1/ad-accounts/{id}`, `GET /api/v1/ad-accounts`, `GET /api/v1/ad-accounts/{id}`:
+  - Additional fields on `AdAccount`: `client_name` (`str | null`, max 200 chars, secret-pattern checked), `planned_daily_budget_raw` (`str | null`, positive decimal string), `planned_monthly_budget_raw` (`str | null`, positive decimal string).
+- `GET /api/v1/ad-accounts/{id}/spend` (and `POST /api/v1/ad-accounts/{id}/spend/refresh`):
+  - Includes `budget_pacing`: `{ client_name, currency, planned_daily_budget_raw, planned_monthly_budget_raw, latest_complete_day, latest_day_spend_raw, daily_utilization_pct, month_prefix, mtd_spend_raw, mtd_days_counted, monthly_utilization_pct, pacing_status }`.
+- `GET /api/v1/spend/summary`:
+  - Includes `budget_pacing_counts`: `{ unconfigured, insufficient_data, on_track, overspending, approaching_monthly_budget, underspending }`.

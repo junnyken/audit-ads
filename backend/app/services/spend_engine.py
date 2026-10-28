@@ -432,3 +432,129 @@ def assemble(
             complete=False,
         )
     return facts
+
+
+@dataclass(frozen=True)
+class BudgetPacingFacts:
+    """C1. Deterministic comparison between an account's agreed daily/monthly budget and stored
+    Meta spend observations in the account's own currency. Never converts or mixes currencies."""
+
+    client_name: str
+    planned_daily_budget_raw: str | None
+    planned_monthly_budget_raw: str | None
+    currency: str | None
+    latest_complete_day: str | None
+    latest_day_spend_raw: str | None
+    daily_utilization_pct: float | None
+    mtd_spend_raw: str | None
+    mtd_days_counted: int
+    monthly_utilization_pct: float | None
+    #: `unconfigured` / `insufficient_data` / `on_track` / `overspending` /
+    #: `approaching_monthly_budget` / `underspending`.
+    pacing_status: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "client_name": self.client_name,
+            "planned_daily_budget_raw": self.planned_daily_budget_raw,
+            "planned_monthly_budget_raw": self.planned_monthly_budget_raw,
+            "currency": self.currency,
+            "latest_complete_day": self.latest_complete_day,
+            "latest_day_spend_raw": self.latest_day_spend_raw,
+            "daily_utilization_pct": self.daily_utilization_pct,
+            "mtd_spend_raw": self.mtd_spend_raw,
+            "mtd_days_counted": self.mtd_days_counted,
+            "monthly_utilization_pct": self.monthly_utilization_pct,
+            "pacing_status": self.pacing_status,
+        }
+
+
+def evaluate_budget_pacing(
+    facts: SpendFacts,
+    *,
+    client_name: str = "",
+    planned_daily_budget_raw: str | None = None,
+    planned_monthly_budget_raw: str | None = None,
+) -> BudgetPacingFacts:
+    """Pure C1 pacing evaluation from `SpendFacts` and the account's agreed budget strings."""
+    daily_budget = parse_amount(planned_daily_budget_raw)
+    monthly_budget = parse_amount(planned_monthly_budget_raw)
+    if daily_budget is not None and daily_budget <= 0:
+        daily_budget = None
+    if monthly_budget is not None and monthly_budget <= 0:
+        monthly_budget = None
+
+    daily_raw = amount_text(daily_budget) if daily_budget is not None else None
+    monthly_raw = amount_text(monthly_budget) if monthly_budget is not None else None
+    currency = facts.observed_currency or facts.registry_currency
+    latest_day_iso = facts.latest_complete_day.isoformat() if facts.latest_complete_day else None
+
+    latest_spend_dec: Decimal | None = None
+    latest_spend_raw: str | None = None
+    mtd_dec = Decimal(0)
+    mtd_days = 0
+
+    if not facts.insights_currency_conflict and facts.latest_complete_day is not None:
+        latest_entry = facts.day(facts.latest_complete_day)
+        if latest_entry is not None and latest_entry.has_row and latest_entry.amount is not None:
+            latest_spend_dec = latest_entry.amount
+            latest_spend_raw = amount_text(latest_spend_dec)
+
+        target_year = facts.latest_complete_day.year
+        target_month = facts.latest_complete_day.month
+        for entry in facts.complete_days:
+            if (
+                entry.day.year == target_year
+                and entry.day.month == target_month
+                and entry.has_row
+                and entry.amount is not None
+            ):
+                mtd_dec += entry.amount
+                mtd_days += 1
+
+    mtd_raw = amount_text(mtd_dec) if mtd_days > 0 else None
+
+    daily_pct: float | None = None
+    if facts.is_current and daily_budget is not None and latest_spend_dec is not None:
+        daily_pct = round(float((latest_spend_dec / daily_budget) * Decimal(100)), 1)
+
+    monthly_pct: float | None = None
+    if facts.is_current and monthly_budget is not None and mtd_days > 0:
+        monthly_pct = round(float((mtd_dec / monthly_budget) * Decimal(100)), 1)
+
+    if daily_budget is None and monthly_budget is None:
+        status = "unconfigured"
+    elif (
+        not facts.is_current
+        or facts.insights_currency_conflict
+        or (
+            (daily_budget is not None and latest_spend_dec is None)
+            and (monthly_budget is None or mtd_days == 0)
+        )
+        or (daily_budget is None and monthly_budget is not None and mtd_days == 0)
+    ):
+        status = "insufficient_data"
+    elif (daily_pct is not None and daily_pct > 120.0) or (
+        monthly_pct is not None and monthly_pct > 100.0
+    ):
+        status = "overspending"
+    elif monthly_pct is not None and 90.0 <= monthly_pct <= 100.0:
+        status = "approaching_monthly_budget"
+    elif daily_pct is not None and daily_pct < 50.0:
+        status = "underspending"
+    else:
+        status = "on_track"
+
+    return BudgetPacingFacts(
+        client_name=(client_name or "").strip(),
+        planned_daily_budget_raw=daily_raw,
+        planned_monthly_budget_raw=monthly_raw,
+        currency=currency,
+        latest_complete_day=latest_day_iso,
+        latest_day_spend_raw=latest_spend_raw,
+        daily_utilization_pct=daily_pct,
+        mtd_spend_raw=mtd_raw,
+        mtd_days_counted=mtd_days,
+        monthly_utilization_pct=monthly_pct,
+        pacing_status=status,
+    )

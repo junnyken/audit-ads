@@ -251,6 +251,10 @@ class AdAccount(UUIDPrimaryKey, Timestamped, Archivable, Base):
 
     tags: Mapped[list] = mapped_column(sa.JSON(), nullable=False, default=list)
     notes: Mapped[str] = mapped_column(sa.Text(), nullable=False, default="")
+    # ---- C1: Client label and agreed daily/monthly budgets (raw Decimal strings, same currency as account)
+    client_name: Mapped[str] = mapped_column(sa.String(200), nullable=False, default="")
+    planned_daily_budget_raw: Mapped[str | None] = mapped_column(sa.String(32), nullable=True)
+    planned_monthly_budget_raw: Mapped[str | None] = mapped_column(sa.String(32), nullable=True)
 
     business_manager: Mapped[BusinessManager | None] = relationship(lazy="joined")
     personal_account_reference: Mapped[PersonalAccountReference | None] = relationship(lazy="joined")

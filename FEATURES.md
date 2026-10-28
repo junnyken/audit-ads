@@ -1207,3 +1207,17 @@ configuration findings rather than left for someone to discover.
 - Đối soát `business_users` với hồ sơ tài khoản Facebook nội bộ (`PersonalAccountReference`) và liên kết BM (`PersonalAccountBusinessLink`).
 - Gợi ý khớp tên (`suggested_identity`) để người vận hành xác nhận nối 1 chạm (`POST /api/v1/meta-connections/{id}/discoveries/{run_id}/business-user-links`), tuyệt đối không tự động nối theo tên (Rule 31).
 - Tự động mở cảnh báo sớm (`bm_user_access_drift`) và gửi thông báo Telegram khi phát hiện người chưa xác nhận trong BM ("người lạ vào BM") hoặc Admin bị gỡ/hạ quyền ("admin bị gỡ"), kèm hồ sơ FB giữ quyền Admin và danh sách bước xử lý; tự động đóng cảnh báo khi tất cả người dùng đã được xác nhận nối.
+
+
+## Slice C1 & C2 — Ngân sách cam kết & Cảnh báo tiến độ chi tiêu (`budget_pacing` + `spend_budget_pacing_drift`)
+- **C1 — Ngân sách cam kết theo tài khoản quảng cáo (`budget_pacing`)**:
+  - Thêm `client_name`, `planned_daily_budget_raw` (ngân sách ngày cam kết) và `planned_monthly_budget_raw` (ngân sách tháng cam kết) vào `ad_accounts` (Migration `0021_c1_client_budget_and_pacing`), từ chối chuỗi âm/0 hoặc chuỗi nghi ngờ bí mật đăng nhập (Rule 1).
+  - Tính toán tiến độ chi tiêu (`evaluate_budget_pacing`) theo đúng đơn vị tiền tệ gốc của tài khoản (không quy đổi ngoại tệ, không suy diễn ngày thiếu dòng là `0` — Rule 4):
+    - So sánh chi tiêu ngày hoàn chỉnh gần nhất (`latest_complete_day`) với `planned_daily_budget_raw` (`daily_utilization_pct`).
+    - Tính tổng lũy kế các ngày đã quan sát trong cùng tháng (`mtd_spend_raw`, `mtd_days_counted`) so với `planned_monthly_budget_raw` (`monthly_utilization_pct`).
+    - Phân loại `pacing_status` thành `unconfigured`, `insufficient_data`, `on_track`, `overspending`, `approaching_monthly_budget`, hoặc `underspending` (không dùng nhãn hay màu xanh "an toàn/thành công" — Rule 5 & 6).
+  - Trả `budget_pacing` trong `GET /api/v1/ad-accounts/{id}/spend` và `budget_pacing_counts` trong `GET /api/v1/spend/summary`.
+  - Hiển thị bảng **Ngân sách cam kết & Tiến độ chi tiêu (C1 & C2)** (`BudgetPacingPanel`) ngay đầu tab Chi tiêu (`SpendTab`) kèm biểu mẫu cập nhật trực tiếp (`PATCH /api/v1/ad-accounts/{id}`).
+- **C2 — Cảnh báo tiến độ ngân sách (`spend_budget_pacing_drift`)**:
+  - Tự động mở/cập nhật cảnh báo `Alert` (`alert_key = "budget_pacing:{account.id}"`, `rule_key = "spend_budget_pacing_drift"`) khi `pacing_status` rơi vào `overspending`, `approaching_monthly_budget`, hoặc `underspending`.
+  - Gắn kèm hồ sơ Facebook đăng nhập (`facebook_identities` — F2) và checklist xử lý 3 bước cả trên Trung tâm Cảnh báo (`/alerts`) lẫn tin nhắn Telegram; tự động đóng (`source_cleared`) ngay khi tiến độ trở về `on_track`, `unconfigured`, hoặc `insufficient_data`.

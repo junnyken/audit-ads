@@ -12,7 +12,7 @@ import { translate } from '../i18n/translate'
 import { vi as viDict } from '../i18n/vi'
 import type { AdAccount, SpendFreshness, SpendSummary, SpendView } from '../lib/types'
 
-const apiMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
+const apiMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn() }))
 const authMock = vi.hoisted(() => ({ role: 'owner' }))
 vi.mock('../lib/api', async (orig) => ({
   ...(await orig<typeof import('../lib/api')>()),
@@ -219,5 +219,47 @@ describe('spend summary', () => {
     expect(screen.getAllByText('Thiếu').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText(/Tổng chưa đầy đủ/)).toBeInTheDocument()
     expect(screen.getByText(/2 tài khoản chưa có lần đọc thành công/)).toBeInTheDocument()
+  })
+})
+
+describe('budget pacing (C1 & C2)', () => {
+  it('renders budget pacing panel with overspending alert note and saves updated budgets via PATCH', async () => {
+    apiMock.patch.mockResolvedValue({ ...account, client_name: 'Spa Ngọc Lan', planned_daily_budget_raw: '2000000', planned_monthly_budget_raw: '60000000' })
+    mount(
+      view({
+        budget_pacing: {
+          client_name: 'Spa Ngọc Lan',
+          currency: 'VND',
+          planned_daily_budget_raw: '1000000',
+          planned_monthly_budget_raw: '30000000',
+          latest_complete_day: '2026-10-25',
+          latest_day_spend_raw: '1600000',
+          daily_utilization_pct: 160.0,
+          month_prefix: '2026-10',
+          mtd_spend_raw: '1600000',
+          mtd_days_counted: 2,
+          monthly_utilization_pct: 5.33,
+          pacing_status: 'overspending',
+        },
+      }),
+    )
+
+    expect(await screen.findByTestId('pacing-status-badge')).toHaveTextContent('Vượt ngân sách cam kết')
+    expect(screen.getByTestId('pacing-client-name')).toHaveTextContent('Spa Ngọc Lan')
+    expect(screen.getByTestId('pacing-metrics')).toHaveTextContent('160%')
+
+    await userEvent.click(screen.getByTestId('pacing-edit-btn'))
+    const dailyInput = document.getElementById('pacing-daily-input') as HTMLInputElement
+    await userEvent.clear(dailyInput)
+    await userEvent.type(dailyInput, '2000000')
+    await userEvent.click(screen.getByTestId('pacing-save-btn'))
+
+    await waitFor(() => {
+      expect(apiMock.patch).toHaveBeenCalledWith('/api/v1/ad-accounts/acc-1', {
+        client_name: 'Spa Ngọc Lan',
+        planned_daily_budget_raw: '2000000',
+        planned_monthly_budget_raw: '30000000',
+      })
+    })
   })
 })

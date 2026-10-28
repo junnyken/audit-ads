@@ -3819,3 +3819,9 @@ ReaderSource, ReaderCredentialsSection, ConnectionReaderSwitch, NotObservableRea
 - Backend: `.venv/bin/pytest tests/test_f3_business_users.py tests/test_a10_1_asset_discovery.py tests/test_a10_1_bm_validation.py tests/test_a10_1_discovery_api.py tests/test_a10_1_reconciliation.py tests/test_o3_discovery_sweep.py tests/test_o3_migration.py tests/test_o4_migration.py tests/test_startup_migration.py tests/test_f1_facebook_identities.py -q` → **171 passed**.
 - Backend linter: `.venv/bin/ruff check .` → **All checks passed**.
 - Frontend: `npm run typecheck`, `npx eslint .`, `npx vitest run` (**35 passed | 1 skipped (36), 605 passed | 20 skipped (625)**), `npm run build` → **All passed**.
+
+
+## 2026-10-28 — Slice C1 & C2 (`budget_pacing` & `spend_budget_pacing_drift` alerts)
+- Backend: `.venv/bin/pytest tests/test_c1_c2_budget_pacing.py tests/test_f3_business_users.py tests/test_o3_migration.py tests/test_o4_migration.py tests/test_f1_facebook_identities.py tests/test_s1_spend_api.py tests/test_s1_spend_rules.py tests/test_s1_spend_sweep.py -q` → **137 passed**.
+- Backend linter: `.venv/bin/ruff check .` → **All checks passed**.
+- Frontend: `npm run typecheck`, `npx eslint .`, `npx vitest run src/test/spend.test.tsx`, `npm run build` → **All passed**.

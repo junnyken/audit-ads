@@ -36,6 +36,7 @@ from app.models.entities import AdAccount
 from app.models.health import AccountHealthSignal, HealthEvaluationRun
 from app.services.alert_rules import (
     AlertCandidate,
+    from_budget_pacing,
     from_evaluation_failure,
     from_health_signal,
     is_escalation,
@@ -219,6 +220,30 @@ class AlertDerivationService:
             and account.archived_at is None
         ):
             candidates.append(from_evaluation_failure(latest_run, account, health_status=health_status))
+
+        if account.archived_at is None and (
+            account.planned_daily_budget_raw or account.planned_monthly_budget_raw
+        ):
+            from app.services.spend_engine import evaluate_budget_pacing
+            from app.services.spend_service import build_spend_facts
+
+            spend_facts = build_spend_facts(self.session, self.workspace_id, account)
+            pacing = evaluate_budget_pacing(
+                spend_facts,
+                client_name=account.client_name,
+                planned_daily_budget_raw=account.planned_daily_budget_raw,
+                planned_monthly_budget_raw=account.planned_monthly_budget_raw,
+            )
+            obs_time = (
+                spend_facts.latest_success.observed_at
+                if spend_facts.latest_success is not None
+                else datetime.now(UTC)
+            )
+            pacing_candidate = from_budget_pacing(
+                account, pacing, health_status=health_status, observed_at=obs_time
+            )
+            if pacing_candidate is not None:
+                candidates.append(pacing_candidate)
 
         candidates.sort(key=lambda candidate: candidate.alert_key)
         return candidates

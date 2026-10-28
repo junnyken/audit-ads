@@ -17,6 +17,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { NotObservableReason } from '../../components/meta/NotObservableReason'
 import { readerSourceLabel } from '../../lib/metaReaders'
 import { DisabledReason, Note, Panel, TabSkeleton } from './parts'
+import { BudgetPacingPanel } from '../../components/spend/BudgetPacingPanel'
 
 export default function SpendTab({ account }: { account: AdAccount }) {
   const { t, language } = useI18n()
@@ -148,6 +149,8 @@ export default function SpendTab({ account }: { account: AdAccount }) {
         )}
         <Note>{data.disclaimer}</Note>
       </Panel>
+
+      <BudgetPacingPanel account={account} spend={data} />
 
       {!obs ? (
         <EmptyState

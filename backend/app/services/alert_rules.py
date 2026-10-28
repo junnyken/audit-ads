@@ -234,6 +234,11 @@ REMEDIATION_CHECKLISTS_BY_RULE: dict[str, tuple[str, ...]] = {
         "Kiểm tra các mục checklist cơ bản của tài khoản.",
         "Chạy lại đánh giá sức khoẻ tài khoản sau khi dữ liệu đầu vào đã đầy đủ.",
     ),
+    "spend_budget_pacing_drift": (
+        "Đăng nhập tài khoản Facebook quản lý ở mục 'Đăng nhập để xử lý' và mở Ads Manager của tài khoản này.",
+        "Kiểm tra ngân sách chiến dịch/nhóm quảng cáo và giới hạn chi tiêu so với ngân sách ngày/tháng đã cam kết.",
+        "Điều chỉnh ngân sách trên Ads Manager hoặc cập nhật lại ngân sách cam kết trên hệ thống nếu đã thống nhất thay đổi.",
+    ),
     "bm_user_access_drift": (
         "Đăng nhập bằng hồ sơ Facebook giữ quyền Admin BM được liệt kê ở mục 'Hồ sơ FB đăng nhập để xử lý'.",
         "Mở Business Settings → Users → People của BM này để kiểm tra ngay các tài khoản vừa thay đổi.",
@@ -282,3 +287,89 @@ def remediation_checklist_for_alert(alert: Any) -> list[str]:
     if source_type in REMEDIATION_CHECKLISTS_BY_SOURCE:
         return list(REMEDIATION_CHECKLISTS_BY_SOURCE[source_type])
     return list(DEFAULT_REMEDIATION_CHECKLIST)
+
+
+def from_budget_pacing(
+    account: AdAccount,
+    pacing: Any,
+    *,
+    health_status: str,
+    observed_at: datetime,
+) -> AlertCandidate | None:
+    """C2. Turn an active budget pacing drift (`overspending`, `approaching_monthly_budget`,
+    `underspending`) into an `AlertCandidate` for `AlertDerivationService`."""
+    status = getattr(pacing, "pacing_status", "unconfigured")
+    if status not in ("overspending", "approaching_monthly_budget", "underspending"):
+        return None
+
+    cur = getattr(pacing, "currency", None) or account.currency or ""
+    cur_suffix = f" {cur}" if cur else ""
+    client_prefix = f"[Khách: {pacing.client_name}] " if getattr(pacing, "client_name", "") else ""
+
+    if status == "overspending":
+        severity = AlertSeverity.WARNING
+        title = "Chi tiêu vượt ngân sách cam kết"
+        parts: list[str] = []
+        if pacing.daily_utilization_pct is not None and pacing.daily_utilization_pct > 120.0:
+            parts.append(
+                f"ngày {pacing.latest_complete_day} đã tiêu {pacing.latest_day_spend_raw}{cur_suffix} "
+                f"({pacing.daily_utilization_pct}% so với ngân sách ngày {pacing.planned_daily_budget_raw}{cur_suffix})"
+            )
+        if pacing.monthly_utilization_pct is not None and pacing.monthly_utilization_pct > 100.0:
+            parts.append(
+                f"lũy kế tháng ({pacing.mtd_days_counted} ngày) đã tiêu {pacing.mtd_spend_raw}{cur_suffix} "
+                f"({pacing.monthly_utilization_pct}% so với ngân sách tháng {pacing.planned_monthly_budget_raw}{cur_suffix})"
+            )
+        summary = f"{client_prefix}Tài khoản {account.display_name}: " + "; ".join(parts) + "."
+    elif status == "approaching_monthly_budget":
+        severity = AlertSeverity.WARNING
+        title = "Chi tiêu tháng sắp chạm trần ngân sách cam kết"
+        summary = (
+            f"{client_prefix}Tài khoản {account.display_name}: lũy kế tháng ({pacing.mtd_days_counted} ngày) "
+            f"đã tiêu {pacing.mtd_spend_raw}{cur_suffix} ({pacing.monthly_utilization_pct}% so với ngân sách tháng "
+            f"{pacing.planned_monthly_budget_raw}{cur_suffix})."
+        )
+    else:
+        severity = AlertSeverity.INFO
+        title = "Chi tiêu ngày thấp hơn nhiều so với ngân sách cam kết"
+        summary = (
+            f"{client_prefix}Tài khoản {account.display_name}: ngày {pacing.latest_complete_day} tiêu "
+            f"{pacing.latest_day_spend_raw}{cur_suffix} ({pacing.daily_utilization_pct}% so với ngân sách ngày "
+            f"{pacing.planned_daily_budget_raw}{cur_suffix})."
+        )
+
+    return AlertCandidate(
+        alert_key=f"budget_pacing:{account.id}",
+        source_type=AlertSourceType.HEALTH_SIGNAL,
+        source_entity_type="ad_account_budget_pacing",
+        source_entity_id=str(account.id),
+        ad_account_id=str(account.id),
+        severity=severity,
+        category="spend",
+        title=title,
+        summary=summary,
+        observed_at=observed_at,
+        recommended_next_step=(
+            "Mở Ads Manager để kiểm tra ngân sách chiến dịch và giới hạn chi tiêu của tài khoản so với ngân sách cam kết."
+        ),
+        source_snapshot={
+            "rule_key": "spend_budget_pacing_drift",
+            "rule_version": 1,
+            "pacing_status": status,
+            "client_name": pacing.client_name,
+            "planned_daily_budget_raw": pacing.planned_daily_budget_raw,
+            "planned_monthly_budget_raw": pacing.planned_monthly_budget_raw,
+            "latest_complete_day": pacing.latest_complete_day,
+            "latest_day_spend_raw": pacing.latest_day_spend_raw,
+            "daily_utilization_pct": pacing.daily_utilization_pct,
+            "mtd_spend_raw": pacing.mtd_spend_raw,
+            "mtd_days_counted": pacing.mtd_days_counted,
+            "monthly_utilization_pct": pacing.monthly_utilization_pct,
+            "currency": pacing.currency,
+            "health_status": health_status,
+            "readiness_status": account.readiness_status.value,
+            "account_status": account.status.value,
+            "category": "spend",
+            "observed_at": observed_at.isoformat() if observed_at else None,
+        },
+    )

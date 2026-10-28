@@ -35,6 +35,7 @@ from app.services.spend_engine import (
     PlatformStatusFacts,
     SpendFacts,
     amount_text,
+    evaluate_budget_pacing,
 )
 
 router = APIRouter(tags=["spend"])
@@ -177,6 +178,12 @@ def spend_payload(ctx, account: AdAccount, *, now: datetime | None = None) -> di
         ),
         "baseline_days_available": len(baseline_days),
         "platform_status": platform_status_out(facts.platform_status),
+        "budget_pacing": evaluate_budget_pacing(
+            facts,
+            client_name=account.client_name,
+            planned_daily_budget_raw=account.planned_daily_budget_raw,
+            planned_monthly_budget_raw=account.planned_monthly_budget_raw,
+        ).as_dict(),
         "disclaimer": SPEND_DISCLAIMER,
     }
 
@@ -281,6 +288,17 @@ def spend_summary(ctx: Ctx) -> dict[str, Any]:
     freshness_counts = {state.value: 0 for state in SpendFreshness}
     # S2: counts per status class, never a score. `none` is "no status code observed".
     platform_status_counts = {key: 0 for key in ("active", "blocking", "pending", "unknown", "none")}
+    budget_pacing_counts = {
+        key: 0
+        for key in (
+            "on_track",
+            "overspending",
+            "approaching_monthly_budget",
+            "underspending",
+            "unconfigured",
+            "insufficient_data",
+        )
+    }
     groups: dict[str, dict[str, Any]] = {}
     unattributed = 0
 
@@ -304,6 +322,13 @@ def spend_summary(ctx: Ctx) -> dict[str, Any]:
         platform_status_counts[
             status_class(facts.platform_status.status if facts.platform_status else None)
         ] += 1
+        pacing = evaluate_budget_pacing(
+            facts,
+            client_name=account.client_name,
+            planned_daily_budget_raw=account.planned_daily_budget_raw,
+            planned_monthly_budget_raw=account.planned_monthly_budget_raw,
+        )
+        budget_pacing_counts[pacing.pacing_status] = budget_pacing_counts.get(pacing.pacing_status, 0) + 1
         currency = facts.observed_currency
         if currency is None:
             # Never read successfully (or Meta named no currency): it cannot be attributed to any
@@ -350,6 +375,7 @@ def spend_summary(ctx: Ctx) -> dict[str, Any]:
         "total_accounts": len(accounts),
         "freshness_counts": freshness_counts,
         "platform_status_counts": platform_status_counts,
+        "budget_pacing_counts": budget_pacing_counts,
         "accounts_unattributed": unattributed,
         "currencies": currencies,
         "complete": unattributed == 0 and all(item["complete"] for item in currencies),
