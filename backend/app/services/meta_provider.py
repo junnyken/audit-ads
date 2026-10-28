@@ -386,6 +386,9 @@ class MetaBusinessProvider:
     def discover_pixels(self, business_id: str) -> AssetDiscovery:  # pragma: no cover
         raise NotImplementedError
 
+    def discover_business_users(self, business_id: str) -> AssetDiscovery:  # pragma: no cover
+        raise NotImplementedError
+
     def check_capability(self) -> CapabilityCheck:  # pragma: no cover - interface
         raise NotImplementedError
 
@@ -449,8 +452,10 @@ class FakeMetaBusinessProvider(MetaBusinessProvider):
     #: A10.1 discovery. The default inventory a discovery returns when nothing is staged.
     discovered_ad_accounts: list[DiscoveredAsset] = field(default_factory=list)
     discovered_pixels: list[DiscoveredAsset] = field(default_factory=list)
+    discovered_business_users: list[DiscoveredAsset] = field(default_factory=list)
     _staged_ad_account_discovery: list[AssetDiscovery] = field(default_factory=list)
     _staged_pixel_discovery: list[AssetDiscovery] = field(default_factory=list)
+    _staged_business_user_discovery: list[AssetDiscovery] = field(default_factory=list)
     #: Every provider method a test caused, in order, as `(method, argument)`. A10.1 asserts
     #: against this that a discovery run never reached a write method.
     calls: list[tuple[str, str]] = field(default_factory=list)
@@ -488,6 +493,9 @@ class FakeMetaBusinessProvider(MetaBusinessProvider):
 
     def queue_pixel_discovery(self, discovery: AssetDiscovery) -> None:
         self._staged_pixel_discovery.append(discovery)
+
+    def queue_business_user_discovery(self, discovery: AssetDiscovery) -> None:
+        self._staged_business_user_discovery.append(discovery)
 
     def stage_reconcile_result(self, idempotency_key: str, result: CreateAccountResult | None) -> None:
         self._reconcile_by_key[idempotency_key] = result
@@ -549,6 +557,24 @@ class FakeMetaBusinessProvider(MetaBusinessProvider):
                 ),
             ),
             required_edges=("adspixels",),
+        )
+
+    def discover_business_users(self, business_id: str) -> AssetDiscovery:
+        self.calls.append(("discover_business_users", business_id))
+        if self._staged_business_user_discovery:
+            return self._staged_business_user_discovery.pop(0)
+        return AssetDiscovery(
+            authority=(
+                self.authority if not self.discovered_business_users else BusinessAuthority.NOT_CHECKED
+            ),
+            assets=tuple(self.discovered_business_users),
+            edges=(
+                EdgeOutcome(
+                    "business_users", ok=True, pages_read=1,
+                    items=_count_from(self.discovered_business_users, "business_users"),
+                ),
+            ),
+            required_edges=("business_users",),
         )
 
     def check_capability(self) -> CapabilityCheck:
@@ -644,8 +670,10 @@ def reset_fake_provider() -> FakeMetaBusinessProvider:
     _FAKE_PROVIDER._pixel_share_by_key.clear()
     _FAKE_PROVIDER.discovered_ad_accounts.clear()
     _FAKE_PROVIDER.discovered_pixels.clear()
+    _FAKE_PROVIDER.discovered_business_users.clear()
     _FAKE_PROVIDER._staged_ad_account_discovery.clear()
     _FAKE_PROVIDER._staged_pixel_discovery.clear()
+    _FAKE_PROVIDER._staged_business_user_discovery.clear()
     _FAKE_PROVIDER._staged_spend.clear()
     _FAKE_PROVIDER.identity = None
     _FAKE_PROVIDER.calls.clear()

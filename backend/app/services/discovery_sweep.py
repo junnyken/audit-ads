@@ -350,6 +350,14 @@ class DiscoverySweepService:
             if row.status == MISSING_IN_REGISTRY and row.external_id
         ]
         self._evaluate_business_manager_accounts(run, skip=imported_ids)
+        try:
+            with self.session.begin_nested():
+                service.evaluate_business_user_drift_alert(run, due.connection)
+        except Exception as exc:  # noqa: BLE001 - alerting degrades alerting only (rule 21)
+            logger.exception(
+                "discovery_sweep_business_user_drift_failed",
+                extra={"meta_connection_id": str(due.connection.id), "error_type": type(exc).__name__},
+            )
 
     def _owner_reference(self, run: BusinessManagerDiscoveryRun, external_id: str) -> str | None:
         metadata = self.session.execute(

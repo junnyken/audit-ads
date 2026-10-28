@@ -19,6 +19,7 @@ import { ConnectionReaderSwitch } from '../components/meta/ConnectionReaderSwitc
 import { EnvironmentBadge } from '../components/meta/EnvironmentBadge'
 import { ReadBackNote } from '../components/meta/confirm'
 import { useImportAccount } from '../components/meta/useImportAccount'
+import { BusinessUsersSection } from '../components/meta/BusinessUsersSection'
 import { HistoryTab } from './meta-connection/HistoryTab'
 import { DL_CLASS, Note, Panel, Row } from './account/parts'
 
@@ -242,6 +243,15 @@ export default function MetaConnectionWorkspace() {
               </div>
             </Panel>
           </div>
+          {data?.business_users && (
+            <div className="mt-4">
+              <BusinessUsersSection
+                connectionId={connectionId}
+                runId={data.id}
+                result={data.business_users}
+              />
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="ad-accounts" className="space-y-3">

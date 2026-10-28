@@ -36,7 +36,7 @@ def test_the_test_database_is_not_the_dev_database():
 
 def test_head_includes_0017_with_four_columns_defaulting_off(migrated_database):
     # O4 put 0018 on top; 0017's columns are what this test is about.
-    assert _revision() in ("0017_o3_conn_automation", "0018_o4_reader_credentials", "0019_f1_facebook_identities")
+    assert _revision() in ("0017_o3_conn_automation", "0018_o4_reader_credentials", "0019_f1_facebook_identities", "0020_f3_business_users")
     columns = _columns()
     assert set(columns) >= COLUMNS
     assert columns["auto_discovery_enabled"]["nullable"] is False

@@ -1200,3 +1200,10 @@ configuration findings rather than left for someone to discover.
 - Frontend Alert Center (`/alerts` and `AlertDrawer`):
   - Adds the `Tài khoản FB` (`facebook_identity`) column to `/alerts` with a 1-click link to `/facebook-accounts/{id}` plus holder and 2FA summary.
   - Renders `LoginToFixPanel` (including `vault_reference`) and the ordered `Checklist xử lý sự cố` inside `AlertDrawer`.
+
+
+## Slice F3 — Tự biết ai có quyền trong BM (`business_users`)
+- Quét `GET /{business-id}/business_users` với allowlist `id,name,role` (không bao giờ yêu cầu hoặc lưu `email` từ Meta — Rule 1).
+- Đối soát `business_users` với hồ sơ tài khoản Facebook nội bộ (`PersonalAccountReference`) và liên kết BM (`PersonalAccountBusinessLink`).
+- Gợi ý khớp tên (`suggested_identity`) để người vận hành xác nhận nối 1 chạm (`POST /api/v1/meta-connections/{id}/discoveries/{run_id}/business-user-links`), tuyệt đối không tự động nối theo tên (Rule 31).
+- Tự động mở cảnh báo sớm (`bm_user_access_drift`) và gửi thông báo Telegram khi phát hiện người chưa xác nhận trong BM ("người lạ vào BM") hoặc Admin bị gỡ/hạ quyền ("admin bị gỡ"), kèm hồ sơ FB giữ quyền Admin và danh sách bước xử lý; tự động đóng cảnh báo khi tất cả người dùng đã được xác nhận nối.

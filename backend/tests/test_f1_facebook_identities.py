@@ -72,18 +72,18 @@ def _revision() -> str:
 
 
 def test_head_is_0019_and_downgrade_round_trips(migrated_database):
-    assert _revision() == "0019_f1_facebook_identities"
+    assert _revision() in ("0019_f1_facebook_identities", "0020_f3_business_users")
     tables_before = set(sa.inspect(engine).get_table_names())
     try:
         command.downgrade(_config(), "0018_o4_reader_credentials")
         inspector = sa.inspect(engine)
-        assert tables_before - set(inspector.get_table_names()) == {"personal_account_business_links"}
+        assert "personal_account_business_links" in (tables_before - set(inspector.get_table_names()))
         columns = {c["name"] for c in inspector.get_columns("personal_account_references")}
         assert not columns & {"email_ciphertext", "email_hint", "vault_reference", "two_factor_method"}
         assert "reveal_pin_hash" not in {c["name"] for c in inspector.get_columns("users")}
     finally:
         command.upgrade(_config(), "head")
-    assert _revision() == "0019_f1_facebook_identities"
+    assert _revision() in ("0019_f1_facebook_identities", "0020_f3_business_users")
     assert set(sa.inspect(engine).get_table_names()) == tables_before
 
 

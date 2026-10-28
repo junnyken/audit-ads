@@ -227,6 +227,7 @@ def _serialize_discovery_run(
     *,
     ad_accounts: list[ReconciliationRow],
     pixels: list[ReconciliationRow],
+    business_users: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Coverage travels with every result. A count on its own cannot be judged: four accounts
     from a complete scan and four from a scan that never read the client edge look identical."""
@@ -269,6 +270,13 @@ def _serialize_discovery_run(
             # Stated in the payload, not left for the UI to remember: a registry Pixel has no
             # Business Manager mapping to prove, so absence from this BM says nothing about it.
             "registry_absence_evaluable": False,
+        },
+        "business_users": {
+            "coverage_status": run.business_user_coverage_status.value,
+            "complete": run.business_users_complete,
+            "required_edges": run.business_user_required_edges_json or [],
+            "coverage": run.business_user_coverage_json or {},
+            "reconciliation": business_users or [],
         },
     }
 
@@ -564,11 +572,13 @@ def run_discovery(ctx: OwnerCtx, connection_id: uuid.UUID) -> dict[str, Any]:
         # validation stops here with its reason intact rather than producing an inventory that
         # cannot be attributed to anything.
         service.discover_assets(run)
+        service.evaluate_business_user_drift_alert(run, connection)
 
     payload = _serialize_discovery_run(
         run,
         ad_accounts=service.reconcile_ad_accounts(run),
         pixels=service.reconcile_pixels(run),
+        business_users=service.reconcile_business_users(run),
     )
     ctx.commit()
     return payload
@@ -612,6 +622,12 @@ def _serialize_run_summary(run: BusinessManagerDiscoveryRun) -> dict[str, Any]:
             "complete": run.pixels_complete,
             "required_edges": run.pixel_required_edges_json or [],
             "coverage": run.pixel_coverage_json or {},
+        },
+        "business_users": {
+            "coverage_status": run.business_user_coverage_status.value,
+            "complete": run.business_users_complete,
+            "required_edges": run.business_user_required_edges_json or [],
+            "coverage": run.business_user_coverage_json or {},
         },
     }
 
@@ -720,6 +736,7 @@ def latest_discovery(ctx: OwnerCtx, connection_id: uuid.UUID) -> dict[str, Any] 
         run,
         ad_accounts=service.reconcile_ad_accounts(run),
         pixels=service.reconcile_pixels(run),
+        business_users=service.reconcile_business_users(run),
     )
 
 
@@ -759,6 +776,43 @@ def import_discovered_ad_account(
     }
     ctx.commit()
     return payload_out
+
+
+@connections_router.post(
+    "/{connection_id}/discoveries/{run_id}/business-user-links", status_code=201
+)
+def confirm_discovered_business_user_link(
+    ctx: OwnerCtx,
+    connection_id: uuid.UUID,
+    run_id: uuid.UUID,
+    payload: s.DiscoveryBusinessUserLinkRequest,
+) -> dict[str, Any]:
+    """F3. Confirm linking a discovered Meta `business_user` from this run to an internal
+    Facebook account profile (`PersonalAccountReference`), and re-evaluate BM access-drift alerts."""
+    connection = get_or_404(
+        ctx.session, MetaConnection, connection_id, ctx.workspace_id, label="Meta connection"
+    )
+    run = get_or_404(
+        ctx.session,
+        BusinessManagerDiscoveryRun,
+        run_id,
+        ctx.workspace_id,
+        label="Discovery run",
+    )
+    if run.meta_connection_id != connection.id:
+        raise NotFoundError("Discovery run not found.")
+
+    service = _discovery_service(ctx, connection)
+    result = service.confirm_business_user_link(
+        run,
+        external_user_id=payload.external_user_id,
+        personal_account_reference_id=payload.personal_account_reference_id,
+        role=payload.role,
+        actor_id=ctx.user.id,
+    )
+    service.evaluate_business_user_drift_alert(run, connection)
+    ctx.commit()
+    return result
 
 
 # ------------------------------------------------------------------------- Account creation

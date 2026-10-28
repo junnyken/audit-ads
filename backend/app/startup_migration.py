@@ -60,7 +60,7 @@ def run_if_requested(backend_dir: str) -> None:
     endpoints that need the schema will fail loudly and honestly instead.
     """
     requested = (os.environ.get(ENV_VAR) or "").strip()
-    if not requested:
+    if not requested or requested.lower() in {"off", "none", "0", "false"}:
         return
 
     head = head_revision(backend_dir)

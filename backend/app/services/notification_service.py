@@ -183,26 +183,46 @@ class NotificationPlannerService:
     def _payload(
         self, alert: Alert, account: AdAccount | None, policy: AlertPolicy
     ) -> tuple[dict, str]:
-        if alert.source_type == AlertSourceType.DISCOVERY_SWEEP:
+        if (
+            alert.source_type == AlertSourceType.DISCOVERY_SWEEP
+            and alert.source_entity_type != "business_manager_user_drift"
+        ):
             return self._summary_payload(alert, policy)
         if alert.source_type == AlertSourceType.READER_CREDENTIAL:
             return self._credential_payload(alert, policy)
         snapshot = alert.source_snapshot_json or {}
         login_identities: list[dict] = []
+        identity_svc = FacebookIdentityService(
+            self.session, self.workspace_id, self.audit, self.settings
+        )
         if account is not None:
-            login_identities = (
-                FacebookIdentityService(
-                    self.session, self.workspace_id, self.audit, self.settings
-                )
-                .identities_for_accounts([account])
-                .get(account.id, [])
+            login_identities = identity_svc.identities_for_accounts([account]).get(account.id, [])
+        elif snapshot.get("business_manager_reference"):
+            login_identities = identity_svc.identities_for_business_manager_reference(
+                str(snapshot.get("business_manager_reference"))
             )
         checklist = remediation_checklist_for_alert(alert)
         inputs = MessageInputs(
             severity=alert.severity.value,
             alert_title=alert.title,
-            account_display_name=account.display_name if account else "—",
-            account_reference=(account.external_account_id if account else None) or "no external ID",
+            account_display_name=(
+                account.display_name
+                if account
+                else str(
+                    snapshot.get("business_manager_name")
+                    or snapshot.get("connection_label")
+                    or "—"
+                )
+            ),
+            account_reference=(
+                (account.external_account_id if account else None)
+                or (
+                    f"BM {snapshot['business_manager_reference']}"
+                    if snapshot.get("business_manager_reference")
+                    else None
+                )
+                or "no external ID"
+            ),
             health_status=str(snapshot.get("health_status", "unknown")),
             readiness_status=str(snapshot.get("readiness_status", "unknown")),
             observed_at=alert.last_observed_at,

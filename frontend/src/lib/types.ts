@@ -992,7 +992,43 @@ export interface DiscoveryRun {
   failure_summary: string | null
   ad_accounts: DiscoveryAssetResult
   pixels: DiscoveryAssetResult
+  business_users?: DiscoveryBusinessUsersResult
 }
+export interface DiscoveredBusinessUserRow {
+  external_user_id: string
+  display_name: string
+  role: string
+  status: 'linked' | 'unlinked' | 'missing_from_latest_discovery' | 'admin_demoted'
+  is_admin_drift: boolean
+  source_edge: string | null
+  detail: string | null
+  linked_identity: {
+    id: string
+    label: string
+    owner_member_name: string | null
+    two_factor_method: string
+    link_id: string
+    recorded_role: string
+  } | null
+  suggested_identity: {
+    id: string
+    label: string
+    owner_member_name: string | null
+    match_reason: string
+  } | null
+}
+
+export interface DiscoveryBusinessUsersResult {
+  coverage_status: CoverageStatus
+  complete: boolean
+  required_edges: string[]
+  coverage: {
+    edges?: Record<string, DiscoveryEdgeCoverage>
+    total_unique_assets?: number
+  }
+  reconciliation: DiscoveredBusinessUserRow[]
+}
+
 
 /** One historical run, exactly as it was recorded — coverage, authority and reader identity, and
  * deliberately no reconciliation. Reconciliation is recomputed against the registry as it is
@@ -1026,6 +1062,7 @@ export interface DiscoveryRunSummary {
   failure_summary: string | null
   ad_accounts: Omit<DiscoveryAssetResult, 'reconciliation'>
   pixels: Omit<DiscoveryAssetResult, 'reconciliation'>
+  business_users?: Omit<DiscoveryBusinessUsersResult, 'reconciliation'>
 }
 
 /** One row of the Overview discovery table: the latest run per connection, no reconciliation. */

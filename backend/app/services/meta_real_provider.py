@@ -77,6 +77,7 @@ __all__ = [
 #: reconciliation would then have called the other two missing.
 AD_ACCOUNT_EDGES: tuple[str, ...] = ("owned_ad_accounts", "client_ad_accounts")
 PIXEL_EDGES: tuple[str, ...] = ("adspixels",)
+BUSINESS_USER_EDGES: tuple[str, ...] = ("business_users",)
 
 #: Allowlisted fields only. The raw row never leaves this module.
 #:
@@ -87,6 +88,8 @@ PIXEL_EDGES: tuple[str, ...] = ("adspixels",)
 #: metadata simply has no owner keys and the UI says "owning Business Manager not returned".
 AD_ACCOUNT_FIELDS = "id,account_id,name,account_status,currency,timezone_name,business{id,name}"
 PIXEL_FIELDS = "id,name"
+#: F3. Allowlisted fields for `{business-id}/business_users` ? never `email`, `pending_email`, or credentials (Rule 1).
+BUSINESS_USER_FIELDS = "id,name,role"
 
 #: S1. The ad account node fields a spend read asks for. Allowlisted and fixed.
 #:
@@ -183,6 +186,24 @@ def _pixel_from_row(row: dict[str, Any], edge: str) -> DiscoveredAsset | None:
         return None
     return DiscoveredAsset(
         external_id=external_id, name=str(row.get("name") or ""), source_edge=edge
+    )
+
+
+def _business_user_from_row(row: dict[str, Any], edge: str) -> DiscoveredAsset | None:
+    """F3. Extract allowlisted `id`, `name`, `role` from `{business-id}/business_users`.
+    Any other field (such as `email`) is dropped here so it never leaves the provider boundary."""
+    external_id = canonical_external_id(row.get("id"))
+    if not external_id:
+        return None
+    role = str(row.get("role") or "").strip().upper()[:80]
+    metadata: dict[str, str] = {}
+    if role:
+        metadata["role"] = role
+    return DiscoveredAsset(
+        external_id=external_id,
+        name=str(row.get("name") or "")[:200],
+        source_edge=edge,
+        safe_metadata=metadata,
     )
 
 
@@ -311,6 +332,11 @@ class RealMetaBusinessProvider(MetaBusinessProvider):
 
     def discover_pixels(self, business_id: str) -> AssetDiscovery:
         return self._discover(business_id, PIXEL_EDGES, PIXEL_FIELDS, _pixel_from_row)
+
+    def discover_business_users(self, business_id: str) -> AssetDiscovery:
+        return self._discover(
+            business_id, BUSINESS_USER_EDGES, BUSINESS_USER_FIELDS, _business_user_from_row
+        )
 
     def _discover(
         self,

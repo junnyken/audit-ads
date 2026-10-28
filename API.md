@@ -1302,3 +1302,11 @@ requests return `409 conflict`.
 - `AlertRow` (items in `GET /api/v1/alerts`) and `GET /api/v1/alerts/{alert_id}` now include:
   - `facebook_identities`: `list[AccountIdentityOut]` — derived operational Facebook account profiles (`id`, `label`, `display_name`, `status`, `two_factor_method`, `vault_reference`, `email_hint`, `owner_member_id`, `owner_member_name`, `via`, `role`). Full email is never returned here.
   - `remediation_checklist`: `list[str]` — ordered step-by-step operator remediation checklist for the alert's rule/source.
+
+
+### Slice F3 — Business Manager Users (`business_users`)
+- `GET /api/v1/meta-connections/{connection_id}/discoveries/latest` và `POST /api/v1/meta-connections/{connection_id}/discoveries`:
+  - Bổ sung trường `business_users` gồm `coverage_status`, `complete`, `required_edges`, `coverage`, và `reconciliation` (`external_user_id`, `display_name`, `role`, `status`, `is_admin_drift`, `linked_identity`, `suggested_identity`).
+- `POST /api/v1/meta-connections/{connection_id}/discoveries/{run_id}/business-user-links`:
+  - Body: `{"external_user_id": "...", "personal_account_reference_id": "<uuid>", "role": "admin" | "employee" | "unknown" | null}`.
+  - Xác nhận nối một `business_user` trong BM với hồ sơ tài khoản Facebook nội bộ (`PersonalAccountReference`) và tự động đánh giá lại cảnh báo `bm_user_access_drift`.

@@ -7,7 +7,7 @@ from typing import Annotated
 
 from pydantic import Field
 
-from app.core.enums import MetaBatchItemStatus, MetaEnvironment, ReferenceStatus
+from app.core.enums import IdentityBusinessRole, MetaBatchItemStatus, MetaEnvironment, ReferenceStatus
 from app.schemas.common import ORMModel, StrictPayload
 
 Label = Annotated[str, Field(min_length=1, max_length=200)]
@@ -47,6 +47,12 @@ class DiscoveryImportRequest(StrictPayload):
     """
 
     external_account_id: str = Field(min_length=1, max_length=120)
+
+
+class DiscoveryBusinessUserLinkRequest(StrictPayload):
+    external_user_id: str = Field(min_length=1, max_length=120)
+    personal_account_reference_id: uuid.UUID
+    role: IdentityBusinessRole | None = None
 
 
 class MetaConnectionAutomationUpdate(StrictPayload):

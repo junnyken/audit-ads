@@ -1162,3 +1162,12 @@ Rejected again in A3:
 - `GET /api/v1/alerts` batch-resolves `FacebookIdentityService.identities_for_accounts` for all distinct `AdAccount` rows on the current page in bounded SQL queries (preserving the A3 performance budget).
 - `remediation_checklist_for_alert(alert)` in `app/services/alert_rules.py` maps `alert.source_snapshot_json["rule_key"]` (or `alert.source_type`) to a deterministic tuple of operator steps without any platform-mutation claims or banned words.
 - `NotificationPlannerService._payload` snapshots `login_identities` (allowlisted to `label`, `owner_member_name`, `two_factor_method`, `vault_reference`, `via`, `role` — no `email_hint` or `email_ciphertext`) and `remediation_checklist` into `payload_snapshot_json`, which `NotificationDispatcherService._render_account_message` renders via `notification_templates.render`.
+
+
+## Slice F3 — `business_users` Discovery, Reconciliation & Access-Drift Alerting
+- Migration `0020_f3_business_users`:
+  - `discovered_business_user_observations`: lưu `external_user_id`, `display_name`, `role`, `source_edge`, `safe_metadata_json`.
+  - `business_manager_discovery_runs`: thêm `business_user_required_edges_json`, `business_user_coverage_json`, `business_user_coverage_status`.
+  - `personal_account_business_links`: thêm `external_business_user_id` (`String(120)`, nullable).
+- `MetaDiscoveryService.reconcile_business_users`, `confirm_business_user_link`, và `evaluate_business_user_drift_alert`.
+- Frontend `BusinessUsersSection.tsx` hiển thị danh sách người trong BM, gợi ý khớp hồ sơ FB và nút xác nhận nối 1 chạm.

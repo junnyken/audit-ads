@@ -180,6 +180,9 @@ class PersonalAccountBusinessLink(UUIDPrimaryKey, Timestamped, Base):
         default=IdentityBusinessRole.UNKNOWN,
     )
     note: Mapped[str] = mapped_column(sa.Text(), nullable=False, default="")
+    #: F3. Immutable Meta `business_user.id` confirmed by the operator when linking this profile
+    #: to a discovered Business Manager user. Never auto-linked by display name (Rule 31).
+    external_business_user_id: Mapped[str | None] = mapped_column(sa.String(120), nullable=True)
     linked_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
     linked_by: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid(), nullable=True)
     unlinked_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)

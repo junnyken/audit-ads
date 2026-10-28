@@ -29,7 +29,7 @@ def test_the_test_database_is_not_the_dev_database():
 
 
 def test_head_includes_0019_and_only_one_column_carries_a_credential(migrated_database):
-    assert _revision() == "0019_f1_facebook_identities"
+    assert _revision() in ("0019_f1_facebook_identities", "0020_f3_business_users")
     inspector = sa.inspect(engine)
     columns = {c["name"]: c for c in inspector.get_columns("meta_reader_credentials")}
     assert columns["encrypted_secret"]["nullable"] is True
@@ -60,9 +60,9 @@ def test_downgrade_removes_the_table_and_column_and_upgrade_restores_them(migrat
         command.downgrade(_config(), "0017_o3_conn_automation")
         assert _revision() == "0017_o3_conn_automation"
         inspector = sa.inspect(engine)
-        assert tables_before - set(inspector.get_table_names()) == {"meta_reader_credentials", "personal_account_business_links"}
+        assert {"meta_reader_credentials", "personal_account_business_links"} <= (tables_before - set(inspector.get_table_names()))
         assert "reader_credential_id" not in {c["name"] for c in inspector.get_columns("meta_connections")}
     finally:
         command.upgrade(_config(), "head")
     assert set(sa.inspect(engine).get_table_names()) == tables_before
-    assert _revision() == "0019_f1_facebook_identities"
+    assert _revision() in ("0019_f1_facebook_identities", "0020_f3_business_users")

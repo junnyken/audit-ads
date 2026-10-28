@@ -3813,3 +3813,9 @@ ReaderSource, ReaderCredentialsSection, ConnectionReaderSwitch, NotObservableRea
   - `backend/.venv/bin/pytest tests/test_alert_engine.py tests/test_alert_api.py tests/test_alert_security.py tests/test_alert_performance.py tests/test_f1_facebook_identities.py -q` → **passed** (including `test_f2_alerts_and_telegram_include_login_identity_and_remediation_checklist_without_email` and `[A3 resource check] 30 accounts | derive+plan 1.62s`).
   - `backend/.venv/bin/ruff check .` → **passed**.
   - `frontend`: `npm run typecheck` → **passed**; `npx eslint .` → **passed**; `npx vitest run` → **34 passed | 1 skipped (35), 604 passed | 20 skipped (624)**; `npm run build` → **passed**.
+
+
+## 2026-10-28 — Slice F3 (`business_users` discovery, reconciliation, suggestion & BM access-drift alerts)
+- Backend: `.venv/bin/pytest tests/test_f3_business_users.py tests/test_a10_1_asset_discovery.py tests/test_a10_1_bm_validation.py tests/test_a10_1_discovery_api.py tests/test_a10_1_reconciliation.py tests/test_o3_discovery_sweep.py tests/test_o3_migration.py tests/test_o4_migration.py tests/test_startup_migration.py tests/test_f1_facebook_identities.py -q` → **171 passed**.
+- Backend linter: `.venv/bin/ruff check .` → **All checks passed**.
+- Frontend: `npm run typecheck`, `npx eslint .`, `npx vitest run` (**35 passed | 1 skipped (36), 605 passed | 20 skipped (625)**), `npm run build` → **All passed**.

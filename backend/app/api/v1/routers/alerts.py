@@ -278,7 +278,17 @@ def list_alerts(
                 "suppressed_until": alert.suppression_expires_at,
                 "archived": alert.archived_at is not None,
                 "facebook_identities": (
-                    identities_by_account.get(account.id, []) if account else []
+                    identities_by_account.get(account.id, [])
+                    if account
+                    else (
+                        FacebookIdentityService(
+                            ctx.session, ctx.workspace_id, ctx.audit, get_settings()
+                        ).identities_for_business_manager_reference(
+                            str((alert.source_snapshot_json or {}).get("business_manager_reference"))
+                        )
+                        if (alert.source_snapshot_json or {}).get("business_manager_reference")
+                        else []
+                    )
                 ),
                 "remediation_checklist": remediation_checklist_for_alert(alert),
             }
@@ -344,7 +354,15 @@ def alert_detail(ctx: Ctx, alert_id: uuid.UUID) -> dict[str, Any]:
             .identities_for_accounts([account])
             .get(account.id, [])
             if account
-            else []
+            else (
+                FacebookIdentityService(
+                    ctx.session, ctx.workspace_id, ctx.audit, get_settings()
+                ).identities_for_business_manager_reference(
+                    str((alert.source_snapshot_json or {}).get("business_manager_reference"))
+                )
+                if (alert.source_snapshot_json or {}).get("business_manager_reference")
+                else []
+            )
         ),
         "remediation_checklist": remediation_checklist_for_alert(alert),
         "notifications": [_serialize_delivery(delivery) for delivery in deliveries],

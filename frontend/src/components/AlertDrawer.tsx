@@ -143,7 +143,7 @@ export default function AlertDrawer({
             </div>
           )}
 
-          {data.account && <LoginToFixPanel identities={data.facebook_identities} />}
+          {(data.account || (data.facebook_identities && data.facebook_identities.length > 0)) && <LoginToFixPanel identities={data.facebook_identities} />}
 
           {data.remediation_checklist && data.remediation_checklist.length > 0 && (
             <div>

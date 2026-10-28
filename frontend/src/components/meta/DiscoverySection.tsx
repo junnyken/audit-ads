@@ -20,6 +20,7 @@ import { Note } from '../../pages/account/parts'
 import { ImportConfirmDialog } from './ImportConfirmDialog'
 import { ReadBackNote } from './confirm'
 import { useImportAccount } from './useImportAccount'
+import { BusinessUsersSection } from './BusinessUsersSection'
 
 export type T = (key: TranslationKey, vars?: TranslationVars) => string
 
@@ -309,6 +310,13 @@ export function DiscoverySection({
             result={data.pixels}
             emptyNote={data.pixels.registry_absence_evaluable === false ? t('disc.pixelNoMapping') : undefined}
           />
+          {data.business_users && (
+            <BusinessUsersSection
+              connectionId={connectionId}
+              runId={data.id}
+              result={data.business_users}
+            />
+          )}
           <ReadAtSentence
             completedAt={data.completed_at}
             identity={data.read_as?.name || data.read_as?.external_id || t('meta.unknownIdentity')}

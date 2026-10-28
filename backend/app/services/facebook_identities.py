@@ -391,6 +391,7 @@ class FacebookIdentityService:
                 "business_manager_external_id": bm.external_id,
                 "role": link.role,
                 "note": link.note,
+                "external_business_user_id": link.external_business_user_id,
                 "linked_at": link.linked_at,
                 "unlinked_at": link.unlinked_at,
             }
@@ -539,6 +540,68 @@ class FacebookIdentityService:
                     seen[identity_id] = self._compact(identities[identity_id], members, via="business_manager", role=role)
             result[account.id] = sorted(seen.values(), key=lambda item: item["label"].lower())
         return result
+
+    def identities_for_business_manager_reference(
+        self, business_manager_reference: str | None
+    ) -> list[dict[str, Any]]:
+        """F3. For a Business Manager external reference, return active linked Facebook profiles
+        (ordered with ADMIN first, then by label) so BM-level access-drift alerts and Telegram
+        notifications name the exact Facebook profile to log in with."""
+        ref = (business_manager_reference or "").strip()
+        if not ref:
+            return []
+        bms = list(
+            self.session.execute(
+                sa.select(BusinessManager.id).where(
+                    BusinessManager.workspace_id == self.workspace_id,
+                    BusinessManager.external_id == ref,
+                    BusinessManager.archived_at.is_(None),
+                )
+            ).scalars()
+        )
+        if not bms:
+            return []
+        links = list(
+            self.session.execute(
+                sa.select(
+                    PersonalAccountBusinessLink.personal_account_reference_id,
+                    PersonalAccountBusinessLink.role,
+                ).where(
+                    PersonalAccountBusinessLink.workspace_id == self.workspace_id,
+                    PersonalAccountBusinessLink.business_manager_id.in_(bms),
+                    PersonalAccountBusinessLink.unlinked_at.is_(None),
+                )
+            ).all()
+        )
+        if not links:
+            return []
+        identity_ids = {identity_id for identity_id, _ in links}
+        identities = {
+            row.id: row
+            for row in self.session.execute(
+                sa.select(PersonalAccountReference).where(
+                    PersonalAccountReference.workspace_id == self.workspace_id,
+                    PersonalAccountReference.id.in_(identity_ids),
+                    PersonalAccountReference.archived_at.is_(None),
+                )
+            ).scalars()
+        }
+        members = self._member_names(
+            [i.owner_member_id for i in identities.values() if i.owner_member_id]
+        )
+        seen: dict[uuid.UUID, dict[str, Any]] = {}
+        for identity_id, role in links:
+            if identity_id in identities and identity_id not in seen:
+                seen[identity_id] = self._compact(
+                    identities[identity_id], members, via="business_manager", role=role
+                )
+        return sorted(
+            seen.values(),
+            key=lambda item: (
+                0 if item.get("role") == IdentityBusinessRole.ADMIN else 1,
+                str(item["label"]).lower(),
+            ),
+        )
 
     # ------------------------------------------------------------------ helpers
     def _member_names(self, member_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:

@@ -234,6 +234,12 @@ REMEDIATION_CHECKLISTS_BY_RULE: dict[str, tuple[str, ...]] = {
         "Kiểm tra các mục checklist cơ bản của tài khoản.",
         "Chạy lại đánh giá sức khoẻ tài khoản sau khi dữ liệu đầu vào đã đầy đủ.",
     ),
+    "bm_user_access_drift": (
+        "Đăng nhập bằng hồ sơ Facebook giữ quyền Admin BM được liệt kê ở mục 'Hồ sơ FB đăng nhập để xử lý'.",
+        "Mở Business Settings → Users → People của BM này để kiểm tra ngay các tài khoản vừa thay đổi.",
+        "Nếu là người lạ: gỡ khỏi BM ngay lập tức, kiểm tra lại Admin và đổi mật khẩu + kiểm tra 2FA cho các hồ sơ giữ BM.",
+        "Nếu là nhân sự nội bộ: vào mục Kết nối Meta → Người trong BM để bấm 'Xác nhận nối' với hồ sơ Facebook tương ứng.",
+    ),
     "account_not_returned_by_latest_discovery": (
         "Đăng nhập tài khoản Facebook quản lý BM và mở Business Settings → Tài khoản quảng cáo.",
         "Kiểm tra xem tài khoản quảng cáo còn thuộc BM và còn được gán cho người đọc Meta hay không.",
