@@ -306,3 +306,34 @@ def test_the_summary_counts_the_findings_it_reported(caplog, monkeypatch):
     assert summary.errors == 1
     # The per-finding lines are still emitted; the summary does not replace them.
     assert sum(1 for r in records if r.getMessage() == "configuration finding") == 2
+
+
+def test_bootstrap_owner_recovers_and_syncs_owner_when_workspace_already_exists(db_session, owner, monkeypatch):
+    import sqlalchemy as sa
+
+    from app.bootstrap import bootstrap_owner
+    from app.core.config import get_settings
+    from app.core.security import verify_password
+    from app.models.entities import User, WorkspaceMember
+
+    cfg = get_settings()
+    monkeypatch.setattr(cfg, "bootstrap_owner_email", "recovered.owner@example.com")
+    monkeypatch.setattr(cfg, "bootstrap_owner_password", "new-strong-password-123")
+
+    ws = bootstrap_owner(db_session)
+    assert ws is not None and ws.id == owner["workspace"].id
+
+    u = db_session.execute(sa.select(User).where(User.email == "recovered.owner@example.com")).scalar_one()
+    assert u.is_active is True
+    assert verify_password("new-strong-password-123", u.password_hash)
+    m = db_session.execute(
+        sa.select(WorkspaceMember).where(WorkspaceMember.workspace_id == ws.id, WorkspaceMember.user_id == u.id)
+    ).scalar_one()
+    assert m.role.value == "owner"
+
+    # Updating BOOTSTRAP_OWNER_PASSWORD updates the existing owner's password hash too.
+    monkeypatch.setattr(cfg, "bootstrap_owner_password", "updated-strong-password-456")
+    bootstrap_owner(db_session)
+    db_session.refresh(u)
+    assert verify_password("updated-strong-password-456", u.password_hash)
+
