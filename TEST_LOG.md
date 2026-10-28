@@ -3830,3 +3830,7 @@ ReaderSource, ReaderCredentialsSection, ConnectionReaderSwitch, NotObservableRea
 ## 2026-10-29 — Slice F1.5 (`ownership_type`, `client_name`, `device_label`, `browser_profile_label`, `network_label`)
 - Backend: `.venv/bin/pytest tests/test_f1_facebook_identities.py -k "test_f1_5 or migration" -q` & `.venv/bin/ruff check .` → **passed**.
 - Frontend: `npm run typecheck`, `npx eslint .`, `npx vitest run src/test/f1.facebook-identities.test.tsx`, `npm run build` → **passed**.
+
+## 2026-10-29 — Agency Operations & Anti-Detect Upgrades (F1.5+ / C1+)
+- Backend (`pytest tests/test_f1_facebook_identities.py -k test_f1_5`, `ruff check .`): Passed (`shared_browser_profile_with`, `shared_network_with` collision detection).
+- Frontend (`npm run typecheck`, `npx eslint .`, `npx vitest run` 62 tests across 4 files, `npm run build`): Passed.

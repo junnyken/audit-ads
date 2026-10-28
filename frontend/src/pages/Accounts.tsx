@@ -197,7 +197,34 @@ export default function Accounts() {
           </TableCell>
         )
       case 'facebookIdentity':
-        return <TableCell key={id} label={label}>{account.facebook_identities?.length ? <span className="flex flex-wrap gap-1">{account.facebook_identities.map((identity) => <Link key={identity.id} to={`/facebook-accounts/${identity.id}`} className="text-brand-text hover:underline">{identity.label}</Link>)}</span> : <span className="text-ink-faint">—</span>}</TableCell>
+        return (
+          <TableCell key={id} label={label}>
+            {account.facebook_identities?.length ? (
+              <div className="space-y-1">
+                {account.facebook_identities.map((identity) => {
+                  const envMeta = [identity.device_label, identity.browser_profile_label]
+                    .filter(Boolean)
+                    .join(' · ')
+                  return (
+                    <div key={identity.id}>
+                      <Link
+                        to={`/facebook-accounts/${identity.id}`}
+                        className="text-brand-text hover:underline"
+                      >
+                        {identity.label}
+                      </Link>
+                      {envMeta && (
+                        <span className="block text-2xs text-ink-muted">{envMeta}</span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <span className="text-ink-faint">—</span>
+            )}
+          </TableCell>
+        )
       case 'spend':
         return (
           <TableCell key={id} label={label} numeric>
@@ -487,6 +514,11 @@ export default function Accounts() {
                       <span className="block text-xs text-ink-muted">
                         {account.business_manager_name ?? account.personal_account_reference_label ?? '—'}
                       </span>
+                      {account.client_name && (
+                        <span className="block text-xs font-medium text-brand-text">
+                          {`${t('fb.clientName')}: ${account.client_name}`}
+                        </span>
+                      )}
                       {account.tags.length > 0 && (
                         <span className="mt-1 flex flex-wrap gap-1">
                           {account.tags.map((tag) => (

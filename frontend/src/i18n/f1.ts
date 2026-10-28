@@ -84,6 +84,11 @@ export const f1Vi = {
   'fb.browserPlaceholder': 'VD: AdsPower #108 - Spa Lan, Chrome Profile 14',
   'fb.networkLabel': 'Nhãn mạng / Vị trí IP cố định (không nhập pass proxy)',
   'fb.networkPlaceholder': 'VD: Proxy Tĩnh VN-HCM-03, 4G Viettel Máy 1',
+  'fb.env.collisionBrowser': 'Trùng Profile trình duyệt với: {names}',
+  'fb.env.collisionNetwork': 'Trùng IP/Mạng với: {names}',
+  'fb.env.copyProfile': 'Chép Profile',
+  'fb.env.copied': 'Đã chép!',
+  'sp.pacing.summaryTitle': 'Tiến độ ngân sách cam kết (C1/C2)',
 } as const
 export const f1En = {
   'nav.item.facebookAccounts': 'Facebook accounts',
@@ -170,4 +175,9 @@ export const f1En = {
   'fb.browserPlaceholder': 'e.g. AdsPower #108 - Spa Lan, Chrome Profile 14',
   'fb.networkLabel': 'Network / IP label (no proxy passwords)',
   'fb.networkPlaceholder': 'e.g. Static Proxy VN-HCM-03, 4G Carrier 1',
+  'fb.env.collisionBrowser': 'Shares browser profile with: {names}',
+  'fb.env.collisionNetwork': 'Shares network/IP with: {names}',
+  'fb.env.copyProfile': 'Copy profile',
+  'fb.env.copied': 'Copied!',
+  'sp.pacing.summaryTitle': 'Committed budget pacing (C1/C2)',
 } as const

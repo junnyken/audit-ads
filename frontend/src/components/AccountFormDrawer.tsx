@@ -26,6 +26,9 @@ interface FormState {
   landing_page_url: string
   tags: string
   notes: string
+  client_name: string
+  planned_daily_budget_raw: string
+  planned_monthly_budget_raw: string
 }
 
 const EMPTY: FormState = {
@@ -44,6 +47,9 @@ const EMPTY: FormState = {
   landing_page_url: '',
   tags: '',
   notes: '',
+  client_name: '',
+  planned_daily_budget_raw: '',
+  planned_monthly_budget_raw: '',
 }
 
 function fromAccount(account: AdAccount): FormState {
@@ -63,6 +69,9 @@ function fromAccount(account: AdAccount): FormState {
     landing_page_url: account.landing_page_url ?? '',
     tags: account.tags.join(', '),
     notes: account.notes,
+    client_name: account.client_name ?? '',
+    planned_daily_budget_raw: account.planned_daily_budget_raw ?? '',
+    planned_monthly_budget_raw: account.planned_monthly_budget_raw ?? '',
   }
 }
 
@@ -86,6 +95,9 @@ function toPayload(form: FormState) {
       .map((tag) => tag.trim())
       .filter(Boolean),
     notes: form.notes,
+    client_name: form.client_name.trim(),
+    planned_daily_budget_raw: form.planned_daily_budget_raw.trim() || null,
+    planned_monthly_budget_raw: form.planned_monthly_budget_raw.trim() || null,
   }
 }
 
@@ -273,6 +285,38 @@ export default function AccountFormDrawer({
                   maxLength={200}
                 />
               </Field>
+              <Field label={t('sp.pacing.client')} htmlFor="account-client-name">
+                <input
+                  id="account-client-name"
+                  className="input"
+                  value={form.client_name}
+                  onChange={(event) => set('client_name', event.target.value)}
+                  maxLength={200}
+                  placeholder={t('sp.pacing.clientPlaceholder')}
+                />
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label={t('sp.pacing.dailyBudget')} htmlFor="account-daily-budget">
+                  <input
+                    id="account-daily-budget"
+                    className="input font-mono tabular-nums"
+                    value={form.planned_daily_budget_raw}
+                    onChange={(event) => set('planned_daily_budget_raw', event.target.value)}
+                    maxLength={32}
+                    placeholder={t('sp.pacing.dailyPlaceholder')}
+                  />
+                </Field>
+                <Field label={t('sp.pacing.monthlyBudget')} htmlFor="account-monthly-budget">
+                  <input
+                    id="account-monthly-budget"
+                    className="input font-mono tabular-nums"
+                    value={form.planned_monthly_budget_raw}
+                    onChange={(event) => set('planned_monthly_budget_raw', event.target.value)}
+                    maxLength={32}
+                    placeholder={t('sp.pacing.monthlyPlaceholder')}
+                  />
+                </Field>
+              </div>
             </fieldset>
 
             <fieldset className="space-y-3">

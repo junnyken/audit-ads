@@ -171,6 +171,13 @@ export default function Alerts() {
                     <span className="block text-2xs text-ink-muted">
                       {[identity.owner_member_name, t(`twoFactor.${identity.two_factor_method}`)].filter(Boolean).join(' · ')}
                     </span>
+                    {(identity.client_name || identity.device_label || identity.browser_profile_label) && (
+                      <span className="block text-2xs font-medium text-ink">
+                        {[identity.client_name, identity.device_label, identity.browser_profile_label]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>

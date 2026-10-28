@@ -77,6 +77,8 @@ class IdentitySummaryOut(BaseModel):
     business_manager_count: int
     ad_account_count: int
     owner_member_name: str | None = None
+    shared_browser_profile_with: list[str] = Field(default_factory=list)
+    shared_network_with: list[str] = Field(default_factory=list)
 
 
 class IdentityAdAccountOut(BaseModel):
@@ -100,6 +102,8 @@ class IdentityProfileOut(BaseModel):
     owner_member_name: str | None = None
     has_full_email: bool
     can_reveal_email: bool
+    shared_browser_profile_with: list[str] = Field(default_factory=list)
+    shared_network_with: list[str] = Field(default_factory=list)
 
 
 class AccountIdentityOut(BaseModel):

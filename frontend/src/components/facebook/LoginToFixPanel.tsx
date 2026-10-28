@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { FacebookIdentity } from '../../lib/types'
 import { useI18n } from '../../i18n'
@@ -12,6 +13,18 @@ function isHttpsLink(value: string | null | undefined): value is string {
 
 export function LoginToFixPanel({ identities }: { identities: FacebookIdentity[] | undefined }) {
   const { t } = useI18n()
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+
+  const copyProfile = async (id: string, text: string) => {
+    try {
+      await navigator.clipboard?.writeText(text)
+    } catch {
+      // Clipboard API may be unavailable in non-HTTPS test environments
+    }
+    setCopiedId(id)
+    setTimeout(() => setCopiedId((prev) => (prev === id ? null : prev)), 2000)
+  }
+
   return (
     <Panel title={t('fb.login.title')} className="xl:col-span-2">
       {!identities?.length ? (
@@ -54,7 +67,7 @@ export function LoginToFixPanel({ identities }: { identities: FacebookIdentity[]
                 <p className="mt-1 text-xs text-ink-muted">{t(`fb.login.via.${identity.via}`)}</p>
                 {hasEnv && (
                   <div
-                    className="mt-2 rounded border border-line bg-surface p-2 text-xs space-y-0.5"
+                    className="mt-2 rounded border border-line bg-surface p-2 text-xs space-y-1"
                     data-testid="login-to-fix-env"
                   >
                     {identity.device_label && (
@@ -64,10 +77,22 @@ export function LoginToFixPanel({ identities }: { identities: FacebookIdentity[]
                       </p>
                     )}
                     {identity.browser_profile_label && (
-                      <p>
-                        <span className="text-ink-muted">{t('fb.browserLabel')}:</span>{' '}
-                        <span className="font-medium text-ink">{identity.browser_profile_label}</span>
-                      </p>
+                      <div className="flex flex-wrap items-center justify-between gap-1.5">
+                        <p>
+                          <span className="text-ink-muted">{t('fb.browserLabel')}:</span>{' '}
+                          <span className="font-medium text-ink">{identity.browser_profile_label}</span>
+                        </p>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          className="h-6 px-2 text-2xs"
+                          onClick={() => void copyProfile(identity.id, identity.browser_profile_label!)}
+                          data-testid="copy-browser-profile-btn"
+                        >
+                          {copiedId === identity.id ? t('fb.env.copied') : t('fb.env.copyProfile')}
+                        </Button>
+                      </div>
                     )}
                     {identity.network_label && (
                       <p>

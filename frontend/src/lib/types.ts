@@ -1414,6 +1414,7 @@ export interface SpendSummary {
   freshness_counts: Record<SpendFreshness, number>
   /** S2. Counts per status class — never a score. `none`: no status code observed. */
   platform_status_counts?: Record<PlatformStatusClass, number>
+  budget_pacing_counts?: Record<BudgetPacingStatus, number>
   accounts_unattributed: number
   currencies: SpendCurrencyGroup[]
   complete: boolean
@@ -1488,6 +1489,8 @@ export interface FacebookIdentitySummary {
   business_manager_count: number
   ad_account_count: number
   owner_member_name: string | null
+  shared_browser_profile_with?: string[]
+  shared_network_with?: string[]
 }
 
 export interface FacebookBusinessLink {
@@ -1508,6 +1511,8 @@ export interface FacebookIdentityProfile {
   owner_member_name: string | null
   has_full_email: boolean
   can_reveal_email: boolean
+  shared_browser_profile_with?: string[]
+  shared_network_with?: string[]
 }
 
 export interface RevealPinStatus { is_set: boolean; locked_until: string | null }

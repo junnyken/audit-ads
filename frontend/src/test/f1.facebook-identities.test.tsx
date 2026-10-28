@@ -80,5 +80,6 @@ describe('F1 Facebook identities', () => {
     expect(envBox).toHaveTextContent('PC-Ads-02')
     expect(envBox).toHaveTextContent('AdsPower #108 - Spa Lan')
     expect(envBox).toHaveTextContent('Proxy Tĩnh VN-HCM-03')
+    expect(screen.getByTestId('copy-browser-profile-btn')).toHaveTextContent('Chép Profile')
   })
 })

@@ -1234,3 +1234,8 @@ configuration findings rather than left for someone to discover.
   - Danh sách `/facebook-accounts` (kèm bộ lọc theo Nguồn tài khoản & tìm kiếm theo Tên máy / Profile trình duyệt / Khách hàng).
   - Trang chi tiết `/facebook-accounts/{id}`.
   - Khung **Đăng nhập để xử lý (`LoginToFixPanel`)** trên Trung tâm Cảnh báo (`/alerts`), trang Tổng quan tài khoản quảng cáo, và **tin nhắn cảnh báo Telegram**.
+
+### Agency Operations & Anti-Detect Upgrades (F1.5+ / C1+)
+- **Environment Collision Guard**: Detects active Facebook identities sharing the same `browser_profile_label` or `network_label` (`shared_browser_profile_with`, `shared_network_with`) and warns operators on `/facebook-accounts`, `/facebook-accounts/:id`, and `LoginToFixPanel`.
+- **Cross-Page Operational Visibility**: Renders `budget_pacing_counts` summary strip inside `SpendSummaryCard` on `/`, shows `client_name` + identity environment tags on `/accounts` and `/alerts`, and adds a 1-click Copy Browser Profile button in `LoginToFixPanel`.
+- **Fast Account Budget Setup**: Adds `client_name`, `planned_daily_budget_raw`, and `planned_monthly_budget_raw` directly into `AccountFormDrawer`.

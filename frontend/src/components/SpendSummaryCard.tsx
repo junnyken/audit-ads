@@ -91,6 +91,33 @@ export function SpendSummaryView({ data }: { data: SpendSummary }) {
         </Table>
       )}
 
+      {data.budget_pacing_counts && (
+        <div
+          className="rounded-md border border-line bg-surface-muted p-3 space-y-2"
+          data-testid="spend-budget-pacing-counts"
+        >
+          <p className="text-xs font-semibold text-ink">{t('sp.pacing.summaryTitle')}</p>
+          <ul className="flex flex-wrap items-center gap-2">
+            {(
+              [
+                ['overspending', 'attention'],
+                ['approaching_monthly_budget', 'caution'],
+                ['underspending', 'caution'],
+                ['on_track', 'neutral'],
+                ['insufficient_data', 'neutral'],
+                ['unconfigured', 'neutral'],
+              ] as const
+            ).map(([statusKey, tone]) => (
+              <li key={statusKey}>
+                <Badge tone={tone}>
+                  {`${t(`sp.pacing.status.${statusKey}` as never)}: ${formatCount(data.budget_pacing_counts?.[statusKey] ?? 0)}`}
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* complete:false is stated, never implied by a number that merely looks final. */}
       {!data.complete && (
         <PartialDataNote>

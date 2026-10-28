@@ -128,6 +128,29 @@ export default function FacebookAccounts() {
                 const browserLabel = String(row.browser_profile_label ?? '').trim()
                 const networkLabel = String(row.network_label ?? '').trim()
                 const hasEnv = Boolean(deviceLabel || browserLabel || networkLabel)
+                const allRows = list.data?.items ?? []
+                const sharedBrowser =
+                  s?.shared_browser_profile_with ??
+                  (browserLabel
+                    ? allRows
+                        .filter(
+                          (o) =>
+                            o.id !== row.id &&
+                            String(o.browser_profile_label ?? '').trim().toLowerCase() === browserLabel.toLowerCase(),
+                        )
+                        .map((o) => String(o.label))
+                    : [])
+                const sharedNetwork =
+                  s?.shared_network_with ??
+                  (networkLabel
+                    ? allRows
+                        .filter(
+                          (o) =>
+                            o.id !== row.id &&
+                            String(o.network_label ?? '').trim().toLowerCase() === networkLabel.toLowerCase(),
+                        )
+                        .map((o) => String(o.label))
+                    : [])
                 return (
                   <TableRow key={row.id}>
                     <TableCell label={columns[0]} className="cell-title">
@@ -163,6 +186,20 @@ export default function FacebookAccounts() {
                               <span className="text-ink-muted">IP/Mạng:</span>{' '}
                               <span className="font-mono text-ink">{networkLabel}</span>
                             </p>
+                          )}
+                          {sharedBrowser.length > 0 && (
+                            <div className="pt-1" data-testid={`fb-collision-browser-${row.id}`}>
+                              <Badge tone="caution">
+                                {t('fb.env.collisionBrowser', { names: sharedBrowser.join(', ') })}
+                              </Badge>
+                            </div>
+                          )}
+                          {sharedNetwork.length > 0 && (
+                            <div className="pt-1" data-testid={`fb-collision-network-${row.id}`}>
+                              <Badge tone="caution">
+                                {t('fb.env.collisionNetwork', { names: sharedNetwork.join(', ') })}
+                              </Badge>
+                            </div>
                           )}
                         </div>
                       ) : (

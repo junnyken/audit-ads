@@ -32,7 +32,7 @@ export function BudgetPacingPanel({ account, spend }: { account: AdAccount; spen
     planned_monthly_budget_raw: account.planned_monthly_budget_raw ?? null,
     currency: spend.observed_currency ?? spend.registry_currency ?? account.currency ?? null,
     latest_complete_day: spend.latest_complete_day,
-    latest_day_spend_raw: spend.daily[0]?.spend_raw ?? null,
+    latest_day_spend_raw: spend.daily?.[0]?.spend_raw ?? null,
     daily_utilization_pct: null,
     mtd_spend_raw: null,
     mtd_days_counted: 0,

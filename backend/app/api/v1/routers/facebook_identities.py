@@ -62,6 +62,8 @@ def profile(ctx: Ctx, identity_id: uuid.UUID) -> Any:
         "owner_member_name": names.get(identity.owner_member_id),
         "has_full_email": identity.email_ciphertext is not None,
         "can_reveal_email": service.can_reveal(identity, ctx.membership),
+        "shared_browser_profile_with": service.environment_collisions(identity)[0],
+        "shared_network_with": service.environment_collisions(identity)[1],
     }
 
 

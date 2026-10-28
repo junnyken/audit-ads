@@ -731,6 +731,25 @@ def test_f1_5_login_environment_and_client_provided_account_directory(
     by_client = api.get("/api/v1/personal-account-references?search=Spa%20Ng%E1%BB%8Dc%20Lan").json()
     assert any(item["id"] == fb["id"] for item in by_client["items"])
 
+    # 2b. Verify environment collision detection when a second profile accidentally uses the same browser/network
+    dup = api.post(
+        "/api/v1/personal-account-references",
+        json={
+            "label": "FB Nội Bộ – Trùng Môi Trường",
+            "ownership_type": "agency_owned",
+            "device_label": "PC-Ads-02",
+            "browser_profile_label": "adspower #108 - spa lan",
+            "network_label": "Proxy Tĩnh VN-HCM-03",
+        },
+    ).json()
+    summaries = api.get("/api/v1/facebook-identities/summary").json()
+    fb_sum = next(item for item in summaries if item["id"] == fb["id"])
+    assert "FB Nội Bộ – Trùng Môi Trường" in fb_sum["shared_browser_profile_with"]
+    assert "FB Nội Bộ – Trùng Môi Trường" in fb_sum["shared_network_with"]
+    prof_detail = api.get(f"/api/v1/personal-account-references/{fb['id']}/profile").json()
+    assert "FB Nội Bộ – Trùng Môi Trường" in prof_detail["shared_browser_profile_with"]
+    api.post(f"/api/v1/personal-account-references/{dup['id']}/archive")
+
     # 3. Reject proxy URLs/credentials in network_label and secrets in browser_profile_label (Rule 1)
     bad_proxy = client.post(
         "/api/v1/personal-account-references",

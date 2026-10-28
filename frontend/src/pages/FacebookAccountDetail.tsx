@@ -140,8 +140,26 @@ export default function FacebookAccountDetail() {
             </Row>
             <Row label={t('fb.clientName')}>{String(r.client_name || '—')}</Row>
             <Row label={t('fb.deviceLabel')}>{String(r.device_label || '—')}</Row>
-            <Row label={t('fb.browserLabel')}>{String(r.browser_profile_label || '—')}</Row>
-            <Row label={t('fb.networkLabel')}>{String(r.network_label || '—')}</Row>
+            <Row label={t('fb.browserLabel')}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span>{String(r.browser_profile_label || '—')}</span>
+                {(p.shared_browser_profile_with?.length ?? 0) > 0 && (
+                  <Badge tone="caution" data-testid="detail-collision-browser">
+                    {t('fb.env.collisionBrowser', { names: (p.shared_browser_profile_with ?? []).join(', ') })}
+                  </Badge>
+                )}
+              </div>
+            </Row>
+            <Row label={t('fb.networkLabel')}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span>{String(r.network_label || '—')}</span>
+                {(p.shared_network_with?.length ?? 0) > 0 && (
+                  <Badge tone="caution" data-testid="detail-collision-network">
+                    {t('fb.env.collisionNetwork', { names: (p.shared_network_with ?? []).join(', ') })}
+                  </Badge>
+                )}
+              </div>
+            </Row>
             <Row label={t('fb.owner')}>{p.owner_member_name ?? '—'}</Row>
             <Row label={t('fb.twoFactor')}>
               <Badge tone={twoFactorTone(String(r.two_factor_method))}>

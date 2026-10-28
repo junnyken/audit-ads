@@ -471,6 +471,16 @@ class FacebookIdentityService:
             )
         ).all()
         members = self._member_names([i.owner_member_id for i in identities if i.owner_member_id])
+        by_browser: dict[str, list[PersonalAccountReference]] = {}
+        by_network: dict[str, list[PersonalAccountReference]] = {}
+        for identity in identities:
+            b_key = (identity.browser_profile_label or "").strip().lower()
+            if b_key:
+                by_browser.setdefault(b_key, []).append(identity)
+            n_key = (identity.network_label or "").strip().lower()
+            if n_key:
+                by_network.setdefault(n_key, []).append(identity)
+
         result = []
         for identity in identities:
             bms = bms_by_identity.get(identity.id, set())
@@ -480,15 +490,49 @@ class FacebookIdentityService:
                 if (bm_id in bms or direct_id == identity.id)
                 and (visible_ids is None or account_id in visible_ids)
             }
+            b_key = (identity.browser_profile_label or "").strip().lower()
+            n_key = (identity.network_label or "").strip().lower()
+            shared_browser = [
+                other.label for other in by_browser.get(b_key, []) if other.id != identity.id
+            ] if b_key else []
+            shared_network = [
+                other.label for other in by_network.get(n_key, []) if other.id != identity.id
+            ] if n_key else []
             result.append(
                 {
                     "id": identity.id,
                     "business_manager_count": len(bms),
                     "ad_account_count": len(reached),
                     "owner_member_name": members.get(identity.owner_member_id),
+                    "shared_browser_profile_with": shared_browser,
+                    "shared_network_with": shared_network,
                 }
             )
         return result
+
+    def environment_collisions(
+        self, identity: PersonalAccountReference
+    ) -> tuple[list[str], list[str]]:
+        b_key = (identity.browser_profile_label or "").strip().lower()
+        n_key = (identity.network_label or "").strip().lower()
+        if not b_key and not n_key:
+            return [], []
+        others = list(
+            self.session.execute(
+                sa.select(PersonalAccountReference).where(
+                    PersonalAccountReference.workspace_id == self.workspace_id,
+                    PersonalAccountReference.archived_at.is_(None),
+                    PersonalAccountReference.id != identity.id,
+                )
+            ).scalars()
+        )
+        shared_browser = [
+            o.label for o in others if b_key and (o.browser_profile_label or "").strip().lower() == b_key
+        ]
+        shared_network = [
+            o.label for o in others if n_key and (o.network_label or "").strip().lower() == n_key
+        ]
+        return shared_browser, shared_network
 
     def identities_for_accounts(self, accounts: Iterable[AdAccount]) -> dict[uuid.UUID, list[dict[str, Any]]]:
         """For each ad account, every Facebook account that reaches it — directly or through its
