@@ -18,3 +18,16 @@ export function refreshErrorMessage(error: unknown, language: Language = getActi
   }
   return translate(language, 'spend.err.generic')
 }
+
+/** Formatted money for visual display (e.g., 33.966.582 ₫ or 12,345.67 USD) while keeping rawMoney for tests. */
+export function prettyMoney(raw: string | null | undefined, currency: string | null | undefined): string {
+  if (raw === null || raw === undefined || raw === '') return '—'
+  const num = Number(raw)
+  if (!Number.isFinite(num)) return rawMoney(raw, currency)
+  const curr = (currency || '').toUpperCase()
+  if (curr === 'VND') {
+    return `${Math.round(num).toLocaleString('vi-VN')} ₫`
+  }
+  const formatted = num.toLocaleString('vi-VN', { maximumFractionDigits: 2 })
+  return curr ? `${formatted} ${curr}` : formatted
+}

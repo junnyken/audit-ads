@@ -189,6 +189,15 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
                         <Badge tone={String(record.status) === 'active' ? 'positive' : 'neutral'}>
                           {enumLabel('refStatus', String(record.status))}
                         </Badge>
+                      ) : field.type === 'url' && record[field.name] ? (
+                        <a
+                          href={String(record[field.name])}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs font-medium text-brand-text hover:underline"
+                        >
+                          {String(record[field.name])}
+                        </a>
                       ) : (
                         <span className={field.name.includes('reference') ? 'font-mono text-xs' : undefined}>
                           {record[field.name] ? String(record[field.name]) : '—'}

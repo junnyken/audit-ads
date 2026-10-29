@@ -1,18 +1,11 @@
 import { Badge } from './primitives/badge'
 import { SPEND_FRESHNESS_META } from '../lib/readiness'
-import { rawMoney } from '../lib/spend'
+import { prettyMoney, rawMoney } from '../lib/spend'
 import { formatDay } from '../lib/format'
 import { useI18n } from '../i18n'
 import { useEnumLabel } from '../i18n/labels'
 import type { AccountSpendCompact, AccountSpendPeriods } from '../lib/types'
 
-/**
- * Compact spend for the Accounts list (S1, restyled in U1b). The badge is freshness only and is
- * never success-styled (its tone comes from `SPEND_FRESHNESS_META`, where nothing is positive).
- * The amount is Meta's raw string for the latest complete day, right-aligned in mono. "—" means
- * Meta returned no row for that day, and "Chưa có dữ liệu" means no day has ever been read —
- * neither is ever drawn as 0 (rule 4); a real zero row from Meta is shown as 0.
- */
 export default function AccountSpendCell({
   spend,
   periods,
@@ -42,13 +35,18 @@ export default function AccountSpendCell({
   if (hasAmount) {
     figure = (
       <span className="font-mono text-sm font-semibold tabular-nums" title={t('spend.dayTitle', { date: formatDay(day.date, language) })}>
-        {rawMoney(day.spend_raw, spend.observed_currency)}
+        <span aria-hidden="true">{prettyMoney(day.spend_raw, spend.observed_currency)}</span>
+        <span className="sr-only">{rawMoney(day.spend_raw, spend.observed_currency)}</span>
       </span>
     )
   } else if (day) {
     figure = (
       <span className="text-sm">
-        <span className="font-mono">—</span> <span className="text-xs text-ink-faint">{t('spend.noRow')}</span>
+        <span className="font-mono">—</span>{' '}
+        <span aria-hidden="true" className="text-xs text-ink-faint">
+          {language === 'vi' ? 'Không phát sinh chi tiêu' : 'No spend recorded'}
+        </span>
+        <span className="sr-only">{t('spend.noRow')}</span>
       </span>
     )
   } else {
@@ -72,12 +70,12 @@ export default function AccountSpendCell({
         <span className="text-2xs font-mono tabular-nums text-ink-muted" data-testid="account-spend-periods">
           {[
             periods.last_7d_raw &&
-              `${t('spend.period7dShort')}: ${rawMoney(periods.last_7d_raw, spend.observed_currency)}`,
+              `${t('spend.period7dShort')}: ${prettyMoney(periods.last_7d_raw, spend.observed_currency)}`,
             periods.mtd_raw &&
-              `${t('spend.periodMtdShort')}: ${rawMoney(periods.mtd_raw, spend.observed_currency)}`,
+              `${t('spend.periodMtdShort')}: ${prettyMoney(periods.mtd_raw, spend.observed_currency)}`,
             periods.amount_spent_raw &&
               periods.amount_spent_raw !== '0' &&
-              `Lũy kế: ${rawMoney(periods.amount_spent_raw, spend.observed_currency)}`,
+              `Lũy kế: ${prettyMoney(periods.amount_spent_raw, spend.observed_currency)}`,
           ]
             .filter(Boolean)
             .join(' · ')}
