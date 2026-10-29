@@ -1334,6 +1334,7 @@ export interface AccountSpendPeriods {
   today_partial_raw: string | null
   last_7d_raw: string | null
   mtd_raw: string | null
+  amount_spent_raw?: string | null
 }
 
 export interface SpendDailyRaw {
@@ -1442,6 +1443,7 @@ export interface SpendCurrencyGroup {
   today_partial_raw?: string | null
   last_7d_raw?: string | null
   mtd_raw?: string | null
+  amount_spent_raw?: string | null
   days: string[]
   accounts_included: number
   accounts_without_row: number

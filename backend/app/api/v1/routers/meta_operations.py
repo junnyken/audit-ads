@@ -95,7 +95,9 @@ def _provider_for(connection: MetaConnection):
             "it is reconnected in Settings.",
             details={"reason": "reader_reconnect_required"},
         )
-    if connection.environment == MetaEnvironment.PRODUCTION and reader_source != READER_NONE:
+    if connection.environment == MetaEnvironment.PRODUCTION and (
+        reader_source != READER_NONE or settings.environment.lower() in ("production", "prod", "staging")
+    ):
         return build_real_provider(
             settings, business_id=business_id, credential=getattr(connection, "reader_credential", None)
         )
@@ -369,64 +371,134 @@ def create_connection(ctx: OwnerCtx, payload: s.MetaConnectionCreate) -> dict[st
 
 
 
-@connections_router.post("/quick-sync")
-def quick_sync_connection(ctx: OwnerCtx, payload: s.QuickSyncRequest) -> dict[str, Any]:
-    """1-step connection + discovery + auto-import for an operator."""
-    bm_ref = payload.business_manager_reference.strip()
-    label_clean = payload.label.strip()
-
-    existing = (
-        ctx.session.execute(
-            sa.select(MetaConnection)
-            .where(
-                MetaConnection.workspace_id == ctx.workspace_id,
-                MetaConnection.archived_at.is_(None),
-                MetaConnection.environment == MetaEnvironment.PRODUCTION,
-                MetaConnection.business_manager_reference == bm_ref,
-            )
-            .order_by(MetaConnection.created_at.desc())
-        )
-        .scalars()
-        .first()
+def run_workspace_quick_sync(
+    session: sa.orm.Session,
+    workspace_id: uuid.UUID,
+    actor_id: uuid.UUID,
+    bm_ref: str = "",
+    label_clean: str = "",
+) -> dict[str, Any]:
+    """Shared 1-step connection + discovery + full asset auto-import (BM, AdAccounts, Pixels, Pages, VIAs, Spend)."""
+    from app.core.enums import (
+        AccountStatus,
+        IdentityBusinessRole,
+        IdentityOwnershipType,
+        ReferenceStatus,
+        SpendObservationTrigger,
+        WorkspaceRole,
     )
+    from app.models.entities import (
+        AdAccount,
+        BusinessManager,
+        Page,
+        PersonalAccountBusinessLink,
+        PersonalAccountReference,
+        Pixel,
+        WorkspaceMember,
+    )
+    from app.models.meta_discovery import (
+        DiscoveredAdAccountObservation,
+        DiscoveredBusinessUserObservation,
+        DiscoveredPixelObservation,
+    )
+    from app.services import spend_service
+    from app.services.audit import AuditLogService
+    from app.services.extension_context import canonical_external_id
 
-    now = datetime.now(UTC)
-    if existing is not None:
-        connection = existing
-        if not connection.auto_discovery_enabled or not connection.auto_import_enabled:
-            connection.auto_discovery_enabled = True
-            connection.auto_import_enabled = True
-            connection.automation_enabled_by = ctx.user.id
-            connection.automation_enabled_at = now
-    else:
-        default_label = label_clean or (f"BM {bm_ref}" if bm_ref else "BM Mặc định")
-        connection = MetaConnection(
-            workspace_id=ctx.workspace_id,
+    settings = get_settings()
+    audit = AuditLogService(session, workspace_id, actor_id)
+    bm_ref = bm_ref.strip() or (settings.meta_business_id or "").strip()
+    label_clean = label_clean.strip()
+
+    def _find_or_create_conn(target_bm: str) -> MetaConnection:
+        existing = (
+            session.execute(
+                sa.select(MetaConnection)
+                .where(
+                    MetaConnection.workspace_id == workspace_id,
+                    MetaConnection.archived_at.is_(None),
+                    MetaConnection.environment == MetaEnvironment.PRODUCTION,
+                    MetaConnection.business_manager_reference == target_bm,
+                )
+                .order_by(MetaConnection.created_at.desc())
+            )
+            .scalars()
+            .first()
+        )
+        now_ts = datetime.now(UTC)
+        if existing is not None:
+            if not existing.auto_discovery_enabled or not existing.auto_import_enabled:
+                existing.auto_discovery_enabled = True
+                existing.auto_import_enabled = True
+                existing.automation_enabled_by = actor_id
+                existing.automation_enabled_at = now_ts
+            return existing
+        default_label = label_clean or (f"BM {target_bm}" if target_bm else "BM Mặc định")
+        conn = MetaConnection(
+            workspace_id=workspace_id,
             label=default_label[:200],
             environment=MetaEnvironment.PRODUCTION,
-            business_manager_reference=bm_ref,
+            business_manager_reference=target_bm,
             auto_discovery_enabled=True,
             auto_import_enabled=True,
-            automation_enabled_by=ctx.user.id,
-            automation_enabled_at=now,
-            created_by=ctx.user.id,
+            automation_enabled_by=actor_id,
+            automation_enabled_at=now_ts,
+            created_by=actor_id,
         )
-        # Auto-bind active vault credential if workspace has one
-        creds = _workspace_credentials(ctx)
+        creds = list(
+            session.execute(
+                sa.select(MetaReaderCredential).where(
+                    MetaReaderCredential.workspace_id == workspace_id,
+                    MetaReaderCredential.archived_at.is_(None),
+                )
+            )
+            .scalars()
+            .all()
+        )
         active_creds = [c for c in creds if c.status.value == "active"]
         if active_creds:
-            connection.reader_credential_id = active_creds[0].id
-        ctx.session.add(connection)
-        ctx.session.flush()
-        ctx.audit.record(
+            conn.reader_credential_id = active_creds[0].id
+        session.add(conn)
+        session.flush()
+        audit.record(
             action="meta_connection.created",
             entity_type="meta_connection",
-            entity_id=connection.id,
-            after=snapshot(connection),
+            entity_id=conn.id,
+            after=snapshot(conn),
         )
+        return conn
 
-    service = _discovery_service(ctx, connection)
-    run = service.validate_configured_business_manager(connection, actor_id=ctx.user.id)
+    connection = _find_or_create_conn(bm_ref)
+    service = MetaDiscoveryService(
+        session,
+        workspace_id,
+        audit,
+        provider=_provider_for(connection),
+        business_id=_business_id_for(connection),
+    )
+    run = service.validate_configured_business_manager(connection, actor_id=actor_id)
+
+    # Fallback to server default BM if user typed an invalid/unreachable BM ID while default BM is configured
+    default_server_bm = (settings.meta_business_id or "").strip()
+    if (
+        run.status == DiscoveryRunStatus.FAILED
+        and default_server_bm
+        and bm_ref != default_server_bm
+        and settings.environment.lower() in ("production", "prod", "staging")
+    ):
+        connection.archived_at = datetime.now(UTC)
+        session.flush()
+        bm_ref = default_server_bm
+        connection = _find_or_create_conn(bm_ref)
+        service = MetaDiscoveryService(
+            session,
+            workspace_id,
+            audit,
+            provider=_provider_for(connection),
+            business_id=_business_id_for(connection),
+        )
+        run = service.validate_configured_business_manager(connection, actor_id=actor_id)
+
     imported_count = 0
 
     if run.status in (DiscoveryRunStatus.SUCCEEDED, DiscoveryRunStatus.SUCCEEDED_WITH_WARNINGS):
@@ -436,15 +508,18 @@ def quick_sync_connection(ctx: OwnerCtx, payload: s.QuickSyncRequest) -> dict[st
             connection.label = run.configured_business_manager_name[:200]
         service.discover_assets(run)
         try:
-            with ctx.session.begin_nested():
+            with session.begin_nested():
                 service.evaluate_business_user_drift_alert(run, connection)
         except Exception:
             pass
-        # Ensure BusinessManager registry record is created even before importing accounts
-        service._registry_business_manager(run)
-        # Auto-import all newly discovered ad accounts immediately
+        bm_entity = service._registry_business_manager(run)
+        if bm_entity is not None:
+            bm_entity.status = ReferenceStatus.ACTIVE
+            if run.configured_business_manager_name:
+                bm_entity.name = run.configured_business_manager_name[:200]
+
         reconciled = service.reconcile_ad_accounts(run)
-        synced_accounts = []
+        synced_accounts: list[AdAccount] = []
         for row in reconciled:
             if (
                 row.status == "missing_in_registry"
@@ -452,7 +527,7 @@ def quick_sync_connection(ctx: OwnerCtx, payload: s.QuickSyncRequest) -> dict[st
                 and service.registry_account_any_state(row.external_id) is None
             ):
                 try:
-                    with ctx.session.begin_nested():
+                    with session.begin_nested():
                         acc = service.import_ad_account(run, row.external_id, automatic=False)
                         imported_count += 1
                         synced_accounts.append(acc)
@@ -463,23 +538,310 @@ def quick_sync_connection(ctx: OwnerCtx, payload: s.QuickSyncRequest) -> dict[st
                 if existing_acc is not None and existing_acc.archived_at is None:
                     synced_accounts.append(existing_acc)
 
-        # Auto-refresh spend & platform status for up to 10 synced accounts so numbers show immediately
-        from app.core.enums import SpendObservationTrigger
-        from app.services import spend_service
+        # Update AdAccount status from Meta's observed account_status
+        obs_rows = (
+            session.execute(
+                sa.select(DiscoveredAdAccountObservation).where(
+                    DiscoveredAdAccountObservation.business_manager_discovery_run_id == run.id
+                )
+            )
+            .scalars()
+            .all()
+        )
+        obs_by_ext = {canonical_external_id(o.external_account_id): o for o in obs_rows if o.external_account_id}
+        for acc in synced_accounts:
+            ext = canonical_external_id(acc.external_account_id)
+            obs = obs_by_ext.get(ext) if ext else None
+            if obs and isinstance(obs.safe_metadata_json, dict):
+                raw_st = str(obs.safe_metadata_json.get("account_status") or "").strip()
+                if raw_st == "1":
+                    acc.status = AccountStatus.ACTIVE
+                elif raw_st in ("2", "3", "7", "8", "9"):
+                    acc.status = AccountStatus.RESTRICTED
+                elif raw_st in ("100", "101", "201", "202"):
+                    acc.status = AccountStatus.DISABLED
 
-        for acc in synced_accounts[:10]:
+        # Auto-import discovered Pixels into /assets (Pixel table)
+        pixel_obs = (
+            session.execute(
+                sa.select(DiscoveredPixelObservation).where(
+                    DiscoveredPixelObservation.business_manager_discovery_run_id == run.id
+                )
+            )
+            .scalars()
+            .all()
+        )
+        existing_pixels = {
+            p.external_id: p
+            for p in session.execute(
+                sa.select(Pixel).where(Pixel.workspace_id == workspace_id)
+            )
+            .scalars()
+            .all()
+            if p.external_id
+        }
+        for p_obs in pixel_obs:
+            ext_pid = (p_obs.external_pixel_id or "").strip()
+            if not ext_pid or ext_pid.startswith("fake"):
+                continue
+            if ext_pid not in existing_pixels:
+                try:
+                    with session.begin_nested():
+                        px = Pixel(
+                            workspace_id=workspace_id,
+                            name=(p_obs.display_name or ext_pid)[:200],
+                            external_id=ext_pid[:120],
+                            status=ReferenceStatus.ACTIVE,
+                            notes=f"Đồng bộ từ BM {run.configured_business_manager_name or bm_ref}",
+                        )
+                        session.add(px)
+                        session.flush()
+                        existing_pixels[ext_pid] = px
+                except Exception:
+                    pass
+            elif existing_pixels[ext_pid].archived_at is not None:
+                existing_pixels[ext_pid].archived_at = None
+                existing_pixels[ext_pid].status = ReferenceStatus.ACTIVE
+
+        # Auto-import real Fanpages from owned_pages / client_pages into /assets (Page table)
+        if hasattr(service.provider, "transport") and service.business_id:
+            existing_pages = {
+                pg.external_id: pg
+                for pg in session.execute(
+                    sa.select(Page).where(Page.workspace_id == workspace_id)
+                )
+                .scalars()
+                .all()
+                if pg.external_id
+            }
+            for edge_name in ("owned_pages", "client_pages"):
+                try:
+                    resp = service.provider.transport.get(
+                        f"{service.business_id}/{edge_name}", {"fields": "id,name", "limit": "100"}
+                    )
+                    if resp.ok and isinstance(resp.payload, dict):
+                        for p_row in resp.payload.get("data", []) or []:
+                            if not isinstance(p_row, dict):
+                                continue
+                            pid = str(p_row.get("id") or "").strip()
+                            pname = str(p_row.get("name") or pid).strip()
+                            if not pid:
+                                continue
+                            if pid not in existing_pages:
+                                with session.begin_nested():
+                                    pg_entity = Page(
+                                        workspace_id=workspace_id,
+                                        name=pname[:200],
+                                        external_id=pid[:120],
+                                        status=ReferenceStatus.ACTIVE,
+                                        notes=f"Đồng bộ từ BM {run.configured_business_manager_name or bm_ref}",
+                                    )
+                                    session.add(pg_entity)
+                                    session.flush()
+                                    existing_pages[pid] = pg_entity
+                            elif existing_pages[pid].archived_at is not None:
+                                existing_pages[pid].archived_at = None
+                                existing_pages[pid].status = ReferenceStatus.ACTIVE
+                except Exception:
+                    pass
+
+        # Auto-import discovered Business Users (VIAs) into PersonalAccountReference & link to BM
+        user_obs = (
+            session.execute(
+                sa.select(DiscoveredBusinessUserObservation).where(
+                    DiscoveredBusinessUserObservation.business_manager_discovery_run_id == run.id
+                )
+            )
+            .scalars()
+            .all()
+        )
+        owner_member = (
+            session.execute(
+                sa.select(WorkspaceMember).where(
+                    WorkspaceMember.workspace_id == workspace_id,
+                    WorkspaceMember.archived_at.is_(None),
+                    WorkspaceMember.role == WorkspaceRole.OWNER,
+                )
+            )
+            .scalars()
+            .first()
+        )
+        all_identities = (
+            session.execute(
+                sa.select(PersonalAccountReference).where(
+                    PersonalAccountReference.workspace_id == workspace_id
+                )
+            )
+            .scalars()
+            .all()
+        )
+        by_ext_user = {i.external_reference_id: i for i in all_identities if i.external_reference_id}
+        by_label_user = {i.label.strip().lower(): i for i in all_identities if i.label}
+
+        if bm_entity is not None:
+            existing_bm_links = {
+                lnk.personal_account_reference_id: lnk
+                for lnk in session.execute(
+                    sa.select(PersonalAccountBusinessLink).where(
+                        PersonalAccountBusinessLink.workspace_id == workspace_id,
+                        PersonalAccountBusinessLink.business_manager_id == bm_entity.id,
+                    )
+                )
+                .scalars()
+                .all()
+            }
+            for u_obs in user_obs:
+                ext_uid = (u_obs.external_user_id or "").strip()
+                uname = (u_obs.display_name or ext_uid).strip()
+                if not ext_uid or ext_uid.startswith("fake"):
+                    continue
+                identity = by_ext_user.get(ext_uid) or by_label_user.get(uname.lower())
+                if identity is None:
+                    try:
+                        with session.begin_nested():
+                            identity = PersonalAccountReference(
+                                workspace_id=workspace_id,
+                                label=uname[:200],
+                                display_name=uname[:200],
+                                external_reference_id=ext_uid[:120],
+                                status=ReferenceStatus.ACTIVE,
+                                ownership_type=IdentityOwnershipType.AGENCY_OWNED,
+                                owner_member_id=owner_member.id if owner_member else None,
+                                notes=f"Thành viên BM {bm_entity.name} ({u_obs.role or 'ADMIN'})",
+                            )
+                            session.add(identity)
+                            session.flush()
+                            by_ext_user[ext_uid] = identity
+                    except Exception:
+                        identity = None
+                elif identity.archived_at is not None:
+                    identity.archived_at = None
+                    identity.status = ReferenceStatus.ACTIVE
+                    if not identity.external_reference_id:
+                        identity.external_reference_id = ext_uid[:120]
+
+                if identity is not None:
+                    role_enum = (
+                        IdentityBusinessRole.ADMIN
+                        if (u_obs.role or "").upper() == "ADMIN"
+                        else IdentityBusinessRole.EMPLOYEE
+                    )
+                    lnk = existing_bm_links.get(identity.id)
+                    if lnk is None:
+                        try:
+                            with session.begin_nested():
+                                lnk = PersonalAccountBusinessLink(
+                                    workspace_id=workspace_id,
+                                    personal_account_reference_id=identity.id,
+                                    business_manager_id=bm_entity.id,
+                                    role=role_enum,
+                                    note="Đồng bộ tự động từ Meta BM",
+                                )
+                                session.add(lnk)
+                                session.flush()
+                                existing_bm_links[identity.id] = lnk
+                        except Exception:
+                            pass
+                    elif lnk.archived_at is not None:
+                        lnk.archived_at = None
+                        lnk.role = role_enum
+
+            # Also link any active manual VIA that currently has 0 BM links to this BM so it isn't orphaned
+            for ident in all_identities:
+                if ident.archived_at is None and ident.id not in existing_bm_links:
+                    has_any_link = session.execute(
+                        sa.select(PersonalAccountBusinessLink.id).where(
+                            PersonalAccountBusinessLink.workspace_id == workspace_id,
+                            PersonalAccountBusinessLink.personal_account_reference_id == ident.id,
+                            PersonalAccountBusinessLink.archived_at.is_(None),
+                        )
+                    ).first()
+                    if has_any_link is None:
+                        try:
+                            with session.begin_nested():
+                                lnk = PersonalAccountBusinessLink(
+                                    workspace_id=workspace_id,
+                                    personal_account_reference_id=ident.id,
+                                    business_manager_id=bm_entity.id,
+                                    role=IdentityBusinessRole.ADMIN,
+                                    note="Tự động gắn với BM chính",
+                                )
+                                session.add(lnk)
+                                session.flush()
+                                existing_bm_links[ident.id] = lnk
+                        except Exception:
+                            pass
+
+        # Auto-refresh spend & platform status for up to 15 synced accounts
+        for acc in synced_accounts[:15]:
             try:
-                with ctx.session.begin_nested():
-                    reader = spend_service.resolve_spend_connection(ctx.session, ctx.workspace_id, acc)
+                with session.begin_nested():
+                    reader = spend_service.resolve_spend_connection(session, workspace_id, acc)
                     if reader is not None:
                         prov = spend_service.provider_for_connection(reader)
-                        spend_service.SpendObservationService(ctx.session, ctx.workspace_id).read_and_record(
+                        obs_rec, read_res = spend_service.SpendObservationService(
+                            session, workspace_id
+                        ).read_and_record(
                             acc, reader, prov, trigger=SpendObservationTrigger.MANUAL_REFRESH
                         )
+                        if read_res.account_status_raw:
+                            raw_st = str(read_res.account_status_raw).strip()
+                            if raw_st == "1":
+                                acc.status = AccountStatus.ACTIVE
+                            elif raw_st in ("2", "3", "7", "8", "9"):
+                                acc.status = AccountStatus.RESTRICTED
+                            elif raw_st in ("100", "101", "201", "202"):
+                                acc.status = AccountStatus.DISABLED
             except Exception:
                 pass
 
-    ctx.commit()
+        # Clean up any fake or unlinked dummy accounts in production once real Meta accounts exist
+        if synced_accounts and settings.environment.lower() in ("production", "prod", "staging"):
+            now_clean = datetime.now(UTC)
+            for old_acc in (
+                session.execute(
+                    sa.select(AdAccount).where(
+                        AdAccount.workspace_id == workspace_id,
+                        AdAccount.archived_at.is_(None),
+                    )
+                )
+                .scalars()
+                .all()
+            ):
+                ext_id = (old_acc.external_account_id or "").strip()
+                if not ext_id or ext_id.startswith("fake") or old_acc.display_name.startswith("Fake "):
+                    old_acc.archived_at = now_clean
+            for old_bm in (
+                session.execute(
+                    sa.select(BusinessManager).where(
+                        BusinessManager.workspace_id == workspace_id,
+                        BusinessManager.archived_at.is_(None),
+                    )
+                )
+                .scalars()
+                .all()
+            ):
+                ext_id = (old_bm.external_id or "").strip()
+                if ext_id.startswith("fake") or old_bm.name.startswith("Fake ") or (
+                    bm_entity is not None and old_bm.id != bm_entity.id and not ext_id
+                ):
+                    old_bm.archived_at = now_clean
+            for old_conn in (
+                session.execute(
+                    sa.select(MetaConnection).where(
+                        MetaConnection.workspace_id == workspace_id,
+                        MetaConnection.archived_at.is_(None),
+                    )
+                )
+                .scalars()
+                .all()
+            ):
+                if old_conn.environment != MetaEnvironment.PRODUCTION or (
+                    old_conn.id != connection.id
+                    and (old_conn.business_manager_reference or "") != (connection.business_manager_reference or "")
+                ):
+                    old_conn.archived_at = now_clean
+
     return {
         "connection_id": str(connection.id),
         "connection_label": connection.label,
@@ -494,6 +856,20 @@ def quick_sync_connection(ctx: OwnerCtx, payload: s.QuickSyncRequest) -> dict[st
         "failure_code": run.failure_code,
         "failure_summary": run.failure_summary,
     }
+
+
+@connections_router.post("/quick-sync")
+def quick_sync_connection(ctx: OwnerCtx, payload: s.QuickSyncRequest) -> dict[str, Any]:
+    """1-step connection + discovery + auto-import for an operator."""
+    result = run_workspace_quick_sync(
+        ctx.session,
+        ctx.workspace_id,
+        ctx.user.id,
+        bm_ref=payload.business_manager_reference,
+        label_clean=payload.label,
+    )
+    ctx.commit()
+    return result
 
 
 @connections_router.get("/discovery-summary")

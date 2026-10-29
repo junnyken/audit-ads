@@ -127,7 +127,7 @@ export default function MetaConnections() {
     queryFn: () => api.get<MetaConnection[]>('/api/v1/meta-connections'),
   })
 
-  const [environment, setEnvironment] = useState<MetaEnvironment>('fake')
+  const [environment, setEnvironment] = useState<MetaEnvironment>('production')
   const [businessManager, setBusinessManager] = useState('')
   const create = useMutation({
     mutationFn: () =>

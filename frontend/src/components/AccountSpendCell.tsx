@@ -68,13 +68,16 @@ export default function AccountSpendCell({
         </Badge>
         {day && <span className="tabular-nums">{formatDay(day.date, language)}</span>}
       </span>
-      {periods && (periods.last_7d_raw || periods.mtd_raw) && (
+      {periods && (periods.last_7d_raw || periods.mtd_raw || (periods.amount_spent_raw && periods.amount_spent_raw !== '0')) && (
         <span className="text-2xs font-mono tabular-nums text-ink-muted" data-testid="account-spend-periods">
           {[
             periods.last_7d_raw &&
               `${t('spend.period7dShort')}: ${rawMoney(periods.last_7d_raw, spend.observed_currency)}`,
             periods.mtd_raw &&
               `${t('spend.periodMtdShort')}: ${rawMoney(periods.mtd_raw, spend.observed_currency)}`,
+            periods.amount_spent_raw &&
+              periods.amount_spent_raw !== '0' &&
+              `Lũy kế: ${rawMoney(periods.amount_spent_raw, spend.observed_currency)}`,
           ]
             .filter(Boolean)
             .join(' · ')}

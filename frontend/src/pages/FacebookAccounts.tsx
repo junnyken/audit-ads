@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, query } from '../lib/api'
 import type { FacebookIdentitySummary, Paged, ReferenceRecord, TeamMember } from '../lib/types'
 import { useAuth } from '../hooks/useAuth'
@@ -21,6 +21,7 @@ export default function FacebookAccounts() {
   const { t } = useI18n()
   const enumLabel = useEnumLabel()
   const { user } = useAuth()
+  const queryClient = useQueryClient()
   const role = user?.role ?? 'owner'
   const canWrite = role !== 'viewer'
   const canAssignOwner = role === 'owner' || role === 'admin'
@@ -29,6 +30,7 @@ export default function FacebookAccounts() {
   const [holder, setHolder] = useState('')
   const [ownershipFilter, setOwnershipFilter] = useState('')
   const [creating, setCreating] = useState(false)
+  const [editingRecord, setEditingRecord] = useState<ReferenceRecord | null>(null)
 
   const list = useQuery({
     queryKey: ['personal-account-references', 'facebook-list', search],
@@ -43,6 +45,14 @@ export default function FacebookAccounts() {
     queryFn: () => api.get<TeamMember[]>('/api/v1/team/members'),
     retry: false,
   })
+  const archive = useMutation({
+    mutationFn: (id: string) => api.post(`/api/v1/personal-account-references/${id}/archive`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['personal-account-references'] })
+      void queryClient.invalidateQueries({ queryKey: ['facebook-identities'] })
+    },
+  })
+
   const bySummary = useMemo(() => new Map((summary.data ?? []).map((row) => [row.id, row])), [summary.data])
   const rows = (list.data?.items ?? []).filter((row) => {
     if (holder && row.owner_member_id !== holder) return false
@@ -57,6 +67,7 @@ export default function FacebookAccounts() {
     t('fb.businessManagers'),
     t('fb.adAccounts'),
     t('fb.status'),
+    ...(canWrite ? [t('fb.form.editBtn')] : []),
   ]
 
   return (
@@ -219,6 +230,30 @@ export default function FacebookAccounts() {
                         {enumLabel('refStatus', String(row.status))}
                       </Badge>
                     </TableCell>
+                    {canWrite && (
+                      <TableCell label={columns[7]}>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => setEditingRecord(row)}
+                            data-testid={`fb-edit-${row.id}`}
+                          >
+                            {t('fb.form.editBtn')}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            disabled={archive.isPending}
+                            onClick={() => archive.mutate(row.id)}
+                          >
+                            {t('ref.archive.confirm')}
+                          </Button>
+                        </div>
+                      </TableCell>
+                    )}
                   </TableRow>
                 )
               })}
@@ -227,8 +262,12 @@ export default function FacebookAccounts() {
         </Card>
       )}
       <FacebookAccountFormSheet
-        open={creating}
-        onClose={() => setCreating(false)}
+        open={creating || editingRecord !== null}
+        record={editingRecord}
+        onClose={() => {
+          setCreating(false)
+          setEditingRecord(null)
+        }}
         members={members.data ?? []}
         canAssignOwner={canAssignOwner}
       />

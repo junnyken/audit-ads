@@ -97,3 +97,42 @@ def bootstrap_owner(session: Session) -> Workspace | None:
             extra={"workspace_slug": workspace.slug},
         )
     return workspace
+
+
+
+def bootstrap_meta_sync(session: Session, workspace: Workspace | None) -> None:
+    """Auto-sync configured Meta Business Manager on production startup so real assets are always present."""
+    settings = get_settings()
+    if workspace is None:
+        return
+    if settings.environment.lower() not in ("production", "prod", "staging"):
+        return
+    if not (settings.meta_access_token or "").strip() or not (settings.meta_business_id or "").strip():
+        return
+    owner_member = (
+        session.execute(
+            sa.select(WorkspaceMember).where(
+                WorkspaceMember.workspace_id == workspace.id,
+                WorkspaceMember.archived_at.is_(None),
+                WorkspaceMember.role == WorkspaceRole.OWNER,
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if owner_member is None:
+        return
+    from app.api.v1.routers.meta_operations import run_workspace_quick_sync
+
+    try:
+        res = run_workspace_quick_sync(
+            session,
+            workspace.id,
+            owner_member.user_id,
+            bm_ref=settings.meta_business_id.strip(),
+        )
+        session.commit()
+        logger.info("bootstrap_meta_sync completed", extra={"status": res.get("status"), "imported": res.get("imported_ad_accounts")})
+    except Exception:
+        session.rollback()
+        logger.exception("bootstrap_meta_sync failed")

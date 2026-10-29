@@ -314,6 +314,8 @@ def spend_summary(ctx: Ctx) -> dict[str, Any]:
                 "last_7d_included": 0,
                 "mtd": Decimal(0),
                 "mtd_included": 0,
+                "amount_spent": Decimal(0),
+                "amount_spent_included": 0,
                 "days": set(),
                 "accounts_included": 0,
                 "accounts_without_row": 0,
@@ -348,6 +350,14 @@ def spend_summary(ctx: Ctx) -> dict[str, Any]:
         if facts.insights_currency_conflict:
             bucket["accounts_currency_conflict"] += 1
             continue
+        if facts.latest_success and facts.latest_success.amount_spent_raw:
+            from app.services.spend_engine import parse_amount
+            amt_lt = parse_amount(facts.latest_success.amount_spent_raw)
+            if amt_lt is not None and amt_lt > 0:
+                if currency not in ("VND", "JPY", "KRW", "TWD", "CLP", "IDR"):
+                    amt_lt = amt_lt / Decimal(100)
+                bucket["amount_spent"] += amt_lt
+                bucket["amount_spent_included"] += 1
         if facts.today_partial and facts.today_partial.has_row and facts.today_partial.amount is not None:
             bucket["today_partial"] += facts.today_partial.amount
             bucket["today_included"] += 1
@@ -399,6 +409,7 @@ def spend_summary(ctx: Ctx) -> dict[str, Any]:
                 ),
                 "last_7d_raw": amount_text(bucket["last_7d"]) if bucket["last_7d_included"] else None,
                 "mtd_raw": amount_text(bucket["mtd"]) if bucket["mtd_included"] else None,
+                "amount_spent_raw": amount_text(bucket["amount_spent"]) if bucket["amount_spent_included"] else None,
                 "days": sorted(bucket["days"]),
                 "accounts_included": bucket["accounts_included"],
                 "accounts_without_row": bucket["accounts_without_row"],

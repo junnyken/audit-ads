@@ -94,7 +94,7 @@ export const f1Vi = {
   'qs.title': '⚡ Đồng bộ tự động từ Business Manager (Chỉ 1 bước — Không cần nhập tay)',
   'qs.subtitle': 'Nhập Mã ID Business Manager (hoặc để trống nếu dùng BM mặc định của máy chủ). Hệ thống sẽ tự kết nối và lấy toàn bộ Tên BM, Tài khoản quảng cáo, Tiền tệ, Quốc gia, Múi giờ, Pixel và Thành viên.',
   'qs.bmLabel': 'Mã ID Business Manager',
-  'qs.bmPlaceholder': 'VD: 108492019482910 (Để trống nếu dùng BM mặc định)',
+  'qs.bmPlaceholder': 'Để trống để đồng bộ BM mặc định (1993884657458857 - Quảng Cáo Top) hoặc nhập ID BM khác',
   'qs.submit': '⚡ Kết nối & Tự động lấy dữ liệu ngay',
   'qs.submitting': 'Đang đồng bộ từ Meta…',
   'qs.result.ok': 'Đã đồng bộ BM "{name}" ({ref}): tự động lấy {totalAccounts} tài khoản quảng cáo ({imported} mới), {pixels} Pixel, {users} thành viên.',

@@ -529,6 +529,7 @@ def list_compact_reads(
                 "today_partial_raw": today_raw,
                 "last_7d_raw": amount_text(last_7d_dec) if last_7d_days > 0 else None,
                 "mtd_raw": amount_text(mtd_dec) if mtd_days > 0 else None,
+                "amount_spent_raw": facts.latest_success.amount_spent_raw if facts.latest_success else None,
             },
             "platform_status": compact_platform_status(facts.platform_status),
         }

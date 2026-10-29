@@ -59,7 +59,9 @@ async def lifespan(app: FastAPI):
 
     with SessionLocal() as session:
         try:
-            bootstrap_owner(session)
+            from app.bootstrap import bootstrap_meta_sync
+            ws = bootstrap_owner(session)
+            bootstrap_meta_sync(session, ws)
         except Exception:  # pragma: no cover - startup must not crash on a cold database
             session.rollback()
             import logging

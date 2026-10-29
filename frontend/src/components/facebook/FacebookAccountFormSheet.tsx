@@ -1,9 +1,17 @@
 import { useEffect, useId, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
-import type { IdentityOwnershipType, ReferenceRecord, TeamMember } from '../../lib/types'
+import type {
+  FacebookIdentityProfile,
+  IdentityBusinessRole,
+  IdentityOwnershipType,
+  Paged,
+  ReferenceRecord,
+  TeamMember,
+} from '../../lib/types'
 import { useI18n } from '../../i18n'
 import { useEnumLabel } from '../../i18n/labels'
+import { Badge } from '../primitives/badge'
 import { Button } from '../primitives/button'
 import { Field } from '../primitives/field'
 import { ErrorState } from '../states'
@@ -12,6 +20,7 @@ import { FormSheet } from '../page/FormSheet'
 const TWO_FACTOR_OPTIONS = ['unknown', 'app', 'sms', 'security_key', 'none'] as const
 const STATUS_OPTIONS = ['unknown', 'active', 'inactive', 'restricted'] as const
 const OWNERSHIP_OPTIONS: IdentityOwnershipType[] = ['agency_owned', 'client_provided']
+const BM_ROLES: IdentityBusinessRole[] = ['admin', 'employee', 'unknown']
 
 export function FacebookAccountFormSheet({
   open,
@@ -36,9 +45,9 @@ export function FacebookAccountFormSheet({
   const [label, setLabel] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [externalId, setExternalId] = useState('')
-  const [status, setStatus] = useState('unknown')
+  const [status, setStatus] = useState('active')
   const [ownerMemberId, setOwnerMemberId] = useState('')
-  const [twoFactor, setTwoFactor] = useState('unknown')
+  const [twoFactor, setTwoFactor] = useState('app')
   const [vaultReference, setVaultReference] = useState('')
   const [recoveryNote, setRecoveryNote] = useState('')
   const [notes, setNotes] = useState('')
@@ -47,15 +56,41 @@ export function FacebookAccountFormSheet({
   const [deviceLabel, setDeviceLabel] = useState('')
   const [browserProfileLabel, setBrowserProfileLabel] = useState('')
   const [networkLabel, setNetworkLabel] = useState('')
+  const [selectedBmId, setSelectedBmId] = useState('')
+  const [selectedBmRole, setSelectedBmRole] = useState<IdentityBusinessRole>('admin')
+
+  const bms = useQuery({
+    queryKey: ['business-managers', 'options'],
+    queryFn: () => api.get<Paged<ReferenceRecord>>('/api/v1/business-managers?page_size=200'),
+    enabled: open,
+    retry: false,
+  })
+
+  const profile = useQuery({
+    queryKey: ['facebook-identities', record?.id ?? '', 'profile'],
+    queryFn: () => api.get<FacebookIdentityProfile>(`/api/v1/personal-account-references/${record!.id}/profile`),
+    enabled: open && Boolean(record?.id),
+    retry: false,
+  })
+
+  const unlinkBm = useMutation({
+    mutationFn: (linkId: string) =>
+      api.post(`/api/v1/personal-account-references/${record!.id}/business-links/${linkId}/unlink`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['facebook-identities'] })
+      void queryClient.invalidateQueries({ queryKey: ['personal-account-references'] })
+      void queryClient.invalidateQueries({ queryKey: ['accounts'] })
+    },
+  })
 
   useEffect(() => {
     if (!open) return
     setLabel(String(record?.label ?? ''))
     setDisplayName(String(record?.display_name ?? ''))
     setExternalId(String(record?.external_reference_id ?? ''))
-    setStatus(String(record?.status ?? 'unknown'))
+    setStatus(String(record?.status ?? 'active'))
     setOwnerMemberId(String(record?.owner_member_id ?? ''))
-    setTwoFactor(String(record?.two_factor_method ?? 'unknown'))
+    setTwoFactor(String(record?.two_factor_method ?? 'app'))
     setVaultReference(String(record?.vault_reference ?? ''))
     setRecoveryNote(String(record?.recovery_note ?? ''))
     setNotes(String(record?.notes ?? ''))
@@ -64,6 +99,8 @@ export function FacebookAccountFormSheet({
     setDeviceLabel(String(record?.device_label ?? ''))
     setBrowserProfileLabel(String(record?.browser_profile_label ?? ''))
     setNetworkLabel(String(record?.network_label ?? ''))
+    setSelectedBmId('')
+    setSelectedBmRole('admin')
   }, [open, record])
 
   const save = useMutation({
@@ -86,18 +123,40 @@ export function FacebookAccountFormSheet({
       if (canAssignOwner) {
         payload.owner_member_id = ownerMemberId || null
       }
-      if (record) {
-        return api.patch<ReferenceRecord>(`/api/v1/personal-account-references/${record.id}`, payload)
+      const saved = record
+        ? await api.patch<ReferenceRecord>(`/api/v1/personal-account-references/${record.id}`, payload)
+        : await api.post<ReferenceRecord>('/api/v1/personal-account-references', payload)
+
+      if (selectedBmId) {
+        const alreadyLinked = (profile.data?.business_links ?? []).some(
+          (l) => l.business_manager_id === selectedBmId,
+        )
+        if (!alreadyLinked) {
+          try {
+            await api.post(`/api/v1/personal-account-references/${saved.id}/business-links`, {
+              business_manager_id: selectedBmId,
+              role: selectedBmRole,
+              note: '',
+            })
+          } catch {
+            // Ignore duplicate link errors
+          }
+        }
       }
-      return api.post<ReferenceRecord>('/api/v1/personal-account-references', payload)
+      return saved
     },
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: ['personal-account-references'] })
       void queryClient.invalidateQueries({ queryKey: ['facebook-identities'] })
+      void queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      void queryClient.invalidateQueries({ queryKey: ['readiness-summary'] })
       onSaved?.(saved)
       onClose()
     },
   })
+
+  const bmList = Array.isArray(bms.data?.items) ? bms.data.items : []
+  const existingLinks = Array.isArray(profile.data?.business_links) ? profile.data.business_links : []
 
   return (
     <FormSheet
@@ -163,6 +222,66 @@ export function FacebookAccountFormSheet({
           </Field>
         </div>
 
+        {/* Business Manager link section */}
+        <div className="rounded-md border border-line bg-surface-muted p-3 space-y-2">
+          <p className="text-xs font-semibold text-ink">{t('fb.detail.bm')}</p>
+          {existingLinks.length > 0 && (
+            <ul className="space-y-1.5">
+              {existingLinks.map((lnk) => (
+                <li
+                  key={lnk.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded border border-line bg-surface px-2.5 py-1.5 text-xs"
+                >
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="font-medium text-ink">{lnk.business_manager_name}</span>
+                    <Badge tone="neutral">{t(`fb.role.${lnk.role}` as never)}</Badge>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={unlinkBm.isPending}
+                    onClick={() => unlinkBm.mutate(lnk.id)}
+                  >
+                    {t('fb.form.unlink')}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Field htmlFor={`${formId}-bm`} label={t('fb.businessManagers')}>
+              <select
+                id={`${formId}-bm`}
+                className="input"
+                value={selectedBmId}
+                onChange={(e) => setSelectedBmId(e.target.value)}
+              >
+                <option value="">— Không gắn thêm —</option>
+                {bmList.map((bm) => (
+                  <option key={bm.id} value={bm.id}>
+                    {String(bm.name)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field htmlFor={`${formId}-bm-role`} label={t('fb.form.bmRole')}>
+              <select
+                id={`${formId}-bm-role`}
+                className="input"
+                value={selectedBmRole}
+                onChange={(e) => setSelectedBmRole(e.target.value as IdentityBusinessRole)}
+              >
+                {BM_ROLES.map((roleOpt) => (
+                  <option key={roleOpt} value={roleOpt}>
+                    {t(`fb.role.${roleOpt}` as never)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+        </div>
+
         <div className="rounded-md border border-line bg-surface-muted p-3 space-y-2.5">
           <p className="text-xs font-semibold text-ink">{t('fb.env.title')}</p>
           <p className="text-xs text-ink-muted">{t('fb.env.desc')}</p>
@@ -201,6 +320,54 @@ export function FacebookAccountFormSheet({
           </Field>
         </div>
 
+        <div className="grid gap-3 sm:grid-cols-2">
+          {canAssignOwner && (
+            <Field htmlFor={`${formId}-owner`} label={t('fb.owner')}>
+              <select
+                id={`${formId}-owner`}
+                className="input"
+                value={ownerMemberId}
+                onChange={(e) => setOwnerMemberId(e.target.value)}
+              >
+                <option value="">—</option>
+                {members.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.full_name || m.email}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+          <Field htmlFor={`${formId}-2fa`} label={t('fb.twoFactor')}>
+            <select
+              id={`${formId}-2fa`}
+              className="input"
+              value={twoFactor}
+              onChange={(e) => setTwoFactor(e.target.value)}
+            >
+              {TWO_FACTOR_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {t(`twoFactor.${opt}` as never)}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field htmlFor={`${formId}-status`} label={t('res.f.status')}>
+            <select
+              id={`${formId}-status`}
+              className="input"
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+            >
+              {STATUS_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {enumLabel('refStatus', opt)}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+
         <Field htmlFor={`${formId}-display`} label={t('res.f.displayName')}>
           <input
             id={`${formId}-display`}
@@ -218,37 +385,6 @@ export function FacebookAccountFormSheet({
             value={externalId}
             onChange={(e) => setExternalId(e.target.value)}
           />
-        </Field>
-        {canAssignOwner && (
-          <Field htmlFor={`${formId}-owner`} label={t('fb.owner')}>
-            <select
-              id={`${formId}-owner`}
-              className="input"
-              value={ownerMemberId}
-              onChange={(e) => setOwnerMemberId(e.target.value)}
-            >
-              <option value="">—</option>
-              {members.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.full_name || m.email}
-                </option>
-              ))}
-            </select>
-          </Field>
-        )}
-        <Field htmlFor={`${formId}-2fa`} label={t('fb.twoFactor')}>
-          <select
-            id={`${formId}-2fa`}
-            className="input"
-            value={twoFactor}
-            onChange={(e) => setTwoFactor(e.target.value)}
-          >
-            {TWO_FACTOR_OPTIONS.map((opt) => (
-              <option key={opt} value={opt}>
-                {t(`twoFactor.${opt}` as never)}
-              </option>
-            ))}
-          </select>
         </Field>
         <Field htmlFor={`${formId}-vault`} label={t('fb.form.vaultLabel')}>
           <input
@@ -268,20 +404,6 @@ export function FacebookAccountFormSheet({
             value={recoveryNote}
             onChange={(e) => setRecoveryNote(e.target.value)}
           />
-        </Field>
-        <Field htmlFor={`${formId}-status`} label={t('res.f.status')}>
-          <select
-            id={`${formId}-status`}
-            className="input"
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-          >
-            {STATUS_OPTIONS.map((opt) => (
-              <option key={opt} value={opt}>
-                {enumLabel('refStatus', opt)}
-              </option>
-            ))}
-          </select>
         </Field>
         <Field htmlFor={`${formId}-notes`} label={t('res.f.notes')}>
           <textarea

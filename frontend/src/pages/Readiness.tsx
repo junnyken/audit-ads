@@ -39,8 +39,42 @@ interface Board {
 
 const FILTERS = ['', 'not_ready', 'unknown', 'ready_with_warnings', 'operationally_ready']
 
+const VI_REASON_MESSAGES: Record<string, string> = {
+  ownership_confirmed_incomplete: 'Xác nhận chủ sở hữu: Mục này chưa được rà soát.',
+  ownership_confirmed_blocked: 'Xác nhận chủ sở hữu: Đang có vấn đề cần xử lý.',
+  business_manager_confirmed_incomplete: 'Xác nhận Business Manager: Chưa gắn hoặc chưa xác nhận BM.',
+  business_manager_confirmed_blocked: 'Xác nhận Business Manager: BM đang gặp sự cố hoặc bị hạn chế.',
+  admin_access_reviewed_incomplete: 'Rà soát quyền Quản trị viên (Admin): Mục này chưa được kiểm tra.',
+  admin_access_reviewed_blocked: 'Rà soát quyền Quản trị viên (Admin): Phát hiện rủi ro phân quyền.',
+  two_factor_checked_incomplete: 'Bảo mật 2 lớp (2FA): Chưa xác nhận bật 2FA cho VIA quản lý.',
+  two_factor_checked_blocked: 'Bảo mật 2 lớp (2FA): Tài khoản VIA chưa bật 2FA.',
+  payment_method_reviewed_incomplete: 'Phương thức thanh toán (PTTT): Chưa rà soát thẻ/PTTT.',
+  payment_method_reviewed_blocked: 'Phương thức thanh toán (PTTT): PTTT đang lỗi hoặc bị từ chối.',
+  billing_issue_checked_incomplete: 'Kiểm tra nợ cước / hóa đơn: Mục này chưa được rà soát.',
+  billing_issue_checked_blocked: 'Kiểm tra nợ cước / hóa đơn: Tài khoản đang có nợ cước chưa thanh toán.',
+  page_linked_incomplete: 'Liên kết Trang Fanpage: Chưa gắn Fanpage hoạt động cho tài khoản.',
+  page_linked_blocked: 'Liên kết Trang Fanpage: Fanpage liên kết đang bị hạn chế.',
+  pixel_linked_incomplete: 'Liên kết Pixel: Chưa gắn Pixel theo dõi cho tài khoản.',
+  pixel_linked_blocked: 'Liên kết Pixel: Pixel liên kết đang gặp sự cố.',
+  browser_reference_assigned_incomplete: 'Hồ sơ trình duyệt (Profile): Chưa gán Profile trình duyệt cố định.',
+  browser_reference_assigned_blocked: 'Hồ sơ trình duyệt (Profile): Profile trình duyệt đang lỗi.',
+  proxy_reference_assigned_incomplete: 'Cấu hình Proxy / IP: Chưa gán Proxy cố định.',
+  last_manual_review_completed_incomplete: 'Rà soát thủ công định kỳ: Tài khoản này chưa từng được rà soát thủ công.',
+  last_manual_review_completed_blocked: 'Rà soát thủ công định kỳ: Đã quá hạn rà soát thủ công.',
+  account_status_restricted: 'Trạng thái tài khoản đang bị Hạn chế / Nợ cước trên Meta — cần kiểm tra ngay.',
+  account_status_disabled: 'Trạng thái tài khoản đã bị Vô hiệu hóa / Đóng trên Meta.',
+  account_status_unknown: 'Chưa ghi nhận trạng thái tài khoản nên chưa thể xác nhận mức sẵn sàng.',
+}
+
+function localizeReason(code: string, message: string, language: string): string {
+  if (language === 'vi' && VI_REASON_MESSAGES[code]) {
+    return VI_REASON_MESSAGES[code]
+  }
+  return message
+}
+
 export default function ReadinessPage() {
-  const { t } = useI18n()
+  const { t, language } = useI18n()
   const enumLabel = useEnumLabel()
   const [filter, setFilter] = useState('')
   const board = useQuery({
@@ -114,7 +148,7 @@ export default function ReadinessPage() {
                         </Badge>
                         <span className="font-mono text-xs text-ink-muted">{group.code}</span>
                       </div>
-                      <p className="mt-0.5 text-sm">{group.message}</p>
+                      <p className="mt-0.5 text-sm">{localizeReason(group.code, group.message, language)}</p>
                       <div className="mt-1 flex flex-wrap gap-1.5">
                         {group.accounts.map((account) => (
                           <Link
@@ -158,7 +192,7 @@ export default function ReadinessPage() {
                         <ul className="mt-1.5 space-y-1">
                           {row.reasons.slice(0, 4).map((reason, index) => (
                             <li key={`${reason.code}-${index}`} className="text-xs text-ink-muted">
-                              · {reason.message}
+                              · {localizeReason(reason.code, reason.message, language)}
                             </li>
                           ))}
                           {row.reasons.length > 4 && (
