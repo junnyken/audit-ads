@@ -429,23 +429,55 @@ def quick_sync_connection(ctx: OwnerCtx, payload: s.QuickSyncRequest) -> dict[st
     run = service.validate_configured_business_manager(connection, actor_id=ctx.user.id)
     imported_count = 0
 
-    if run.status == DiscoveryRunStatus.SUCCEEDED:
+    if run.status in (DiscoveryRunStatus.SUCCEEDED, DiscoveryRunStatus.SUCCEEDED_WITH_WARNINGS):
+        if not connection.business_manager_reference and run.configured_business_manager_reference:
+            connection.business_manager_reference = run.configured_business_manager_reference
         if run.configured_business_manager_name and not label_clean and connection.label.startswith("BM "):
             connection.label = run.configured_business_manager_name[:200]
         service.discover_assets(run)
-        service.evaluate_business_user_drift_alert(run, connection)
+        try:
+            with ctx.session.begin_nested():
+                service.evaluate_business_user_drift_alert(run, connection)
+        except Exception:
+            pass
         # Ensure BusinessManager registry record is created even before importing accounts
         service._registry_business_manager(run)
         # Auto-import all newly discovered ad accounts immediately
         reconciled = service.reconcile_ad_accounts(run)
+        synced_accounts = []
         for row in reconciled:
             if (
-                row.reconciliation_status == "missing_in_registry"
+                row.status == "missing_in_registry"
                 and row.external_id
                 and service.registry_account_any_state(row.external_id) is None
             ):
-                    service.import_ad_account(run, row.external_id, automatic=False)
-                    imported_count += 1
+                try:
+                    with ctx.session.begin_nested():
+                        acc = service.import_ad_account(run, row.external_id, automatic=False)
+                        imported_count += 1
+                        synced_accounts.append(acc)
+                except Exception:
+                    pass
+            elif row.status == "matched" and row.external_id:
+                existing_acc = service.registry_account_any_state(row.external_id)
+                if existing_acc is not None and existing_acc.archived_at is None:
+                    synced_accounts.append(existing_acc)
+
+        # Auto-refresh spend & platform status for up to 10 synced accounts so numbers show immediately
+        from app.core.enums import SpendObservationTrigger
+        from app.services import spend_service
+
+        for acc in synced_accounts[:10]:
+            try:
+                with ctx.session.begin_nested():
+                    reader = spend_service.resolve_spend_connection(ctx.session, ctx.workspace_id, acc)
+                    if reader is not None:
+                        prov = spend_service.provider_for_connection(reader)
+                        spend_service.SpendObservationService(ctx.session, ctx.workspace_id).read_and_record(
+                            acc, reader, prov, trigger=SpendObservationTrigger.MANUAL_REFRESH
+                        )
+            except Exception:
+                pass
 
     ctx.commit()
     return {
