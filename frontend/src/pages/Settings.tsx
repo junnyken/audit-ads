@@ -91,10 +91,16 @@ export default function Settings() {
         </Panel>
 
         <Panel title={t('set.system.title')}>
-          <Link to="/system" className={LINK_CARD}>
-            <p className="text-sm font-medium">{t('set.system.link')}</p>
-            <p className="mt-0.5 text-xs text-ink-muted">{t('set.system.body')}</p>
-          </Link>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Link to="/system" className={LINK_CARD}>
+              <p className="text-sm font-medium">{t('set.system.link')}</p>
+              <p className="mt-0.5 text-xs text-ink-muted">{t('set.system.body')}</p>
+            </Link>
+            <Link to="/audit-log" className={LINK_CARD}>
+              <p className="text-sm font-medium">{t('nav.item.auditLog')}</p>
+              <p className="mt-0.5 text-xs text-ink-muted">Tra cứu lịch sử thay đổi &amp; thao tác hệ thống</p>
+            </Link>
+          </div>
         </Panel>
       </div>
 

@@ -187,13 +187,14 @@ export default function FacebookAccounts() {
                           {deviceLabel && (
                             <p>
                               <span className="text-ink-muted">{t('fb.deviceLabel')}:</span>{' '}
-                              <Link
-                                to="/security-devices"
+                              <button
+                                type="button"
+                                onClick={() => setEditingRecord(row)}
                                 className="font-medium text-brand-text hover:underline"
-                                title="Mở quản lý Thiết bị đăng nhập"
+                                title="Đổi nhanh Thiết bị / Máy trạm cố định"
                               >
-                                {deviceLabel} ↗
-                              </Link>
+                                {deviceLabel} ✎
+                              </button>
                             </p>
                           )}
                           {browserLabel && (
