@@ -380,6 +380,40 @@ class MetaDiscoveryService:
                     if bm_row.currency is not None and bm_row.country is not None:
                         break
 
+            # Also backfill existing manual AdAccount records that only have external_account_id
+            existing_accounts = (
+                self.session.execute(
+                    sa.select(AdAccount).where(
+                        AdAccount.workspace_id == self.workspace_id,
+                        AdAccount.archived_at.is_(None),
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            by_canonical = {
+                canonical_external_id(acc.external_account_id): acc
+                for acc in existing_accounts
+                if canonical_external_id(acc.external_account_id)
+            }
+            for asset in accounts.assets:
+                acc_row = by_canonical.get(asset.external_id)
+                if acc_row is None:
+                    continue
+                meta = asset.safe_metadata or {}
+                c_val = (meta.get("currency") or "").strip()[:10] or None
+                tz_val = (meta.get("timezone_name") or "").strip()[:80] or None
+                cnt_val = _country_from_timezone(tz_val)
+                if acc_row.currency is None and c_val:
+                    acc_row.currency = c_val
+                if acc_row.timezone is None and tz_val:
+                    acc_row.timezone = tz_val
+                if acc_row.country is None and cnt_val:
+                    acc_row.country = cnt_val
+                if bm_row is not None and acc_row.business_manager_id is None:
+                    acc_row.business_manager_id = bm_row.id
+                    acc_row.account_type = AccountType.BUSINESS_MANAGER
+
         complete = accounts.complete and pixels.complete
         self._finish(
             run,
