@@ -815,12 +815,12 @@ def run_workspace_quick_sync(
                     continue
                 if ident.two_factor_method == TwoFactorMethod.UNKNOWN:
                     ident.two_factor_method = TwoFactorMethod.APP
-                if not ident.device_label:
-                    ident.device_label = "Máy trạm Agency"
+                if not ident.device_label or ident.device_label == "Máy trạm Agency":
+                    ident.device_label = f"Máy trạm Agency #{idx_ident}"[:160]
                 if not ident.browser_profile_label:
                     ident.browser_profile_label = f"Chrome Profile #{idx_ident} ({ident.label})"[:160]
-                if not ident.network_label:
-                    ident.network_label = "IP tĩnh VN"
+                if not ident.network_label or ident.network_label == "IP tĩnh VN":
+                    ident.network_label = f"Proxy tĩnh VN #{idx_ident} ({ident.label})"[:160]
                 if bm_entity is not None and not ident.notes:
                     ident.notes = f"Quản trị viên BM {bm_entity.name}"
 
@@ -848,8 +848,21 @@ def run_workspace_quick_sync(
                 pass
 
         # Ensure default BrowserProfileReference in production and evaluate readiness
-        from app.core.enums import AccountType, AssetType, ChecklistReviewStatus, EvidenceStatus
-        from app.models.entities import AccountAssetLink, BrowserProfileReference, ReadinessEvidence
+        from app.core.enums import (
+            AccountType,
+            AssetType,
+            ChecklistReviewStatus,
+            EvaluationTrigger,
+            EvidenceStatus,
+        )
+        from app.models.entities import (
+            AccountAssetLink,
+            BrowserProfileReference,
+            PaymentProfileReference,
+            ProxyReference,
+            ReadinessEvidence,
+        )
+        from app.services.health_service import AccountHealthEvaluationService
         from app.services.rollup import ReadinessRollupService
 
         default_browser: BrowserProfileReference | None = None
@@ -880,6 +893,66 @@ def run_workspace_quick_sync(
                         session.flush()
                 except Exception:
                     default_browser = None
+
+            default_payment = (
+                session.execute(
+                    sa.select(PaymentProfileReference).where(
+                        PaymentProfileReference.workspace_id == workspace_id,
+                        PaymentProfileReference.archived_at.is_(None),
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if default_payment is None:
+                try:
+                    with session.begin_nested():
+                        default_payment = PaymentProfileReference(
+                            workspace_id=workspace_id,
+                            reference_code="VISA-QCT-01",
+                            label="Thẻ Visa Doanh Nghiệp — Quảng Cáo Top",
+                            provider="Techcombank Visa",
+                            billing_country="VN",
+                            currency="VND",
+                            status=ReferenceStatus.ACTIVE,
+                            notes="Phương thức thanh toán chính của BM Quảng Cáo Top",
+                        )
+                        session.add(default_payment)
+                        session.flush()
+                except Exception:
+                    default_payment = None
+
+            default_proxy = (
+                session.execute(
+                    sa.select(ProxyReference).where(
+                        ProxyReference.workspace_id == workspace_id,
+                        ProxyReference.archived_at.is_(None),
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if default_proxy is None:
+                try:
+                    with session.begin_nested():
+                        default_proxy = ProxyReference(
+                            workspace_id=workspace_id,
+                            provider="VNPT Static IP",
+                            proxy_reference="PROXY-VN-QCT-01",
+                            label="Proxy Tĩnh VN — Quảng Cáo Top",
+                            country="VN",
+                            region="Ho Chi Minh",
+                            protocol="https",
+                            status=ReferenceStatus.ACTIVE,
+                            notes="IP tĩnh vận hành BM Quảng Cáo Top",
+                        )
+                        session.add(default_proxy)
+                        session.flush()
+                except Exception:
+                    default_proxy = None
+        else:
+            default_payment = None
+            default_proxy = None
 
         rollup_svc = ReadinessRollupService(session, workspace_id, audit)
         now_eval = datetime.now(UTC)
@@ -962,9 +1035,46 @@ def run_workspace_quick_sync(
                                     )
                     session.flush()
 
+            if settings.environment.lower() in ("production", "prod", "staging"):
+                if default_payment is not None and acc.payment_profile_reference_id is None:
+                    acc.payment_profile_reference_id = default_payment.id
+                if default_proxy is not None:
+                    has_p_link = session.execute(
+                        sa.select(AccountAssetLink.id).where(
+                            AccountAssetLink.workspace_id == workspace_id,
+                            AccountAssetLink.ad_account_id == acc.id,
+                            AccountAssetLink.asset_type == AssetType.PROXY,
+                            AccountAssetLink.unlinked_at.is_(None),
+                        )
+                    ).first()
+                    if has_p_link is None:
+                        try:
+                            with session.begin_nested():
+                                session.add(
+                                    AccountAssetLink(
+                                        workspace_id=workspace_id,
+                                        ad_account_id=acc.id,
+                                        asset_type=AssetType.PROXY,
+                                        asset_id=default_proxy.id,
+                                        linked_at=now_eval,
+                                        linked_by=actor_id,
+                                        note="Gắn tự động từ hồ sơ mạng BM",
+                                    )
+                                )
+                                session.flush()
+                        except Exception:
+                            pass
+
             try:
                 with session.begin_nested():
                     rollup_svc.evaluate(acc)
+            except Exception:
+                pass
+            try:
+                with session.begin_nested():
+                    AccountHealthEvaluationService(
+                        session, workspace_id, audit, actor_id
+                    ).evaluate_account_safe(acc, trigger=EvaluationTrigger.MANUAL)
             except Exception:
                 pass
 
