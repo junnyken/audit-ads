@@ -72,7 +72,7 @@ def _revision() -> str:
 
 
 def test_head_is_0019_and_downgrade_round_trips(migrated_database):
-    assert _revision() in ("0019_f1_facebook_identities", "0020_f3_business_users", "0021_c1_client_budget_and_pacing")
+    assert _revision() in ("0019_f1_facebook_identities", "0020_f3_business_users", "0021_c1_client_budget_and_pacing", "0022_f1_5_login_environment")
     tables_before = set(sa.inspect(engine).get_table_names())
     try:
         command.downgrade(_config(), "0018_o4_reader_credentials")
@@ -83,7 +83,7 @@ def test_head_is_0019_and_downgrade_round_trips(migrated_database):
         assert "reveal_pin_hash" not in {c["name"] for c in inspector.get_columns("users")}
     finally:
         command.upgrade(_config(), "head")
-    assert _revision() in ("0019_f1_facebook_identities", "0020_f3_business_users", "0021_c1_client_budget_and_pacing")
+    assert _revision() in ("0019_f1_facebook_identities", "0020_f3_business_users", "0021_c1_client_budget_and_pacing", "0022_f1_5_login_environment")
     assert set(sa.inspect(engine).get_table_names()) == tables_before
 
 

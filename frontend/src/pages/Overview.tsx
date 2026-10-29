@@ -164,6 +164,167 @@ export default function Overview() {
         />
       ) : (
         <>
+          {readiness?.inventory && (
+            <section
+              aria-labelledby="overview-inventory"
+              className="space-y-3"
+              data-testid="overview-inventory-section"
+            >
+              <h2 id="overview-inventory" className="text-lg font-semibold leading-7">
+                {t('overview.inventory.title')}
+              </h2>
+
+              {readiness.inventory.ad_account_counts.unassigned_via_count > 0 && (
+                <div
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-tone-caution-border bg-tone-caution-bg px-4 py-2.5 text-sm text-tone-caution-fg"
+                  data-testid="overview-orphan-banner"
+                >
+                  <span className="font-medium">
+                    {t('overview.inventory.orphanWarning', {
+                      count: formatCount(readiness.inventory.ad_account_counts.unassigned_via_count),
+                    })}
+                  </span>
+                  <Link
+                    to="/accounts?unassigned_identity=true"
+                    className="text-xs font-semibold underline hover:no-underline"
+                  >
+                    {t('overview.inventory.orphanAction')}
+                  </Link>
+                </div>
+              )}
+
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-ink-muted">
+                      <Link to="/facebook-accounts" className="hover:underline">
+                        {t('overview.inventory.viaTitle')}
+                      </Link>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <div className="text-2xl font-bold tabular-nums text-ink">
+                      {formatCount(readiness.inventory.via_counts.total)}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 text-xs">
+                      <Badge tone="neutral">
+                        {t('overview.inventory.activeCount', {
+                          count: formatCount(readiness.inventory.via_counts.active),
+                        })}
+                      </Badge>
+                      <Badge
+                        tone={readiness.inventory.via_counts.restricted > 0 ? 'attention' : 'muted'}
+                      >
+                        {t('overview.inventory.blockedCount', {
+                          count: formatCount(readiness.inventory.via_counts.restricted),
+                        })}
+                      </Badge>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-ink-muted">
+                      <Link to="/business-managers" className="hover:underline">
+                        {t('overview.inventory.bmTitle')}
+                      </Link>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <div className="text-2xl font-bold tabular-nums text-ink">
+                      {formatCount(readiness.inventory.bm_counts.total)}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 text-xs">
+                      <Badge tone="neutral">
+                        {t('overview.inventory.activeCount', {
+                          count: formatCount(readiness.inventory.bm_counts.active),
+                        })}
+                      </Badge>
+                      <Badge
+                        tone={readiness.inventory.bm_counts.restricted > 0 ? 'attention' : 'muted'}
+                      >
+                        {t('overview.inventory.blockedCount', {
+                          count: formatCount(readiness.inventory.bm_counts.restricted),
+                        })}
+                      </Badge>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-ink-muted">
+                      <Link to="/accounts" className="hover:underline">
+                        {t('overview.inventory.adAccountTitle')}
+                      </Link>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <div className="flex flex-wrap items-baseline gap-2">
+                      <span className="text-2xl font-bold tabular-nums text-ink">
+                        {formatCount(readiness.inventory.ad_account_counts.total)}
+                      </span>
+                      {Object.keys(readiness.inventory.ad_account_counts.by_currency).length > 0 && (
+                        <span className="text-xs font-mono text-ink-muted">
+                          {Object.entries(readiness.inventory.ad_account_counts.by_currency)
+                            .map(([curr, cnt]) => `${formatCount(cnt)} ${curr}`)
+                            .join(' · ')}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 text-xs">
+                      <Badge tone="neutral">
+                        {t('overview.inventory.activeCount', {
+                          count: formatCount(readiness.inventory.ad_account_counts.active),
+                        })}
+                      </Badge>
+                      <Badge
+                        tone={
+                          readiness.inventory.ad_account_counts.blocked > 0 ? 'attention' : 'muted'
+                        }
+                      >
+                        {t('overview.inventory.blockedCount', {
+                          count: formatCount(readiness.inventory.ad_account_counts.blocked),
+                        })}
+                      </Badge>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-ink-muted">
+                      {t('overview.inventory.activityTitle')}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <dl className="grid grid-cols-3 gap-2 text-xs">
+                      <div>
+                        <dt className="text-ink-muted">{t('overview.inventory.created7d')}</dt>
+                        <dd className="mt-0.5 text-base font-bold tabular-nums text-ink">
+                          +{formatCount(readiness.inventory.activity_7d.created_7d)}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-ink-muted">{t('overview.inventory.blocked7d')}</dt>
+                        <dd className="mt-0.5 text-base font-bold tabular-nums text-ink">
+                          {formatCount(readiness.inventory.activity_7d.blocked_7d)}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-ink-muted">{t('overview.inventory.recovered7d')}</dt>
+                        <dd className="mt-0.5 text-base font-bold tabular-nums text-ink">
+                          {formatCount(readiness.inventory.activity_7d.recovered_7d)}
+                        </dd>
+                      </div>
+                    </dl>
+                  </CardContent>
+                </Card>
+              </div>
+            </section>
+          )}
+
           <section aria-labelledby="overview-todo" className="space-y-3">
             <div className="flex flex-wrap items-baseline gap-x-3">
               <h2 id="overview-todo" className="text-lg font-semibold leading-7">

@@ -9,16 +9,21 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from app.core.enums import AssetType, ReadinessStatus
+from app.core.enums import AccountStatus, AssetType, ReadinessStatus, ReferenceStatus
 from app.models.entities import (
     AccountAssetLink,
     AccountEvent,
     AdAccount,
+    AuditLog,
+    BusinessManager,
+    PersonalAccountBusinessLink,
+    PersonalAccountReference,
     ReadinessChecklistItem,
 )
 from app.services.audit import AuditLogService
@@ -94,6 +99,163 @@ class ReadinessRollupService:
         counts["archived"] = archived
         counts["total_active"] = total_active
         return counts
+
+    def inventory_summary(self, *, visible_ids: set[uuid.UUID] | None = None) -> dict[str, Any]:
+        now = datetime.now(UTC)
+        cutoff_7d = now - timedelta(days=7)
+
+        vias = list(
+            self.session.execute(
+                sa.select(PersonalAccountReference.id, PersonalAccountReference.status).where(
+                    PersonalAccountReference.workspace_id == self.workspace_id,
+                    PersonalAccountReference.archived_at.is_(None),
+                )
+            ).all()
+        )
+        active_via_ids = {row.id for row in vias}
+        via_active = sum(1 for r in vias if r.status == ReferenceStatus.ACTIVE)
+        via_restricted = sum(
+            1
+            for r in vias
+            if r.status in (ReferenceStatus.RESTRICTED, ReferenceStatus.INACTIVE)
+        )
+        via_unknown = sum(1 for r in vias if r.status == ReferenceStatus.UNKNOWN)
+
+        bms = list(
+            self.session.execute(
+                sa.select(BusinessManager.id, BusinessManager.status).where(
+                    BusinessManager.workspace_id == self.workspace_id,
+                    BusinessManager.archived_at.is_(None),
+                )
+            ).all()
+        )
+        bm_active = sum(1 for r in bms if r.status == ReferenceStatus.ACTIVE)
+        bm_restricted = sum(
+            1
+            for r in bms
+            if r.status in (ReferenceStatus.RESTRICTED, ReferenceStatus.INACTIVE)
+        )
+        bm_unknown = sum(1 for r in bms if r.status == ReferenceStatus.UNKNOWN)
+
+        bms_with_via: set[uuid.UUID] = set()
+        if active_via_ids:
+            bms_with_via = {
+                row[0]
+                for row in self.session.execute(
+                    sa.select(PersonalAccountBusinessLink.business_manager_id).where(
+                        PersonalAccountBusinessLink.workspace_id == self.workspace_id,
+                        PersonalAccountBusinessLink.personal_account_reference_id.in_(active_via_ids),
+                        PersonalAccountBusinessLink.unlinked_at.is_(None),
+                    )
+                ).all()
+            }
+
+        acc_stmt = sa.select(AdAccount).where(
+            AdAccount.workspace_id == self.workspace_id,
+            AdAccount.archived_at.is_(None),
+        )
+        if visible_ids is not None:
+            acc_stmt = acc_stmt.where(AdAccount.id.in_(visible_ids))
+        accounts = list(self.session.execute(acc_stmt).scalars().all())
+
+        acc_active = 0
+        acc_blocked = 0
+        acc_unknown = 0
+        by_currency: dict[str, int] = {}
+        unassigned_via = 0
+        unassigned_bm = 0
+        created_7d = 0
+        blocked_7d = 0
+
+        for acc in accounts:
+            if acc.status == AccountStatus.ACTIVE:
+                acc_active += 1
+            elif acc.status in (AccountStatus.RESTRICTED, AccountStatus.DISABLED, AccountStatus.WARNING):
+                acc_blocked += 1
+            else:
+                acc_unknown += 1
+
+            curr = (acc.currency or "").strip().upper()
+            if curr:
+                by_currency[curr] = by_currency.get(curr, 0) + 1
+
+            has_direct_via = acc.personal_account_reference_id in active_via_ids
+            has_bm_via = bool(acc.business_manager_id and acc.business_manager_id in bms_with_via)
+            if not (has_direct_via or has_bm_via):
+                unassigned_via += 1
+            if acc.business_manager_id is None:
+                unassigned_bm += 1
+
+            created_ts = (
+                acc.created_at.replace(tzinfo=UTC)
+                if acc.created_at and acc.created_at.tzinfo is None
+                else acc.created_at
+            )
+            updated_ts = (
+                acc.updated_at.replace(tzinfo=UTC)
+                if acc.updated_at and acc.updated_at.tzinfo is None
+                else acc.updated_at
+            )
+            if created_ts and created_ts >= cutoff_7d:
+                created_7d += 1
+            if (
+                acc.status in (AccountStatus.RESTRICTED, AccountStatus.DISABLED)
+                and updated_ts
+                and updated_ts >= cutoff_7d
+            ):
+                blocked_7d += 1
+
+        recovered_logs = list(
+            self.session.execute(
+                sa.select(AuditLog).where(
+                    AuditLog.workspace_id == self.workspace_id,
+                    AuditLog.entity_type == "ad_account",
+                    AuditLog.action.in_(("ad_account.restored", "ad_account.updated")),
+                    AuditLog.created_at >= cutoff_7d,
+                )
+            ).scalars().all()
+        )
+        recovered_ids: set[str] = set()
+        visible_str = {str(i) for i in visible_ids} if visible_ids is not None else None
+        for log in recovered_logs:
+            if visible_str is not None and log.entity_id not in visible_str:
+                continue
+            if log.action == "ad_account.restored":
+                recovered_ids.add(log.entity_id)
+            elif log.action == "ad_account.updated":
+                before_status = (log.before_json or {}).get("status")
+                after_status = (log.after_json or {}).get("status")
+                if before_status in ("restricted", "disabled", "warning") and after_status == "active":
+                    recovered_ids.add(log.entity_id)
+
+        return {
+            "via_counts": {
+                "total": len(vias),
+                "active": via_active,
+                "restricted": via_restricted,
+                "unknown": via_unknown,
+            },
+            "bm_counts": {
+                "total": len(bms),
+                "active": bm_active,
+                "restricted": bm_restricted,
+                "unknown": bm_unknown,
+            },
+            "ad_account_counts": {
+                "total": len(accounts),
+                "active": acc_active,
+                "blocked": acc_blocked,
+                "unknown": acc_unknown,
+                "by_currency": dict(sorted(by_currency.items())),
+                "unassigned_via_count": unassigned_via,
+                "unassigned_bm_count": unassigned_bm,
+            },
+            "activity_7d": {
+                "created_7d": created_7d,
+                "blocked_7d": blocked_7d,
+                "recovered_7d": len(recovered_ids),
+            },
+        }
 
     def evaluate_many(self, accounts: list[AdAccount]) -> dict[str, ReadinessResult]:
         """Evaluate a page of accounts with three bulk queries instead of three per account.

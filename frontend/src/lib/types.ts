@@ -80,8 +80,10 @@ export interface AdAccount {
   completed_item_count?: number
   has_browser_reference?: boolean
   has_proxy_reference?: boolean
+  payment_profile_labels?: string[]
   /** List responses only (S1 follow-up). Compact; the full view is `GET …/spend`. */
   spend?: AccountSpendCompact
+  spend_periods?: AccountSpendPeriods | null
   /** S2. List and detail responses. Meta's latest account status, compact; `null` when no read
    * has carried a status code. The full block is `SpendView.platform_status`. */
   platform_status?: PlatformStatusCompact | null
@@ -128,6 +130,36 @@ export interface Readiness {
   disclaimer: string
 }
 
+export interface AssetInventoryCounts {
+  total: number
+  active: number
+  restricted: number
+  unknown: number
+}
+
+export interface AdAccountInventoryCounts {
+  total: number
+  active: number
+  blocked: number
+  unknown: number
+  by_currency: Record<string, number>
+  unassigned_via_count: number
+  unassigned_bm_count: number
+}
+
+export interface AccountActivity7d {
+  created_7d: number
+  blocked_7d: number
+  recovered_7d: number
+}
+
+export interface InventorySummary {
+  via_counts: AssetInventoryCounts
+  bm_counts: AssetInventoryCounts
+  ad_account_counts: AdAccountInventoryCounts
+  activity_7d: AccountActivity7d
+}
+
 export interface ReadinessSummary {
   total_active: number
   operationally_ready: number
@@ -135,6 +167,7 @@ export interface ReadinessSummary {
   not_ready: number
   unknown: number
   archived: number
+  inventory?: InventorySummary | null
 }
 
 export interface ChecklistItem {
@@ -1297,6 +1330,12 @@ export interface AccountSpendCompact {
   not_observable_reason?: NotObservableReason | null
 }
 
+export interface AccountSpendPeriods {
+  today_partial_raw: string | null
+  last_7d_raw: string | null
+  mtd_raw: string | null
+}
+
 export interface SpendDailyRaw {
   date_start: string
   date_stop: string
@@ -1400,6 +1439,9 @@ export interface BudgetPacingView {
 export interface SpendCurrencyGroup {
   currency: string
   total_raw: string | null
+  today_partial_raw?: string | null
+  last_7d_raw?: string | null
+  mtd_raw?: string | null
   days: string[]
   accounts_included: number
   accounts_without_row: number

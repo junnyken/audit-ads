@@ -56,6 +56,36 @@ class ReadinessOut(BaseModel):
     )
 
 
+class AssetInventoryCountsOut(BaseModel):
+    total: int = 0
+    active: int = 0
+    restricted: int = 0
+    unknown: int = 0
+
+
+class AdAccountInventoryCountsOut(BaseModel):
+    total: int = 0
+    active: int = 0
+    blocked: int = 0
+    unknown: int = 0
+    by_currency: dict[str, int] = Field(default_factory=dict)
+    unassigned_via_count: int = 0
+    unassigned_bm_count: int = 0
+
+
+class AccountActivity7dOut(BaseModel):
+    created_7d: int = 0
+    blocked_7d: int = 0
+    recovered_7d: int = 0
+
+
+class InventorySummaryOut(BaseModel):
+    via_counts: AssetInventoryCountsOut
+    bm_counts: AssetInventoryCountsOut
+    ad_account_counts: AdAccountInventoryCountsOut
+    activity_7d: AccountActivity7dOut
+
+
 class ReadinessSummaryOut(BaseModel):
     total_active: int
     operationally_ready: int
@@ -63,6 +93,7 @@ class ReadinessSummaryOut(BaseModel):
     not_ready: int
     unknown: int
     archived: int
+    inventory: InventorySummaryOut | None = None
 
 
 class ChecklistItemOut(ORMModel):

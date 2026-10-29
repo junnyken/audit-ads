@@ -24,6 +24,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
@@ -52,7 +53,7 @@ from app.services.meta_real_provider import (
     build_real_provider,
     resolve_reader,
 )
-from app.services.spend_engine import ObservationView, SpendFacts, assemble
+from app.services.spend_engine import ObservationView, SpendFacts, amount_text, assemble
 
 logger = logging.getLogger(__name__)
 
@@ -500,8 +501,35 @@ def list_compact_reads(
             # O4: why the product cannot read it. Present only on a `not_observable` row, so the
             # S1 compact shape of every observable row stays exactly what it was.
             spend["not_observable_reason"] = not_observable_reason(account, mapping)
+        today_raw = (
+            facts.today_partial.spend_raw
+            if (facts.today_partial and facts.today_partial.has_row and not facts.insights_currency_conflict)
+            else None
+        )
+        last_7d_dec = Decimal(0)
+        last_7d_days = 0
+        mtd_dec = Decimal(0)
+        mtd_days = 0
+        if facts.latest_complete_day is not None and not facts.insights_currency_conflict:
+            cutoff_7d = facts.latest_complete_day - timedelta(days=6)
+            for d_entry in facts.complete_days:
+                if d_entry.has_row and d_entry.amount is not None:
+                    if d_entry.day >= cutoff_7d:
+                        last_7d_dec += d_entry.amount
+                        last_7d_days += 1
+                    if (
+                        d_entry.day.year == facts.latest_complete_day.year
+                        and d_entry.day.month == facts.latest_complete_day.month
+                    ):
+                        mtd_dec += d_entry.amount
+                        mtd_days += 1
         result[account.id] = {
             "spend": spend,
+            "spend_periods": {
+                "today_partial_raw": today_raw,
+                "last_7d_raw": amount_text(last_7d_dec) if last_7d_days > 0 else None,
+                "mtd_raw": amount_text(mtd_dec) if mtd_days > 0 else None,
+            },
             "platform_status": compact_platform_status(facts.platform_status),
         }
     return result

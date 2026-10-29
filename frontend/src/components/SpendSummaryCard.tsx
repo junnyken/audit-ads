@@ -91,6 +91,47 @@ export function SpendSummaryView({ data }: { data: SpendSummary }) {
         </Table>
       )}
 
+      {data.currencies.some(
+        (g) => g.today_partial_raw !== undefined || g.last_7d_raw !== undefined || g.mtd_raw !== undefined,
+      ) && (
+        <div
+          className="rounded-md border border-line bg-surface-muted p-3 space-y-2"
+          data-testid="spend-period-breakdown"
+        >
+          <p className="text-xs font-semibold text-ink">{t('overview.spend.periodTitle')}</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {data.currencies.map((group) => (
+              <div
+                key={group.currency}
+                className="rounded border border-line bg-surface p-2.5 text-xs space-y-1.5"
+              >
+                <div className="font-semibold text-ink">{group.currency}</div>
+                <dl className="grid grid-cols-3 gap-2">
+                  <div>
+                    <dt className="text-2xs text-ink-muted">{t('overview.spend.periodToday')}</dt>
+                    <dd className="font-mono font-medium tabular-nums text-ink">
+                      {group.today_partial_raw ? rawMoney(group.today_partial_raw, group.currency) : '—'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-2xs text-ink-muted">{t('overview.spend.period7d')}</dt>
+                    <dd className="font-mono font-medium tabular-nums text-ink">
+                      {group.last_7d_raw ? rawMoney(group.last_7d_raw, group.currency) : '—'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-2xs text-ink-muted">{t('overview.spend.periodMtd')}</dt>
+                    <dd className="font-mono font-medium tabular-nums text-ink">
+                      {group.mtd_raw ? rawMoney(group.mtd_raw, group.currency) : '—'}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {data.budget_pacing_counts && (
         <div
           className="rounded-md border border-line bg-surface-muted p-3 space-y-2"

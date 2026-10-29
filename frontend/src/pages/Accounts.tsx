@@ -1,7 +1,7 @@
-import { useId, useState } from 'react'
+import { Fragment, useId, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
-import { ChevronRight, Columns3, ListFilter, Search, X } from 'lucide-react'
+import { ChevronRight, Columns3, Download, ListFilter, Search, X } from 'lucide-react'
 import { api, query } from '../lib/api'
 import type { AdAccount, Paged, ReferenceRecord } from '../lib/types'
 import AccountFormDrawer from '../components/AccountFormDrawer'
@@ -38,7 +38,7 @@ const SORT_KEYS = ['updated_at', 'last_manual_review_at', 'readiness_status', 'd
  * The columns after the always-on "Tài khoản" and the row action. Default = 6 (so 8 including the
  * two fixed ones, U1 T2); the rest are opt-in through the "Cột" chooser.
  */
-const COLUMN_IDS = ['recorded', 'platform', 'readiness', 'checklist', 'spend', 'facebookIdentity', 'updated', 'type', 'browserRef', 'proxyRef', 'review'] as const
+const COLUMN_IDS = ['recorded', 'platform', 'readiness', 'checklist', 'spend', 'facebookIdentity', 'paymentProfile', 'currency', 'updated', 'type', 'browserRef', 'proxyRef', 'review'] as const
 type ColumnId = (typeof COLUMN_IDS)[number]
 const DEFAULT_COLUMNS: ColumnId[] = ['recorded', 'platform', 'readiness', 'checklist', 'spend', 'updated']
 
@@ -49,6 +49,8 @@ const COLUMN_LABEL: Record<ColumnId, TranslationKey> = {
   checklist: 'col.checklist',
   spend: 'col.spend',
   facebookIdentity: 'fb.title',
+  paymentProfile: 'col.paymentProfile',
+  currency: 'col.currency',
   updated: 'col.updated',
   type: 'col.type',
   browserRef: 'col.browserRef',
@@ -69,6 +71,7 @@ export default function Accounts() {
   /** Filters live in the URL so a filtered view can be bookmarked and shared. */
   const [params, setParams] = useSearchParams()
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [viewMode, setViewMode] = useState<'all' | 'bm' | 'via' | 'client'>('all')
 
   const filters = {
     search: params.get('search') ?? '',
@@ -79,6 +82,7 @@ export default function Accounts() {
     facebook_identity_id: params.get('facebook_identity_id') ?? '',
     has_browser_reference: params.get('has_browser_reference') ?? '',
     has_proxy_reference: params.get('has_proxy_reference') ?? '',
+    unassigned_identity: params.get('unassigned_identity') ?? '',
     archived: params.get('archived') === 'true',
     page: Number(params.get('page') ?? '1'),
     page_size: Number(params.get('page_size') ?? '25'),
@@ -146,6 +150,8 @@ export default function Accounts() {
     chips.push({ key: 'has_browser_reference', text: `${t('filter.browserRef')}: ${yesNo(filters.has_browser_reference)}`, clear: { has_browser_reference: null } })
   if (filters.has_proxy_reference)
     chips.push({ key: 'has_proxy_reference', text: `${t('filter.proxyRef')}: ${yesNo(filters.has_proxy_reference)}`, clear: { has_proxy_reference: null } })
+  if (filters.unassigned_identity)
+    chips.push({ key: 'unassigned_identity', text: `${t('filter.unassignedIdentity')}: ${yesNo(filters.unassigned_identity)}`, clear: { unassigned_identity: null } })
   if (filters.archived) chips.push({ key: 'archived', text: t('filter.archivedOnly'), clear: { archived: null } })
   const filtersActive = chips.length > 0
 
@@ -229,9 +235,33 @@ export default function Accounts() {
       case 'spend':
         return (
           <TableCell key={id} label={label} numeric>
-            <AccountSpendCell spend={account.spend} />
+            <AccountSpendCell spend={account.spend} periods={account.spend_periods} />
           </TableCell>
         )
+      case 'paymentProfile':
+        return (
+          <TableCell key={id} label={label}>
+            {account.payment_profile_labels?.length ? (
+              <div className="flex flex-wrap gap-1">
+                {account.payment_profile_labels.map((pay) => (
+                  <Badge key={pay} tone="neutral">
+                    {pay}
+                  </Badge>
+                ))}
+              </div>
+            ) : (
+              <span className="text-ink-faint">{'—'}</span>
+            )}
+          </TableCell>
+        )
+      case 'currency': {
+        const curr = account.currency || account.spend?.observed_currency
+        return (
+          <TableCell key={id} label={label} className="font-mono text-xs">
+            {curr ? <Badge tone="neutral">{curr}</Badge> : <span className="text-ink-faint">{'—'}</span>}
+          </TableCell>
+        )
+      }
       case 'updated':
         return (
           <TableCell key={id} label={label} className="whitespace-nowrap text-xs text-ink-muted" title={formatDateTime(account.updated_at)}>
@@ -272,6 +302,104 @@ export default function Accounts() {
     </TableHead>
   ))
 
+  const orphanCount = rows.filter(
+    (r) =>
+      Array.isArray(r.facebook_identities) &&
+      r.facebook_identities.length === 0 &&
+      !r.personal_account_reference_id,
+  ).length
+
+  function exportCsv() {
+    if (!rows.length) return
+    const esc = (val: string | null | undefined) => {
+      const s = val ?? '—'
+      if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+        return `"${s.replace(/"/g, '""')}"`
+      }
+      return s
+    }
+    const headers = [
+      t('col.account'),
+      'External ID',
+      t('fb.clientName'),
+      'Business Manager',
+      t('fb.title'),
+      t('col.currency'),
+      t('col.paymentProfile'),
+      t('overview.spend.periodToday'),
+      t('col.spend'),
+      t('overview.spend.period7d'),
+      t('overview.spend.periodMtd'),
+      t('sp.pacing.dailyBudget'),
+      t('sp.pacing.monthlyBudget'),
+      t('col.recorded'),
+      t('col.platform'),
+      t('col.readiness'),
+      'Tags',
+    ]
+    const csvRows = [
+      headers.map(esc).join(','),
+      ...rows.map((a) => {
+        const curr = a.spend?.observed_currency || a.currency || '—'
+        const vias = a.facebook_identities?.map((i) => i.label).join('; ') || '—'
+        const pttt = a.payment_profile_labels?.join('; ') || '—'
+        return [
+          a.display_name,
+          a.external_account_id || '—',
+          a.client_name || '—',
+          a.business_manager_name || a.personal_account_reference_label || '—',
+          vias,
+          curr,
+          pttt,
+          a.spend_periods?.today_partial_raw ?? '—',
+          a.spend?.latest_complete_day?.spend_raw ?? '—',
+          a.spend_periods?.last_7d_raw ?? '—',
+          a.spend_periods?.mtd_raw ?? '—',
+          a.planned_daily_budget_raw ?? '—',
+          a.planned_monthly_budget_raw ?? '—',
+          enumLabel('accountStatus', a.status),
+          a.platform_status?.status ?? '—',
+          enumLabel('readiness', a.readiness_status),
+          a.tags.join('; ') || '—',
+        ]
+          .map(esc)
+          .join(',')
+      }),
+    ]
+    const blob = new Blob(['\uFEFF' + csvRows.join('\r\n')], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `adsops-accounts-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
+  const groupedRows = (() => {
+    if (viewMode === 'all') return null
+    const map = new Map<string, AdAccount[]>()
+    for (const acc of rows) {
+      let keys: string[] = []
+      if (viewMode === 'bm') {
+        keys = [acc.business_manager_name || t('accounts.group.noBm')]
+      } else if (viewMode === 'via') {
+        keys = acc.facebook_identities?.length
+          ? acc.facebook_identities.map((i) => i.label)
+          : [acc.personal_account_reference_label || t('accounts.group.noVia')]
+      } else if (viewMode === 'client') {
+        keys = [acc.client_name?.trim() || t('accounts.group.noClient')]
+      }
+      for (const k of keys) {
+        const list = map.get(k) ?? []
+        list.push(acc)
+        map.set(k, list)
+      }
+    }
+    return Array.from(map.entries())
+  })()
+
   return (
     <div className="space-y-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
@@ -281,12 +409,55 @@ export default function Accounts() {
             {accounts.data ? t('accounts.count', { count: formatCount(accounts.data.total) }) : '—'}
           </p>
         </div>
-        <Button type="button" onClick={() => setDrawerOpen(true)}>
-          {t('accounts.register')}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {rows.length > 0 && (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={exportCsv}
+              data-testid="accounts-export-csv"
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+              {t('accounts.exportCsv')}
+            </Button>
+          )}
+          <Button type="button" onClick={() => setDrawerOpen(true)}>
+            {t('accounts.register')}
+          </Button>
+        </div>
       </header>
 
       <QuickMetaSyncBanner />
+
+      {(orphanCount > 0 || filters.unassigned_identity === 'true') && (
+        <div
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-tone-caution-border bg-tone-caution-bg px-4 py-2.5 text-sm text-tone-caution-fg"
+          data-testid="accounts-orphan-banner"
+        >
+          <span className="font-medium">
+            {t('accounts.orphanBanner', { count: formatCount(orphanCount || rows.length) })}
+          </span>
+          {filters.unassigned_identity === 'true' ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => update({ unassigned_identity: null })}
+            >
+              {t('accounts.orphanClearBtn')}
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => update({ unassigned_identity: 'true' })}
+            >
+              {t('accounts.orphanFilterBtn')}
+            </Button>
+          )}
+        </div>
+      )}
 
       <section aria-label={t('accounts.toolbar.label')} className="space-y-3">
         <div className="flex flex-wrap items-end gap-2">
@@ -493,6 +664,33 @@ export default function Accounts() {
         />
       ) : (
         <>
+          <div className="flex flex-wrap items-center justify-between gap-2" data-testid="accounts-view-mode">
+            <div className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-line bg-surface p-1 text-xs">
+              <span className="px-2 text-ink-muted">{t('accounts.viewMode.label')}:</span>
+              {(
+                [
+                  ['all', t('accounts.viewMode.all')],
+                  ['bm', t('accounts.viewMode.byBm')],
+                  ['via', t('accounts.viewMode.byVia')],
+                  ['client', t('accounts.viewMode.byClient')],
+                ] as const
+              ).map(([mode, labelText]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setViewMode(mode)}
+                  className={`rounded-md px-2.5 py-1 font-medium transition-colors ${
+                    viewMode === mode
+                      ? 'bg-brand-soft text-brand-text'
+                      : 'text-ink-muted hover:bg-surface-sunken hover:text-ink'
+                  }`}
+                >
+                  {labelText}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <Card>
             <Table cards aria-label={t('accounts.title')}>
               <TableHeader>
@@ -505,42 +703,83 @@ export default function Accounts() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((account) => (
-                  <TableRow key={account.id}>
-                    <TableCell className="cell-title min-w-[220px]">
-                      <Link to={`/accounts/${account.id}`} className="font-medium text-brand-text hover:underline">
-                        {account.display_name}
-                      </Link>
-                      {account.external_account_id && (
-                        <span className="block font-mono text-xs text-ink-muted">{account.external_account_id}</span>
-                      )}
-                      <span className="block text-xs text-ink-muted">
-                        {account.business_manager_name ?? account.personal_account_reference_label ?? '—'}
-                      </span>
-                      {account.client_name && (
-                        <span className="block text-xs font-medium text-brand-text">
-                          {`${t('fb.clientName')}: ${account.client_name}`}
-                        </span>
-                      )}
-                      {account.tags.length > 0 && (
-                        <span className="mt-1 flex flex-wrap gap-1">
-                          {account.tags.map((tag) => (
-                            <span key={tag} className="rounded bg-surface-sunken px-1.5 py-0.5 text-2xs text-ink-muted">
-                              {tag}
+                {(groupedRows ?? [['', rows] as [string, AdAccount[]]]).map(([groupTitle, groupItems]) => (
+                  <Fragment key={groupTitle || 'all'}>
+                    {viewMode !== 'all' && (
+                      <TableRow key={`group-${groupTitle}`} className="bg-surface-muted hover:bg-surface-muted">
+                        <TableCell colSpan={shown.length + 2} className="py-2 font-semibold text-ink">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span>{groupTitle}</span>
+                            <span className="text-xs font-normal text-ink-muted">
+                              {t('accounts.group.summary', {
+                                total: formatCount(groupItems.length),
+                                active: formatCount(
+                                  groupItems.filter((a) => a.status === 'active').length,
+                                ),
+                                blocked: formatCount(
+                                  groupItems.filter((a) =>
+                                    ['restricted', 'disabled', 'warning'].includes(a.status),
+                                  ).length,
+                                ),
+                              })}
                             </span>
-                          ))}
-                        </span>
-                      )}
-                    </TableCell>
-                    {shown.map((id) => renderCell(id, account))}
-                    <TableCell className="w-10 text-right">
-                      <Button asChild variant="ghost" size="icon" className="h-8 w-8">
-                        <Link to={`/accounts/${account.id}`} aria-label={t('row.open', { name: account.display_name })}>
-                          <ChevronRight className="h-4 w-4" aria-hidden="true" />
-                        </Link>
-                      </Button>
-                    </TableCell>
-                  </TableRow>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {groupItems.map((account) => {
+                      const currBadge = account.currency || account.spend?.observed_currency
+                      return (
+                        <TableRow key={`${groupTitle}-${account.id}`}>
+                          <TableCell className="cell-title min-w-[220px]">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <Link to={`/accounts/${account.id}`} className="font-medium text-brand-text hover:underline">
+                                {account.display_name}
+                              </Link>
+                              {currBadge && (
+                                <span className="rounded border border-line bg-surface-muted px-1.5 py-0.5 font-mono text-2xs font-medium text-ink-muted">
+                                  {currBadge}
+                                </span>
+                              )}
+                            </div>
+                            {account.external_account_id && (
+                              <span className="block font-mono text-xs text-ink-muted">{account.external_account_id}</span>
+                            )}
+                            <span className="block text-xs text-ink-muted">
+                              {account.business_manager_name ?? account.personal_account_reference_label ?? '—'}
+                            </span>
+                            {account.payment_profile_labels && account.payment_profile_labels.length > 0 && (
+                              <span className="mt-0.5 block text-2xs font-medium text-ink-muted" data-testid="account-row-pttt">
+                                {`PTTT: ${account.payment_profile_labels.join(' · ')}`}
+                              </span>
+                            )}
+                            {account.client_name && (
+                              <span className="block text-xs font-medium text-brand-text">
+                                {`${t('fb.clientName')}: ${account.client_name}`}
+                              </span>
+                            )}
+                            {account.tags.length > 0 && (
+                              <span className="mt-1 flex flex-wrap gap-1">
+                                {account.tags.map((tag) => (
+                                  <span key={tag} className="rounded bg-surface-sunken px-1.5 py-0.5 text-2xs text-ink-muted">
+                                    {tag}
+                                  </span>
+                                ))}
+                              </span>
+                            )}
+                          </TableCell>
+                          {shown.map((id) => renderCell(id, account))}
+                          <TableCell className="w-10 text-right">
+                            <Button asChild variant="ghost" size="icon" className="h-8 w-8">
+                              <Link to={`/accounts/${account.id}`} aria-label={t('row.open', { name: account.display_name })}>
+                                <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                              </Link>
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </Fragment>
                 ))}
               </TableBody>
             </Table>

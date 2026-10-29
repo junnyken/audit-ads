@@ -11,7 +11,7 @@ stored observations and nothing else.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -308,6 +308,12 @@ def spend_summary(ctx: Ctx) -> dict[str, Any]:
             {
                 "currency": currency,
                 "total": Decimal(0),
+                "today_partial": Decimal(0),
+                "today_included": 0,
+                "last_7d": Decimal(0),
+                "last_7d_included": 0,
+                "mtd": Decimal(0),
+                "mtd_included": 0,
                 "days": set(),
                 "accounts_included": 0,
                 "accounts_without_row": 0,
@@ -342,6 +348,32 @@ def spend_summary(ctx: Ctx) -> dict[str, Any]:
         if facts.insights_currency_conflict:
             bucket["accounts_currency_conflict"] += 1
             continue
+        if facts.today_partial and facts.today_partial.has_row and facts.today_partial.amount is not None:
+            bucket["today_partial"] += facts.today_partial.amount
+            bucket["today_included"] += 1
+        if facts.latest_complete_day is not None:
+            cutoff_7d = facts.latest_complete_day - timedelta(days=6)
+            acc_7d = Decimal(0)
+            acc_7d_rows = 0
+            acc_mtd = Decimal(0)
+            acc_mtd_rows = 0
+            for d_entry in facts.complete_days:
+                if d_entry.has_row and d_entry.amount is not None:
+                    if d_entry.day >= cutoff_7d:
+                        acc_7d += d_entry.amount
+                        acc_7d_rows += 1
+                    if (
+                        d_entry.day.year == facts.latest_complete_day.year
+                        and d_entry.day.month == facts.latest_complete_day.month
+                    ):
+                        acc_mtd += d_entry.amount
+                        acc_mtd_rows += 1
+            if acc_7d_rows > 0:
+                bucket["last_7d"] += acc_7d
+                bucket["last_7d_included"] += 1
+            if acc_mtd_rows > 0:
+                bucket["mtd"] += acc_mtd
+                bucket["mtd_included"] += 1
         day = facts.day(facts.latest_complete_day) if facts.latest_complete_day else None
         if day is None or not day.has_row or day.amount is None:
             bucket["accounts_without_row"] += 1
@@ -362,6 +394,11 @@ def spend_summary(ctx: Ctx) -> dict[str, Any]:
             {
                 "currency": currency,
                 "total_raw": amount_text(bucket["total"]) if bucket["accounts_included"] else None,
+                "today_partial_raw": (
+                    amount_text(bucket["today_partial"]) if bucket["today_included"] else None
+                ),
+                "last_7d_raw": amount_text(bucket["last_7d"]) if bucket["last_7d_included"] else None,
+                "mtd_raw": amount_text(bucket["mtd"]) if bucket["mtd_included"] else None,
                 "days": sorted(bucket["days"]),
                 "accounts_included": bucket["accounts_included"],
                 "accounts_without_row": bucket["accounts_without_row"],

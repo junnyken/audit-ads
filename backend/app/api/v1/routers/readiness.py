@@ -28,7 +28,9 @@ def _readiness_payload(result) -> dict[str, Any]:
 # "/{ad_account_id}/readiness" so FastAPI never tries to parse the literal as a UUID.
 @router.get("/ad-accounts/readiness/summary", response_model=s.ReadinessSummaryOut)
 def readiness_summary(ctx: Ctx) -> s.ReadinessSummaryOut:
-    counts = ReadinessRollupService(ctx.session, ctx.workspace_id, ctx.audit).summary()
+    svc = ReadinessRollupService(ctx.session, ctx.workspace_id, ctx.audit)
+    counts = svc.summary()
+    inventory = svc.inventory_summary(visible_ids=ctx.visible_ad_account_ids())
     return s.ReadinessSummaryOut(
         total_active=counts["total_active"],
         operationally_ready=counts[ReadinessStatus.OPERATIONALLY_READY.value],
@@ -36,6 +38,7 @@ def readiness_summary(ctx: Ctx) -> s.ReadinessSummaryOut:
         not_ready=counts[ReadinessStatus.NOT_READY.value],
         unknown=counts[ReadinessStatus.UNKNOWN.value],
         archived=counts["archived"],
+        inventory=s.InventorySummaryOut(**inventory),
     )
 
 

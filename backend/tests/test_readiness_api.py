@@ -254,3 +254,54 @@ def test_landing_page_url_must_be_http(api):
         json={"display_name": "A", "landing_page_url": "javascript:alert(1)"},
     )
     assert response.status_code == 422
+
+
+def test_readiness_summary_carries_inventory_and_unassigned_identity_filter(api):
+    bm = api.post("/api/v1/business-managers", json={"name": "BM Agency 1", "status": "active"}).json()
+    via = api.post(
+        "/api/v1/personal-account-references",
+        json={"label": "VIA 01", "status": "active"},
+    ).json()
+    api.post(
+        f"/api/v1/personal-account-references/{via['id']}/business-links",
+        json={"business_manager_id": bm["id"], "role": "admin"},
+    )
+    linked_acc = api.post(
+        "/api/v1/ad-accounts",
+        json={
+            "display_name": "TK Co VIA",
+            "external_account_id": "act_linked_1",
+            "business_manager_id": bm["id"],
+            "currency": "VND",
+            "status": "active",
+        },
+    ).json()
+    orphan_acc = api.post(
+        "/api/v1/ad-accounts",
+        json={
+            "display_name": "TK Mo Coi",
+            "external_account_id": "act_orphan_1",
+            "currency": "USD",
+            "status": "restricted",
+        },
+    ).json()
+
+    summary = api.get("/api/v1/ad-accounts/readiness/summary").json()
+    inv = summary["inventory"]
+    assert inv["via_counts"]["total"] == 1
+    assert inv["via_counts"]["active"] == 1
+    assert inv["bm_counts"]["total"] == 1
+    assert inv["bm_counts"]["active"] == 1
+    assert inv["ad_account_counts"]["total"] == 2
+    assert inv["ad_account_counts"]["active"] == 1
+    assert inv["ad_account_counts"]["blocked"] == 1
+    assert inv["ad_account_counts"]["by_currency"] == {"USD": 1, "VND": 1}
+    assert inv["ad_account_counts"]["unassigned_via_count"] == 1
+    assert inv["activity_7d"]["created_7d"] == 2
+    assert inv["activity_7d"]["blocked_7d"] == 1
+
+    orphans = api.get("/api/v1/ad-accounts", params={"unassigned_identity": "true"}).json()["items"]
+    assert [r["id"] for r in orphans] == [orphan_acc["id"]]
+
+    assigned = api.get("/api/v1/ad-accounts", params={"unassigned_identity": "false"}).json()["items"]
+    assert [r["id"] for r in assigned] == [linked_acc["id"]]

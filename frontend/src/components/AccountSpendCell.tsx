@@ -4,7 +4,7 @@ import { rawMoney } from '../lib/spend'
 import { formatDay } from '../lib/format'
 import { useI18n } from '../i18n'
 import { useEnumLabel } from '../i18n/labels'
-import type { AccountSpendCompact } from '../lib/types'
+import type { AccountSpendCompact, AccountSpendPeriods } from '../lib/types'
 
 /**
  * Compact spend for the Accounts list (S1, restyled in U1b). The badge is freshness only and is
@@ -13,7 +13,13 @@ import type { AccountSpendCompact } from '../lib/types'
  * Meta returned no row for that day, and "Chưa có dữ liệu" means no day has ever been read —
  * neither is ever drawn as 0 (rule 4); a real zero row from Meta is shown as 0.
  */
-export default function AccountSpendCell({ spend }: { spend?: AccountSpendCompact | null }) {
+export default function AccountSpendCell({
+  spend,
+  periods,
+}: {
+  spend?: AccountSpendCompact | null
+  periods?: AccountSpendPeriods | null
+}) {
   const { t, language } = useI18n()
   const enumLabel = useEnumLabel()
 
@@ -62,6 +68,18 @@ export default function AccountSpendCell({ spend }: { spend?: AccountSpendCompac
         </Badge>
         {day && <span className="tabular-nums">{formatDay(day.date, language)}</span>}
       </span>
+      {periods && (periods.last_7d_raw || periods.mtd_raw) && (
+        <span className="text-2xs font-mono tabular-nums text-ink-muted" data-testid="account-spend-periods">
+          {[
+            periods.last_7d_raw &&
+              `${t('spend.period7dShort')}: ${rawMoney(periods.last_7d_raw, spend.observed_currency)}`,
+            periods.mtd_raw &&
+              `${t('spend.periodMtdShort')}: ${rawMoney(periods.mtd_raw, spend.observed_currency)}`,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        </span>
+      )}
     </div>
   )
 }

@@ -46,6 +46,7 @@ class AccountFilters:
     currency: str | None = None
     has_browser_reference: bool | None = None
     has_proxy_reference: bool | None = None
+    unassigned_identity: bool | None = None
     archived: bool = False
     page: int = 1
     page_size: int = 25
@@ -191,6 +192,33 @@ class AdAccountRegistryService:
         if filters.has_proxy_reference is not None:
             condition = self._link_exists(AssetType.PROXY)
             stmt = stmt.where(condition if filters.has_proxy_reference else sa.not_(condition))
+        if filters.unassigned_identity is not None:
+            direct_via = (
+                sa.select(PersonalAccountReference.id)
+                .where(
+                    PersonalAccountReference.id == AdAccount.personal_account_reference_id,
+                    PersonalAccountReference.workspace_id == self.workspace_id,
+                    PersonalAccountReference.archived_at.is_(None),
+                )
+                .exists()
+            )
+            bm_via = (
+                sa.select(PersonalAccountBusinessLink.id)
+                .join(
+                    PersonalAccountReference,
+                    PersonalAccountReference.id == PersonalAccountBusinessLink.personal_account_reference_id,
+                )
+                .where(
+                    PersonalAccountBusinessLink.workspace_id == self.workspace_id,
+                    PersonalAccountBusinessLink.business_manager_id == AdAccount.business_manager_id,
+                    PersonalAccountBusinessLink.unlinked_at.is_(None),
+                    PersonalAccountReference.workspace_id == self.workspace_id,
+                    PersonalAccountReference.archived_at.is_(None),
+                )
+                .exists()
+            )
+            has_identity = sa.or_(direct_via, bm_via)
+            stmt = stmt.where(sa.not_(has_identity) if filters.unassigned_identity else has_identity)
 
         stmt = apply_sort(stmt, AdAccount, filters.sort, filters.sort_direction, SORTABLE)
         return paginate(self.session, stmt, page=filters.page, page_size=filters.page_size)

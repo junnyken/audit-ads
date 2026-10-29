@@ -3834,3 +3834,8 @@ ReaderSource, ReaderCredentialsSection, ConnectionReaderSwitch, NotObservableRea
 ## 2026-10-29 — Agency Operations & Anti-Detect Upgrades (F1.5+ / C1+)
 - Backend (`pytest tests/test_f1_facebook_identities.py -k test_f1_5`, `ruff check .`): Passed (`shared_browser_profile_with`, `shared_network_with` collision detection).
 - Frontend (`npm run typecheck`, `npx eslint .`, `npx vitest run` 62 tests across 4 files, `npm run build`): Passed.
+
+
+## 2026-10-29 ? Nolimit-Inspired Agency Operations Upgrades
+- Backend: `ruff check .` passed; `pytest tests/test_readiness_api.py tests/test_s1_accounts_list_spend.py tests/test_s1_spend_api.py tests/test_s2_platform_status_api.py` passed (57 passed).
+- Frontend: `npm run typecheck`, `npx eslint .`, `npx vitest run` (120 passed across 6 suites including `u1b.overview-accounts.test.tsx`, `i18n.parity.test.ts`, `no-raw-palette.test.ts`, `tone-classes.test.ts`), and `npm run build` passed.

@@ -1239,3 +1239,10 @@ configuration findings rather than left for someone to discover.
 - **Environment Collision Guard**: Detects active Facebook identities sharing the same `browser_profile_label` or `network_label` (`shared_browser_profile_with`, `shared_network_with`) and warns operators on `/facebook-accounts`, `/facebook-accounts/:id`, and `LoginToFixPanel`.
 - **Cross-Page Operational Visibility**: Renders `budget_pacing_counts` summary strip inside `SpendSummaryCard` on `/`, shows `client_name` + identity environment tags on `/accounts` and `/alerts`, and adds a 1-click Copy Browser Profile button in `LoginToFixPanel`.
 - **Fast Account Budget Setup**: Adds `client_name`, `planned_daily_budget_raw`, and `planned_monthly_budget_raw` directly into `AccountFormDrawer`.
+
+
+## Nolimit-Inspired Agency Operations Upgrades (2026-10-29)
+- **Asset Inventory & 7-Day Activity Strip (`/`)**: `GET /api/v1/ad-accounts/readiness/summary` includes `inventory` (`via_counts`, `bm_counts`, `ad_account_counts` with `by_currency`, `unassigned_via_count`, `unassigned_bm_count`, and `activity_7d` with `created_7d`, `blocked_7d`, `recovered_7d`), rendered at the top of `Overview.tsx`.
+- **Orphaned Ad Accounts Warning & Filter (`/`, `/accounts`)**: Highlights ad accounts that have no active Facebook identity (VIA) reaching them directly or via BM, with 1-click filtering via `?unassigned_identity=true`.
+- **Multi-Horizon Spend Breakdown (`Today partial ? Latest complete day ? Last 7d ? MTD`) & CSV/Excel Reconciliation Export**: `GET /api/v1/spend/summary` and `GET /api/v1/ad-accounts` expose `today_partial_raw`, `last_7d_raw`, and `mtd_raw` per currency (never summing across currencies and never substituting 0 for missing rows), plus a UTF-8 BOM CSV export button on `/accounts`.
+- **View Mode Grouping (`All | By BM | By VIA | By Client`) & Payment Profile (`PTTT`) / Currency Badges (`/accounts`)**: Instant grouping switcher on `Accounts.tsx`, plus zero-extra-query `payment_profile_labels` and currency badges on every account row.

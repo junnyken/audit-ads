@@ -110,6 +110,7 @@ def list_accounts(
     currency: str | None = None,
     has_browser_reference: bool | None = None,
     has_proxy_reference: bool | None = None,
+    unassigned_identity: bool | None = None,
     archived: bool = False,
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=200),
@@ -130,6 +131,7 @@ def list_accounts(
             currency=currency,
             has_browser_reference=has_browser_reference,
             has_proxy_reference=has_proxy_reference,
+            unassigned_identity=unassigned_identity,
             archived=archived,
             page=page,
             page_size=page_size,
@@ -140,14 +142,33 @@ def list_accounts(
     )
     evaluations = service.rollup.evaluate_many(list(rows))
     active_links: dict[uuid.UUID, set] = {}
+    payment_labels: dict[uuid.UUID, list[str]] = {}
     if rows:
-        for account_id, asset_type in ctx.session.execute(
-            sa.select(AccountAssetLink.ad_account_id, AccountAssetLink.asset_type).where(
+        for account_id, asset_type, pay_code, pay_label in ctx.session.execute(
+            sa.select(
+                AccountAssetLink.ad_account_id,
+                AccountAssetLink.asset_type,
+                PaymentProfileReference.reference_code,
+                PaymentProfileReference.label,
+            )
+            .outerjoin(
+                PaymentProfileReference,
+                sa.and_(
+                    AccountAssetLink.asset_type == AssetType.PAYMENT_PROFILE,
+                    PaymentProfileReference.id == AccountAssetLink.asset_id,
+                    PaymentProfileReference.archived_at.is_(None),
+                ),
+            )
+            .where(
                 AccountAssetLink.ad_account_id.in_([row.id for row in rows]),
                 AccountAssetLink.unlinked_at.is_(None),
             )
         ).all():
             active_links.setdefault(account_id, set()).add(asset_type)
+            if asset_type == AssetType.PAYMENT_PROFILE and pay_code:
+                text = f"{pay_code} ({pay_label})" if pay_label and pay_label != pay_code else pay_code
+                if text not in payment_labels.setdefault(account_id, []):
+                    payment_labels[account_id].append(text)
 
     # One bounded pair of queries for the whole page; no Meta call (S1 follow-up). The same pair
     # carries Meta's latest account status (S2) — no extra query per account.
@@ -159,6 +180,7 @@ def list_accounts(
     for account in rows:
         data = _serialize_account(account)
         data["spend"] = reads[account.id]["spend"]
+        data["spend_periods"] = reads[account.id]["spend_periods"]
         data["platform_status"] = reads[account.id]["platform_status"]
         result = evaluations.get(str(account.id))
         if result is not None:
@@ -167,8 +189,15 @@ def list_accounts(
         linked = active_links.get(account.id, set())
         data["has_browser_reference"] = AssetType.BROWSER_PROFILE in linked
         data["has_proxy_reference"] = AssetType.PROXY in linked
+        data["payment_profile_labels"] = payment_labels.get(account.id, [])
         data["facebook_identities"] = [
-            {"id": item["id"], "label": item["label"]} for item in identities.get(account.id, [])
+            {
+                "id": item["id"],
+                "label": item["label"],
+                "device_label": item.get("device_label", ""),
+                "browser_profile_label": item.get("browser_profile_label", ""),
+            }
+            for item in identities.get(account.id, [])
         ]
         items.append(data)
     return page_response(items, page=page, page_size=page_size, total=total)

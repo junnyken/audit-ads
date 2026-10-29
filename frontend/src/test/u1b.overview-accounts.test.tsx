@@ -165,6 +165,58 @@ describe('Overview (T1)', () => {
     expect(await screen.findByText('Chỉ chủ workspace xem được kết quả đọc Meta.')).toBeInTheDocument()
   })
 
+
+  it('renders inventory summary cards, orphan warning banner, and view mode grouping (Theo BM / Theo VIA)', async () => {
+    mockOverview({
+      '/readiness/summary': {
+        total_active: 5,
+        operationally_ready: 2,
+        ready_with_warnings: 1,
+        not_ready: 1,
+        unknown: 1,
+        archived: 0,
+        inventory: {
+          via_counts: { total: 4, active: 3, restricted: 1, unknown: 0 },
+          bm_counts: { total: 2, active: 2, restricted: 0, unknown: 0 },
+          ad_account_counts: {
+            total: 5,
+            active: 3,
+            blocked: 2,
+            unknown: 0,
+            by_currency: { VND: 4, USD: 1 },
+            unassigned_via_count: 2,
+            unassigned_bm_count: 1,
+          },
+          activity_7d: { created_7d: 3, blocked_7d: 1, recovered_7d: 1 },
+        },
+      },
+      '/spend/summary': spendSummary({
+        currencies: [
+          {
+            currency: 'VND',
+            total_raw: '48350000',
+            today_partial_raw: '12500000',
+            last_7d_raw: '210000000',
+            mtd_raw: '650000000',
+            days: ['2026-10-26'],
+            accounts_included: 4,
+            accounts_without_row: 0,
+            accounts_not_current: 0,
+            accounts_currency_conflict: 0,
+            complete: true,
+          },
+        ],
+      }),
+    })
+    const ov = wrap(<Overview />)
+    expect(await screen.findByTestId('overview-inventory-section')).toBeInTheDocument()
+    expect(screen.getByTestId('overview-orphan-banner')).toHaveTextContent('2')
+    expect(screen.getByTestId('spend-period-breakdown')).toHaveTextContent('12500000 VND')
+    expect(screen.getByTestId('spend-period-breakdown')).toHaveTextContent('210000000 VND')
+    expect(screen.getByTestId('spend-period-breakdown')).toHaveTextContent('650000000 VND')
+    ov.unmount()
+  })
+
   it('has no axe violations', async () => {
     mockOverview()
     const { container } = wrap(<Overview />)
