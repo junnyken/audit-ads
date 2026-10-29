@@ -187,19 +187,37 @@ export default function FacebookAccounts() {
                           {deviceLabel && (
                             <p>
                               <span className="text-ink-muted">{t('fb.deviceLabel')}:</span>{' '}
-                              <span className="font-medium text-ink">{deviceLabel}</span>
+                              <Link
+                                to="/security-devices"
+                                className="font-medium text-brand-text hover:underline"
+                                title="Mở quản lý Thiết bị đăng nhập"
+                              >
+                                {deviceLabel} ↗
+                              </Link>
                             </p>
                           )}
                           {browserLabel && (
                             <p>
                               <span className="text-ink-muted">{t('fb.browserLabel')}:</span>{' '}
-                              <span className="font-medium text-ink">{browserLabel}</span>
+                              <Link
+                                to="/assets?tab=browser-profile-references"
+                                className="font-medium text-brand-text hover:underline"
+                                title="Kết nối trực tiếp tới Hồ sơ trình duyệt trong Tài sản"
+                              >
+                                {browserLabel} ↗
+                              </Link>
                             </p>
                           )}
                           {networkLabel && (
                             <p>
                               <span className="text-ink-muted">IP/Mạng:</span>{' '}
-                              <span className="font-mono text-ink">{networkLabel}</span>
+                              <Link
+                                to="/assets?tab=proxy-references"
+                                className="font-mono font-medium text-brand-text hover:underline"
+                                title="Kết nối trực tiếp tới Nhà mạng Proxy IP trong Tài sản"
+                              >
+                                {networkLabel} ↗
+                              </Link>
                             </p>
                           )}
                           {sharedBrowser.length > 0 && (

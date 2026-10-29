@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import ReferenceManager from '../components/ReferenceManager'
 import { PageHeader } from '../components/page/PageHeader'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/primitives/tabs'
@@ -15,11 +16,26 @@ const SPECS = [PAGES, PIXELS, PAYMENT_REFERENCES, BROWSER_REFERENCES, PROXY_REFE
 
 export default function Assets() {
   const { t } = useI18n()
-  const [tab, setTab] = useState(SPECS[0].key)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedTab = searchParams.get('tab')
+  const initialTab = SPECS.some((s) => s.key === requestedTab) ? requestedTab! : SPECS[0].key
+  const [tab, setTab] = useState(initialTab)
+
+  useEffect(() => {
+    if (requestedTab && SPECS.some((s) => s.key === requestedTab) && requestedTab !== tab) {
+      setTab(requestedTab)
+    }
+  }, [requestedTab, tab])
+
+  const handleTabChange = (nextTab: string) => {
+    setTab(nextTab)
+    setSearchParams({ tab: nextTab }, { replace: true })
+  }
+
   return (
     <div className="space-y-4">
       <PageHeader title={t('assets.title')} description={t('assets.desc')} />
-      <Tabs value={tab} onValueChange={setTab}>
+      <Tabs value={tab} onValueChange={handleTabChange}>
         <TabsList aria-label={t('assets.title')}>
           {SPECS.map((spec) => (
             <TabsTrigger key={spec.key} value={spec.key}>

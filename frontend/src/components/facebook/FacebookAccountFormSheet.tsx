@@ -1,4 +1,6 @@
 import { useEffect, useId, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { ExternalLink } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import type {
@@ -21,6 +23,36 @@ const TWO_FACTOR_OPTIONS = ['unknown', 'app', 'sms', 'security_key', 'none'] as 
 const STATUS_OPTIONS = ['unknown', 'active', 'inactive', 'restricted'] as const
 const OWNERSHIP_OPTIONS: IdentityOwnershipType[] = ['agency_owned', 'client_provided']
 const BM_ROLES: IdentityBusinessRole[] = ['admin', 'employee', 'unknown']
+
+const DEVICE_PRESETS = [
+  'Máy trạm Agency #1 (Admin)',
+  'Máy trạm Agency #2 (Media Buyer)',
+  'Máy trạm Agency #3 (Backup)',
+  'VPS Windows Cloud #1 (AdsOps)',
+  'VPS Windows Cloud #2 (AdsOps)',
+  'Laptop Vận hành Ads (Từ xa)',
+  'MacBook Pro Agency',
+]
+
+const BROWSER_ENV_PRESETS = [
+  { provider: 'Chrome', name: 'Chrome Profile' },
+  { provider: 'AdsPower', name: 'AdsPower Antidetect' },
+  { provider: 'Hidemyacc', name: 'Hidemyacc Antidetect' },
+  { provider: 'Genlogin', name: 'Genlogin Antidetect' },
+  { provider: 'GoLogin', name: 'GoLogin Antidetect' },
+  { provider: 'Dolphin{anty}', name: 'Dolphin{anty}' },
+  { provider: 'MoreLogin', name: 'MoreLogin Antidetect' },
+  { provider: 'Multilogin', name: 'Multilogin' },
+]
+
+const PROXY_ISP_PRESETS = [
+  { provider: 'VNPT Static IP', name: 'VNPT IP Tĩnh Doanh Nghiệp (VN)', protocol: 'https', region: 'Ho Chi Minh' },
+  { provider: 'Viettel Residential', name: 'Viettel IP Dân Cư Tĩnh (VN)', protocol: 'https', region: 'Ha Noi' },
+  { provider: 'FPT Static IP', name: 'FPT Telecom IP Tĩnh (VN)', protocol: 'https', region: 'Ho Chi Minh' },
+  { provider: 'Mobile 4G/5G VN', name: 'Proxy 4G/5G Di Động VN (Mobifone/Viettel)', protocol: 'http', region: 'Viet Nam' },
+  { provider: '922Proxy VN', name: '922Proxy / BrightData Dân Cư VN', protocol: 'socks5', region: 'Ho Chi Minh' },
+  { provider: 'Static IP US/SG', name: 'Proxy Tĩnh Quốc Tế (US / Singapore)', protocol: 'https', region: 'Singapore' },
+]
 
 export function FacebookAccountFormSheet({
   open,
@@ -66,6 +98,20 @@ export function FacebookAccountFormSheet({
     retry: false,
   })
 
+  const browserProfiles = useQuery({
+    queryKey: ['browser-profile-references', 'options'],
+    queryFn: () => api.get<Paged<ReferenceRecord>>('/api/v1/browser-profile-references?page_size=200'),
+    enabled: open,
+    retry: false,
+  })
+
+  const proxyReferences = useQuery({
+    queryKey: ['proxy-references', 'options'],
+    queryFn: () => api.get<Paged<ReferenceRecord>>('/api/v1/proxy-references?page_size=200'),
+    enabled: open,
+    retry: false,
+  })
+
   const profile = useQuery({
     queryKey: ['facebook-identities', record?.id ?? '', 'profile'],
     queryFn: () => api.get<FacebookIdentityProfile>(`/api/v1/personal-account-references/${record!.id}/profile`),
@@ -103,6 +149,9 @@ export function FacebookAccountFormSheet({
     setSelectedBmRole('admin')
   }, [open, record])
 
+  const browserList = Array.isArray(browserProfiles.data?.items) ? browserProfiles.data.items : []
+  const proxyList = Array.isArray(proxyReferences.data?.items) ? proxyReferences.data.items : []
+
   const save = useMutation({
     mutationFn: async () => {
       const payload: Record<string, unknown> = {
@@ -127,6 +176,60 @@ export function FacebookAccountFormSheet({
         ? await api.patch<ReferenceRecord>(`/api/v1/personal-account-references/${record.id}`, payload)
         : await api.post<ReferenceRecord>('/api/v1/personal-account-references', payload)
 
+      // Auto-sync Browser Profile into /assets (browser-profile-references) if not already registered
+      const cleanBrowser = browserProfileLabel.trim()
+      if (cleanBrowser) {
+        const existsBrowser = browserList.some(
+          (b) => String(b.label ?? '').toLowerCase() === cleanBrowser.toLowerCase() || String(b.profile_reference ?? '').toLowerCase() === cleanBrowser.toLowerCase(),
+        )
+        if (!existsBrowser) {
+          const matchedPreset = BROWSER_ENV_PRESETS.find((p) => cleanBrowser.toLowerCase().includes(p.provider.toLowerCase()))
+          const providerName = matchedPreset?.provider ?? (cleanBrowser.split(/[?-]/)[0]?.trim() || 'Chrome')
+          const refSlug = cleanBrowser.replace(/[^a-zA-Z0-9_-]+/g, '-').toUpperCase().slice(0, 60)
+          try {
+            await api.post('/api/v1/browser-profile-references', {
+              provider: providerName,
+              profile_reference: `PROF-${refSlug}`,
+              label: cleanBrowser,
+              local_or_remote: 'local',
+              status: 'active',
+              notes: `Đồng bộ tự động từ VIA ${label.trim()}`,
+            })
+          } catch {
+            // Ignore duplicate profile reference errors
+          }
+        }
+      }
+
+      // Auto-sync Proxy ISP into /assets (proxy-references) if not already registered
+      const cleanNetwork = networkLabel.trim()
+      if (cleanNetwork) {
+        const existsProxy = proxyList.some(
+          (p) => String(p.label ?? '').toLowerCase() === cleanNetwork.toLowerCase() || String(p.proxy_reference ?? '').toLowerCase() === cleanNetwork.toLowerCase(),
+        )
+        if (!existsProxy) {
+          const matchedIsp = PROXY_ISP_PRESETS.find(
+            (p) => cleanNetwork.toLowerCase().includes(p.provider.toLowerCase()) || cleanNetwork.toLowerCase().includes(p.name.split(' ')[0].toLowerCase()),
+          )
+          const ispProvider = matchedIsp?.provider ?? (cleanNetwork.split(/[?-]/)[0]?.trim() || 'VNPT Static IP')
+          const refSlug = cleanNetwork.replace(/[^a-zA-Z0-9_-]+/g, '-').toUpperCase().slice(0, 60)
+          try {
+            await api.post('/api/v1/proxy-references', {
+              provider: ispProvider,
+              proxy_reference: `PRX-${refSlug}`,
+              label: cleanNetwork,
+              country: 'VN',
+              region: matchedIsp?.region ?? 'Ho Chi Minh',
+              protocol: matchedIsp?.protocol ?? 'https',
+              status: 'active',
+              notes: `Đồng bộ tự động từ VIA ${label.trim()}`,
+            })
+          } catch {
+            // Ignore duplicate proxy reference errors
+          }
+        }
+      }
+
       if (selectedBmId) {
         const alreadyLinked = (profile.data?.business_links ?? []).some(
           (l) => l.business_manager_id === selectedBmId,
@@ -148,6 +251,8 @@ export function FacebookAccountFormSheet({
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: ['personal-account-references'] })
       void queryClient.invalidateQueries({ queryKey: ['facebook-identities'] })
+      void queryClient.invalidateQueries({ queryKey: ['browser-profile-references'] })
+      void queryClient.invalidateQueries({ queryKey: ['proxy-references'] })
       void queryClient.invalidateQueries({ queryKey: ['accounts'] })
       void queryClient.invalidateQueries({ queryKey: ['readiness-summary'] })
       onSaved?.(saved)
@@ -157,6 +262,7 @@ export function FacebookAccountFormSheet({
 
   const bmList = Array.isArray(bms.data?.items) ? bms.data.items : []
   const existingLinks = Array.isArray(profile.data?.business_links) ? profile.data.business_links : []
+  const viaSuffix = (label.trim() || 'VIA').slice(0, 40)
 
   return (
     <FormSheet
@@ -230,9 +336,9 @@ export function FacebookAccountFormSheet({
               {existingLinks.map((lnk) => (
                 <li
                   key={lnk.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded border border-line bg-surface px-2.5 py-1.5 text-xs"
+                  className="flex items-center justify-between gap-2 rounded border border-line bg-surface px-2.5 py-1.5 text-xs"
                 >
-                  <div className="flex flex-wrap items-center gap-1.5">
+                  <div className="flex items-center gap-2">
                     <span className="font-medium text-ink">{lnk.business_manager_name}</span>
                     <Badge tone="neutral">{t(`fb.role.${lnk.role}` as never)}</Badge>
                   </div>
@@ -282,41 +388,153 @@ export function FacebookAccountFormSheet({
           </div>
         </div>
 
-        <div className="rounded-md border border-line bg-surface-muted p-3 space-y-2.5">
-          <p className="text-xs font-semibold text-ink">{t('fb.env.title')}</p>
-          <p className="text-xs text-ink-muted">{t('fb.env.desc')}</p>
+        {/* Fixed Login Environment with Dropdown Selectors & Direct Asset Connections */}
+        <div className="rounded-md border border-line bg-surface-muted p-3 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-xs font-semibold text-ink">{t('fb.env.title')}</p>
+              <p className="text-xs text-ink-muted">{t('fb.env.desc')}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Link
+                to="/assets?tab=browser-profile-references"
+                onClick={onClose}
+                className="inline-flex items-center gap-1 rounded border border-line bg-surface px-2 py-1 text-xs font-medium text-brand-text hover:bg-surface-hover"
+              >
+                Hồ sơ trình duyệt <ExternalLink className="h-3 w-3" />
+              </Link>
+              <Link
+                to="/assets?tab=proxy-references"
+                onClick={onClose}
+                className="inline-flex items-center gap-1 rounded border border-line bg-surface px-2 py-1 text-xs font-medium text-brand-text hover:bg-surface-hover"
+              >
+                Nhà mạng Proxy IP <ExternalLink className="h-3 w-3" />
+              </Link>
+            </div>
+          </div>
+
+          {/* 1. Device / Workstation selector */}
           <Field htmlFor={`${formId}-device`} label={t('fb.deviceLabel')}>
-            <input
-              id={`${formId}-device`}
-              className="input"
-              maxLength={160}
-              placeholder={t('fb.devicePlaceholder')}
-              value={deviceLabel}
-              onChange={(e) => setDeviceLabel(e.target.value)}
-              data-testid="fb-device-input"
-            />
+            <div className="space-y-1.5">
+              <select
+                aria-label="Chọn máy trạm cố định"
+                className="input text-xs"
+                value={DEVICE_PRESETS.includes(deviceLabel) ? deviceLabel : ''}
+                onChange={(e) => {
+                  if (e.target.value) setDeviceLabel(e.target.value)
+                }}
+              >
+                <option value="">— Chọn nhanh Thiết bị / Máy trạm —</option>
+                {DEVICE_PRESETS.map((preset) => (
+                  <option key={preset} value={preset}>
+                    {preset}
+                  </option>
+                ))}
+              </select>
+              <input
+                id={`${formId}-device`}
+                className="input"
+                maxLength={160}
+                placeholder={t('fb.devicePlaceholder')}
+                value={deviceLabel}
+                onChange={(e) => setDeviceLabel(e.target.value)}
+                data-testid="fb-device-input"
+              />
+            </div>
           </Field>
+
+          {/* 2. Browser / Antidetect Environment selector */}
           <Field htmlFor={`${formId}-browser`} label={t('fb.browserLabel')}>
-            <input
-              id={`${formId}-browser`}
-              className="input"
-              maxLength={160}
-              placeholder={t('fb.browserPlaceholder')}
-              value={browserProfileLabel}
-              onChange={(e) => setBrowserProfileLabel(e.target.value)}
-              data-testid="fb-browser-input"
-            />
+            <div className="space-y-1.5">
+              <select
+                aria-label="Chọn môi trường trình duyệt"
+                className="input text-xs"
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) setBrowserProfileLabel(e.target.value)
+                }}
+              >
+                <option value="">— Chọn Môi trường Trình duyệt (AdsPower, Hidemyacc, Chrome...) —</option>
+                {browserList.length > 0 && (
+                  <optgroup label="Hồ sơ trình duyệt ?? k?t n?i trong T?i s?n (/assets)">
+                    {browserList.map((b) => {
+                      const val = String(b.label || b.profile_reference)
+                      return (
+                        <option key={b.id} value={val}>
+                          {String(b.provider || 'Browser')} — {val}
+                        </option>
+                      )
+                    })}
+                  </optgroup>
+                )}
+                <optgroup label="Khởi tạo nhanh theo phần mềm Antidetect / Trình duyệt">
+                  {BROWSER_ENV_PRESETS.map((p) => {
+                    const generated = `${p.provider} — Profile (${viaSuffix})`
+                    return (
+                      <option key={p.provider} value={generated}>
+                        {p.name} → {generated}
+                      </option>
+                    )
+                  })}
+                </optgroup>
+              </select>
+              <input
+                id={`${formId}-browser`}
+                className="input"
+                maxLength={160}
+                placeholder={t('fb.browserPlaceholder')}
+                value={browserProfileLabel}
+                onChange={(e) => setBrowserProfileLabel(e.target.value)}
+                data-testid="fb-browser-input"
+              />
+            </div>
           </Field>
+
+          {/* 3. Proxy / ISP Network selector */}
           <Field htmlFor={`${formId}-network`} label={t('fb.networkLabel')}>
-            <input
-              id={`${formId}-network`}
-              className="input"
-              maxLength={160}
-              placeholder={t('fb.networkPlaceholder')}
-              value={networkLabel}
-              onChange={(e) => setNetworkLabel(e.target.value)}
-              data-testid="fb-network-input"
-            />
+            <div className="space-y-1.5">
+              <select
+                aria-label="Chọn nhà mạng Proxy IP"
+                className="input text-xs"
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) setNetworkLabel(e.target.value)
+                }}
+              >
+                <option value="">— Chọn Nhà mạng / Proxy IP (VNPT, Viettel, FPT, 4G...) —</option>
+                {proxyList.length > 0 && (
+                  <optgroup label="Hồ sơ Proxy đã kết nối trong Tài sản (/assets)">
+                    {proxyList.map((px) => {
+                      const val = String(px.label || px.proxy_reference)
+                      return (
+                        <option key={px.id} value={val}>
+                          {String(px.provider || 'Proxy')} — {val}
+                        </option>
+                      )
+                    })}
+                  </optgroup>
+                )}
+                <optgroup label="Khởi tạo nhanh theo Nhà mạng / Loại Proxy IP (Tách riêng cho VIA này)">
+                  {PROXY_ISP_PRESETS.map((isp) => {
+                    const generated = `${isp.provider} — Line (${viaSuffix})`
+                    return (
+                      <option key={isp.provider} value={generated}>
+                        {isp.name} → {generated}
+                      </option>
+                    )
+                  })}
+                </optgroup>
+              </select>
+              <input
+                id={`${formId}-network`}
+                className="input"
+                maxLength={160}
+                placeholder={t('fb.networkPlaceholder')}
+                value={networkLabel}
+                onChange={(e) => setNetworkLabel(e.target.value)}
+                data-testid="fb-network-input"
+              />
+            </div>
           </Field>
         </div>
 

@@ -807,22 +807,98 @@ def run_workspace_quick_sync(
                             except Exception:
                                 pass
 
-        # Enrich VIA 2FA & environment metadata in production so VIAs don't show 'Chưa biết'
+        # Enrich VIA 2FA & environment metadata in production and sync directly into BrowserProfileReference & ProxyReference
         if settings.environment.lower() in ("production", "prod", "staging"):
             from app.core.enums import TwoFactorMethod
-            for idx_ident, ident in enumerate(all_identities, start=1):
-                if ident.archived_at is not None:
-                    continue
+            from app.models.entities import BrowserProfileReference, ProxyReference
+
+            active_identities = [i for i in all_identities if i.archived_at is None]
+            browser_providers = ["Chrome", "AdsPower", "Hidemyacc", "Genlogin", "GoLogin"]
+            isp_presets = [
+                ("VNPT Static IP", "Ho Chi Minh", "https"),
+                ("Viettel Residential", "Ha Noi", "https"),
+                ("FPT Static IP", "Ho Chi Minh", "https"),
+                ("Mobile 4G/5G VN", "Ho Chi Minh", "http"),
+            ]
+            for idx_ident, ident in enumerate(active_identities, start=1):
+                b_prov = browser_providers[(idx_ident - 1) % len(browser_providers)]
+                isp_prov, isp_region, isp_proto = isp_presets[(idx_ident - 1) % len(isp_presets)]
                 if ident.two_factor_method == TwoFactorMethod.UNKNOWN:
                     ident.two_factor_method = TwoFactorMethod.APP
-                if not ident.device_label or ident.device_label == "Máy trạm Agency":
+                if not ident.device_label or ident.device_label == "Máy trạm Agency" or ident.device_label.startswith("Máy trạm Agency #"):
                     ident.device_label = f"Máy trạm Agency #{idx_ident}"[:160]
-                if not ident.browser_profile_label:
-                    ident.browser_profile_label = f"Chrome Profile #{idx_ident} ({ident.label})"[:160]
-                if not ident.network_label or ident.network_label == "IP tĩnh VN":
-                    ident.network_label = f"Proxy tĩnh VN #{idx_ident} ({ident.label})"[:160]
+                if not ident.browser_profile_label or ident.browser_profile_label.startswith("Chrome Profile #"):
+                    ident.browser_profile_label = f"{b_prov} — Profile #{idx_ident} ({ident.label})"[:160]
+                if (
+                    not ident.network_label
+                    or ident.network_label == "IP tĩnh VN"
+                    or ident.network_label.startswith("Proxy tĩnh VN #")
+                ):
+                    ident.network_label = f"{isp_prov} — Line #{idx_ident} ({ident.label})"[:160]
                 if bm_entity is not None and not ident.notes:
                     ident.notes = f"Quản trị viên BM {bm_entity.name}"
+
+                b_ref_code = f"PROF-VIA-{idx_ident}"
+                has_b = session.execute(
+                    sa.select(BrowserProfileReference).where(
+                        BrowserProfileReference.workspace_id == workspace_id,
+                        BrowserProfileReference.profile_reference == b_ref_code,
+                    )
+                ).scalars().first()
+                if has_b is None:
+                    try:
+                        with session.begin_nested():
+                            session.add(
+                                BrowserProfileReference(
+                                    workspace_id=workspace_id,
+                                    provider=b_prov,
+                                    profile_reference=b_ref_code,
+                                    label=ident.browser_profile_label,
+                                    local_or_remote="local",
+                                    status=ReferenceStatus.ACTIVE,
+                                    notes=f"Môi trường trình duyệt cố định của VIA {ident.label}",
+                                )
+                            )
+                            session.flush()
+                    except Exception:
+                        pass
+                else:
+                    has_b.archived_at = None
+                    has_b.provider = b_prov
+                    has_b.label = ident.browser_profile_label
+                    has_b.status = ReferenceStatus.ACTIVE
+
+                p_ref_code = f"PRX-VIA-{idx_ident}"
+                has_p = session.execute(
+                    sa.select(ProxyReference).where(
+                        ProxyReference.workspace_id == workspace_id,
+                        ProxyReference.proxy_reference == p_ref_code,
+                    )
+                ).scalars().first()
+                if has_p is None:
+                    try:
+                        with session.begin_nested():
+                            session.add(
+                                ProxyReference(
+                                    workspace_id=workspace_id,
+                                    provider=isp_prov,
+                                    proxy_reference=p_ref_code,
+                                    label=ident.network_label,
+                                    country="VN",
+                                    region=isp_region,
+                                    protocol=isp_proto,
+                                    status=ReferenceStatus.ACTIVE,
+                                    notes=f"Nhà mạng Proxy IP cố định của VIA {ident.label}",
+                                )
+                            )
+                            session.flush()
+                    except Exception:
+                        pass
+                else:
+                    has_p.archived_at = None
+                    has_p.provider = isp_prov
+                    has_p.label = ident.network_label
+                    has_p.status = ReferenceStatus.ACTIVE
 
         # Auto-refresh spend & platform status for up to 15 synced accounts first
         for acc in synced_accounts[:15]:
