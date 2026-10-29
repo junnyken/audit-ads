@@ -124,6 +124,7 @@ export default function AccountFormDrawer({
   const queryClient = useQueryClient()
   const [form, setForm] = useState<FormState>(EMPTY)
   const [touchedName, setTouchedName] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(Boolean(account))
   // Radix returns focus only to a <Trigger>; this sheet is opened by state from several buttons,
   // so remember who had focus when it opened and give it back when it closes.
   const returnFocusTo = useRef<HTMLElement | null>(null)
@@ -132,6 +133,7 @@ export default function AccountFormDrawer({
     const base = account ? fromAccount(account) : EMPTY
     setForm(account && statusSuggestion ? { ...base, status: statusSuggestion } : base)
     setTouchedName(false)
+    setShowAdvanced(Boolean(account))
   }, [account, open, statusSuggestion])
 
   const businessManagers = useQuery({
@@ -231,60 +233,6 @@ export default function AccountFormDrawer({
                   maxLength={120}
                 />
               </Field>
-              <Field label={t('form.tags')} hint={t('form.tags.hint')}>
-                <input className="input" value={form.tags} onChange={(event) => set('tags', event.target.value)} />
-              </Field>
-            </fieldset>
-
-            <fieldset className="space-y-3">
-              <legend className={legend}>{t('form.group.ownership')}</legend>
-              <Field label={t('form.type')} required>
-                <select
-                  className="input"
-                  value={form.account_type}
-                  onChange={(event) => set('account_type', event.target.value)}
-                >
-                  <option value="unknown">{enumLabel('accountType', 'unknown')}</option>
-                  <option value="business_manager">{enumLabel('accountType', 'business_manager')}</option>
-                  <option value="personal_reference">{enumLabel('accountType', 'personal_reference')}</option>
-                </select>
-              </Field>
-              <Field label={t('form.bm')}>
-                <select
-                  className="input"
-                  value={form.business_manager_id}
-                  onChange={(event) => set('business_manager_id', event.target.value)}
-                >
-                  <option value="">{t('ov.notMapped')}</option>
-                  {(businessManagers.data?.items ?? []).map((bm) => (
-                    <option key={bm.id} value={bm.id}>
-                      {String(bm.name)}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label={t('form.personalRef')}>
-                <select
-                  className="input"
-                  value={form.personal_account_reference_id}
-                  onChange={(event) => set('personal_account_reference_id', event.target.value)}
-                >
-                  <option value="">{t('ov.notMapped')}</option>
-                  {(personalReferences.data?.items ?? []).map((reference) => (
-                    <option key={reference.id} value={reference.id}>
-                      {String(reference.label)}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label={t('form.ownerLabel')}>
-                <input
-                  className="input"
-                  value={form.owner_label}
-                  onChange={(event) => set('owner_label', event.target.value)}
-                  maxLength={200}
-                />
-              </Field>
               <Field label={t('sp.pacing.client')} htmlFor="account-client-name">
                 <input
                   id="account-client-name"
@@ -319,111 +267,180 @@ export default function AccountFormDrawer({
               </div>
             </fieldset>
 
-            <fieldset className="space-y-3">
-              <legend className={legend}>{t('form.group.operational')}</legend>
-              {statusNote && (
-                <p
-                  className="rounded-md border border-line bg-surface-muted px-3 py-2 text-sm text-ink-muted"
-                  data-testid="meta-status-note"
-                >
-                  {statusNote}
-                </p>
-              )}
-              <Field label={t('form.status')} required htmlFor="account-status" hint={t('form.status.hint')}>
-                <select
-                  id="account-status"
-                  className="input"
-                  value={form.status}
-                  onChange={(event) => set('status', event.target.value)}
-                >
-                  {(['unknown', 'active', 'warning', 'restricted', 'disabled'] as const).map((value) => (
-                    <option key={value} value={value}>
-                      {enumLabel('accountStatus', value)}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <div className="grid grid-cols-3 gap-3">
-                <Field label={t('form.country')}>
-                  <input
-                    className="input uppercase"
-                    value={form.country}
-                    onChange={(event) => set('country', event.target.value)}
-                    maxLength={2}
-                    placeholder="VN"
-                  />
-                </Field>
-                <Field label={t('form.currency')}>
-                  <input
-                    className="input uppercase"
-                    value={form.currency}
-                    onChange={(event) => set('currency', event.target.value)}
-                    maxLength={3}
-                    placeholder="VND"
-                  />
-                </Field>
-                <Field label={t('form.timezone')}>
-                  <input
-                    className="input"
-                    value={form.timezone}
-                    onChange={(event) => set('timezone', event.target.value)}
-                    placeholder="Asia/Ho_Chi_Minh"
-                  />
-                </Field>
-              </div>
-            </fieldset>
+            <div>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowAdvanced((v) => !v)}
+              >
+                {showAdvanced ? t('form.advanced.hide') : t('form.advanced.show')}
+              </Button>
+            </div>
 
-            <fieldset className="space-y-3">
-              <legend className={legend}>{t('form.group.assets')}</legend>
-              <p className="rounded-md border border-line bg-surface-muted px-3 py-2 text-xs text-ink-muted">
-                {t('form.assets.note')}
-              </p>
-              <label className="flex items-start gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 h-4 w-4 accent-brand"
-                  checked={form.requires_page}
-                  onChange={(event) => set('requires_page', event.target.checked)}
-                />
-                {t('form.requiresPage')}
-              </label>
-              <label className="flex items-start gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 h-4 w-4 accent-brand"
-                  checked={form.requires_pixel}
-                  onChange={(event) => set('requires_pixel', event.target.checked)}
-                />
-                {t('form.requiresPixel')}
-              </label>
-              <Field label={t('form.landing')} hint={t('form.landing.hint')}>
-                <input
-                  className="input"
-                  type="url"
-                  value={form.landing_page_url}
-                  onChange={(event) => set('landing_page_url', event.target.value)}
-                  placeholder="https://"
-                />
-              </Field>
-            </fieldset>
+            {showAdvanced && (
+              <>
+                <fieldset className="space-y-3">
+                  <legend className={legend}>{t('form.group.ownership')}</legend>
+                  <Field label={t('form.type')} required>
+                    <select
+                      className="input"
+                      value={form.account_type}
+                      onChange={(event) => set('account_type', event.target.value)}
+                    >
+                      <option value="unknown">{enumLabel('accountType', 'unknown')}</option>
+                      <option value="business_manager">{enumLabel('accountType', 'business_manager')}</option>
+                      <option value="personal_reference">{enumLabel('accountType', 'personal_reference')}</option>
+                    </select>
+                  </Field>
+                  <Field label={t('form.bm')}>
+                    <select
+                      className="input"
+                      value={form.business_manager_id}
+                      onChange={(event) => set('business_manager_id', event.target.value)}
+                    >
+                      <option value="">{t('ov.notMapped')}</option>
+                      {(businessManagers.data?.items ?? []).map((bm) => (
+                        <option key={bm.id} value={bm.id}>
+                          {String(bm.name)}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label={t('form.personalRef')}>
+                    <select
+                      className="input"
+                      value={form.personal_account_reference_id}
+                      onChange={(event) => set('personal_account_reference_id', event.target.value)}
+                    >
+                      <option value="">{t('ov.notMapped')}</option>
+                      {(personalReferences.data?.items ?? []).map((reference) => (
+                        <option key={reference.id} value={reference.id}>
+                          {String(reference.label)}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label={t('form.ownerLabel')}>
+                    <input
+                      className="input"
+                      value={form.owner_label}
+                      onChange={(event) => set('owner_label', event.target.value)}
+                      maxLength={200}
+                    />
+                  </Field>
+                  <Field label={t('form.tags')} hint={t('form.tags.hint')}>
+                    <input className="input" value={form.tags} onChange={(event) => set('tags', event.target.value)} />
+                  </Field>
+                </fieldset>
+
+                <fieldset className="space-y-3">
+                  <legend className={legend}>{t('form.group.operational')}</legend>
+                  {statusNote && (
+                    <p
+                      className="rounded-md border border-line bg-surface-muted px-3 py-2 text-sm text-ink-muted"
+                      data-testid="meta-status-note"
+                    >
+                      {statusNote}
+                    </p>
+                  )}
+                  <Field label={t('form.status')} required htmlFor="account-status" hint={t('form.status.hint')}>
+                    <select
+                      id="account-status"
+                      className="input"
+                      value={form.status}
+                      onChange={(event) => set('status', event.target.value)}
+                    >
+                      {(['unknown', 'active', 'warning', 'restricted', 'disabled'] as const).map((value) => (
+                        <option key={value} value={value}>
+                          {enumLabel('accountStatus', value)}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <div className="grid grid-cols-3 gap-3">
+                    <Field label={t('form.country')}>
+                      <input
+                        className="input uppercase"
+                        value={form.country}
+                        onChange={(event) => set('country', event.target.value)}
+                        maxLength={2}
+                        placeholder="VN"
+                      />
+                    </Field>
+                    <Field label={t('form.currency')}>
+                      <input
+                        className="input uppercase"
+                        value={form.currency}
+                        onChange={(event) => set('currency', event.target.value)}
+                        maxLength={3}
+                        placeholder="VND"
+                      />
+                    </Field>
+                    <Field label={t('form.timezone')}>
+                      <input
+                        className="input"
+                        value={form.timezone}
+                        onChange={(event) => set('timezone', event.target.value)}
+                        placeholder="Asia/Ho_Chi_Minh"
+                      />
+                    </Field>
+                  </div>
+                </fieldset>
+
+                <fieldset className="space-y-3">
+                  <legend className={legend}>{t('form.group.assets')}</legend>
+                  <p className="rounded-md border border-line bg-surface-muted px-3 py-2 text-xs text-ink-muted">
+                    {t('form.assets.note')}
+                  </p>
+                  <label className="flex items-start gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 accent-brand"
+                      checked={form.requires_page}
+                      onChange={(event) => set('requires_page', event.target.checked)}
+                    />
+                    {t('form.requiresPage')}
+                  </label>
+                  <label className="flex items-start gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 accent-brand"
+                      checked={form.requires_pixel}
+                      onChange={(event) => set('requires_pixel', event.target.checked)}
+                    />
+                    {t('form.requiresPixel')}
+                  </label>
+                  <Field label={t('form.landing')} hint={t('form.landing.hint')}>
+                    <input
+                      className="input"
+                      type="url"
+                      value={form.landing_page_url}
+                      onChange={(event) => set('landing_page_url', event.target.value)}
+                      placeholder="https://"
+                    />
+                  </Field>
+                </fieldset>
+
+                <fieldset>
+                  <legend className={legend}>{t('form.group.notes')}</legend>
+                  <Field label={t('form.notes')}>
+                    <textarea
+                      className="input min-h-[80px]"
+                      value={form.notes}
+                      onChange={(event) => set('notes', event.target.value)}
+                      maxLength={5000}
+                    />
+                  </Field>
+                </fieldset>
+              </>
+            )}
 
             <fieldset className="space-y-3">
               <legend className={legend}>{t('form.group.refs')}</legend>
               <p className="rounded-md border border-line bg-surface-muted px-3 py-2 text-xs text-ink-muted">
                 {t('form.refs.note')}
               </p>
-            </fieldset>
-
-            <fieldset>
-              <legend className={legend}>{t('form.group.notes')}</legend>
-              <Field label={t('form.notes')}>
-                <textarea
-                  className="input min-h-[80px]"
-                  value={form.notes}
-                  onChange={(event) => set('notes', event.target.value)}
-                  maxLength={5000}
-                />
-              </Field>
             </fieldset>
           </form>
         </div>

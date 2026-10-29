@@ -244,3 +244,8 @@ class ReaderRevokeRequest(StrictPayload):
 
 class ConnectionReaderAssign(StrictPayload):
     reader_id: uuid.UUID
+
+
+class QuickSyncRequest(StrictPayload):
+    business_manager_reference: str = Field(default="", max_length=120)
+    label: str = Field(default="", max_length=200)

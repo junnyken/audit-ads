@@ -275,6 +275,7 @@ function ReferenceSheet({
   const { t } = useI18n()
   const [values, setValues] = useState<Record<string, string>>({})
   const [touched, setTouched] = useState<Record<string, boolean>>({})
+  const [showAdvanced, setShowAdvanced] = useState(Boolean(record))
 
   useEffect(() => {
     const next: Record<string, string> = {}
@@ -284,6 +285,7 @@ function ReferenceSheet({
     }
     setValues(next)
     setTouched({})
+    setShowAdvanced(Boolean(record))
   }, [record, spec, open])
 
   const save = useMutation({
@@ -336,7 +338,9 @@ function ReferenceSheet({
       >
         {spec.note && <Note>{t(spec.note)}</Note>}
         {save.isError && <ErrorState error={save.error} title={t('ref.save.error')} noPermissionText={t('acct.error.noPermissionWrite')} compact />}
-        {spec.fields.map((field) => {
+        {spec.fields
+          .filter((field) => showAdvanced || spec.key !== 'business-managers' || field.name === 'name' || field.name === 'external_id')
+          .map((field) => {
           const id = `${spec.key}-${field.name}`
           const error = field.required && touched[field.name] && !(values[field.name] ?? '').trim()
             ? t('ref.name.required', { name: t(field.label).toLowerCase() })
@@ -371,6 +375,18 @@ function ReferenceSheet({
             </Field>
           )
         })}
+        {spec.key === 'business-managers' && (
+          <div>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => setShowAdvanced((v) => !v)}
+            >
+              {showAdvanced ? t('form.advanced.hide') : t('form.advanced.show')}
+            </Button>
+          </div>
+        )}
       </form>
     </FormSheet>
   )

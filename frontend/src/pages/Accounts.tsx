@@ -5,6 +5,7 @@ import { ChevronRight, Columns3, ListFilter, Search, X } from 'lucide-react'
 import { api, query } from '../lib/api'
 import type { AdAccount, Paged, ReferenceRecord } from '../lib/types'
 import AccountFormDrawer from '../components/AccountFormDrawer'
+import { QuickMetaSyncBanner } from '../components/meta/QuickMetaSyncBanner'
 import AccountSpendCell from '../components/AccountSpendCell'
 import PlatformStatusBadge from '../components/PlatformStatusBadge'
 import { ChecklistProgress } from '../components/dashboard/ChecklistProgress'
@@ -284,6 +285,8 @@ export default function Accounts() {
           {t('accounts.register')}
         </Button>
       </header>
+
+      <QuickMetaSyncBanner />
 
       <section aria-label={t('accounts.toolbar.label')} className="space-y-3">
         <div className="flex flex-wrap items-end gap-2">

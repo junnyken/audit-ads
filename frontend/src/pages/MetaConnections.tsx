@@ -10,6 +10,7 @@ import { Field } from '../components/primitives/field'
 import { Skeleton } from '../components/primitives/skeleton'
 import { EmptyState, ErrorState, LoadingRegion, NoPermissionState, PartialDataNote } from '../components/states'
 import { DiscoverySection } from '../components/meta/DiscoverySection'
+import { QuickMetaSyncBanner } from '../components/meta/QuickMetaSyncBanner'
 import { ReaderSourceBadge } from '../components/meta/ReaderSource'
 import { ConnectionReaderSwitch } from '../components/meta/ConnectionReaderSwitch'
 import { AutomationBadge, AutomationControls, automationOf } from '../components/meta/AutomationControls'
@@ -169,6 +170,7 @@ export default function MetaConnections() {
         <NoPermissionState title={t('mc.list.noPermissionTitle')} description={t('mc.list.noPermissionBody')} />
       ) : (
         <>
+          <QuickMetaSyncBanner />
           <Card>
             <CardHeader>
               <CardTitle className="text-sm">{t('mc.add.title')}</CardTitle>

@@ -367,6 +367,103 @@ def create_connection(ctx: OwnerCtx, payload: s.MetaConnectionCreate) -> dict[st
     return _serialize_connection(connection)
 
 
+
+
+@connections_router.post("/quick-sync")
+def quick_sync_connection(ctx: OwnerCtx, payload: s.QuickSyncRequest) -> dict[str, Any]:
+    """1-step connection + discovery + auto-import for an operator."""
+    bm_ref = payload.business_manager_reference.strip()
+    label_clean = payload.label.strip()
+
+    existing = (
+        ctx.session.execute(
+            sa.select(MetaConnection)
+            .where(
+                MetaConnection.workspace_id == ctx.workspace_id,
+                MetaConnection.archived_at.is_(None),
+                MetaConnection.environment == MetaEnvironment.PRODUCTION,
+                MetaConnection.business_manager_reference == bm_ref,
+            )
+            .order_by(MetaConnection.created_at.desc())
+        )
+        .scalars()
+        .first()
+    )
+
+    now = datetime.now(UTC)
+    if existing is not None:
+        connection = existing
+        if not connection.auto_discovery_enabled or not connection.auto_import_enabled:
+            connection.auto_discovery_enabled = True
+            connection.auto_import_enabled = True
+            connection.automation_enabled_by = ctx.user.id
+            connection.automation_enabled_at = now
+    else:
+        default_label = label_clean or (f"BM {bm_ref}" if bm_ref else "BM Mặc định")
+        connection = MetaConnection(
+            workspace_id=ctx.workspace_id,
+            label=default_label[:200],
+            environment=MetaEnvironment.PRODUCTION,
+            business_manager_reference=bm_ref,
+            auto_discovery_enabled=True,
+            auto_import_enabled=True,
+            automation_enabled_by=ctx.user.id,
+            automation_enabled_at=now,
+            created_by=ctx.user.id,
+        )
+        # Auto-bind active vault credential if workspace has one
+        creds = _workspace_credentials(ctx)
+        active_creds = [c for c in creds.values() if c.status.value == "active"]
+        if active_creds:
+            connection.reader_credential_id = active_creds[0].id
+        ctx.session.add(connection)
+        ctx.session.flush()
+        ctx.audit.record(
+            action="meta_connection.created",
+            entity_type="meta_connection",
+            entity_id=connection.id,
+            after=snapshot(connection),
+        )
+
+    service = _discovery_service(ctx, connection)
+    run = service.validate_configured_business_manager(connection, actor_id=ctx.user.id)
+    imported_count = 0
+
+    if run.status == DiscoveryRunStatus.SUCCEEDED:
+        if run.configured_business_manager_name and not label_clean and connection.label.startswith("BM "):
+            connection.label = run.configured_business_manager_name[:200]
+        service.discover_assets(run)
+        service.evaluate_business_user_drift_alert(run, connection)
+        # Ensure BusinessManager registry record is created even before importing accounts
+        service._registry_business_manager(run)
+        # Auto-import all newly discovered ad accounts immediately
+        reconciled = service.reconcile_ad_accounts(run)
+        for row in reconciled:
+            if (
+                row.reconciliation_status == "missing_in_registry"
+                and row.external_id
+                and service.registry_account_any_state(row.external_id) is None
+            ):
+                    service.import_ad_account(run, row.external_id, automatic=False)
+                    imported_count += 1
+
+    ctx.commit()
+    return {
+        "connection_id": str(connection.id),
+        "connection_label": connection.label,
+        "run_id": str(run.id),
+        "status": run.status.value,
+        "business_manager_reference": run.configured_business_manager_reference,
+        "business_manager_name": run.configured_business_manager_name,
+        "imported_ad_accounts": imported_count,
+        "total_ad_accounts": (run.ad_account_coverage_json or {}).get("total_unique_assets") or 0,
+        "total_pixels": (run.pixel_coverage_json or {}).get("total_unique_assets") or 0,
+        "total_business_users": (run.business_user_coverage_json or {}).get("total_unique_assets") or 0,
+        "failure_code": run.failure_code,
+        "failure_summary": run.failure_summary,
+    }
+
+
 @connections_router.get("/discovery-summary")
 def discovery_summary(ctx: OwnerCtx) -> list[dict[str, Any]]:
     """One row per connection: its most recent discovery, without reconciliation.
