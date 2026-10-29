@@ -69,6 +69,48 @@ OUT_OF_SCOPE = AssetReconciliationStatus.OUT_OF_SCOPE
 UNKNOWN = AssetReconciliationStatus.UNKNOWN
 
 
+_TZ_COUNTRY_FALLBACK: dict[str, str] = {
+    "Asia/Ho_Chi_Minh": "VN",
+    "Asia/Saigon": "VN",
+    "Asia/Bangkok": "TH",
+    "Asia/Singapore": "SG",
+    "Asia/Jakarta": "ID",
+    "Asia/Manila": "PH",
+    "Asia/Kuala_Lumpur": "MY",
+    "Asia/Tokyo": "JP",
+    "Asia/Seoul": "KR",
+    "Asia/Hong_Kong": "HK",
+    "Asia/Taipei": "TW",
+    "America/New_York": "US",
+    "America/Chicago": "US",
+    "America/Denver": "US",
+    "America/Los_Angeles": "US",
+    "Europe/London": "GB",
+    "Europe/Paris": "FR",
+    "Europe/Berlin": "DE",
+    "Australia/Sydney": "AU",
+}
+
+
+def _country_from_timezone(tz_name: str | None) -> str | None:
+    if not tz_name:
+        return None
+    tz_clean = tz_name.strip()
+    if tz_clean in _TZ_COUNTRY_FALLBACK:
+        return _TZ_COUNTRY_FALLBACK[tz_clean]
+    try:
+        with open("/usr/share/zoneinfo/zone1970.tab", encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith("#") or not line.strip():
+                    continue
+                parts = line.strip().split("\t")
+                if len(parts) >= 3 and parts[2] == tz_clean:
+                    return parts[0].split(",")[0].strip()[:2] or None
+    except OSError:
+        pass
+    return None
+
+
 @dataclass(frozen=True)
 class ReconciliationRow:
     """One comparison outcome. Derived, never persisted — rebuildable from the observations and
@@ -316,6 +358,28 @@ class MetaDiscoveryService:
 
         # `succeeded` is reserved for a run that saw everything it was required to see. Anything
         # less is reported as such, however clean the individual requests looked.
+        # Backfill BusinessManager currency/country when left blank by the operator
+        if self.business_id and accounts.assets:
+            bm_row = self.session.execute(
+                sa.select(BusinessManager).where(
+                    BusinessManager.workspace_id == self.workspace_id,
+                    BusinessManager.external_id == self.business_id,
+                    BusinessManager.archived_at.is_(None),
+                )
+            ).scalar_one_or_none()
+            if bm_row is not None and (bm_row.currency is None or bm_row.country is None):
+                for asset in accounts.assets:
+                    meta = asset.safe_metadata or {}
+                    c_val = (meta.get("currency") or "").strip()[:10] or None
+                    tz_val = (meta.get("timezone_name") or "").strip()[:80] or None
+                    cnt_val = _country_from_timezone(tz_val)
+                    if bm_row.currency is None and c_val:
+                        bm_row.currency = c_val
+                    if bm_row.country is None and cnt_val:
+                        bm_row.country = cnt_val
+                    if bm_row.currency is not None and bm_row.country is not None:
+                        break
+
         complete = accounts.complete and pixels.complete
         self._finish(
             run,
@@ -379,7 +443,17 @@ class MetaDiscoveryService:
             # endpoint wearing discovery's evidence.
             raise NotFoundError("This ad account was not returned by that discovery run.")
 
+        owner = observation.safe_metadata_json or {}
+        obs_currency = (owner.get("currency") or "").strip()[:10] or None
+        obs_timezone = (owner.get("timezone_name") or "").strip()[:80] or None
+        obs_country = _country_from_timezone(obs_timezone)
+
         business_manager = self._registry_business_manager(run)
+        if business_manager.currency is None and obs_currency:
+            business_manager.currency = obs_currency
+        if business_manager.country is None and obs_country:
+            business_manager.country = obs_country
+
         registry = AdAccountRegistryService(self.session, self.workspace_id, self.audit)
         account = registry.create(
             {
@@ -387,6 +461,9 @@ class MetaDiscoveryService:
                 "external_account_id": canonical,
                 "account_type": AccountType.BUSINESS_MANAGER,
                 "business_manager_id": business_manager.id,
+                "currency": obs_currency,
+                "timezone": obs_timezone,
+                "country": obs_country,
             }
         )
         # `registry.create` already writes `ad_account.created`. This second row is the

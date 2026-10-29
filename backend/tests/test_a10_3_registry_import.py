@@ -284,3 +284,29 @@ def test_the_reconciliation_flips_to_matched_after_an_import(api, meta_provider,
 
     after = api.get(f"/api/v1/meta-connections/{connection['id']}/discoveries/latest").json()
     assert [r["status"] for r in after["ad_accounts"]["reconciliation"]] == ["matched"]
+
+
+def test_importing_auto_populates_currency_and_country_when_blank(
+    api, session, workspace, meta_provider, configured_bm
+):
+    connection, run = _run(
+        api,
+        meta_provider,
+        accounts=[
+            DiscoveredAsset(
+                "888999000",
+                "Auto Currency Account",
+                "owned_ad_accounts",
+                safe_metadata={"currency": "VND", "timezone_name": "Asia/Ho_Chi_Minh"},
+            )
+        ],
+    )
+    response = _import(api, connection, run, "888999000")
+    assert response.status_code == 201
+    account = session.get(AdAccount, response.json()["ad_account_id"])
+    bm = session.get(BusinessManager, account.business_manager_id)
+    assert account.currency == "VND"
+    assert account.timezone == "Asia/Ho_Chi_Minh"
+    assert account.country == "VN"
+    assert bm.currency == "VND"
+    assert bm.country == "VN"
