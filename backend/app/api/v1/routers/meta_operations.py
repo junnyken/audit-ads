@@ -572,13 +572,13 @@ def run_workspace_quick_sync(
             .all()
         )
         existing_pixels = {
-            p.external_id: p
+            p.external_pixel_id: p
             for p in session.execute(
                 sa.select(Pixel).where(Pixel.workspace_id == workspace_id)
             )
             .scalars()
             .all()
-            if p.external_id
+            if p.external_pixel_id
         }
         for p_obs in pixel_obs:
             ext_pid = (p_obs.external_pixel_id or "").strip()
@@ -590,7 +590,7 @@ def run_workspace_quick_sync(
                         px = Pixel(
                             workspace_id=workspace_id,
                             name=(p_obs.display_name or ext_pid)[:200],
-                            external_id=ext_pid[:120],
+                            external_pixel_id=ext_pid[:120],
                             status=ReferenceStatus.ACTIVE,
                             notes=f"Đồng bộ từ BM {run.configured_business_manager_name or bm_ref}",
                         )
@@ -606,13 +606,13 @@ def run_workspace_quick_sync(
         # Auto-import real Fanpages from owned_pages / client_pages into /assets (Page table)
         if hasattr(service.provider, "transport") and service.business_id:
             existing_pages = {
-                pg.external_id: pg
+                pg.external_page_id: pg
                 for pg in session.execute(
                     sa.select(Page).where(Page.workspace_id == workspace_id)
                 )
                 .scalars()
                 .all()
-                if pg.external_id
+                if pg.external_page_id
             }
             for edge_name in ("owned_pages", "client_pages"):
                 try:
@@ -632,7 +632,7 @@ def run_workspace_quick_sync(
                                     pg_entity = Page(
                                         workspace_id=workspace_id,
                                         name=pname[:200],
-                                        external_id=pid[:120],
+                                        external_page_id=pid[:120],
                                         status=ReferenceStatus.ACTIVE,
                                         notes=f"Đồng bộ từ BM {run.configured_business_manager_name or bm_ref}",
                                     )
@@ -644,6 +644,14 @@ def run_workspace_quick_sync(
                                 existing_pages[pid].status = ReferenceStatus.ACTIVE
                 except Exception:
                     pass
+
+        # Normalize any lowercase ownership_type values from migration 0022 before querying PersonalAccountReference
+        session.execute(
+            sa.text(
+                "UPDATE personal_account_references SET ownership_type = UPPER(ownership_type) WHERE ownership_type != UPPER(ownership_type)"
+            )
+        )
+        session.flush()
 
         # Auto-import discovered Business Users (VIAs) into PersonalAccountReference & link to BM
         user_obs = (
@@ -677,14 +685,17 @@ def run_workspace_quick_sync(
         )
         by_ext_user = {i.external_reference_id: i for i in all_identities if i.external_reference_id}
         by_label_user = {i.label.strip().lower(): i for i in all_identities if i.label}
+        primary_identity: PersonalAccountReference | None = None
 
         if bm_entity is not None:
+            now_link = datetime.now(UTC)
             existing_bm_links = {
                 lnk.personal_account_reference_id: lnk
                 for lnk in session.execute(
                     sa.select(PersonalAccountBusinessLink).where(
                         PersonalAccountBusinessLink.workspace_id == workspace_id,
                         PersonalAccountBusinessLink.business_manager_id == bm_entity.id,
+                        PersonalAccountBusinessLink.unlinked_at.is_(None),
                     )
                 )
                 .scalars()
@@ -721,6 +732,8 @@ def run_workspace_quick_sync(
                         identity.external_reference_id = ext_uid[:120]
 
                 if identity is not None:
+                    if primary_identity is None:
+                        primary_identity = identity
                     role_enum = (
                         IdentityBusinessRole.ADMIN
                         if (u_obs.role or "").upper() == "ADMIN"
@@ -735,6 +748,9 @@ def run_workspace_quick_sync(
                                     personal_account_reference_id=identity.id,
                                     business_manager_id=bm_entity.id,
                                     role=role_enum,
+                                    external_business_user_id=ext_uid[:120],
+                                    linked_at=now_link,
+                                    linked_by=actor_id,
                                     note="Đồng bộ tự động từ Meta BM",
                                 )
                                 session.add(lnk)
@@ -742,35 +758,60 @@ def run_workspace_quick_sync(
                                 existing_bm_links[identity.id] = lnk
                         except Exception:
                             pass
-                    elif lnk.archived_at is not None:
-                        lnk.archived_at = None
+                    else:
                         lnk.role = role_enum
+                        if not lnk.external_business_user_id:
+                            lnk.external_business_user_id = ext_uid[:120]
 
             # Also link any active manual VIA that currently has 0 BM links to this BM so it isn't orphaned
             for ident in all_identities:
-                if ident.archived_at is None and ident.id not in existing_bm_links:
-                    has_any_link = session.execute(
-                        sa.select(PersonalAccountBusinessLink.id).where(
-                            PersonalAccountBusinessLink.workspace_id == workspace_id,
-                            PersonalAccountBusinessLink.personal_account_reference_id == ident.id,
-                            PersonalAccountBusinessLink.archived_at.is_(None),
-                        )
-                    ).first()
-                    if has_any_link is None:
-                        try:
-                            with session.begin_nested():
-                                lnk = PersonalAccountBusinessLink(
-                                    workspace_id=workspace_id,
-                                    personal_account_reference_id=ident.id,
-                                    business_manager_id=bm_entity.id,
-                                    role=IdentityBusinessRole.ADMIN,
-                                    note="Tự động gắn với BM chính",
-                                )
-                                session.add(lnk)
-                                session.flush()
-                                existing_bm_links[ident.id] = lnk
-                        except Exception:
-                            pass
+                if ident.archived_at is None:
+                    if primary_identity is None:
+                        primary_identity = ident
+                    if ident.id not in existing_bm_links:
+                        has_any_link = session.execute(
+                            sa.select(PersonalAccountBusinessLink.id).where(
+                                PersonalAccountBusinessLink.workspace_id == workspace_id,
+                                PersonalAccountBusinessLink.personal_account_reference_id == ident.id,
+                                PersonalAccountBusinessLink.unlinked_at.is_(None),
+                            )
+                        ).first()
+                        if has_any_link is None:
+                            try:
+                                with session.begin_nested():
+                                    lnk = PersonalAccountBusinessLink(
+                                        workspace_id=workspace_id,
+                                        personal_account_reference_id=ident.id,
+                                        business_manager_id=bm_entity.id,
+                                        role=IdentityBusinessRole.ADMIN,
+                                        linked_at=now_link,
+                                        linked_by=actor_id,
+                                        note="Tự động gắn với BM chính",
+                                    )
+                                    session.add(lnk)
+                                    session.flush()
+                                    existing_bm_links[ident.id] = lnk
+                            except Exception:
+                                pass
+
+        # Link synced accounts to BM + Primary VIA and recompute readiness
+        from app.services.rollup import ReadinessRollupService
+
+        rollup_svc = ReadinessRollupService(session, workspace_id, audit)
+        for acc in synced_accounts:
+            if bm_entity is not None and acc.business_manager_id is None:
+                acc.business_manager_id = bm_entity.id
+            if primary_identity is not None and acc.personal_account_reference_id is None:
+                acc.personal_account_reference_id = primary_identity.id
+            if not acc.country:
+                acc.country = (bm_entity.country if bm_entity else None) or "VN"
+            if not acc.timezone:
+                acc.timezone = "Asia/Ho_Chi_Minh"
+            try:
+                with session.begin_nested():
+                    rollup_svc.evaluate(acc)
+            except Exception:
+                pass
 
         # Auto-refresh spend & platform status for up to 15 synced accounts
         for acc in synced_accounts[:15]:

@@ -22,7 +22,7 @@ def upgrade() -> None:
             "ownership_type",
             sa.String(length=32),
             nullable=False,
-            server_default="agency_owned",
+            server_default="AGENCY_OWNED",
         ),
     )
     op.add_column(

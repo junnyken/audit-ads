@@ -102,6 +102,15 @@ def bootstrap_owner(session: Session) -> Workspace | None:
 
 def bootstrap_meta_sync(session: Session, workspace: Workspace | None) -> None:
     """Auto-sync configured Meta Business Manager on production startup so real assets are always present."""
+    try:
+        session.execute(
+            sa.text(
+                "UPDATE personal_account_references SET ownership_type = UPPER(ownership_type) WHERE ownership_type != UPPER(ownership_type)"
+            )
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
     settings = get_settings()
     if workspace is None:
         return
