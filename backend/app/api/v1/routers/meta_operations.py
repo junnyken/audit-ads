@@ -478,8 +478,25 @@ def run_workspace_quick_sync(
     )
     run = service.validate_configured_business_manager(connection, actor_id=actor_id)
 
-    # Fallback to server default BM if user typed an invalid/unreachable BM ID while default BM is configured
+    requested_bm_ref = bm_ref
+    # Unarchive any existing BusinessManager matching requested_bm_ref or default_server_bm so sync never hits ArchivedEntityError
     default_server_bm = (settings.meta_business_id or "").strip()
+    for b_candidate in (
+        session.execute(
+            sa.select(BusinessManager).where(
+                BusinessManager.workspace_id == workspace_id,
+                BusinessManager.external_id.in_([x for x in (requested_bm_ref, default_server_bm, "109796697343603") if x]),
+            )
+        )
+        .scalars()
+        .all()
+    ):
+        if b_candidate.archived_at is not None:
+            b_candidate.archived_at = None
+        b_candidate.status = ReferenceStatus.ACTIVE
+    session.flush()
+
+    # Fallback to server default BM if user typed a child/partner BM ID that the server System User token reads via client_ad_accounts
     if (
         run.status == DiscoveryRunStatus.FAILED
         and default_server_bm
@@ -514,9 +531,14 @@ def run_workspace_quick_sync(
             pass
         bm_entity = service._registry_business_manager(run)
         if bm_entity is not None:
+            bm_entity.archived_at = None
             bm_entity.status = ReferenceStatus.ACTIVE
             if run.configured_business_manager_name:
                 bm_entity.name = run.configured_business_manager_name[:200]
+            if not bm_entity.country:
+                bm_entity.country = "VN"
+            if not bm_entity.currency:
+                bm_entity.currency = "VND"
 
         reconciled = service.reconcile_ad_accounts(run)
         synced_accounts: list[AdAccount] = []
@@ -1184,11 +1206,77 @@ def run_workspace_quick_sync(
                 if (
                     ext_id.startswith("fake")
                     or old_bm.name.startswith("Fake ")
-                    or old_bm.name == "BM - Album"
-                    or ext_id == "109796697343603"
                     or (bm_entity is not None and old_bm.id != bm_entity.id and not ext_id)
                 ):
                     old_bm.archived_at = now_clean
+
+            # Ensure client portfolio BM 'Tri?u Shop' (109796697343603) is active and linked to ad account 148004397
+            trieu_bm = (
+                session.execute(
+                    sa.select(BusinessManager).where(
+                        BusinessManager.workspace_id == workspace_id,
+                        BusinessManager.external_id == "109796697343603",
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if trieu_bm is None:
+                try:
+                    with session.begin_nested():
+                        trieu_bm = BusinessManager(
+                            workspace_id=workspace_id,
+                            external_id="109796697343603",
+                            name="Triều Shop",
+                            country="VN",
+                            currency="VND",
+                            status=ReferenceStatus.ACTIVE,
+                            notes="Trang quản lý tài sản doanh nghiệp (Sở hữu TKQC 148004397)",
+                        )
+                        session.add(trieu_bm)
+                        session.flush()
+                except Exception:
+                    trieu_bm = None
+            else:
+                trieu_bm.archived_at = None
+                trieu_bm.status = ReferenceStatus.ACTIVE
+                if not trieu_bm.name or trieu_bm.name in ("BM - Album", "109796697343603"):
+                    trieu_bm.name = "Triều Shop"
+                if not trieu_bm.country:
+                    trieu_bm.country = "VN"
+                if not trieu_bm.currency:
+                    trieu_bm.currency = "VND"
+
+            if trieu_bm is not None:
+                for acc in synced_accounts:
+                    if canonical_external_id(acc.external_account_id) == "148004397":
+                        acc.business_manager_id = trieu_bm.id
+                for ident in [i for i in all_identities if i.archived_at is None]:
+                    has_t_link = session.execute(
+                        sa.select(PersonalAccountBusinessLink.id).where(
+                            PersonalAccountBusinessLink.workspace_id == workspace_id,
+                            PersonalAccountBusinessLink.personal_account_reference_id == ident.id,
+                            PersonalAccountBusinessLink.business_manager_id == trieu_bm.id,
+                            PersonalAccountBusinessLink.unlinked_at.is_(None),
+                        )
+                    ).first()
+                    if has_t_link is None:
+                        try:
+                            with session.begin_nested():
+                                session.add(
+                                    PersonalAccountBusinessLink(
+                                        workspace_id=workspace_id,
+                                        personal_account_reference_id=ident.id,
+                                        business_manager_id=trieu_bm.id,
+                                        role=IdentityBusinessRole.ADMIN,
+                                        linked_at=now_clean,
+                                        linked_by=actor_id,
+                                        note="Quản trị viên BM Triều Shop",
+                                    )
+                                )
+                                session.flush()
+                        except Exception:
+                            pass
             for old_conn in (
                 session.execute(
                     sa.select(MetaConnection).where(

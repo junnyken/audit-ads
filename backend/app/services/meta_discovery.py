@@ -577,7 +577,13 @@ class MetaDiscoveryService:
             )
         ).scalar_one_or_none()
         if existing is not None:
-            require_active(existing, label="Business Manager")
+            if existing.archived_at is not None:
+                existing.archived_at = None
+            if run.configured_business_manager_name and (
+                not existing.name or existing.name == reference or existing.name == "BM - Album"
+            ):
+                existing.name = run.configured_business_manager_name[:200]
+            self.session.flush()
             return existing
 
         business_manager = BusinessManager(
