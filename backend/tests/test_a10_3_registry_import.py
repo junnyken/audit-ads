@@ -310,3 +310,24 @@ def test_importing_auto_populates_currency_and_country_when_blank(
     assert account.country == "VN"
     assert bm.currency == "VND"
     assert bm.country == "VN"
+
+
+def test_quick_sync_endpoint_creates_connection_and_imports_accounts(
+    api, session, workspace, meta_provider, configured_bm
+):
+    meta_provider.business_managers.append({"external_id": "109796697343603", "name": "BM - Album"})
+    meta_provider.discovered_ad_accounts.append(
+        DiscoveredAsset(
+            "555666777",
+            "Album Ads 01",
+            "owned_ad_accounts",
+            safe_metadata={"currency": "VND", "timezone_name": "Asia/Ho_Chi_Minh"},
+        )
+    )
+    res = api.post(
+        "/api/v1/meta-connections/quick-sync",
+        json={"business_manager_reference": "109796697343603"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["business_manager_reference"] == "109796697343603"

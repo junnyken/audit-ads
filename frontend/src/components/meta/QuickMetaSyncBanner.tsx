@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import { useAuth } from '../../hooks/useAuth'
@@ -47,6 +48,8 @@ export function QuickMetaSyncBanner() {
 
   if (user?.role !== 'owner') return null
 
+  const isSuccess = result && (result.status === 'succeeded' || result.status === 'succeeded_with_warnings')
+
   return (
     <Card className="border-brand/30 bg-surface">
       <CardContent className="space-y-3 py-3">
@@ -84,21 +87,30 @@ export function QuickMetaSyncBanner() {
         {result && (
           <div
             role="status"
-            className="rounded-md border border-line bg-surface-muted px-3 py-2 text-xs text-ink"
+            className="space-y-2 rounded-md border border-line bg-surface-muted px-3 py-2 text-xs text-ink"
           >
-            {result.status === 'succeeded' || result.status === 'succeeded_with_warnings'
-              ? t('qs.result.ok', {
-                  name: result.business_manager_name || result.connection_label,
-                  ref: result.business_manager_reference || '—',
-                  totalAccounts: result.total_ad_accounts,
-                  imported: result.imported_ad_accounts,
-                  pixels: result.total_pixels,
-                  users: result.total_business_users,
-                })
-              : t('qs.result.failed', {
-                  code: result.failure_code || result.status,
-                  summary: result.failure_summary || '—',
-                })}
+            <p>
+              {isSuccess
+                ? t('qs.result.ok', {
+                    name: result.business_manager_name || result.connection_label,
+                    ref: result.business_manager_reference || '—',
+                    totalAccounts: result.total_ad_accounts,
+                    imported: result.imported_ad_accounts,
+                    pixels: result.total_pixels,
+                    users: result.total_business_users,
+                  })
+                : t('qs.result.failed', {
+                    code: result.failure_code || result.status,
+                    summary: result.failure_summary || 'Token hiện tại trên máy chủ chưa có quyền đọc BM này.',
+                  })}
+            </p>
+            {!isSuccess && (
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <Button asChild variant="secondary" size="sm">
+                  <Link to="/settings#meta-readers">{t('mc.empty.facebook')}</Link>
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </CardContent>

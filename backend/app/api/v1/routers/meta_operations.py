@@ -413,7 +413,7 @@ def quick_sync_connection(ctx: OwnerCtx, payload: s.QuickSyncRequest) -> dict[st
         )
         # Auto-bind active vault credential if workspace has one
         creds = _workspace_credentials(ctx)
-        active_creds = [c for c in creds.values() if c.status.value == "active"]
+        active_creds = [c for c in creds if c.status.value == "active"]
         if active_creds:
             connection.reader_credential_id = active_creds[0].id
         ctx.session.add(connection)
