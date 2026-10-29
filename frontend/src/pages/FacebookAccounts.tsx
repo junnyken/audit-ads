@@ -175,6 +175,9 @@ export default function FacebookAccounts() {
                             {t(`fb.ownership.${ownership}` as never)}
                           </Badge>
                           {clientName && <span className="text-ink-muted">{clientName}</span>}
+                  {Boolean(row.external_reference_id) && (
+                    <span className="font-mono text-ink-muted">ID: {String(row.external_reference_id)}</span>
+                  )}
                         </div>
                       </div>
                     </TableCell>
