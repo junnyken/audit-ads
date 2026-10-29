@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Pencil, Trash2 } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import type { FacebookIdentityProfile, IdentityBusinessRole, Paged, ReferenceRecord, TeamMember } from '../lib/types'
@@ -23,7 +24,8 @@ const BM_ROLES: IdentityBusinessRole[] = ['admin', 'employee', 'unknown']
 
 export default function FacebookAccountDetail() {
   const { identityId = '' } = useParams()
-  const { t } = useI18n()
+  const navigate = useNavigate()
+  const { t, language } = useI18n()
   const { user } = useAuth()
   const role = user?.role ?? 'owner'
   const canWrite = role !== 'viewer'
@@ -120,9 +122,35 @@ export default function FacebookAccountDetail() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {canWrite && (
-              <Button type="button" variant="secondary" size="sm" onClick={() => setEditing(true)}>
-                {t('fb.form.editBtn')}
-              </Button>
+              <>
+                <Button type="button" variant="secondary" size="sm" onClick={() => setEditing(true)}>
+                  <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                  {t('fb.form.editBtn')}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="border-danger-line text-danger-text hover:bg-danger-soft"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        language === 'vi'
+                          ? `Bạn có chắc muốn xóa tài khoản Facebook "${String(r.label)}"?`
+                          : `Delete Facebook account "${String(r.label)}"?`,
+                      )
+                    ) {
+                      void api.post(`/api/v1/personal-account-references/${identityId}/archive`).then(() => {
+                        refresh()
+                        navigate('/facebook-accounts')
+                      })
+                    }
+                  }}
+                >
+                  <Trash2 className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                  {language === 'vi' ? 'Xóa' : 'Delete'}
+                </Button>
+              </>
             )}
             <Link className="text-sm font-medium text-brand-text hover:underline" to="/facebook-accounts">
               {t('fb.back')}

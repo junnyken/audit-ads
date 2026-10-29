@@ -253,17 +253,20 @@ class AdAccountRegistryService:
     def _assert_external_id_unique(self, external_account_id: str | None, *, exclude_id: uuid.UUID | None = None) -> None:
         if not external_account_id:
             return
-        stmt = sa.select(AdAccount.id).where(
+        stmt = sa.select(AdAccount).where(
             AdAccount.workspace_id == self.workspace_id,
             AdAccount.external_account_id == external_account_id,
         )
         if exclude_id:
             stmt = stmt.where(AdAccount.id != exclude_id)
-        if self.session.execute(stmt).first() is not None:
-            raise ConflictError(
-                "Another account in this workspace already uses this external account ID.",
-                details={"field": "external_account_id", "value": external_account_id},
-            )
+        for existing in self.session.execute(stmt).scalars().all():
+            if existing.archived_at is None:
+                raise ConflictError(
+                    "Another account in this workspace already uses this external account ID.",
+                    details={"field": "external_account_id", "value": external_account_id},
+                )
+            existing.external_account_id = None
+            self.session.flush()
 
     def create(self, payload: dict[str, Any]) -> AdAccount:
         payload = dict(payload)

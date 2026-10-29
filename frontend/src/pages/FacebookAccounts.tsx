@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Pencil, Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, query } from '../lib/api'
@@ -18,7 +19,7 @@ import { FacebookAccountFormSheet } from '../components/facebook/FacebookAccount
 import { twoFactorTone } from '../lib/readiness'
 
 export default function FacebookAccounts() {
-  const { t } = useI18n()
+  const { t, language } = useI18n()
   const enumLabel = useEnumLabel()
   const { user } = useAuth()
   const queryClient = useQueryClient()
@@ -240,16 +241,31 @@ export default function FacebookAccounts() {
                             onClick={() => setEditingRecord(row)}
                             data-testid={`fb-edit-${row.id}`}
                           >
+                            <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
                             {t('fb.form.editBtn')}
                           </Button>
                           <Button
                             type="button"
                             size="sm"
-                            variant="ghost"
+                            variant="secondary"
+                            aria-label={t('ref.archive.confirm')}
+                            className="border-danger-line text-danger-text hover:bg-danger-soft"
                             disabled={archive.isPending}
-                            onClick={() => archive.mutate(row.id)}
+                            onClick={() => {
+                              if (
+                                window.confirm(
+                                  language === 'vi'
+                                    ? `Bạn có chắc muốn xóa tài khoản Facebook "${String(row.label)}"?`
+                                    : `Delete Facebook account "${String(row.label)}"?`,
+                                )
+                              ) {
+                                archive.mutate(row.id)
+                              }
+                            }}
+                            data-testid={`fb-delete-${row.id}`}
                           >
-                            {t('ref.archive.confirm')}
+                            <Trash2 className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                            {language === 'vi' ? 'Xóa' : 'Delete'}
                           </Button>
                         </div>
                       </TableCell>

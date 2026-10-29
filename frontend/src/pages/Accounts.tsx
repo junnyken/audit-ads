@@ -1,7 +1,7 @@
 import { Fragment, useId, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
-import { ChevronRight, Columns3, Download, ListFilter, Search, X } from 'lucide-react'
+import { ChevronRight, Columns3, Download, ListFilter, Pencil, RotateCcw, Search, Trash2, X } from 'lucide-react'
 import { api, query } from '../lib/api'
 import type { AdAccount, Paged, ReferenceRecord } from '../lib/types'
 import AccountFormDrawer from '../components/AccountFormDrawer'
@@ -65,12 +65,13 @@ const RECORDED_OPTIONS = ['unknown', 'active', 'warning', 'restricted', 'disable
 const TYPE_OPTIONS = ['business_manager', 'personal_reference', 'unknown']
 
 export default function Accounts() {
-  const { t } = useI18n()
+  const { t, language } = useI18n()
   const enumLabel = useEnumLabel()
   const { user } = useAuth()
   /** Filters live in the URL so a filtered view can be bookmarked and shared. */
   const [params, setParams] = useSearchParams()
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [editingAccount, setEditingAccount] = useState<AdAccount | null>(null)
   const [viewMode, setViewMode] = useState<'all' | 'bm' | 'via' | 'client'>('all')
 
   const filters = {
@@ -620,9 +621,7 @@ export default function Accounts() {
                 <TableRow className="hover:bg-transparent">
                   <TableHead>{t('col.account')}</TableHead>
                   {headerCells}
-                  <TableHead>
-                    <span className="sr-only">{t('col.actions')}</span>
-                  </TableHead>
+                  <TableHead className="text-right">{t('col.actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -697,9 +696,7 @@ export default function Accounts() {
                 <TableRow className="hover:bg-transparent">
                   <TableHead>{t('col.account')}</TableHead>
                   {headerCells}
-                  <TableHead>
-                    <span className="sr-only">{t('col.actions')}</span>
-                  </TableHead>
+                  <TableHead className="text-right">{t('col.actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -769,12 +766,66 @@ export default function Accounts() {
                             )}
                           </TableCell>
                           {shown.map((id) => renderCell(id, account))}
-                          <TableCell className="w-10 text-right">
-                            <Button asChild variant="ghost" size="icon" className="h-8 w-8">
-                              <Link to={`/accounts/${account.id}`} aria-label={t('row.open', { name: account.display_name })}>
-                                <ChevronRight className="h-4 w-4" aria-hidden="true" />
-                              </Link>
-                            </Button>
+                          <TableCell className="whitespace-nowrap text-right">
+                            <div className="inline-flex items-center justify-end gap-1.5">
+                              {!account.archived_at && (
+                                <Button
+                                  type="button"
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => setEditingAccount(account)}
+                                  data-testid={`account-edit-${account.id}`}
+                                >
+                                  <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                                  {t('pg.edit')}
+                                </Button>
+                              )}
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                className={
+                                  account.archived_at
+                                    ? undefined
+                                    : 'border-danger-line text-danger-text hover:bg-danger-soft'
+                                }
+                                onClick={() => {
+                                  const action = account.archived_at ? 'restore' : 'archive'
+                                  const msg = account.archived_at
+                                    ? language === 'vi'
+                                      ? `Khôi phục tài khoản quảng cáo "${account.display_name}"?`
+                                      : `Restore ad account "${account.display_name}"?`
+                                    : language === 'vi'
+                                      ? `Bạn có chắc muốn xóa tài khoản quảng cáo "${account.display_name}"?`
+                                      : `Delete ad account "${account.display_name}"?`
+                                  if (window.confirm(msg)) {
+                                    void api
+                                      .post(`/api/v1/ad-accounts/${account.id}/${action}`)
+                                      .then(() => {
+                                        void accounts.refetch()
+                                      })
+                                  }
+                                }}
+                                data-testid={`account-delete-${account.id}`}
+                              >
+                                {account.archived_at ? (
+                                  <>
+                                    <RotateCcw className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                                    {t('pg.restore')}
+                                  </>
+                                ) : (
+                                  <>
+                                    <Trash2 className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                                    {language === 'vi' ? 'Xóa' : 'Delete'}
+                                  </>
+                                )}
+                              </Button>
+                              <Button asChild variant="ghost" size="icon" className="h-8 w-8">
+                                <Link to={`/accounts/${account.id}`} aria-label={t('row.open', { name: account.display_name })}>
+                                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                                </Link>
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       )
@@ -808,7 +859,17 @@ export default function Accounts() {
         </>
       )}
 
-      <AccountFormDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+      <AccountFormDrawer
+        open={drawerOpen || editingAccount !== null}
+        account={editingAccount}
+        onClose={() => {
+          setDrawerOpen(false)
+          setEditingAccount(null)
+        }}
+        onSaved={() => {
+          void accounts.refetch()
+        }}
+      />
     </div>
   )
 }

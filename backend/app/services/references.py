@@ -77,17 +77,28 @@ class ReferenceService:
             values = {field: payload.get(field) for field in combination}
             if any(value in (None, "") for value in values.values()):
                 continue
-            stmt = sa.select(model.id).where(model.workspace_id == self.workspace_id)
+            stmt = sa.select(model).where(model.workspace_id == self.workspace_id)
             for field, value in values.items():
                 stmt = stmt.where(getattr(model, field) == value)
             if exclude_id:
                 stmt = stmt.where(model.id != exclude_id)
-            if self.session.execute(stmt).first() is not None:
-                raise ConflictError(
-                    f"Another {self.spec.label.lower()} in this workspace already uses "
-                    f"{', '.join(combination)}.",
-                    details={"fields": list(combination)},
-                )
+            existing_rows = self.session.execute(stmt).scalars().all()
+            for existing in existing_rows:
+                if getattr(existing, "archived_at", None) is None:
+                    raise ConflictError(
+                        f"Another {self.spec.label.lower()} in this workspace already uses "
+                        f"{', '.join(combination)}.",
+                        details={"fields": list(combination)},
+                    )
+                # Free unique identifier on archived row so re-creating after delete succeeds
+                last_field = combination[-1]
+                col = model.__table__.columns.get(last_field)
+                if col is not None and col.nullable:
+                    setattr(existing, last_field, None)
+                else:
+                    old_v = str(getattr(existing, last_field, "") or "")
+                    setattr(existing, last_field, f"{old_v}__del_{str(existing.id)[:6]}"[:120])
+                self.session.flush()
 
     def create(self, payload: dict[str, Any]) -> Any:
         self._assert_unique(payload)

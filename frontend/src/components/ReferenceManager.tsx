@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, query } from '../lib/api'
 import type { Paged, ReferenceRecord } from '../lib/types'
@@ -77,7 +78,7 @@ function recordLabel(spec: ResourceSpec, record: ReferenceRecord): string {
 type Pending = { kind: 'archive' | 'restore'; record: ReferenceRecord } | null
 
 export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
-  const { t } = useI18n()
+  const { t, language } = useI18n()
   const enumLabel = useEnumLabel()
   const queryClient = useQueryClient()
   const [archived, setArchived] = useState(false)
@@ -176,9 +177,7 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
                   <TableHead key={field.name}>{t(field.label)}</TableHead>
                 ))}
                 <TableHead>{t('ref.col.updated')}</TableHead>
-                <TableHead>
-                  <span className="sr-only">{t('pg.actions')}</span>
-                </TableHead>
+                <TableHead className="text-right">{t('pg.actions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -204,15 +203,25 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
                     <div className="flex justify-end gap-1.5">
                       {record.archived_at ? (
                         <Button type="button" variant="secondary" size="sm" onClick={() => setPending({ kind: 'restore', record })}>
+                          <RotateCcw className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
                           {t('pg.restore')}
                         </Button>
                       ) : (
                         <>
                           <Button type="button" variant="secondary" size="sm" onClick={() => setEditing(record)}>
+                            <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
                             {t('pg.edit')}
                           </Button>
-                          <Button type="button" variant="secondary" size="sm" onClick={() => setPending({ kind: 'archive', record })}>
-                            {t('pg.archive')}
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            aria-label={t('pg.archive')}
+                            className="border-danger-line text-danger-text hover:bg-danger-soft"
+                            onClick={() => setPending({ kind: 'archive', record })}
+                          >
+                            <Trash2 className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                            {language === 'vi' ? 'Xóa' : 'Delete'}
                           </Button>
                         </>
                       )}
