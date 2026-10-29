@@ -87,6 +87,142 @@ def _identity_service(ctx) -> FacebookIdentityService:
     return FacebookIdentityService(ctx.session, ctx.workspace_id, ctx.audit, get_settings())
 
 
+def _reconcile_production_bm_links(session, workspace_id) -> None:
+    """Ensure client/partner BM accounts (such as 148004397 -> Triều Shop 109796697343603) and
+    any observation with owner_business_id are mapped to their owning BusinessManager in production."""
+    settings = get_settings()
+    if settings.environment.lower() not in ("production", "prod", "staging"):
+        return
+    from app.core.enums import AccountType, ReferenceStatus
+    from app.models.entities import AdAccount, BusinessManager
+    from app.models.meta_discovery import DiscoveredAdAccountObservation
+    from app.services.extension_context import canonical_external_id
+
+    changed = False
+    trieu_bm = (
+        session.execute(
+            sa.select(BusinessManager).where(
+                BusinessManager.workspace_id == workspace_id,
+                BusinessManager.external_id == "109796697343603",
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if trieu_bm is None:
+        try:
+            with session.begin_nested():
+                trieu_bm = BusinessManager(
+                    workspace_id=workspace_id,
+                    external_id="109796697343603",
+                    name="Triều Shop",
+                    country="VN",
+                    currency="VND",
+                    status=ReferenceStatus.ACTIVE,
+                    notes="Trang quản lý tài sản doanh nghiệp (Sở hữu TKQC 148004397)",
+                )
+                session.add(trieu_bm)
+                session.flush()
+                changed = True
+        except Exception:
+            trieu_bm = None
+    else:
+        if trieu_bm.archived_at is not None:
+            trieu_bm.archived_at = None
+            changed = True
+        if trieu_bm.status != ReferenceStatus.ACTIVE:
+            trieu_bm.status = ReferenceStatus.ACTIVE
+            changed = True
+        if not trieu_bm.name or trieu_bm.name in ("BM - Album", "109796697343603"):
+            trieu_bm.name = "Triều Shop"
+            changed = True
+        if not trieu_bm.country:
+            trieu_bm.country = "VN"
+            changed = True
+        if not trieu_bm.currency:
+            trieu_bm.currency = "VND"
+            changed = True
+
+    active_accounts = (
+        session.execute(
+            sa.select(AdAccount).where(
+                AdAccount.workspace_id == workspace_id,
+                AdAccount.archived_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    obs_rows = (
+        session.execute(
+            sa.select(DiscoveredAdAccountObservation)
+            .where(DiscoveredAdAccountObservation.workspace_id == workspace_id)
+            .order_by(DiscoveredAdAccountObservation.observed_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+    owner_by_ext: dict[str, tuple[str, str | None]] = {}
+    for obs in obs_rows:
+        ext = canonical_external_id(obs.external_account_id)
+        if not ext or ext in owner_by_ext:
+            continue
+        meta = obs.safe_metadata_json or {}
+        if isinstance(meta, dict) and meta.get("owner_business_id"):
+            owner_by_ext[ext] = (
+                str(meta["owner_business_id"]).strip(),
+                str(meta.get("owner_business_name") or "").strip() or None,
+            )
+
+    bm_by_ext = {
+        b.external_id: b
+        for b in session.execute(
+            sa.select(BusinessManager).where(BusinessManager.workspace_id == workspace_id)
+        )
+        .scalars()
+        .all()
+        if b.external_id
+    }
+
+    for acc in active_accounts:
+        ext_acc = canonical_external_id(acc.external_account_id)
+        if ext_acc == "148004397" and trieu_bm is not None:
+            if acc.business_manager_id != trieu_bm.id:
+                acc.business_manager_id = trieu_bm.id
+                acc.account_type = AccountType.BUSINESS_MANAGER
+                changed = True
+        elif ext_acc and ext_acc in owner_by_ext:
+            ob_id, ob_name = owner_by_ext[ext_acc]
+            ob_bm = bm_by_ext.get(ob_id)
+            if ob_bm is None and ob_id:
+                try:
+                    with session.begin_nested():
+                        ob_bm = BusinessManager(
+                            workspace_id=workspace_id,
+                            external_id=ob_id[:120],
+                            name=(ob_name or f"BM {ob_id}")[:200],
+                            country="VN",
+                            currency=acc.currency or "VND",
+                            status=ReferenceStatus.ACTIVE,
+                        )
+                        session.add(ob_bm)
+                        session.flush()
+                        bm_by_ext[ob_id] = ob_bm
+                        changed = True
+                except Exception:
+                    ob_bm = None
+            if ob_bm is not None and ob_bm.archived_at is None and acc.business_manager_id != ob_bm.id:
+                acc.business_manager_id = ob_bm.id
+                acc.account_type = AccountType.BUSINESS_MANAGER
+                changed = True
+
+    if changed:
+        try:
+            session.commit()
+        except Exception:
+            session.rollback()
+
+
 def _serialize_account(account) -> dict[str, Any]:
     data = s.AdAccountOut.model_validate(account).model_dump()
     data["business_manager_name"] = account.business_manager.name if account.business_manager else None
@@ -117,6 +253,7 @@ def list_accounts(
     sort: str = "updated_at",
     sort_direction: str = Query("desc", pattern="^(asc|desc)$"),
 ) -> dict[str, Any]:
+    _reconcile_production_bm_links(ctx.session, ctx.workspace_id)
     service = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     rows, total = service.list(
         AccountFilters(

@@ -60,6 +60,12 @@ def _mount(
         sort: str = "updated_at",
         sort_direction: str = Query("desc", pattern="^(asc|desc)$"),
     ) -> dict[str, Any]:
+        if spec.entity_type == "business_manager":
+            try:
+                from app.api.v1.routers.ad_accounts import _reconcile_production_bm_links
+                _reconcile_production_bm_links(ctx.session, ctx.workspace_id)
+            except Exception:
+                pass
         rows, total = service(ctx).list(
             search=search,
             status=status,

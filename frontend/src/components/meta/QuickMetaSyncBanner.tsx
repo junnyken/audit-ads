@@ -20,6 +20,7 @@ interface QuickSyncResponse {
   total_ad_accounts: number
   total_pixels: number
   total_business_users: number
+  accounts?: { id: string; display_name: string; external_account_id: string | null }[]
   failure_code: string | null
   failure_summary: string | null
 }
@@ -104,6 +105,31 @@ export function QuickMetaSyncBanner() {
                     summary: result.failure_summary || 'Token hiện tại trên máy chủ chưa có quyền đọc BM này.',
                   })}
             </p>
+            {isSuccess && result.accounts && result.accounts.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                <span className="text-[11px] font-medium text-ink-muted">
+                  Tài khoản quảng cáo của BM này:
+                </span>
+                {result.accounts.map((acc) => (
+                  <Link
+                    key={acc.id}
+                    to={`/accounts/${acc.id}`}
+                    className="inline-flex items-center rounded border border-brand/40 bg-brand-soft/20 px-2 py-0.5 text-[11px] font-medium text-brand-text hover:underline"
+                  >
+                    {acc.display_name}
+                    {acc.external_account_id && acc.external_account_id !== acc.display_name
+                      ? ` (${acc.external_account_id})`
+                      : ''}
+                  </Link>
+                ))}
+                <Link
+                  to="/accounts"
+                  className="ml-1 text-[11px] font-semibold text-brand-text hover:underline"
+                >
+                  Mở trang Tài khoản quảng cáo →
+                </Link>
+              </div>
+            )}
             {!isSuccess && (
               <div className="flex flex-wrap items-center gap-2 pt-1">
                 <Button asChild variant="secondary" size="sm">

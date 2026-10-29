@@ -539,6 +539,41 @@ def run_workspace_quick_sync(
                 bm_entity.country = "VN"
             if not bm_entity.currency:
                 bm_entity.currency = "VND"
+        session.flush()
+
+        # If operator synced a partner/client BM (e.g. Triều Shop 109796697343603) whose accounts are read via
+        # the hub BM's client_ad_accounts edge, also discover on default_server_bm so all shared accounts are imported.
+        if (
+            ((run.ad_account_coverage_json or {}).get("total_unique_assets") or 0) == 0
+            and default_server_bm
+            and bm_ref != default_server_bm
+            and settings.environment.lower() in ("production", "prod", "staging")
+        ):
+            hub_conn = _find_or_create_conn(default_server_bm)
+            hub_service = MetaDiscoveryService(
+                session,
+                workspace_id,
+                audit,
+                provider=_provider_for(hub_conn),
+                business_id=_business_id_for(hub_conn),
+            )
+            hub_run = hub_service.validate_configured_business_manager(hub_conn, actor_id=actor_id)
+            if hub_run.status in (DiscoveryRunStatus.SUCCEEDED, DiscoveryRunStatus.SUCCEEDED_WITH_WARNINGS):
+                hub_service.discover_assets(hub_run)
+                hub_bm = hub_service._registry_business_manager(hub_run)
+                if hub_bm is not None:
+                    hub_bm.archived_at = None
+                    hub_bm.status = ReferenceStatus.ACTIVE
+                    if hub_run.configured_business_manager_name:
+                        hub_bm.name = hub_run.configured_business_manager_name[:200]
+                    if not hub_bm.country:
+                        hub_bm.country = "VN"
+                    if not hub_bm.currency:
+                        hub_bm.currency = "VND"
+                    bm_entity = hub_bm
+                service = hub_service
+                run = hub_run
+                connection = hub_conn
 
         reconciled = service.reconcile_ad_accounts(run)
         synced_accounts: list[AdAccount] = []
@@ -1248,9 +1283,19 @@ def run_workspace_quick_sync(
                     trieu_bm.currency = "VND"
 
             if trieu_bm is not None:
-                for acc in synced_accounts:
+                for acc in (
+                    session.execute(
+                        sa.select(AdAccount).where(
+                            AdAccount.workspace_id == workspace_id,
+                            AdAccount.archived_at.is_(None),
+                        )
+                    )
+                    .scalars()
+                    .all()
+                ):
                     if canonical_external_id(acc.external_account_id) == "148004397":
                         acc.business_manager_id = trieu_bm.id
+                        acc.account_type = AccountType.BUSINESS_MANAGER
                 for ident in [i for i in all_identities if i.archived_at is None]:
                     has_t_link = session.execute(
                         sa.select(PersonalAccountBusinessLink.id).where(
@@ -1293,17 +1338,67 @@ def run_workspace_quick_sync(
                 ):
                     old_conn.archived_at = now_clean
 
+    # Always reconcile client/partner BM account links in production
+    if settings.environment.lower() in ("production", "prod", "staging"):
+        try:
+            from app.api.v1.routers.ad_accounts import _reconcile_production_bm_links
+            _reconcile_production_bm_links(session, workspace_id)
+        except Exception:
+            pass
+
+    target_bm = (
+        session.execute(
+            sa.select(BusinessManager).where(
+                BusinessManager.workspace_id == workspace_id,
+                BusinessManager.external_id == (requested_bm_ref or bm_ref),
+                BusinessManager.archived_at.is_(None),
+            )
+        )
+        .scalars()
+        .first()
+        if (requested_bm_ref or bm_ref)
+        else None
+    )
+    target_bm_accounts = (
+        session.execute(
+            sa.select(AdAccount)
+            .where(
+                AdAccount.workspace_id == workspace_id,
+                AdAccount.archived_at.is_(None),
+                AdAccount.business_manager_id == target_bm.id,
+            )
+            .order_by(AdAccount.display_name.asc())
+        )
+        .scalars()
+        .all()
+        if target_bm is not None
+        else []
+    )
+    discovered_total = (run.ad_account_coverage_json or {}).get("total_unique_assets") or 0
+
     return {
         "connection_id": str(connection.id),
-        "connection_label": connection.label,
+        "connection_label": target_bm.name if target_bm else connection.label,
         "run_id": str(run.id),
         "status": run.status.value,
-        "business_manager_reference": run.configured_business_manager_reference,
-        "business_manager_name": run.configured_business_manager_name,
+        "business_manager_reference": (
+            target_bm.external_id if target_bm else run.configured_business_manager_reference
+        ),
+        "business_manager_name": (
+            target_bm.name if target_bm else run.configured_business_manager_name
+        ),
         "imported_ad_accounts": imported_count,
-        "total_ad_accounts": (run.ad_account_coverage_json or {}).get("total_unique_assets") or 0,
+        "total_ad_accounts": len(target_bm_accounts) if target_bm_accounts else discovered_total,
         "total_pixels": (run.pixel_coverage_json or {}).get("total_unique_assets") or 0,
         "total_business_users": (run.business_user_coverage_json or {}).get("total_unique_assets") or 0,
+        "accounts": [
+            {
+                "id": str(a.id),
+                "display_name": a.display_name,
+                "external_account_id": a.external_account_id,
+            }
+            for a in target_bm_accounts
+        ],
         "failure_code": run.failure_code,
         "failure_summary": run.failure_summary,
     }

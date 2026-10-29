@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, query } from '../lib/api'
-import type { Paged, ReferenceRecord } from '../lib/types'
+import type { AdAccount, Paged, ReferenceRecord } from '../lib/types'
 import { formatDateTime } from '../lib/format'
 import { useI18n } from '../i18n'
 import type { TranslationKey } from '../i18n'
@@ -88,10 +89,18 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
   const [pending, setPending] = useState<Pending>(null)
   const [readBack, setReadBack] = useState<{ ok: boolean; text: string } | null>(null)
 
+  const isBmResource = spec.key === 'business-managers'
+
   const list = useQuery({
     queryKey: [spec.key, 'list', { archived, search }],
     queryFn: () =>
       api.get<Paged<ReferenceRecord>>(`${spec.path}${query({ archived, search, page_size: 200 })}`),
+  })
+
+  const bmAccountsQuery = useQuery({
+    queryKey: ['accounts', 'by-bm-lookup'],
+    queryFn: () => api.get<Paged<AdAccount>>('/api/v1/ad-accounts?page_size=200'),
+    enabled: isBmResource,
   })
 
   function invalidate() {
@@ -129,8 +138,25 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
   const visibleFields = spec.fields.filter((field) => !field.hideInTable)
   const name = t(spec.singular)
   const rows = list.data?.items ?? []
+  const bmAccountColLabel = language === 'vi' ? 'Tài khoản quảng cáo' : 'Ad accounts'
 
-  const columns = [...visibleFields.map((field) => t(field.label)), t('ref.col.updated'), t('pg.actions')]
+  const accountsByBmId = new Map<string, AdAccount[]>()
+  if (isBmResource) {
+    for (const acc of bmAccountsQuery.data?.items ?? []) {
+      if (acc.business_manager_id) {
+        const cur = accountsByBmId.get(acc.business_manager_id) ?? []
+        cur.push(acc)
+        accountsByBmId.set(acc.business_manager_id, cur)
+      }
+    }
+  }
+
+  const columns = [
+    ...visibleFields.map((field) => t(field.label)),
+    ...(isBmResource ? [bmAccountColLabel] : []),
+    t('ref.col.updated'),
+    t('pg.actions'),
+  ]
 
   return (
     <div className="space-y-3">
@@ -176,6 +202,7 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
                 {visibleFields.map((field) => (
                   <TableHead key={field.name}>{t(field.label)}</TableHead>
                 ))}
+                {isBmResource && <TableHead>{bmAccountColLabel}</TableHead>}
                 <TableHead>{t('ref.col.updated')}</TableHead>
                 <TableHead className="text-right">{t('pg.actions')}</TableHead>
               </TableRow>
@@ -205,6 +232,59 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
                       )}
                     </TableCell>
                   ))}
+                  {isBmResource && (
+                    <TableCell label={bmAccountColLabel}>
+                      {(() => {
+                        const linkedAccs = accountsByBmId.get(String(record.id)) ?? []
+                        if (linkedAccs.length === 0) {
+                          return (
+                            <span className="text-xs text-ink-muted">
+                              {language === 'vi' ? 'Chưa có TKQC' : '0 accounts'}
+                            </span>
+                          )
+                        }
+                        return (
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <Badge tone="positive">
+                                {language === 'vi'
+                                  ? `${linkedAccs.length} tài khoản`
+                                  : `${linkedAccs.length} account(s)`}
+                              </Badge>
+                              <Link
+                                to="/accounts"
+                                className="text-xs font-medium text-brand-text hover:underline"
+                              >
+                                {language === 'vi' ? 'Xem danh sách →' : 'View all →'}
+                              </Link>
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {linkedAccs.slice(0, 4).map((acc) => (
+                                <Link
+                                  key={acc.id}
+                                  to={`/accounts/${acc.id}`}
+                                  className="inline-flex items-center rounded border border-line bg-surface-muted px-1.5 py-0.5 text-[11px] font-medium text-ink hover:border-brand hover:text-brand-text"
+                                >
+                                  {acc.display_name}
+                                  {acc.external_account_id && acc.external_account_id !== acc.display_name
+                                    ? ` (${acc.external_account_id})`
+                                    : ''}
+                                </Link>
+                              ))}
+                              {linkedAccs.length > 4 && (
+                                <Link
+                                  to="/accounts"
+                                  className="inline-flex items-center rounded border border-line bg-surface-muted px-1.5 py-0.5 text-[11px] text-ink-muted hover:text-ink"
+                                >
+                                  +{linkedAccs.length - 4} {language === 'vi' ? 'khác' : 'more'}
+                                </Link>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })()}
+                    </TableCell>
+                  )}
                   <TableCell label={t('ref.col.updated')} className="whitespace-nowrap text-xs text-ink-muted">
                     {formatDateTime(record.updated_at)}
                   </TableCell>
