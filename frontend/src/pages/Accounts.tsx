@@ -8,6 +8,11 @@ import AccountFormDrawer from '../components/AccountFormDrawer'
 import { QuickMetaSyncBanner } from '../components/meta/QuickMetaSyncBanner'
 import AccountSpendCell from '../components/AccountSpendCell'
 import PlatformStatusBadge from '../components/PlatformStatusBadge'
+import {
+  downloadWindowsChromeLauncherBat,
+  formatShortProfileBadge,
+  launchInAssignedChromeProfile,
+} from '../lib/chromeProfileLauncher'
 import { ChecklistProgress } from '../components/dashboard/ChecklistProgress'
 import { Badge } from '../components/primitives/badge'
 import { Button } from '../components/primitives/button'
@@ -187,6 +192,7 @@ export default function Accounts() {
               value={account.platform_status}
               accountId={account.id}
               externalAccountId={account.external_account_id}
+              facebookIdentities={account.facebook_identities}
             />
           </TableCell>
         )
@@ -221,14 +227,36 @@ export default function Accounts() {
                   const envMeta = [identity.device_label, identity.browser_profile_label]
                     .filter(Boolean)
                     .join(' · ')
+                  const actRaw = (account.external_account_id || '').replace(/^act[-_]/i, '').trim()
+                  const adsMgrUrl = actRaw
+                    ? `https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${encodeURIComponent(actRaw)}`
+                    : 'https://business.facebook.com/overview'
                   return (
-                    <div key={identity.id}>
-                      <Link
-                        to={`/facebook-accounts/${identity.id}`}
-                        className="text-brand-text hover:underline"
-                      >
-                        {identity.label}
-                      </Link>
+                    <div key={identity.id} className="space-y-0.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Link
+                          to={`/facebook-accounts/${identity.id}`}
+                          className="font-medium text-brand-text hover:underline"
+                        >
+                          {identity.label}
+                        </Link>
+                        {identity.browser_profile_label && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              launchInAssignedChromeProfile(
+                                adsMgrUrl,
+                                identity.browser_profile_label,
+                                identity.label,
+                              )
+                            }
+                            className="inline-flex items-center rounded border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+                            title={`Mở Trình quản lý quảng cáo bằng đúng Chrome Profile (${identity.browser_profile_label})`}
+                          >
+                            🚀 Mở Chrome
+                          </button>
+                        )}
+                      </div>
                       {envMeta && (
                         <span className="block text-2xs text-ink-muted">{envMeta}</span>
                       )}
@@ -419,6 +447,15 @@ export default function Accounts() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={downloadWindowsChromeLauncherBat}
+            title="Tải và chạy 1 lần trên máy Windows để khi bấm nút Mở Chrome / Kháng nghị / Thanh toán trên web sẽ tự động bật đúng cửa sổ Chrome Profile của Via đó"
+            data-testid="accounts-chrome-launcher-setup"
+          >
+            ⚡ Cài đặt Tự động mở Chrome Profile (1 lần)
+          </Button>
           {rows.length > 0 && (
             <Button
               type="button"
@@ -753,6 +790,36 @@ export default function Accounts() {
                             <span className="block text-xs text-ink-muted">
                               {account.business_manager_name ?? account.personal_account_reference_label ?? '—'}
                             </span>
+                            {account.facebook_identities && account.facebook_identities.length > 0 && (
+                              <span className="mt-0.5 flex flex-wrap items-center gap-1 text-2xs text-ink-muted">
+                                <span>
+                                  VIA: <strong className="font-medium text-ink">{account.facebook_identities[0].label}</strong>
+                                  {account.facebook_identities[0].browser_profile_label
+                                    ? ` · ${formatShortProfileBadge(account.facebook_identities[0])}`
+                                    : ''}
+                                </span>
+                                {account.facebook_identities[0].browser_profile_label && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const actRaw = (account.external_account_id || '').replace(/^act[-_]/i, '').trim()
+                                      const targetUrl = actRaw
+                                        ? `https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${encodeURIComponent(actRaw)}`
+                                        : 'https://business.facebook.com/overview'
+                                      launchInAssignedChromeProfile(
+                                        targetUrl,
+                                        account.facebook_identities![0].browser_profile_label,
+                                        account.facebook_identities![0].label,
+                                      )
+                                    }}
+                                    className="inline-flex items-center rounded border border-emerald-500/40 bg-emerald-500/10 px-1 py-0.2 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+                                    title={`Mở TKQC này bằng đúng cửa sổ Chrome (${account.facebook_identities[0].browser_profile_label})`}
+                                  >
+                                    🚀 Mở đúng Chrome
+                                  </button>
+                                )}
+                              </span>
+                            )}
                             {account.payment_profile_labels && account.payment_profile_labels.length > 0 && (
                               <span className="mt-0.5 block text-2xs font-medium text-ink-muted" data-testid="account-row-pttt">
                                 {`PTTT: ${account.payment_profile_labels.join(' · ')}`}

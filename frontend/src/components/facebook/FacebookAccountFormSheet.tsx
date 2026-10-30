@@ -467,6 +467,19 @@ export function FacebookAccountFormSheet({
                     })}
                   </optgroup>
                 )}
+                <optgroup label="Google Chrome — Chọn đúng số thứ tự Profile (Mở tự động 1 chạm)">
+                  <option value={`Chrome — Default (${viaSuffix})`}>
+                    Chrome Gốc (Default) → Chrome — Default ({viaSuffix})
+                  </option>
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => {
+                    const generated = `Chrome — Profile #${num} (${viaSuffix})`
+                    return (
+                      <option key={`chrome-prof-${num}`} value={generated}>
+                        Chrome Profile #{num} → {generated}
+                      </option>
+                    )
+                  })}
+                </optgroup>
                 <optgroup label="Khởi tạo nhanh theo phần mềm Antidetect / Trình duyệt">
                   {BROWSER_ENV_PRESETS.map((p) => {
                     const generated = `${p.provider} — Profile (${viaSuffix})`
@@ -487,6 +500,9 @@ export function FacebookAccountFormSheet({
                 onChange={(e) => setBrowserProfileLabel(e.target.value)}
                 data-testid="fb-browser-input"
               />
+              <p className="text-[11px] text-ink-muted">
+                💡 Mẹo: Để bấm nút <strong>🚀 Mở đúng Chrome</strong> tự động bật đúng cửa sổ Chrome của Via này, hãy chọn đúng số <strong>Profile #1, #2, #3...</strong> (hoặc gõ <code>chrome://version</code> trên cửa sổ Chrome đó để xem mục <em>Đường dẫn hồ sơ / Profile Path</em>).
+              </p>
             </div>
           </Field>
 

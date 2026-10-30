@@ -17,6 +17,10 @@ import { Card } from '../components/primitives/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/primitives/table'
 import { FacebookAccountFormSheet } from '../components/facebook/FacebookAccountFormSheet'
 import { twoFactorTone } from '../lib/readiness'
+import {
+  downloadWindowsChromeLauncherBat,
+  launchInAssignedChromeProfile,
+} from '../lib/chromeProfileLauncher'
 
 export default function FacebookAccounts() {
   const { t, language } = useI18n()
@@ -77,11 +81,22 @@ export default function FacebookAccounts() {
         title={t('fb.title')}
         description={t('fb.desc')}
         actions={
-          canWrite ? (
-            <Button type="button" onClick={() => setCreating(true)}>
-              {t('fb.empty.action')}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={downloadWindowsChromeLauncherBat}
+              title="Tải và chạy 1 lần trên máy Windows để khi bấm nút Mở Chrome / Kháng nghị / Thanh toán trên web sẽ tự động bật đúng cửa sổ Chrome Profile của Via đó"
+              data-testid="fb-chrome-launcher-setup"
+            >
+              ⚡ Cài đặt Tự động mở Chrome Profile (1 lần)
             </Button>
-          ) : undefined
+            {canWrite && (
+              <Button type="button" onClick={() => setCreating(true)}>
+                {t('fb.empty.action')}
+              </Button>
+            )}
+          </div>
         }
       />
       <div className="flex flex-wrap items-end gap-2">
@@ -198,15 +213,31 @@ export default function FacebookAccounts() {
                             </p>
                           )}
                           {browserLabel && (
-                            <p>
-                              <span className="text-ink-muted">{t('fb.browserLabel')}:</span>{' '}
-                              <Link
-                                to="/assets?tab=browser-profile-references"
-                                className="font-medium text-brand-text hover:underline"
-                                title="Kết nối trực tiếp tới Hồ sơ trình duyệt trong Tài sản"
+                            <p className="flex flex-wrap items-center gap-1.5">
+                              <span>
+                                <span className="text-ink-muted">{t('fb.browserLabel')}:</span>{' '}
+                                <Link
+                                  to="/assets?tab=browser-profile-references"
+                                  className="font-medium text-brand-text hover:underline"
+                                  title="Kết nối trực tiếp tới Hồ sơ trình duyệt trong Tài sản"
+                                >
+                                  {browserLabel} ↗
+                                </Link>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  launchInAssignedChromeProfile(
+                                    'https://business.facebook.com/overview',
+                                    browserLabel,
+                                    String(row.label ?? ''),
+                                  )
+                                }
+                                className="inline-flex items-center rounded border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+                                title={`Tự động bật cửa sổ Google Chrome (${browserLabel}) của VIA ${String(row.label ?? '')}`}
                               >
-                                {browserLabel} ↗
-                              </Link>
+                                🚀 Mở Chrome
+                              </button>
                             </p>
                           )}
                           {networkLabel && (
