@@ -34,7 +34,10 @@ export default function AccountSpendCell({
   let figure
   if (hasAmount) {
     figure = (
-      <span className="font-mono text-sm font-semibold tabular-nums" title={t('spend.dayTitle', { date: formatDay(day.date, language) })}>
+      <span
+        className="font-mono text-sm font-bold tabular-nums text-emerald-600 dark:text-emerald-400"
+        title={t('spend.dayTitle', { date: formatDay(day.date, language) })}
+      >
         <span aria-hidden="true">{prettyMoney(day.spend_raw, spend.observed_currency)}</span>
         <span className="sr-only">{rawMoney(day.spend_raw, spend.observed_currency)}</span>
       </span>
@@ -42,7 +45,7 @@ export default function AccountSpendCell({
   } else if (day) {
     figure = (
       <span className="text-sm">
-        <span className="font-mono">—</span>{' '}
+        <span className="font-mono text-ink-muted">—</span>{' '}
         <span aria-hidden="true" className="text-xs text-ink-faint">
           {language === 'vi' ? 'Không phát sinh chi tiêu' : 'No spend recorded'}
         </span>
@@ -57,6 +60,10 @@ export default function AccountSpendCell({
     )
   }
 
+  const has7d = Boolean(periods?.last_7d_raw)
+  const hasMtd = Boolean(periods?.mtd_raw)
+  const hasTotal = Boolean(periods?.amount_spent_raw && periods.amount_spent_raw !== '0')
+
   return (
     <div className="flex flex-col items-end gap-1 max-[640px]:items-end">
       {figure}
@@ -66,19 +73,31 @@ export default function AccountSpendCell({
         </Badge>
         {day && <span className="tabular-nums">{formatDay(day.date, language)}</span>}
       </span>
-      {periods && (periods.last_7d_raw || periods.mtd_raw || (periods.amount_spent_raw && periods.amount_spent_raw !== '0')) && (
-        <span className="text-2xs font-mono tabular-nums text-ink-muted" data-testid="account-spend-periods">
-          {[
-            periods.last_7d_raw &&
-              `${t('spend.period7dShort')}: ${prettyMoney(periods.last_7d_raw, spend.observed_currency)}`,
-            periods.mtd_raw &&
-              `${t('spend.periodMtdShort')}: ${prettyMoney(periods.mtd_raw, spend.observed_currency)}`,
-            periods.amount_spent_raw &&
-              periods.amount_spent_raw !== '0' &&
-              `Lũy kế: ${prettyMoney(periods.amount_spent_raw, spend.observed_currency)}`,
-          ]
-            .filter(Boolean)
-            .join(' · ')}
+      {periods && (has7d || hasMtd || hasTotal) && (
+        <span
+          className="flex flex-wrap items-center justify-end gap-x-1.5 gap-y-0.5 text-[11px] font-mono tabular-nums"
+          data-testid="account-spend-periods"
+        >
+          {has7d && (
+            <span className="text-sky-600 dark:text-sky-400">
+              <span className="font-sans font-medium opacity-85">{t('spend.period7dShort')}:</span>{' '}
+              <span className="font-semibold">{prettyMoney(periods.last_7d_raw!, spend.observed_currency)}</span>
+            </span>
+          )}
+          {has7d && (hasMtd || hasTotal) && <span className="text-ink-faint">·</span>}
+          {hasMtd && (
+            <span className="text-amber-600 dark:text-amber-400">
+              <span className="font-sans font-medium opacity-85">{t('spend.periodMtdShort')}:</span>{' '}
+              <span className="font-semibold">{prettyMoney(periods.mtd_raw!, spend.observed_currency)}</span>
+            </span>
+          )}
+          {hasMtd && hasTotal && <span className="text-ink-faint">·</span>}
+          {hasTotal && (
+            <span className="text-rose-600 dark:text-amber-300">
+              <span className="font-sans font-medium opacity-90">Lũy kế:</span>{' '}
+              <span className="font-bold">{prettyMoney(periods.amount_spent_raw!, spend.observed_currency)}</span>
+            </span>
+          )}
         </span>
       )}
     </div>

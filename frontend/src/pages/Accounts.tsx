@@ -175,26 +175,34 @@ export default function Accounts() {
       case 'recorded':
         return (
           <TableCell key={id} label={label}>
-            <Badge tone={accountStatusTone(account.status)}>{enumLabel('accountStatus', account.status)}</Badge>
+            <Link to={`/accounts/${account.id}`} className="inline-block hover:opacity-90" title="Bấm để xem chi tiết và xử lý trạng thái tài khoản">
+              <Badge tone={accountStatusTone(account.status)}>{enumLabel('accountStatus', account.status)}</Badge>
+            </Link>
           </TableCell>
         )
       case 'platform':
         return (
           <TableCell key={id} label={label}>
-            <PlatformStatusBadge value={account.platform_status} />
+            <PlatformStatusBadge
+              value={account.platform_status}
+              accountId={account.id}
+              externalAccountId={account.external_account_id}
+            />
           </TableCell>
         )
       case 'readiness': {
         const meta = READINESS_META[account.readiness_status]
         return (
           <TableCell key={id} label={label}>
-            <Badge
-              tone={meta?.tone ?? 'neutral'}
-              dot
-              title={meta ? t(`readinessHint.${account.readiness_status}`) : undefined}
-            >
-              {enumLabel('readiness', account.readiness_status)}
-            </Badge>
+            <Link to={`/accounts/${account.id}`} className="inline-block hover:opacity-90" title="Bấm để mở Checklist sẵn sàng vận hành">
+              <Badge
+                tone={meta?.tone ?? 'neutral'}
+                dot
+                title={meta ? t(`readinessHint.${account.readiness_status}`) : undefined}
+              >
+                {enumLabel('readiness', account.readiness_status)}
+              </Badge>
+            </Link>
           </TableCell>
         )
       }
