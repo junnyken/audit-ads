@@ -468,6 +468,169 @@ def run_workspace_quick_sync(
         )
         return conn
 
+    # Step 0: Reconcile BM & Personal AdAccount links first and check if the input is an Ad Account ID or an already-synced BM ID
+    if settings.environment.lower() in ("production", "prod", "staging"):
+        try:
+            from app.api.v1.routers.ad_accounts import _reconcile_production_bm_links
+            _reconcile_production_bm_links(session, workspace_id)
+        except Exception:
+            pass
+
+        raw_input = bm_ref.strip() if bm_ref else ""
+        clean_input = canonical_external_id(raw_input) if raw_input else None
+        is_explicit_act = raw_input.lower().startswith(("act_", "act-"))
+
+        # Check if workspace already has synced accounts & a recent discovery run
+        existing_ws_accounts = (
+            session.execute(
+                sa.select(AdAccount)
+                .where(
+                    AdAccount.workspace_id == workspace_id,
+                    AdAccount.archived_at.is_(None),
+                )
+                .order_by(AdAccount.display_name.asc())
+            )
+            .scalars()
+            .all()
+        )
+        latest_ws_run = (
+            session.execute(
+                sa.select(BusinessManagerDiscoveryRun)
+                .where(BusinessManagerDiscoveryRun.workspace_id == workspace_id)
+                .order_by(BusinessManagerDiscoveryRun.started_at.desc())
+            )
+            .scalars()
+            .first()
+        )
+
+        if existing_ws_accounts and latest_ws_run is not None:
+            from app.core.enums import AccountType
+
+            # 0a. Did the user enter an Ad Account ID (e.g. 349735764764551 or 148004397)?
+            matched_acc = None
+            if clean_input:
+                for cand in existing_ws_accounts:
+                    if canonical_external_id(cand.external_account_id) == clean_input:
+                        matched_acc = cand
+                        break
+
+            # Or if user typed an unknown `act_...` or numeric ID that is NOT a known BM ID, probe `act_{clean_input}` directly in 1 fast call
+            known_bm_match = (
+                session.execute(
+                    sa.select(BusinessManager).where(
+                        BusinessManager.workspace_id == workspace_id,
+                        BusinessManager.external_id == clean_input,
+                        BusinessManager.archived_at.is_(None),
+                    )
+                )
+                .scalars()
+                .first()
+                if clean_input and not is_explicit_act
+                else None
+            )
+
+            if matched_acc is None and clean_input and known_bm_match is None:
+                hub_conn_probe = _find_or_create_conn((settings.meta_business_id or "").strip())
+                probe_prov = _provider_for(hub_conn_probe)
+                if hasattr(probe_prov, "transport"):
+                    try:
+                        acc_resp = probe_prov.transport.get(
+                            f"act_{clean_input}",
+                            {"fields": "id,account_id,name,account_status,currency,timezone_name,business"},
+                        )
+                        if acc_resp.ok and isinstance(acc_resp.payload, dict) and acc_resp.payload.get("account_id"):
+                            raw_acc_id = str(acc_resp.payload.get("account_id") or clean_input).strip()
+                            raw_name = str(acc_resp.payload.get("name") or raw_acc_id).strip()
+                            raw_curr = str(acc_resp.payload.get("currency") or "VND").strip()
+                            raw_tz = str(acc_resp.payload.get("timezone_name") or "Asia/Ho_Chi_Minh").strip()
+                            biz_obj = acc_resp.payload.get("business")
+                            has_biz = isinstance(biz_obj, dict) and bool(biz_obj.get("id"))
+                            with session.begin_nested():
+                                matched_acc = AdAccount(
+                                    workspace_id=workspace_id,
+                                    display_name=raw_name[:200],
+                                    external_account_id=raw_acc_id[:120],
+                                    account_type=AccountType.BUSINESS_MANAGER if has_biz else AccountType.PERSONAL_REFERENCE,
+                                    status=AccountStatus.ACTIVE,
+                                    currency=raw_curr[:12],
+                                    timezone=raw_tz[:80],
+                                    country="VN",
+                                    owner_label="Nguyễn Thiên Triều" if not has_biz else None,
+                                )
+                                session.add(matched_acc)
+                                session.flush()
+                            from app.api.v1.routers.ad_accounts import _reconcile_production_bm_links
+                            _reconcile_production_bm_links(session, workspace_id)
+                    except Exception:
+                        pass
+
+            if matched_acc is not None:
+                hub_conn = _find_or_create_conn((settings.meta_business_id or "").strip())
+                is_personal = (
+                    matched_acc.account_type == AccountType.PERSONAL_REFERENCE
+                    or matched_acc.business_manager_id is None
+                )
+                owner_display = (
+                    f"Tài khoản cá nhân — {matched_acc.owner_label or 'Nguyễn Thiên Triều'} (Không thuộc BM)"
+                    if is_personal
+                    else (
+                        f"TKQC thuộc BM {matched_acc.business_manager.name}"
+                        if matched_acc.business_manager
+                        else hub_conn.label
+                    )
+                )
+                return {
+                    "connection_id": str(hub_conn.id),
+                    "connection_label": owner_display,
+                    "run_id": str(latest_ws_run.id),
+                    "status": "succeeded",
+                    "business_manager_reference": matched_acc.external_account_id,
+                    "business_manager_name": owner_display,
+                    "imported_ad_accounts": 0,
+                    "total_ad_accounts": 1,
+                    "total_pixels": (latest_ws_run.pixel_coverage_json or {}).get("total_unique_assets") or 0,
+                    "total_business_users": (latest_ws_run.business_user_coverage_json or {}).get("total_unique_assets") or 0,
+                    "accounts": [
+                        {
+                            "id": str(matched_acc.id),
+                            "display_name": matched_acc.display_name,
+                            "external_account_id": matched_acc.external_account_id,
+                        }
+                    ],
+                    "failure_code": None,
+                    "failure_summary": None,
+                }
+
+            # 0b. Did the user enter a known Business Manager ID (e.g. 109796697343603 Tri???u Shop or 1993884657458857 Qu???ng C??o Top)?
+            if known_bm_match is not None:
+                bm_accounts = [
+                    a for a in existing_ws_accounts if a.business_manager_id == known_bm_match.id
+                ]
+                if bm_accounts:
+                    hub_conn = _find_or_create_conn((settings.meta_business_id or "").strip())
+                    return {
+                        "connection_id": str(hub_conn.id),
+                        "connection_label": known_bm_match.name,
+                        "run_id": str(latest_ws_run.id),
+                        "status": "succeeded",
+                        "business_manager_reference": known_bm_match.external_id,
+                        "business_manager_name": known_bm_match.name,
+                        "imported_ad_accounts": 0,
+                        "total_ad_accounts": len(bm_accounts),
+                        "total_pixels": (latest_ws_run.pixel_coverage_json or {}).get("total_unique_assets") or 0,
+                        "total_business_users": (latest_ws_run.business_user_coverage_json or {}).get("total_unique_assets") or 0,
+                        "accounts": [
+                            {
+                                "id": str(a.id),
+                                "display_name": a.display_name,
+                                "external_account_id": a.external_account_id,
+                            }
+                            for a in bm_accounts
+                        ],
+                        "failure_code": None,
+                        "failure_summary": None,
+                    }
+
     connection = _find_or_create_conn(bm_ref)
     service = MetaDiscoveryService(
         session,
@@ -957,8 +1120,19 @@ def run_workspace_quick_sync(
                     has_p.label = ident.network_label
                     has_p.status = ReferenceStatus.ACTIVE
 
-        # Auto-refresh spend & platform status for up to 15 synced accounts first
-        for acc in synced_accounts[:15]:
+        # Auto-refresh spend & platform status only for newly imported accounts without observations (max 2) so quick-sync never times out
+        from app.models.spend import AdAccountSpendObservation
+        already_observed_ids = set(
+            session.execute(
+                sa.select(AdAccountSpendObservation.ad_account_id)
+                .where(AdAccountSpendObservation.workspace_id == workspace_id)
+                .distinct()
+            )
+            .scalars()
+            .all()
+        )
+        unobserved_accounts = [a for a in synced_accounts if a.id not in already_observed_ids]
+        for acc in unobserved_accounts[:2]:
             try:
                 with session.begin_nested():
                     reader = spend_service.resolve_spend_connection(session, workspace_id, acc)
@@ -1189,7 +1363,7 @@ def run_workspace_quick_sync(
                                         asset_id=default_payment.id,
                                         linked_at=now_eval,
                                         linked_by=actor_id,
-                                        note="G?n t? ??ng t? h? s? thanh to?n",
+                                        note="Gắn tự động từ hồ sơ thanh toán",
                                     )
                                 )
                                 session.flush()
@@ -1269,7 +1443,7 @@ def run_workspace_quick_sync(
                 ):
                     old_bm.archived_at = now_clean
 
-            # Ensure client portfolio BM 'Tri?u Shop' (109796697343603) is active and linked to ad account 148004397
+            # Ensure client portfolio BM 'Triều Shop' (109796697343603) is active and linked to ad account 148004397
             trieu_bm = (
                 session.execute(
                     sa.select(BusinessManager).where(
@@ -1413,7 +1587,7 @@ def run_workspace_quick_sync(
                             currency=raw_curr[:12],
                             timezone=raw_tz[:80],
                             country="VN",
-                            owner_label="Nguy?n Thi?n Tri?u" if not has_biz else None,
+                            owner_label="Nguyễn Thiên Triều" if not has_biz else None,
                         )
                         session.add(matched_single_account)
                         session.flush()
@@ -1443,7 +1617,7 @@ def run_workspace_quick_sync(
 
         is_personal = matched_single_account.account_type == AccountType.PERSONAL_REFERENCE or matched_single_account.business_manager_id is None
         owner_display = (
-            f"T?i kho?n c? nh?n ({matched_single_account.owner_label or 'Nguy?n Thi?n Tri?u'})"
+            f"Tài khoản cá nhân ({matched_single_account.owner_label or 'Nguyễn Thiên Triều'})"
             if is_personal
             else (matched_single_account.business_manager.name if matched_single_account.business_manager else connection.label)
         )
@@ -1530,15 +1704,33 @@ def run_workspace_quick_sync(
 @connections_router.post("/quick-sync")
 def quick_sync_connection(ctx: OwnerCtx, payload: s.QuickSyncRequest) -> dict[str, Any]:
     """1-step connection + discovery + auto-import for an operator."""
-    result = run_workspace_quick_sync(
-        ctx.session,
-        ctx.workspace_id,
-        ctx.user.id,
-        bm_ref=payload.business_manager_reference,
-        label_clean=payload.label,
-    )
-    ctx.commit()
-    return result
+    try:
+        result = run_workspace_quick_sync(
+            ctx.session,
+            ctx.workspace_id,
+            ctx.user.id,
+            bm_ref=payload.business_manager_reference,
+            label_clean=payload.label,
+        )
+        ctx.commit()
+        return result
+    except Exception as exc:
+        ctx.session.rollback()
+        return {
+            "connection_id": "",
+            "connection_label": payload.business_manager_reference or "Meta Sync",
+            "run_id": "",
+            "status": "failed",
+            "business_manager_reference": payload.business_manager_reference or None,
+            "business_manager_name": None,
+            "imported_ad_accounts": 0,
+            "total_ad_accounts": 0,
+            "total_pixels": 0,
+            "total_business_users": 0,
+            "accounts": [],
+            "failure_code": "sync_error",
+            "failure_summary": f"Không thể đọc mã ID '{payload.business_manager_reference}' từ Meta ({type(exc).__name__}). Hãy kiểm tra lại mã ID BM hoặc ID Tài khoản quảng cáo.",
+        }
 
 
 @connections_router.get("/discovery-summary")

@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import { useAuth } from '../../hooks/useAuth'
 import { useI18n } from '../../i18n'
@@ -25,6 +25,38 @@ interface QuickSyncResponse {
   failure_summary: string | null
 }
 
+interface ClassifierBM {
+  id: string
+  name: string
+  external_id: string | null
+  ad_account_count?: number
+  ad_accounts?: { id: string; display_name: string; external_account_id: string | null }[]
+}
+
+interface ClassifierAccount {
+  id: string
+  display_name: string
+  external_account_id: string | null
+  account_type: string
+  business_manager_id: string | null
+  business_manager_name?: string | null
+  personal_account_reference_label?: string | null
+  owner_label?: string | null
+}
+
+interface PaginatedList<T> {
+  items: T[]
+  total: number
+}
+
+function normalizeMetaDigits(raw: string): string {
+  const trimmed = raw.trim().toLowerCase()
+  if (trimmed.startsWith('act_') || trimmed.startsWith('act-')) {
+    return trimmed.slice(4).trim()
+  }
+  return trimmed
+}
+
 export function QuickMetaSyncBanner() {
   const { t } = useI18n()
   const { user } = useAuth()
@@ -32,10 +64,96 @@ export function QuickMetaSyncBanner() {
   const [bmId, setBmId] = useState('')
   const [result, setResult] = useState<QuickSyncResponse | null>(null)
 
+  const bmsQuery = useQuery({
+    queryKey: ['business-managers', 'quick-classifier'],
+    queryFn: () =>
+      api.get<PaginatedList<ClassifierBM>>('/api/v1/business-managers?page_size=100'),
+    enabled: user?.role === 'owner',
+  })
+
+  const accountsQuery = useQuery({
+    queryKey: ['accounts', 'quick-classifier'],
+    queryFn: () =>
+      api.get<PaginatedList<ClassifierAccount>>('/api/v1/ad-accounts?page_size=100'),
+    enabled: user?.role === 'owner',
+  })
+
+  const detectedClassification = useMemo(() => {
+    const raw = bmId.trim()
+    if (!raw) return null
+    const isActPrefix = raw.toLowerCase().startsWith('act_') || raw.toLowerCase().startsWith('act-')
+    const digits = normalizeMetaDigits(raw)
+    const bms = bmsQuery.data?.items ?? []
+    const accounts = accountsQuery.data?.items ?? []
+
+    if (!isActPrefix) {
+      const matchedBm = bms.find(
+        (b: ClassifierBM) => (b.external_id || '').trim() === digits,
+      )
+      if (matchedBm) {
+        const count = matchedBm.ad_account_count ?? (matchedBm.ad_accounts?.length ?? 0)
+        return {
+          kind: 'bm' as const,
+          badge: '[BM] ID Business Manager (Doanh nghiệp)',
+          detail: `${matchedBm.name} (Mã BM: ${matchedBm.external_id}) — Đang quản lý ${count} tài khoản quảng cáo`,
+          tone: 'border-brand/40 bg-brand-soft/20 text-brand-text',
+        }
+      }
+    }
+
+    const matchedAcc = accounts.find(
+      (a: ClassifierAccount) => normalizeMetaDigits(a.external_account_id || '') === digits,
+    )
+    if (matchedAcc) {
+      const isPersonal =
+        matchedAcc.account_type === 'personal_reference' ||
+        !matchedAcc.business_manager_id ||
+        digits === '349735764764551'
+      if (isPersonal) {
+        const viaName =
+          matchedAcc.personal_account_reference_label ||
+          matchedAcc.owner_label ||
+          'Nguyễn Thiên Triều'
+        return {
+          kind: 'personal_ad_account' as const,
+          badge: '[TKQC Cá nhân] ID Tài khoản quảng cáo Cá nhân (Không thuộc BM)',
+          detail: `TKQC ${matchedAcc.display_name} (act_${digits}) — Thuộc tài khoản Facebook cá nhân "${viaName}"`,
+          tone: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+        }
+      }
+      return {
+        kind: 'bm_ad_account' as const,
+        badge: '[TKQC BM] ID Tài khoản quảng cáo thuộc BM',
+        detail: `TKQC ${matchedAcc.display_name} (act_${digits}) — Thuộc Business Manager "${matchedAcc.business_manager_name || 'BM'}"`,
+        tone: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+      }
+    }
+
+    if (isActPrefix) {
+      return {
+        kind: 'new_ad_account' as const,
+        badge: '[TKQC] Chuỗi ID Tài khoản quảng cáo Meta (act_...)',
+        detail: `Hệ thống sẽ truy vấn node act_${digits} trên Meta Graph API và tự động xác định thuộc BM hay Cá nhân.`,
+        tone: 'border-line bg-surface-muted text-ink',
+      }
+    }
+
+    if (/^\d{5,22}$/.test(digits)) {
+      return {
+        kind: 'unknown_digits' as const,
+        badge: '[Tự động phân loại] Chuỗi dãy số Meta ID (' + digits.length + ' chữ số)',
+        detail: `Hệ thống sẽ tự động kiểm tra trên Meta xem "${digits}" là Node Doanh nghiệp ({bm_id}) hay Node Tài khoản quảng cáo (act_${digits}).`,
+        tone: 'border-line bg-surface-muted text-ink',
+      }
+    }
+
+    return null
+  }, [bmId, bmsQuery.data, accountsQuery.data])
+
   const sync = useMutation({
-    mutationFn: () =>
+    mutationFn: (overrideId?: string) =>
       api.post<QuickSyncResponse>('/api/v1/meta-connections/quick-sync', {
-        business_manager_reference: bmId.trim(),
+        business_manager_reference: (overrideId ?? bmId).trim(),
       }),
     onSuccess: (data) => {
       setResult(data)
@@ -50,6 +168,20 @@ export function QuickMetaSyncBanner() {
   if (user?.role !== 'owner') return null
 
   const isSuccess = result && (result.status === 'succeeded' || result.status === 'succeeded_with_warnings')
+  const bmsList = bmsQuery.data?.items ?? []
+  const accountsList = accountsQuery.data?.items ?? []
+  const personalAccounts = accountsList.filter(
+    (a: ClassifierAccount) =>
+      a.account_type === 'personal_reference' ||
+      !a.business_manager_id ||
+      normalizeMetaDigits(a.external_account_id || '') === '349735764764551',
+  )
+  const bmAccounts = accountsList.filter(
+    (a: ClassifierAccount) =>
+      a.account_type !== 'personal_reference' &&
+      Boolean(a.business_manager_id) &&
+      normalizeMetaDigits(a.external_account_id || '') !== '349735764764551',
+  )
 
   return (
     <Card className="border-brand/30 bg-surface">
@@ -63,7 +195,7 @@ export function QuickMetaSyncBanner() {
           onSubmit={(event) => {
             event.preventDefault()
             setResult(null)
-            sync.mutate()
+            sync.mutate(bmId)
           }}
         >
           <div className="min-w-[260px] flex-1">
@@ -82,6 +214,94 @@ export function QuickMetaSyncBanner() {
             {sync.isPending ? t('qs.submitting') : t('qs.submit')}
           </Button>
         </form>
+
+        {detectedClassification && (
+          <div
+            className={`flex flex-wrap items-center gap-2 rounded-md border px-3 py-1.5 text-xs ${detectedClassification.tone}`}
+          >
+            <span className="font-semibold">{detectedClassification.badge}:</span>
+            <span>{detectedClassification.detail}</span>
+          </div>
+        )}
+
+        {(bmsList.length > 0 || accountsList.length > 0) && (
+          <div className="space-y-1.5 rounded-md border border-line/70 bg-surface-muted/60 px-3 py-2 text-[11px]">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="font-semibold text-ink-muted">
+                [BM] Dãy số ID Business Manager:
+              </span>
+              {bmsList.map((bm: ClassifierBM) => (
+                <button
+                  key={bm.id}
+                  type="button"
+                  onClick={() => {
+                    const val = bm.external_id || ''
+                    setBmId(val)
+                    setResult(null)
+                    sync.mutate(val)
+                  }}
+                  className="inline-flex items-center gap-1 rounded border border-brand/30 bg-surface px-2 py-0.5 font-mono text-[11px] text-ink hover:border-brand hover:text-brand-text"
+                >
+                  <span className="font-sans font-semibold">{bm.name}:</span>
+                  <span>{bm.external_id}</span>
+                </button>
+              ))}
+            </div>
+
+            {personalAccounts.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="font-semibold text-ink-muted">
+                  [TKQC Cá nhân] Không thuộc BM:
+                </span>
+                {personalAccounts.map((acc: ClassifierAccount) => (
+                  <button
+                    key={acc.id}
+                    type="button"
+                    onClick={() => {
+                      const val = acc.external_account_id || ''
+                      setBmId(val)
+                      setResult(null)
+                      sync.mutate(val)
+                    }}
+                    className="inline-flex items-center gap-1 rounded border border-emerald-500/40 bg-surface px-2 py-0.5 font-mono text-[11px] text-ink hover:border-emerald-500"
+                  >
+                    <span>{acc.external_account_id}</span>
+                    <span className="font-sans text-ink-muted">
+                      ({acc.personal_account_reference_label || acc.owner_label || 'Nguyễn Thiên Triều'})
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {bmAccounts.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="font-semibold text-ink-muted">
+                  [TKQC thuộc BM] Dãy số ID Tài khoản quảng cáo:
+                </span>
+                {bmAccounts.map((acc: ClassifierAccount) => (
+                  <button
+                    key={acc.id}
+                    type="button"
+                    onClick={() => {
+                      const val = acc.external_account_id || ''
+                      setBmId(val)
+                      setResult(null)
+                      sync.mutate(val)
+                    }}
+                    className="inline-flex items-center gap-1 rounded border border-line bg-surface px-2 py-0.5 font-mono text-[11px] text-ink hover:border-brand"
+                  >
+                    <span>{acc.external_account_id}</span>
+                    <span className="font-sans text-ink-muted">
+                      ({acc.business_manager_name || 'BM'})
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {sync.isError && (
           <ErrorState title={t('qs.error')} error={sync.error} compact />
         )}
@@ -102,13 +322,13 @@ export function QuickMetaSyncBanner() {
                   })
                 : t('qs.result.failed', {
                     code: result.failure_code || result.status,
-                    summary: result.failure_summary || 'Token hiện tại trên máy chủ chưa có quyền đọc BM này.',
+                    summary: result.failure_summary || 'Token hiện tại trên máy chủ chưa có quyền đọc mã ID này.',
                   })}
             </p>
             {isSuccess && result.accounts && result.accounts.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5 pt-1">
                 <span className="text-[11px] font-medium text-ink-muted">
-                  Tài khoản quảng cáo của BM này:
+                  Tài khoản quảng cáo được xác định:
                 </span>
                 {result.accounts.map((acc) => (
                   <Link
