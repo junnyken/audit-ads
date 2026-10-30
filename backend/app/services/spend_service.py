@@ -236,10 +236,16 @@ def resolve_spend_connection(
     settings = settings or get_settings()
     if account.archived_at is not None or not canonical_external_id(account.external_account_id):
         return None
+    conns_map = _connections_by_business(session, workspace_id, settings)
     business_id = _account_business_id(account)
-    if not business_id:
-        return None
-    return _connections_by_business(session, workspace_id, settings).get(business_id)
+    if business_id and business_id in conns_map:
+        return conns_map[business_id]
+    if settings.environment.lower() in ("production", "prod", "staging") and conns_map:
+        for rdr in conns_map.values():
+            if rdr.reader_source == READER_VAULT:
+                return rdr
+        return next(iter(conns_map.values()))
+    return None
 
 
 def provider_for_connection(reader: SpendReader) -> MetaBusinessProvider:

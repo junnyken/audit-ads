@@ -565,18 +565,115 @@ def run_workspace_quick_sync(
         is_explicit_act = raw_input.lower().startswith(("act_", "act-"))
         target_bm_clean = (target_bm_external_id or "").strip()
 
-        # If a new token was provided, also auto-discover /me/businesses and /me/adaccounts from that token
+        # Full multi-BM & multi-account discovery whenever a token is provided (or when syncing all BMs from active vault credentials)
+        def _upsert_account_row(a_row: dict[str, Any], fallback_bm: BusinessManager | None = None) -> AdAccount | None:
+            aid = canonical_external_id(a_row.get("account_id") or a_row.get("id"))
+            if not aid:
+                return None
+            aname = str(a_row.get("name") or aid).strip()
+            acurr = str(a_row.get("currency") or "VND").strip()
+            atz = str(a_row.get("timezone_name") or "Asia/Ho_Chi_Minh").strip()
+            raw_st = str(a_row.get("account_status") or "1").strip()
+            st_enum = AccountStatus.ACTIVE
+            if raw_st in ("2", "3", "7", "8", "9"):
+                st_enum = AccountStatus.RESTRICTED
+            elif raw_st in ("100", "101", "201", "202"):
+                st_enum = AccountStatus.DISABLED
+            abiz = a_row.get("business")
+            owner_bm_obj = fallback_bm
+            if isinstance(abiz, dict) and abiz.get("id"):
+                owner_bm_obj = _upsert_bm_from_meta(
+                    str(abiz["id"]), str(abiz.get("name") or ""), acurr
+                ) or fallback_bm
+            existing_a = (
+                session.execute(
+                    sa.select(AdAccount).where(
+                        AdAccount.workspace_id == workspace_id,
+                        sa.func.lower(AdAccount.external_account_id).in_([aid, f"act_{aid}"]),
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if existing_a is None:
+                try:
+                    with session.begin_nested():
+                        existing_a = AdAccount(
+                            workspace_id=workspace_id,
+                            display_name=aname[:200],
+                            external_account_id=aid[:120],
+                            account_type=(
+                                AccountType.BUSINESS_MANAGER
+                                if owner_bm_obj is not None
+                                else AccountType.PERSONAL_REFERENCE
+                            ),
+                            business_manager_id=owner_bm_obj.id if owner_bm_obj else None,
+                            status=st_enum,
+                            currency=acurr[:12],
+                            timezone=atz[:80],
+                            country="VN",
+                            owner_label=(
+                                owner_bm_obj.name if owner_bm_obj is not None else "Nguyễn Thiên Triều"
+                            ),
+                        )
+                        session.add(existing_a)
+                        session.flush()
+                except Exception:
+                    existing_a = None
+            else:
+                existing_a.archived_at = None
+                existing_a.status = st_enum
+                if aname and existing_a.display_name in (aid, f"act_{aid}", f"TKQC {aid}"):
+                    existing_a.display_name = aname[:200]
+                if owner_bm_obj is not None:
+                    existing_a.business_manager_id = owner_bm_obj.id
+                    existing_a.account_type = AccountType.BUSINESS_MANAGER
+            return existing_a
+
         if clean_token:
-            for _, cand_prov in _candidate_providers(clean_input or "")[:1]:
+            for cand_cred, cand_prov in _candidate_providers(clean_input or "")[:1]:
                 if hasattr(cand_prov, "transport"):
+                    discovered_bms: list[BusinessManager] = []
                     try:
                         b_resp = cand_prov.transport.get("me/businesses", {"fields": "id,name", "limit": "100"})
                         if b_resp.ok and isinstance(b_resp.payload, dict):
                             for b_row in b_resp.payload.get("data", []) or []:
                                 if isinstance(b_row, dict) and b_row.get("id"):
-                                    _upsert_bm_from_meta(str(b_row["id"]), str(b_row.get("name") or ""))
+                                    bm_item = _upsert_bm_from_meta(
+                                        str(b_row["id"]), str(b_row.get("name") or "")
+                                    )
+                                    if bm_item is not None:
+                                        discovered_bms.append(bm_item)
+                                        bm_c = _find_or_create_conn(bm_item.external_id or "")
+                                        if cand_cred is not None:
+                                            bm_c.reader_credential_id = cand_cred.id
                     except Exception:
                         pass
+
+                    # Pull owned_ad_accounts and client_ad_accounts for EVERY discovered BM
+                    for bm_item in discovered_bms:
+                        if not bm_item.external_id:
+                            continue
+                        for edge_n in ("owned_ad_accounts", "client_ad_accounts"):
+                            try:
+                                edge_resp = cand_prov.transport.get(
+                                    f"{bm_item.external_id}/{edge_n}",
+                                    {
+                                        "fields": "id,account_id,name,account_status,currency,timezone_name,business{id,name}",
+                                        "limit": "200",
+                                    },
+                                )
+                                if edge_resp.ok and isinstance(edge_resp.payload, dict):
+                                    for a_row in edge_resp.payload.get("data", []) or []:
+                                        if isinstance(a_row, dict):
+                                            _upsert_account_row(
+                                                a_row,
+                                                fallback_bm=bm_item if edge_n == "owned_ad_accounts" else None,
+                                            )
+                            except Exception:
+                                pass
+
+                    # Also pull /me/adaccounts to capture personal ad accounts & direct user ad accounts
                     try:
                         a_resp = cand_prov.transport.get(
                             "me/adaccounts",
@@ -587,55 +684,13 @@ def run_workspace_quick_sync(
                         )
                         if a_resp.ok and isinstance(a_resp.payload, dict):
                             for a_row in a_resp.payload.get("data", []) or []:
-                                if not isinstance(a_row, dict):
-                                    continue
-                                aid = canonical_external_id(a_row.get("account_id") or a_row.get("id"))
-                                if not aid:
-                                    continue
-                                aname = str(a_row.get("name") or aid).strip()
-                                acurr = str(a_row.get("currency") or "VND").strip()
-                                atz = str(a_row.get("timezone_name") or "Asia/Ho_Chi_Minh").strip()
-                                abiz = a_row.get("business")
-                                owner_bm_obj = None
-                                if isinstance(abiz, dict) and abiz.get("id"):
-                                    owner_bm_obj = _upsert_bm_from_meta(
-                                        str(abiz["id"]), str(abiz.get("name") or ""), acurr
-                                    )
-                                existing_a = (
-                                    session.execute(
-                                        sa.select(AdAccount).where(
-                                            AdAccount.workspace_id == workspace_id,
-                                            sa.func.lower(AdAccount.external_account_id).in_([aid, f"act_{aid}"]),
-                                        )
-                                    )
-                                    .scalars()
-                                    .first()
-                                )
-                                if existing_a is None:
-                                    with session.begin_nested():
-                                        session.add(
-                                            AdAccount(
-                                                workspace_id=workspace_id,
-                                                display_name=aname[:200],
-                                                external_account_id=aid[:120],
-                                                account_type=(
-                                                    AccountType.BUSINESS_MANAGER
-                                                    if owner_bm_obj is not None
-                                                    else AccountType.PERSONAL_REFERENCE
-                                                ),
-                                                business_manager_id=owner_bm_obj.id if owner_bm_obj else None,
-                                                status=AccountStatus.ACTIVE,
-                                                currency=acurr[:12],
-                                                timezone=atz[:80],
-                                                country="VN",
-                                            )
-                                        )
-                                        session.flush()
-                                else:
-                                    existing_a.archived_at = None
-                                    if owner_bm_obj is not None:
-                                        existing_a.business_manager_id = owner_bm_obj.id
-                                        existing_a.account_type = AccountType.BUSINESS_MANAGER
+                                if isinstance(a_row, dict):
+                                    _upsert_account_row(a_row, fallback_bm=None)
+                    except Exception:
+                        pass
+                    try:
+                        from app.api.v1.routers.ad_accounts import _reconcile_production_bm_links
+                        _reconcile_production_bm_links(session, workspace_id)
                     except Exception:
                         pass
 
@@ -662,6 +717,43 @@ def run_workspace_quick_sync(
         )
 
         if existing_ws_accounts and latest_ws_run is not None:
+            if clean_token and not clean_input:
+                all_active_bms = (
+                    session.execute(
+                        sa.select(BusinessManager).where(
+                            BusinessManager.workspace_id == workspace_id,
+                            BusinessManager.archived_at.is_(None),
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                hub_conn = _find_or_create_conn((settings.meta_business_id or "").strip())
+                bm_names = ", ".join(b.name for b in all_active_bms[:5])
+                summary_title = f"Toàn bộ {len(all_active_bms)} BM ({bm_names}) & TKQC Cá nhân"
+                return {
+                    "connection_id": str(hub_conn.id),
+                    "connection_label": summary_title,
+                    "run_id": str(latest_ws_run.id),
+                    "status": "succeeded",
+                    "business_manager_reference": "MULTI-BM-TOKEN",
+                    "business_manager_name": summary_title,
+                    "imported_ad_accounts": len(existing_ws_accounts),
+                    "total_ad_accounts": len(existing_ws_accounts),
+                    "total_pixels": (latest_ws_run.pixel_coverage_json or {}).get("total_unique_assets") or 0,
+                    "total_business_users": (latest_ws_run.business_user_coverage_json or {}).get("total_unique_assets") or 0,
+                    "accounts": [
+                        {
+                            "id": str(a.id),
+                            "display_name": a.display_name,
+                            "external_account_id": a.external_account_id,
+                        }
+                        for a in existing_ws_accounts
+                    ],
+                    "failure_code": None,
+                    "failure_summary": None,
+                }
+
             matched_acc = None
             if clean_input:
                 for cand in existing_ws_accounts:
