@@ -39,6 +39,8 @@ def _serialize_row(row: AccountOperationsRow) -> dict[str, Any]:
 
 @router.get("/overview")
 def operations_overview(ctx: Ctx) -> s.OperationsOverviewOut:
+    from app.api.v1.routers.ad_accounts import _reconcile_production_bm_links
+    _reconcile_production_bm_links(ctx.session, ctx.workspace_id)
     service = AccountOperationsService(
         ctx.session,
         ctx.workspace_id,
@@ -51,6 +53,8 @@ def operations_overview(ctx: Ctx) -> s.OperationsOverviewOut:
 
 @router.get("/business-managers")
 def business_manager_operations(ctx: Ctx) -> list[s.BusinessManagerOperationsOut]:
+    from app.api.v1.routers.ad_accounts import _reconcile_production_bm_links
+    _reconcile_production_bm_links(ctx.session, ctx.workspace_id)
     service = AccountOperationsService(
         ctx.session,
         ctx.workspace_id,

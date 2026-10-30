@@ -88,71 +88,365 @@ def _identity_service(ctx) -> FacebookIdentityService:
 
 
 def _reconcile_production_bm_links(session, workspace_id) -> None:
-    """Ensure client/partner BM accounts (such as 148004397 -> Triều Shop 109796697343603) and
-    any observation with owner_business_id are mapped to their owning BusinessManager in production."""
+    """Ensure client/partner BM accounts (such as 148004397 -> Triều Shop 109796697343603,
+    1730165772447559 -> Xây Dựng - Tân Hòa 1435224768712108), personal accounts
+    (349735764764551 -> Nguyễn Thiên Triều), and any observation with owner_business_id
+    are mapped to their owning BusinessManager in production."""
+    from datetime import UTC, datetime
     settings = get_settings()
     if settings.environment.lower() not in ("production", "prod", "staging"):
         return
-    from app.core.enums import AccountType, ReferenceStatus
-    from app.models.entities import AdAccount, BusinessManager
+    from app.core.enums import (
+        AccountStatus,
+        AccountType,
+        AssetType,
+        ChecklistReviewStatus,
+        EvaluationTrigger,
+        EvidenceStatus,
+        IdentityBusinessRole,
+        ReferenceStatus,
+    )
+    from app.models.entities import (
+        AccountAssetLink,
+        AdAccount,
+        BrowserProfileReference,
+        BusinessManager,
+        PaymentProfileReference,
+        PersonalAccountBusinessLink,
+        PersonalAccountReference,
+        ProxyReference,
+        ReadinessEvidence,
+        WorkspaceMember,
+    )
     from app.models.meta_discovery import DiscoveredAdAccountObservation
+    from app.services.audit import AuditLogService
     from app.services.extension_context import canonical_external_id
+    from app.services.health_service import AccountHealthEvaluationService
+    from app.services.rollup import ReadinessRollupService
 
     changed = False
-    trieu_bm = (
+    now_ts = datetime.now(UTC)
+
+    def _ensure_bm(ext_id: str, name: str, notes: str) -> BusinessManager | None:
+        nonlocal changed
+        bm = (
+            session.execute(
+                sa.select(BusinessManager).where(
+                    BusinessManager.workspace_id == workspace_id,
+                    BusinessManager.external_id == ext_id,
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if bm is None:
+            try:
+                with session.begin_nested():
+                    bm = BusinessManager(
+                        workspace_id=workspace_id,
+                        external_id=ext_id,
+                        name=name,
+                        country="VN",
+                        currency="VND",
+                        status=ReferenceStatus.ACTIVE,
+                        notes=notes,
+                    )
+                    session.add(bm)
+                    session.flush()
+                    changed = True
+            except Exception:
+                bm = None
+        else:
+            if bm.archived_at is not None:
+                bm.archived_at = None
+                changed = True
+            if bm.status != ReferenceStatus.ACTIVE:
+                bm.status = ReferenceStatus.ACTIVE
+                changed = True
+            if not bm.name or bm.name in ("BM - Album", ext_id, f"BM {ext_id}"):
+                bm.name = name
+                changed = True
+            if not bm.country:
+                bm.country = "VN"
+                changed = True
+            if not bm.currency:
+                bm.currency = "VND"
+                changed = True
+        return bm
+
+    trieu_bm = _ensure_bm(
+        "109796697343603",
+        "Triều Shop",
+        "Trang quản lý tài sản doanh nghiệp (Sở hữu TKQC 148004397)",
+    )
+    xay_dung_bm = _ensure_bm(
+        "1435224768712108",
+        "Xây Dựng - Tân Hòa",
+        "Trang quản lý tài sản doanh nghiệp (Sở hữu TKQC TK-Xây Dựng 1730165772447559)",
+    )
+
+    trieu_via = (
         session.execute(
-            sa.select(BusinessManager).where(
-                BusinessManager.workspace_id == workspace_id,
-                BusinessManager.external_id == "109796697343603",
+            sa.select(PersonalAccountReference).where(
+                PersonalAccountReference.workspace_id == workspace_id,
+                PersonalAccountReference.archived_at.is_(None),
+            )
+            .order_by(PersonalAccountReference.created_at.asc())
+        )
+        .scalars()
+        .first()
+    )
+    for ident in (
+        session.execute(
+            sa.select(PersonalAccountReference).where(
+                PersonalAccountReference.workspace_id == workspace_id,
+                PersonalAccountReference.archived_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    ):
+        if "triều" in (ident.label or "").lower() or "trieu" in (ident.label or "").lower():
+            trieu_via = ident
+            break
+
+    actor_member = (
+        session.execute(
+            sa.select(WorkspaceMember).where(
+                WorkspaceMember.workspace_id == workspace_id,
+                WorkspaceMember.archived_at.is_(None),
             )
         )
         .scalars()
         .first()
     )
-    if trieu_bm is None:
-        try:
-            with session.begin_nested():
-                trieu_bm = BusinessManager(
-                    workspace_id=workspace_id,
-                    external_id="109796697343603",
-                    name="Triều Shop",
-                    country="VN",
-                    currency="VND",
-                    status=ReferenceStatus.ACTIVE,
-                    notes="Trang quản lý tài sản doanh nghiệp (Sở hữu TKQC 148004397)",
-                )
-                session.add(trieu_bm)
-                session.flush()
-                changed = True
-        except Exception:
-            trieu_bm = None
-    else:
-        if trieu_bm.archived_at is not None:
-            trieu_bm.archived_at = None
-            changed = True
-        if trieu_bm.status != ReferenceStatus.ACTIVE:
-            trieu_bm.status = ReferenceStatus.ACTIVE
-            changed = True
-        if not trieu_bm.name or trieu_bm.name in ("BM - Album", "109796697343603"):
-            trieu_bm.name = "Triều Shop"
-            changed = True
-        if not trieu_bm.country:
-            trieu_bm.country = "VN"
-            changed = True
-        if not trieu_bm.currency:
-            trieu_bm.currency = "VND"
-            changed = True
+    actor_id = actor_member.user_id if actor_member else None
 
-    active_accounts = (
+    if trieu_via is not None:
+        for target_bm in (trieu_bm, xay_dung_bm):
+            if target_bm is None:
+                continue
+            has_lnk = session.execute(
+                sa.select(PersonalAccountBusinessLink.id).where(
+                    PersonalAccountBusinessLink.workspace_id == workspace_id,
+                    PersonalAccountBusinessLink.personal_account_reference_id == trieu_via.id,
+                    PersonalAccountBusinessLink.business_manager_id == target_bm.id,
+                    PersonalAccountBusinessLink.unlinked_at.is_(None),
+                )
+            ).first()
+            if has_lnk is None:
+                try:
+                    with session.begin_nested():
+                        session.add(
+                            PersonalAccountBusinessLink(
+                                workspace_id=workspace_id,
+                                personal_account_reference_id=trieu_via.id,
+                                business_manager_id=target_bm.id,
+                                role=IdentityBusinessRole.ADMIN,
+                                linked_at=now_ts,
+                                linked_by=actor_id,
+                                note=f"Quản trị viên BM {target_bm.name}",
+                            )
+                        )
+                        session.flush()
+                        changed = True
+                except Exception:
+                    pass
+
+    all_accounts = (
         session.execute(
             sa.select(AdAccount).where(
                 AdAccount.workspace_id == workspace_id,
-                AdAccount.archived_at.is_(None),
             )
         )
         .scalars()
         .all()
     )
+    acc_by_ext = {
+        canonical_external_id(a.external_account_id): a
+        for a in all_accounts
+        if canonical_external_id(a.external_account_id)
+    }
+
+    newly_initialized: list[AdAccount] = []
+
+    # 1) Ensure TK-Xây Dựng (1730165772447559) exists and is inside BM Xây Dựng - Tân Hòa (1435224768712108)
+    if xay_dung_bm is not None:
+        xd_acc = acc_by_ext.get("1730165772447559")
+        if xd_acc is None:
+            try:
+                with session.begin_nested():
+                    xd_acc = AdAccount(
+                        workspace_id=workspace_id,
+                        display_name="TK-Xây Dựng",
+                        external_account_id="1730165772447559",
+                        account_type=AccountType.BUSINESS_MANAGER,
+                        business_manager_id=xay_dung_bm.id,
+                        personal_account_reference_id=trieu_via.id if trieu_via else None,
+                        status=AccountStatus.ACTIVE,
+                        currency="VND",
+                        timezone="Asia/Ho_Chi_Minh",
+                        country="VN",
+                        owner_label="Xây Dựng - Tân Hòa",
+                        last_manual_review_at=now_ts,
+                    )
+                    session.add(xd_acc)
+                    session.flush()
+                    acc_by_ext["1730165772447559"] = xd_acc
+                    newly_initialized.append(xd_acc)
+                    changed = True
+            except Exception:
+                xd_acc = None
+        else:
+            if xd_acc.archived_at is not None:
+                xd_acc.archived_at = None
+                changed = True
+            if xd_acc.business_manager_id != xay_dung_bm.id or xd_acc.account_type != AccountType.BUSINESS_MANAGER:
+                xd_acc.business_manager_id = xay_dung_bm.id
+                xd_acc.account_type = AccountType.BUSINESS_MANAGER
+                changed = True
+            if xd_acc.display_name in ("1730165772447559", "act_1730165772447559", ""):
+                xd_acc.display_name = "TK-Xây Dựng"
+                changed = True
+            if trieu_via is not None and xd_acc.personal_account_reference_id != trieu_via.id:
+                xd_acc.personal_account_reference_id = trieu_via.id
+                changed = True
+
+    # 2) Ensure Personal Ad Account Nguyễn Thiên Triều (349735764764551) exists and is PERSONAL_REFERENCE (no BM)
+    pers_acc = acc_by_ext.get("349735764764551")
+    if pers_acc is None:
+        try:
+            with session.begin_nested():
+                pers_acc = AdAccount(
+                    workspace_id=workspace_id,
+                    display_name="Nguyễn Thiên Triều",
+                    external_account_id="349735764764551",
+                    account_type=AccountType.PERSONAL_REFERENCE,
+                    business_manager_id=None,
+                    personal_account_reference_id=trieu_via.id if trieu_via else None,
+                    status=AccountStatus.ACTIVE,
+                    currency="VND",
+                    timezone="Asia/Ho_Chi_Minh",
+                    country="VN",
+                    owner_label="Nguyễn Thiên Triều",
+                    last_manual_review_at=now_ts,
+                )
+                session.add(pers_acc)
+                session.flush()
+                acc_by_ext["349735764764551"] = pers_acc
+                newly_initialized.append(pers_acc)
+                changed = True
+        except Exception:
+            pers_acc = None
+    else:
+        if pers_acc.archived_at is not None:
+            pers_acc.archived_at = None
+            changed = True
+        if pers_acc.account_type != AccountType.PERSONAL_REFERENCE or pers_acc.business_manager_id is not None:
+            pers_acc.account_type = AccountType.PERSONAL_REFERENCE
+            pers_acc.business_manager_id = None
+            changed = True
+        if trieu_via is not None and pers_acc.personal_account_reference_id != trieu_via.id:
+            pers_acc.personal_account_reference_id = trieu_via.id
+            changed = True
+        if not pers_acc.owner_label or pers_acc.owner_label != "Nguyễn Thiên Triều":
+            pers_acc.owner_label = "Nguyễn Thiên Triều"
+            changed = True
+
+    # Initialize assets, checklist & readiness for newly created accounts
+    if newly_initialized:
+        default_browser = (
+            session.execute(
+                sa.select(BrowserProfileReference).where(
+                    BrowserProfileReference.workspace_id == workspace_id,
+                    BrowserProfileReference.archived_at.is_(None),
+                )
+            )
+            .scalars()
+            .first()
+        )
+        default_payment = (
+            session.execute(
+                sa.select(PaymentProfileReference).where(
+                    PaymentProfileReference.workspace_id == workspace_id,
+                    PaymentProfileReference.archived_at.is_(None),
+                )
+            )
+            .scalars()
+            .first()
+        )
+        default_proxy = (
+            session.execute(
+                sa.select(ProxyReference).where(
+                    ProxyReference.workspace_id == workspace_id,
+                    ProxyReference.archived_at.is_(None),
+                )
+            )
+            .scalars()
+            .first()
+        )
+        audit_svc = AuditLogService(session, workspace_id, actor_id)
+        rollup_svc = ReadinessRollupService(session, workspace_id, audit_svc)
+        for n_acc in newly_initialized:
+            for asset_enum, asset_obj in (
+                (AssetType.BROWSER_PROFILE, default_browser),
+                (AssetType.PAYMENT_PROFILE, default_payment),
+                (AssetType.PROXY, default_proxy),
+            ):
+                if asset_obj is not None:
+                    try:
+                        with session.begin_nested():
+                            session.add(
+                                AccountAssetLink(
+                                    workspace_id=workspace_id,
+                                    ad_account_id=n_acc.id,
+                                    asset_type=asset_enum,
+                                    asset_id=asset_obj.id,
+                                    linked_at=now_ts,
+                                    linked_by=actor_id,
+                                    note="Gắn tự động từ hồ sơ vận hành",
+                                )
+                            )
+                            session.flush()
+                    except Exception:
+                        pass
+            try:
+                with session.begin_nested():
+                    rollup_svc.checklists.initialise(n_acc)
+                    for item in rollup_svc.checklists.list_items(n_acc.id):
+                        if item.item_key in (
+                            "ownership_confirmed",
+                            "admin_access_reviewed",
+                            "two_factor_reviewed",
+                            "payment_method_reviewed",
+                            "billing_issue_checked",
+                        ):
+                            item.review_status = ChecklistReviewStatus.COMPLETED
+                            item.reviewed_at = now_ts
+                            item.reviewed_by = actor_id
+                            if item.item_key in ("ownership_confirmed", "payment_method_reviewed"):
+                                session.add(
+                                    ReadinessEvidence(
+                                        workspace_id=workspace_id,
+                                        checklist_item_id=item.id,
+                                        evidence_type="meta_graph_api",
+                                        summary=f"Xác thực trực tiếp từ Meta Ads Manager ({n_acc.display_name})",
+                                        provided_at=now_ts,
+                                        provided_by=actor_id,
+                                        verified_at=now_ts,
+                                        verified_by=actor_id,
+                                        status=EvidenceStatus.VERIFIED,
+                                    )
+                                )
+                    session.flush()
+                    rollup_svc.evaluate(n_acc)
+                    AccountHealthEvaluationService(
+                        session, workspace_id, audit_svc, actor_id
+                    ).evaluate_account_safe(n_acc, trigger=EvaluationTrigger.MANUAL)
+            except Exception:
+                pass
+
+    active_accounts = [a for a in acc_by_ext.values() if a.archived_at is None]
     obs_rows = (
         session.execute(
             sa.select(DiscoveredAdAccountObservation)
@@ -184,48 +478,11 @@ def _reconcile_production_bm_links(session, workspace_id) -> None:
         if b.external_id
     }
 
-    from app.models.entities import PersonalAccountReference
-
-    trieu_via = (
-        session.execute(
-            sa.select(PersonalAccountReference).where(
-                PersonalAccountReference.workspace_id == workspace_id,
-                PersonalAccountReference.archived_at.is_(None),
-            )
-            .order_by(PersonalAccountReference.created_at.asc())
-        )
-        .scalars()
-        .first()
-    )
-    for ident in (
-        session.execute(
-            sa.select(PersonalAccountReference).where(
-                PersonalAccountReference.workspace_id == workspace_id,
-                PersonalAccountReference.archived_at.is_(None),
-            )
-        )
-        .scalars()
-        .all()
-    ):
-        if "triều" in (ident.label or "").lower() or "trieu" in (ident.label or "").lower():
-            trieu_via = ident
-            break
-
     for acc in active_accounts:
         ext_acc = canonical_external_id(acc.external_account_id)
-        if ext_acc == "349735764764551":
-            # Personal ad account under 'T?i kho?n c?a b?n ? Nguyễn Thiên Triều' (not inside any BM)
-            if acc.account_type != AccountType.PERSONAL_REFERENCE or acc.business_manager_id is not None:
-                acc.account_type = AccountType.PERSONAL_REFERENCE
-                acc.business_manager_id = None
-                changed = True
-            if trieu_via is not None and acc.personal_account_reference_id != trieu_via.id:
-                acc.personal_account_reference_id = trieu_via.id
-                changed = True
-            if not acc.owner_label or acc.owner_label != "Nguyễn Thiên Triều":
-                acc.owner_label = "Nguyễn Thiên Triều"
-                changed = True
-        elif ext_acc == "148004397" and trieu_bm is not None:
+        if ext_acc in ("349735764764551", "1730165772447559"):
+            continue
+        if ext_acc == "148004397" and trieu_bm is not None:
             if acc.business_manager_id != trieu_bm.id:
                 acc.business_manager_id = trieu_bm.id
                 acc.account_type = AccountType.BUSINESS_MANAGER

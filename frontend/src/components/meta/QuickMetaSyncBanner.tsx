@@ -244,6 +244,9 @@ export function QuickMetaSyncBanner() {
                 >
                   <span className="font-sans font-semibold">{bm.name}:</span>
                   <span>{bm.external_id}</span>
+                  <span className="font-sans text-[10px] text-emerald-600 dark:text-emerald-400">
+                    ({accountsList.filter((a: ClassifierAccount) => a.business_manager_id === bm.id).length} TKQC)
+                  </span>
                 </button>
               ))}
             </div>

@@ -570,11 +570,16 @@ def run_workspace_quick_sync(
                     matched_acc.account_type == AccountType.PERSONAL_REFERENCE
                     or matched_acc.business_manager_id is None
                 )
+                bm_ref_out = (
+                    matched_acc.external_account_id
+                    if is_personal or matched_acc.business_manager is None
+                    else (matched_acc.business_manager.external_id or matched_acc.external_account_id)
+                )
                 owner_display = (
                     f"Tài khoản cá nhân — {matched_acc.owner_label or 'Nguyễn Thiên Triều'} (Không thuộc BM)"
                     if is_personal
                     else (
-                        f"TKQC thuộc BM {matched_acc.business_manager.name}"
+                        f"{matched_acc.business_manager.name} — TKQC {matched_acc.display_name} ({matched_acc.external_account_id})"
                         if matched_acc.business_manager
                         else hub_conn.label
                     )
@@ -584,7 +589,7 @@ def run_workspace_quick_sync(
                     "connection_label": owner_display,
                     "run_id": str(latest_ws_run.id),
                     "status": "succeeded",
-                    "business_manager_reference": matched_acc.external_account_id,
+                    "business_manager_reference": bm_ref_out,
                     "business_manager_name": owner_display,
                     "imported_ad_accounts": 0,
                     "total_ad_accounts": 1,
@@ -606,7 +611,7 @@ def run_workspace_quick_sync(
                 bm_accounts = [
                     a for a in existing_ws_accounts if a.business_manager_id == known_bm_match.id
                 ]
-                if bm_accounts:
+                if known_bm_match.external_id != (settings.meta_business_id or "").strip() or bm_accounts:
                     hub_conn = _find_or_create_conn((settings.meta_business_id or "").strip())
                     return {
                         "connection_id": str(hub_conn.id),
@@ -659,9 +664,10 @@ def run_workspace_quick_sync(
         b_candidate.status = ReferenceStatus.ACTIVE
     session.flush()
 
-    # Fallback to server default BM if user typed a child/partner BM ID that the server System User token reads via client_ad_accounts
+    # Fallback to server default BM only during initial workspace bootstrap when no accounts exist yet
     if (
         run.status == DiscoveryRunStatus.FAILED
+        and not existing_ws_accounts
         and default_server_bm
         and bm_ref != default_server_bm
         and settings.environment.lower() in ("production", "prod", "staging")
@@ -704,10 +710,10 @@ def run_workspace_quick_sync(
                 bm_entity.currency = "VND"
         session.flush()
 
-        # If operator synced a partner/client BM (e.g. Triều Shop 109796697343603) whose accounts are read via
-        # the hub BM's client_ad_accounts edge, also discover on default_server_bm so all shared accounts are imported.
+        # Only fall back to discovering default_server_bm during initial bootstrap when workspace has no accounts yet
         if (
             ((run.ad_account_coverage_json or {}).get("total_unique_assets") or 0) == 0
+            and not existing_ws_accounts
             and default_server_bm
             and bm_ref != default_server_bm
             and settings.environment.lower() in ("production", "prod", "staging")
@@ -1530,10 +1536,7 @@ def run_workspace_quick_sync(
                 .scalars()
                 .all()
             ):
-                if old_conn.environment != MetaEnvironment.PRODUCTION or (
-                    old_conn.id != connection.id
-                    and (old_conn.business_manager_reference or "") != (connection.business_manager_reference or "")
-                ):
+                if old_conn.environment != MetaEnvironment.PRODUCTION:
                     old_conn.archived_at = now_clean
 
     # Always reconcile client/partner BM account links in production
