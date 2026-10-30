@@ -529,6 +529,20 @@ def run_workspace_quick_sync(
             .all()
         )
         out: list[tuple[MetaReaderCredential | None, Any]] = []
+        if clean_token:
+            with contextlib.suppress(Exception):
+                from app.services.meta_graph_transport import MetaGraphTransport
+                from app.services.meta_real_provider import RealMetaBusinessProvider
+                direct_prov = RealMetaBusinessProvider(
+                    transport=MetaGraphTransport(
+                        access_token=clean_token,
+                        api_base_url=settings.meta_graph_api_base_url,
+                        api_version=settings.meta_graph_api_version,
+                        timeout_seconds=settings.meta_timeout_seconds,
+                    ),
+                    business_id=for_bm_id or settings.meta_business_id,
+                )
+                out.append((creds_all[0] if creds_all else None, direct_prov))
         for c in creds_all:
             if c.status.value == "active":
                 with contextlib.suppress(Exception):
