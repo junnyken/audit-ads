@@ -184,9 +184,48 @@ def _reconcile_production_bm_links(session, workspace_id) -> None:
         if b.external_id
     }
 
+    from app.models.entities import PersonalAccountReference
+
+    trieu_via = (
+        session.execute(
+            sa.select(PersonalAccountReference).where(
+                PersonalAccountReference.workspace_id == workspace_id,
+                PersonalAccountReference.archived_at.is_(None),
+            )
+            .order_by(PersonalAccountReference.created_at.asc())
+        )
+        .scalars()
+        .first()
+    )
+    for ident in (
+        session.execute(
+            sa.select(PersonalAccountReference).where(
+                PersonalAccountReference.workspace_id == workspace_id,
+                PersonalAccountReference.archived_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    ):
+        if "tri?u" in (ident.label or "").lower() or "trieu" in (ident.label or "").lower():
+            trieu_via = ident
+            break
+
     for acc in active_accounts:
         ext_acc = canonical_external_id(acc.external_account_id)
-        if ext_acc == "148004397" and trieu_bm is not None:
+        if ext_acc == "349735764764551":
+            # Personal ad account under 'T?i kho?n c?a b?n ? Nguy?n Thi?n Tri?u' (not inside any BM)
+            if acc.account_type != AccountType.PERSONAL_REFERENCE or acc.business_manager_id is not None:
+                acc.account_type = AccountType.PERSONAL_REFERENCE
+                acc.business_manager_id = None
+                changed = True
+            if trieu_via is not None and acc.personal_account_reference_id != trieu_via.id:
+                acc.personal_account_reference_id = trieu_via.id
+                changed = True
+            if not acc.owner_label or acc.owner_label != "Nguy?n Thi?n Tri?u":
+                acc.owner_label = "Nguy?n Thi?n Tri?u"
+                changed = True
+        elif ext_acc == "148004397" and trieu_bm is not None:
             if acc.business_manager_id != trieu_bm.id:
                 acc.business_manager_id = trieu_bm.id
                 acc.account_type = AccountType.BUSINESS_MANAGER

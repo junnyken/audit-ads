@@ -1169,8 +1169,32 @@ def run_workspace_quick_sync(
                     session.flush()
 
             if settings.environment.lower() in ("production", "prod", "staging"):
-                if default_payment is not None and acc.payment_profile_reference_id is None:
-                    acc.payment_profile_reference_id = default_payment.id
+                if default_payment is not None:
+                    has_pay_link = session.execute(
+                        sa.select(AccountAssetLink.id).where(
+                            AccountAssetLink.workspace_id == workspace_id,
+                            AccountAssetLink.ad_account_id == acc.id,
+                            AccountAssetLink.asset_type == AssetType.PAYMENT_PROFILE,
+                            AccountAssetLink.unlinked_at.is_(None),
+                        )
+                    ).first()
+                    if has_pay_link is None:
+                        try:
+                            with session.begin_nested():
+                                session.add(
+                                    AccountAssetLink(
+                                        workspace_id=workspace_id,
+                                        ad_account_id=acc.id,
+                                        asset_type=AssetType.PAYMENT_PROFILE,
+                                        asset_id=default_payment.id,
+                                        linked_at=now_eval,
+                                        linked_by=actor_id,
+                                        note="G?n t? ??ng t? h? s? thanh to?n",
+                                    )
+                                )
+                                session.flush()
+                        except Exception:
+                            pass
                 if default_proxy is not None:
                     has_p_link = session.execute(
                         sa.select(AccountAssetLink.id).where(
@@ -1346,6 +1370,60 @@ def run_workspace_quick_sync(
         except Exception:
             pass
 
+    clean_req_acc = canonical_external_id(requested_bm_ref) if requested_bm_ref else None
+    matched_single_account: AdAccount | None = None
+    if clean_req_acc:
+        for cand_acc in (
+            session.execute(
+                sa.select(AdAccount).where(
+                    AdAccount.workspace_id == workspace_id,
+                    AdAccount.archived_at.is_(None),
+                )
+            )
+            .scalars()
+            .all()
+        ):
+            if canonical_external_id(cand_acc.external_account_id) == clean_req_acc:
+                matched_single_account = cand_acc
+                break
+
+        # If not yet in DB and transport is available, try reading `act_{clean_req_acc}` directly from Meta Graph API
+        if matched_single_account is None and hasattr(service.provider, "transport"):
+            try:
+                acc_resp = service.provider.transport.get(
+                    f"act_{clean_req_acc}",
+                    {"fields": "id,account_id,name,account_status,currency,timezone_name,business"},
+                )
+                if acc_resp.ok and isinstance(acc_resp.payload, dict):
+                    raw_acc_id = str(acc_resp.payload.get("account_id") or clean_req_acc).strip()
+                    raw_name = str(acc_resp.payload.get("name") or raw_acc_id).strip()
+                    raw_curr = str(acc_resp.payload.get("currency") or "VND").strip()
+                    raw_tz = str(acc_resp.payload.get("timezone_name") or "Asia/Ho_Chi_Minh").strip()
+                    biz_obj = acc_resp.payload.get("business")
+                    has_biz = isinstance(biz_obj, dict) and bool(biz_obj.get("id"))
+                    from app.core.enums import AccountType
+
+                    with session.begin_nested():
+                        matched_single_account = AdAccount(
+                            workspace_id=workspace_id,
+                            display_name=raw_name[:200],
+                            external_account_id=raw_acc_id[:120],
+                            account_type=AccountType.BUSINESS_MANAGER if has_biz else AccountType.PERSONAL_REFERENCE,
+                            status=AccountStatus.ACTIVE,
+                            currency=raw_curr[:12],
+                            timezone=raw_tz[:80],
+                            country="VN",
+                            owner_label="Nguy?n Thi?n Tri?u" if not has_biz else None,
+                        )
+                        session.add(matched_single_account)
+                        session.flush()
+                        imported_count += 1
+                    if settings.environment.lower() in ("production", "prod", "staging"):
+                        from app.api.v1.routers.ad_accounts import _reconcile_production_bm_links
+                        _reconcile_production_bm_links(session, workspace_id)
+            except Exception:
+                pass
+
     target_bm = (
         session.execute(
             sa.select(BusinessManager).where(
@@ -1359,6 +1437,38 @@ def run_workspace_quick_sync(
         if (requested_bm_ref or bm_ref)
         else None
     )
+
+    if matched_single_account is not None and target_bm is None:
+        from app.core.enums import AccountType
+
+        is_personal = matched_single_account.account_type == AccountType.PERSONAL_REFERENCE or matched_single_account.business_manager_id is None
+        owner_display = (
+            f"T?i kho?n c? nh?n ({matched_single_account.owner_label or 'Nguy?n Thi?n Tri?u'})"
+            if is_personal
+            else (matched_single_account.business_manager.name if matched_single_account.business_manager else connection.label)
+        )
+        return {
+            "connection_id": str(connection.id),
+            "connection_label": owner_display,
+            "run_id": str(run.id),
+            "status": "succeeded",
+            "business_manager_reference": matched_single_account.external_account_id,
+            "business_manager_name": owner_display,
+            "imported_ad_accounts": imported_count,
+            "total_ad_accounts": 1,
+            "total_pixels": (run.pixel_coverage_json or {}).get("total_unique_assets") or 0,
+            "total_business_users": (run.business_user_coverage_json or {}).get("total_unique_assets") or 0,
+            "accounts": [
+                {
+                    "id": str(matched_single_account.id),
+                    "display_name": matched_single_account.display_name,
+                    "external_account_id": matched_single_account.external_account_id,
+                }
+            ],
+            "failure_code": None,
+            "failure_summary": None,
+        }
+
     target_bm_accounts = (
         session.execute(
             sa.select(AdAccount)
@@ -1372,7 +1482,20 @@ def run_workspace_quick_sync(
         .scalars()
         .all()
         if target_bm is not None
-        else []
+        else (
+            session.execute(
+                sa.select(AdAccount)
+                .where(
+                    AdAccount.workspace_id == workspace_id,
+                    AdAccount.archived_at.is_(None),
+                )
+                .order_by(AdAccount.display_name.asc())
+            )
+            .scalars()
+            .all()
+            if not requested_bm_ref
+            else []
+        )
     )
     discovered_total = (run.ad_account_coverage_json or {}).get("total_unique_assets") or 0
 
