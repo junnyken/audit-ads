@@ -249,3 +249,5 @@ class ConnectionReaderAssign(StrictPayload):
 class QuickSyncRequest(StrictPayload):
     business_manager_reference: str = Field(default="", max_length=120)
     label: str = Field(default="", max_length=200)
+    access_token: str | None = Field(default=None, max_length=2048)
+    target_bm_external_id: str | None = Field(default=None, max_length=120)

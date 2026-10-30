@@ -12,6 +12,7 @@ routes; it is `run_dispatcher.discovery_sweep_pass`, switched per connection by
 """
 from __future__ import annotations
 
+import contextlib
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -377,6 +378,8 @@ def run_workspace_quick_sync(
     actor_id: uuid.UUID,
     bm_ref: str = "",
     label_clean: str = "",
+    access_token: str | None = None,
+    target_bm_external_id: str | None = None,
 ) -> dict[str, Any]:
     """Shared 1-step connection + discovery + full asset auto-import (BM, AdAccounts, Pixels, Pages, VIAs, Spend)."""
     from app.core.enums import (
@@ -468,7 +471,88 @@ def run_workspace_quick_sync(
         )
         return conn
 
-    # Step 0: Reconcile BM & Personal AdAccount links first and check if the input is an Ad Account ID or an already-synced BM ID
+    # Step 0: Save optional access_token into MetaReaderCredential vault & build multi-token provider pool
+    from app.core.enums import AccountType, ReaderCredentialKind, ReaderCredentialStatus
+    from app.core.secret_vault import encrypt_secret
+
+    clean_token = (access_token or "").strip()
+    if clean_token and settings.credential_vault_key:
+        try:
+            with session.begin_nested():
+                cipher = encrypt_secret(clean_token, settings.credential_vault_key)
+                new_cred = MetaReaderCredential(
+                    workspace_id=workspace_id,
+                    label=(label_clean or f"Token Meta ({bm_ref or 'Đa BM'})")[:200],
+                    kind=ReaderCredentialKind.SYSTEM_USER,
+                    status=ReaderCredentialStatus.ACTIVE,
+                    token_ciphertext=cipher,
+                    created_by=actor_id,
+                )
+                session.add(new_cred)
+                session.flush()
+        except Exception:
+            pass
+
+    def _candidate_providers(for_bm_id: str) -> list[tuple[MetaReaderCredential | None, Any]]:
+        creds_all = list(
+            session.execute(
+                sa.select(MetaReaderCredential)
+                .where(
+                    MetaReaderCredential.workspace_id == workspace_id,
+                    MetaReaderCredential.archived_at.is_(None),
+                )
+                .order_by(MetaReaderCredential.updated_at.desc(), MetaReaderCredential.created_at.desc())
+            )
+            .scalars()
+            .all()
+        )
+        out: list[tuple[MetaReaderCredential | None, Any]] = []
+        for c in creds_all:
+            if c.status.value == "active":
+                with contextlib.suppress(Exception):
+                    out.append((c, build_real_provider(settings, business_id=for_bm_id, credential=c)))
+        if (settings.meta_access_token or "").strip():
+            with contextlib.suppress(Exception):
+                out.append((None, build_real_provider(settings, business_id=for_bm_id, credential=None)))
+        return out
+
+    def _upsert_bm_from_meta(ext_id: str, name: str | None, currency: str = "VND") -> BusinessManager | None:
+        ext_clean = canonical_external_id(ext_id) or ext_id.strip()
+        if not ext_clean:
+            return None
+        bm_obj = (
+            session.execute(
+                sa.select(BusinessManager).where(
+                    BusinessManager.workspace_id == workspace_id,
+                    BusinessManager.external_id == ext_clean,
+                )
+            )
+            .scalars()
+            .first()
+        )
+        bm_title = (name or "").strip() or f"BM {ext_clean}"
+        if bm_obj is None:
+            try:
+                with session.begin_nested():
+                    bm_obj = BusinessManager(
+                        workspace_id=workspace_id,
+                        external_id=ext_clean[:120],
+                        name=bm_title[:200],
+                        country="VN",
+                        currency=(currency or "VND")[:12],
+                        status=ReferenceStatus.ACTIVE,
+                    )
+                    session.add(bm_obj)
+                    session.flush()
+            except Exception:
+                bm_obj = None
+        else:
+            bm_obj.archived_at = None
+            bm_obj.status = ReferenceStatus.ACTIVE
+            if name and (not bm_obj.name or bm_obj.name.startswith("BM ")):
+                bm_obj.name = bm_title[:200]
+        return bm_obj
+
     if settings.environment.lower() in ("production", "prod", "staging"):
         try:
             from app.api.v1.routers.ad_accounts import _reconcile_production_bm_links
@@ -479,8 +563,82 @@ def run_workspace_quick_sync(
         raw_input = bm_ref.strip() if bm_ref else ""
         clean_input = canonical_external_id(raw_input) if raw_input else None
         is_explicit_act = raw_input.lower().startswith(("act_", "act-"))
+        target_bm_clean = (target_bm_external_id or "").strip()
 
-        # Check if workspace already has synced accounts & a recent discovery run
+        # If a new token was provided, also auto-discover /me/businesses and /me/adaccounts from that token
+        if clean_token:
+            for _, cand_prov in _candidate_providers(clean_input or "")[:1]:
+                if hasattr(cand_prov, "transport"):
+                    try:
+                        b_resp = cand_prov.transport.get("me/businesses", {"fields": "id,name", "limit": "100"})
+                        if b_resp.ok and isinstance(b_resp.payload, dict):
+                            for b_row in b_resp.payload.get("data", []) or []:
+                                if isinstance(b_row, dict) and b_row.get("id"):
+                                    _upsert_bm_from_meta(str(b_row["id"]), str(b_row.get("name") or ""))
+                    except Exception:
+                        pass
+                    try:
+                        a_resp = cand_prov.transport.get(
+                            "me/adaccounts",
+                            {
+                                "fields": "id,account_id,name,account_status,currency,timezone_name,business{id,name}",
+                                "limit": "200",
+                            },
+                        )
+                        if a_resp.ok and isinstance(a_resp.payload, dict):
+                            for a_row in a_resp.payload.get("data", []) or []:
+                                if not isinstance(a_row, dict):
+                                    continue
+                                aid = canonical_external_id(a_row.get("account_id") or a_row.get("id"))
+                                if not aid:
+                                    continue
+                                aname = str(a_row.get("name") or aid).strip()
+                                acurr = str(a_row.get("currency") or "VND").strip()
+                                atz = str(a_row.get("timezone_name") or "Asia/Ho_Chi_Minh").strip()
+                                abiz = a_row.get("business")
+                                owner_bm_obj = None
+                                if isinstance(abiz, dict) and abiz.get("id"):
+                                    owner_bm_obj = _upsert_bm_from_meta(
+                                        str(abiz["id"]), str(abiz.get("name") or ""), acurr
+                                    )
+                                existing_a = (
+                                    session.execute(
+                                        sa.select(AdAccount).where(
+                                            AdAccount.workspace_id == workspace_id,
+                                            sa.func.lower(AdAccount.external_account_id).in_([aid, f"act_{aid}"]),
+                                        )
+                                    )
+                                    .scalars()
+                                    .first()
+                                )
+                                if existing_a is None:
+                                    with session.begin_nested():
+                                        session.add(
+                                            AdAccount(
+                                                workspace_id=workspace_id,
+                                                display_name=aname[:200],
+                                                external_account_id=aid[:120],
+                                                account_type=(
+                                                    AccountType.BUSINESS_MANAGER
+                                                    if owner_bm_obj is not None
+                                                    else AccountType.PERSONAL_REFERENCE
+                                                ),
+                                                business_manager_id=owner_bm_obj.id if owner_bm_obj else None,
+                                                status=AccountStatus.ACTIVE,
+                                                currency=acurr[:12],
+                                                timezone=atz[:80],
+                                                country="VN",
+                                            )
+                                        )
+                                        session.flush()
+                                else:
+                                    existing_a.archived_at = None
+                                    if owner_bm_obj is not None:
+                                        existing_a.business_manager_id = owner_bm_obj.id
+                                        existing_a.account_type = AccountType.BUSINESS_MANAGER
+                    except Exception:
+                        pass
+
         existing_ws_accounts = (
             session.execute(
                 sa.select(AdAccount)
@@ -504,9 +662,6 @@ def run_workspace_quick_sync(
         )
 
         if existing_ws_accounts and latest_ws_run is not None:
-            from app.core.enums import AccountType
-
-            # 0a. Did the user enter an Ad Account ID (e.g. 349735764764551 or 148004397)?
             matched_acc = None
             if clean_input:
                 for cand in existing_ws_accounts:
@@ -514,7 +669,6 @@ def run_workspace_quick_sync(
                         matched_acc = cand
                         break
 
-            # Or if user typed an unknown `act_...` or numeric ID that is NOT a known BM ID, probe `act_{clean_input}` directly in 1 fast call
             known_bm_match = (
                 session.execute(
                     sa.select(BusinessManager).where(
@@ -529,43 +683,107 @@ def run_workspace_quick_sync(
                 else None
             )
 
+            # Probe `act_{clean_input}` across ALL candidate tokens in the pool and link directly to Meta's `business{id,name}`
             if matched_acc is None and clean_input and known_bm_match is None:
-                hub_conn_probe = _find_or_create_conn((settings.meta_business_id or "").strip())
-                probe_prov = _provider_for(hub_conn_probe)
-                if hasattr(probe_prov, "transport"):
+                for _, probe_prov in _candidate_providers(clean_input):
+                    if not hasattr(probe_prov, "transport"):
+                        continue
                     try:
                         acc_resp = probe_prov.transport.get(
                             f"act_{clean_input}",
-                            {"fields": "id,account_id,name,account_status,currency,timezone_name,business"},
+                            {"fields": "id,account_id,name,account_status,currency,timezone_name,business{id,name}"},
                         )
                         if acc_resp.ok and isinstance(acc_resp.payload, dict) and acc_resp.payload.get("account_id"):
-                            raw_acc_id = str(acc_resp.payload.get("account_id") or clean_input).strip()
-                            raw_name = str(acc_resp.payload.get("name") or raw_acc_id).strip()
+                            raw_acc_id = canonical_external_id(acc_resp.payload.get("account_id") or clean_input) or clean_input
+                            raw_name = str(acc_resp.payload.get("name") or label_clean or raw_acc_id).strip()
                             raw_curr = str(acc_resp.payload.get("currency") or "VND").strip()
                             raw_tz = str(acc_resp.payload.get("timezone_name") or "Asia/Ho_Chi_Minh").strip()
                             biz_obj = acc_resp.payload.get("business")
-                            has_biz = isinstance(biz_obj, dict) and bool(biz_obj.get("id"))
+                            owner_bm_obj = None
+                            if isinstance(biz_obj, dict) and biz_obj.get("id"):
+                                owner_bm_obj = _upsert_bm_from_meta(
+                                    str(biz_obj["id"]), str(biz_obj.get("name") or ""), raw_curr
+                                )
                             with session.begin_nested():
                                 matched_acc = AdAccount(
                                     workspace_id=workspace_id,
                                     display_name=raw_name[:200],
                                     external_account_id=raw_acc_id[:120],
-                                    account_type=AccountType.BUSINESS_MANAGER if has_biz else AccountType.PERSONAL_REFERENCE,
+                                    account_type=(
+                                        AccountType.BUSINESS_MANAGER
+                                        if owner_bm_obj is not None
+                                        else AccountType.PERSONAL_REFERENCE
+                                    ),
+                                    business_manager_id=owner_bm_obj.id if owner_bm_obj else None,
                                     status=AccountStatus.ACTIVE,
                                     currency=raw_curr[:12],
                                     timezone=raw_tz[:80],
                                     country="VN",
-                                    owner_label="Nguyễn Thiên Triều" if not has_biz else None,
+                                    owner_label=(
+                                        owner_bm_obj.name if owner_bm_obj is not None else "Nguyễn Thiên Triều"
+                                    ),
                                 )
                                 session.add(matched_acc)
                                 session.flush()
-                            from app.api.v1.routers.ad_accounts import _reconcile_production_bm_links
-                            _reconcile_production_bm_links(session, workspace_id)
+                            break
                     except Exception:
                         pass
 
+            # If operator explicitly specified target_bm_external_id (either for an existing account or a new account whose BM token isn't shared yet)
+            if clean_input and known_bm_match is None and target_bm_clean:
+                if target_bm_clean.lower() == "personal":
+                    if matched_acc is None:
+                        with session.begin_nested():
+                            matched_acc = AdAccount(
+                                workspace_id=workspace_id,
+                                display_name=(label_clean or f"TKQC {clean_input}")[:200],
+                                external_account_id=clean_input[:120],
+                                account_type=AccountType.PERSONAL_REFERENCE,
+                                business_manager_id=None,
+                                status=AccountStatus.ACTIVE,
+                                currency="VND",
+                                timezone="Asia/Ho_Chi_Minh",
+                                country="VN",
+                                owner_label="Nguyễn Thiên Triều",
+                            )
+                            session.add(matched_acc)
+                            session.flush()
+                    else:
+                        matched_acc.account_type = AccountType.PERSONAL_REFERENCE
+                        matched_acc.business_manager_id = None
+                        if label_clean:
+                            matched_acc.display_name = label_clean[:200]
+                else:
+                    explicit_bm = _upsert_bm_from_meta(target_bm_clean, None)
+                    if explicit_bm is not None:
+                        if matched_acc is None:
+                            with session.begin_nested():
+                                matched_acc = AdAccount(
+                                    workspace_id=workspace_id,
+                                    display_name=(label_clean or f"TKQC {clean_input}")[:200],
+                                    external_account_id=clean_input[:120],
+                                    account_type=AccountType.BUSINESS_MANAGER,
+                                    business_manager_id=explicit_bm.id,
+                                    status=AccountStatus.ACTIVE,
+                                    currency="VND",
+                                    timezone="Asia/Ho_Chi_Minh",
+                                    country="VN",
+                                    owner_label=explicit_bm.name,
+                                )
+                                session.add(matched_acc)
+                                session.flush()
+                        else:
+                            matched_acc.account_type = AccountType.BUSINESS_MANAGER
+                            matched_acc.business_manager_id = explicit_bm.id
+                            if label_clean:
+                                matched_acc.display_name = label_clean[:200]
+
             if matched_acc is not None:
-                hub_conn = _find_or_create_conn((settings.meta_business_id or "").strip())
+                hub_conn = _find_or_create_conn(
+                    matched_acc.business_manager.external_id
+                    if matched_acc.business_manager and matched_acc.business_manager.external_id
+                    else (settings.meta_business_id or "").strip()
+                )
                 is_personal = (
                     matched_acc.account_type == AccountType.PERSONAL_REFERENCE
                     or matched_acc.business_manager_id is None
@@ -606,15 +824,14 @@ def run_workspace_quick_sync(
                     "failure_summary": None,
                 }
 
-            # 0b. Did the user enter a known Business Manager ID (e.g. 109796697343603 Tri???u Shop or 1993884657458857 Qu???ng C??o Top)?
-            if known_bm_match is not None:
+            if known_bm_match is not None and not clean_token:
                 bm_accounts = [
                     a for a in existing_ws_accounts if a.business_manager_id == known_bm_match.id
                 ]
-                if known_bm_match.external_id != (settings.meta_business_id or "").strip() or bm_accounts:
-                    hub_conn = _find_or_create_conn((settings.meta_business_id or "").strip())
+                if bm_accounts:
+                    bm_conn = _find_or_create_conn(known_bm_match.external_id or "")
                     return {
-                        "connection_id": str(hub_conn.id),
+                        "connection_id": str(bm_conn.id),
                         "connection_label": known_bm_match.name,
                         "run_id": str(latest_ws_run.id),
                         "status": "succeeded",
@@ -636,24 +853,14 @@ def run_workspace_quick_sync(
                         "failure_summary": None,
                     }
 
-    connection = _find_or_create_conn(bm_ref)
-    service = MetaDiscoveryService(
-        session,
-        workspace_id,
-        audit,
-        provider=_provider_for(connection),
-        business_id=_business_id_for(connection),
-    )
-    run = service.validate_configured_business_manager(connection, actor_id=actor_id)
-
+    # Unarchive any existing BusinessManager matching requested bm_ref so sync never hits ArchivedEntityError
     requested_bm_ref = bm_ref
-    # Unarchive any existing BusinessManager matching requested_bm_ref or default_server_bm so sync never hits ArchivedEntityError
     default_server_bm = (settings.meta_business_id or "").strip()
     for b_candidate in (
         session.execute(
             sa.select(BusinessManager).where(
                 BusinessManager.workspace_id == workspace_id,
-                BusinessManager.external_id.in_([x for x in (requested_bm_ref, default_server_bm, "109796697343603") if x]),
+                BusinessManager.external_id.in_([x for x in (requested_bm_ref, default_server_bm) if x]),
             )
         )
         .scalars()
@@ -664,26 +871,34 @@ def run_workspace_quick_sync(
         b_candidate.status = ReferenceStatus.ACTIVE
     session.flush()
 
-    # Fallback to server default BM only during initial workspace bootstrap when no accounts exist yet
-    if (
-        run.status == DiscoveryRunStatus.FAILED
-        and not existing_ws_accounts
-        and default_server_bm
-        and bm_ref != default_server_bm
-        and settings.environment.lower() in ("production", "prod", "staging")
-    ):
-        connection.archived_at = datetime.now(UTC)
-        session.flush()
-        bm_ref = default_server_bm
-        connection = _find_or_create_conn(bm_ref)
-        service = MetaDiscoveryService(
-            session,
-            workspace_id,
-            audit,
-            provider=_provider_for(connection),
-            business_id=_business_id_for(connection),
-        )
-        run = service.validate_configured_business_manager(connection, actor_id=actor_id)
+    connection = _find_or_create_conn(bm_ref)
+    candidate_pool = _candidate_providers(_business_id_for(connection)) if settings.environment.lower() in ("production", "prod", "staging") else []
+    service = MetaDiscoveryService(
+        session,
+        workspace_id,
+        audit,
+        provider=candidate_pool[0][1] if candidate_pool else _provider_for(connection),
+        business_id=_business_id_for(connection),
+    )
+    run = service.validate_configured_business_manager(connection, actor_id=actor_id)
+
+    # Try remaining tokens in the pool if the first token lacked permission for this BM
+    if run.status == DiscoveryRunStatus.FAILED and len(candidate_pool) > 1:
+        for cand_cred, cand_prov in candidate_pool[1:]:
+            alt_service = MetaDiscoveryService(
+                session,
+                workspace_id,
+                audit,
+                provider=cand_prov,
+                business_id=_business_id_for(connection),
+            )
+            alt_run = alt_service.validate_configured_business_manager(connection, actor_id=actor_id)
+            if alt_run.status in (DiscoveryRunStatus.SUCCEEDED, DiscoveryRunStatus.SUCCEEDED_WITH_WARNINGS):
+                if cand_cred is not None:
+                    connection.reader_credential_id = cand_cred.id
+                service = alt_service
+                run = alt_run
+                break
 
     imported_count = 0
 
@@ -693,6 +908,29 @@ def run_workspace_quick_sync(
         if run.configured_business_manager_name and not label_clean and connection.label.startswith("BM "):
             connection.label = run.configured_business_manager_name[:200]
         service.discover_assets(run)
+
+        # If this token couldn't read owned_ad_accounts (e.g. HTTP 403 #200 on another BM), try other tokens in the pool for this exact BM (NEVER switching to default_server_bm!)
+        if ((run.ad_account_coverage_json or {}).get("total_unique_assets") or 0) == 0 and len(candidate_pool) > 1:
+            for cand_cred, cand_prov in candidate_pool:
+                if cand_prov is service.provider:
+                    continue
+                alt_service = MetaDiscoveryService(
+                    session,
+                    workspace_id,
+                    audit,
+                    provider=cand_prov,
+                    business_id=_business_id_for(connection),
+                )
+                alt_run = alt_service.validate_configured_business_manager(connection, actor_id=actor_id)
+                if alt_run.status in (DiscoveryRunStatus.SUCCEEDED, DiscoveryRunStatus.SUCCEEDED_WITH_WARNINGS):
+                    alt_service.discover_assets(alt_run)
+                    if ((alt_run.ad_account_coverage_json or {}).get("total_unique_assets") or 0) > 0:
+                        if cand_cred is not None:
+                            connection.reader_credential_id = cand_cred.id
+                        service = alt_service
+                        run = alt_run
+                        break
+
         try:
             with session.begin_nested():
                 service.evaluate_business_user_drift_alert(run, connection)
@@ -709,40 +947,6 @@ def run_workspace_quick_sync(
             if not bm_entity.currency:
                 bm_entity.currency = "VND"
         session.flush()
-
-        # Only fall back to discovering default_server_bm during initial bootstrap when workspace has no accounts yet
-        if (
-            ((run.ad_account_coverage_json or {}).get("total_unique_assets") or 0) == 0
-            and not existing_ws_accounts
-            and default_server_bm
-            and bm_ref != default_server_bm
-            and settings.environment.lower() in ("production", "prod", "staging")
-        ):
-            hub_conn = _find_or_create_conn(default_server_bm)
-            hub_service = MetaDiscoveryService(
-                session,
-                workspace_id,
-                audit,
-                provider=_provider_for(hub_conn),
-                business_id=_business_id_for(hub_conn),
-            )
-            hub_run = hub_service.validate_configured_business_manager(hub_conn, actor_id=actor_id)
-            if hub_run.status in (DiscoveryRunStatus.SUCCEEDED, DiscoveryRunStatus.SUCCEEDED_WITH_WARNINGS):
-                hub_service.discover_assets(hub_run)
-                hub_bm = hub_service._registry_business_manager(hub_run)
-                if hub_bm is not None:
-                    hub_bm.archived_at = None
-                    hub_bm.status = ReferenceStatus.ACTIVE
-                    if hub_run.configured_business_manager_name:
-                        hub_bm.name = hub_run.configured_business_manager_name[:200]
-                    if not hub_bm.country:
-                        hub_bm.country = "VN"
-                    if not hub_bm.currency:
-                        hub_bm.currency = "VND"
-                    bm_entity = hub_bm
-                service = hub_service
-                run = hub_run
-                connection = hub_conn
 
         reconciled = service.reconcile_ad_accounts(run)
         synced_accounts: list[AdAccount] = []
@@ -779,6 +983,13 @@ def run_workspace_quick_sync(
             ext = canonical_external_id(acc.external_account_id)
             obs = obs_by_ext.get(ext) if ext else None
             if obs and isinstance(obs.safe_metadata_json, dict):
+                ob_id = str(obs.safe_metadata_json.get("owner_business_id") or "").strip()
+                ob_name = str(obs.safe_metadata_json.get("owner_business_name") or "").strip() or None
+                if ob_id:
+                    owner_bm = _upsert_bm_from_meta(ob_id, ob_name, acc.currency or "VND")
+                    if owner_bm is not None:
+                        acc.business_manager_id = owner_bm.id
+                        acc.account_type = AccountType.BUSINESS_MANAGER
                 raw_st = str(obs.safe_metadata_json.get("account_status") or "").strip()
                 if raw_st == "1":
                     acc.status = AccountStatus.ACTIVE
@@ -1577,7 +1788,11 @@ def run_workspace_quick_sync(
                     raw_curr = str(acc_resp.payload.get("currency") or "VND").strip()
                     raw_tz = str(acc_resp.payload.get("timezone_name") or "Asia/Ho_Chi_Minh").strip()
                     biz_obj = acc_resp.payload.get("business")
-                    has_biz = isinstance(biz_obj, dict) and bool(biz_obj.get("id"))
+                    owner_bm_obj = None
+                    if isinstance(biz_obj, dict) and biz_obj.get("id"):
+                        owner_bm_obj = _upsert_bm_from_meta(
+                            str(biz_obj["id"]), str(biz_obj.get("name") or ""), raw_curr
+                        )
                     from app.core.enums import AccountType
 
                     with session.begin_nested():
@@ -1585,12 +1800,19 @@ def run_workspace_quick_sync(
                             workspace_id=workspace_id,
                             display_name=raw_name[:200],
                             external_account_id=raw_acc_id[:120],
-                            account_type=AccountType.BUSINESS_MANAGER if has_biz else AccountType.PERSONAL_REFERENCE,
+                            account_type=(
+                                AccountType.BUSINESS_MANAGER
+                                if owner_bm_obj is not None
+                                else AccountType.PERSONAL_REFERENCE
+                            ),
+                            business_manager_id=owner_bm_obj.id if owner_bm_obj else None,
                             status=AccountStatus.ACTIVE,
                             currency=raw_curr[:12],
                             timezone=raw_tz[:80],
                             country="VN",
-                            owner_label="Nguyễn Thiên Triều" if not has_biz else None,
+                            owner_label=(
+                                owner_bm_obj.name if owner_bm_obj is not None else "Nguyễn Thiên Triều"
+                            ),
                         )
                         session.add(matched_single_account)
                         session.flush()
@@ -1714,6 +1936,8 @@ def quick_sync_connection(ctx: OwnerCtx, payload: s.QuickSyncRequest) -> dict[st
             ctx.user.id,
             bm_ref=payload.business_manager_reference,
             label_clean=payload.label,
+            access_token=payload.access_token,
+            target_bm_external_id=payload.target_bm_external_id,
         )
         ctx.commit()
         return result

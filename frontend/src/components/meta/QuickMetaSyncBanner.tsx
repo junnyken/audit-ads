@@ -62,6 +62,10 @@ export function QuickMetaSyncBanner() {
   const { user } = useAuth()
   const queryClient = useQueryClient()
   const [bmId, setBmId] = useState('')
+  const [targetBmExternalId, setTargetBmExternalId] = useState('')
+  const [accountLabel, setAccountLabel] = useState('')
+  const [accessToken, setAccessToken] = useState('')
+  const [showTokenInput, setShowTokenInput] = useState(false)
   const [result, setResult] = useState<QuickSyncResponse | null>(null)
 
   const bmsQuery = useQuery({
@@ -91,7 +95,9 @@ export function QuickMetaSyncBanner() {
         (b: ClassifierBM) => (b.external_id || '').trim() === digits,
       )
       if (matchedBm) {
-        const count = matchedBm.ad_account_count ?? (matchedBm.ad_accounts?.length ?? 0)
+        const count = accounts.filter(
+          (a: ClassifierAccount) => a.business_manager_id === matchedBm.id,
+        ).length
         return {
           kind: 'bm' as const,
           badge: '[BM] ID Business Manager (Doanh nghiệp)',
@@ -129,11 +135,29 @@ export function QuickMetaSyncBanner() {
       }
     }
 
+    if (targetBmExternalId) {
+      if (targetBmExternalId === 'personal') {
+        return {
+          kind: 'new_personal' as const,
+          badge: '[Gắn TKQC Cá nhân mới]',
+          detail: `Sẽ gắn ID act_${digits} làm Tài khoản quảng cáo Cá nhân (Không thuộc BM).`,
+          tone: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+        }
+      }
+      const chosenBm = bms.find((b: ClassifierBM) => b.external_id === targetBmExternalId)
+      return {
+        kind: 'new_bm_assigned' as const,
+        badge: '[Gắn TKQC vào BM đã chọn]',
+        detail: `Sẽ gắn trực tiếp TKQC act_${digits} vào Business Manager "${chosenBm?.name || targetBmExternalId}" (${targetBmExternalId}).`,
+        tone: 'border-brand/40 bg-brand-soft/20 text-brand-text',
+      }
+    }
+
     if (isActPrefix) {
       return {
         kind: 'new_ad_account' as const,
         badge: '[TKQC] Chuỗi ID Tài khoản quảng cáo Meta (act_...)',
-        detail: `Hệ thống sẽ truy vấn node act_${digits} trên Meta Graph API và tự động xác định thuộc BM hay Cá nhân.`,
+        detail: `Hệ thống sẽ truy vấn node act_${digits} trên Meta Graph API để lấy chính xác BM sở hữu (business{id,name}) hoặc Cá nhân.`,
         tone: 'border-line bg-surface-muted text-ink',
       }
     }
@@ -142,21 +166,27 @@ export function QuickMetaSyncBanner() {
       return {
         kind: 'unknown_digits' as const,
         badge: '[Tự động phân loại] Chuỗi dãy số Meta ID (' + digits.length + ' chữ số)',
-        detail: `Hệ thống sẽ tự động kiểm tra trên Meta xem "${digits}" là Node Doanh nghiệp ({bm_id}) hay Node Tài khoản quảng cáo (act_${digits}).`,
+        detail: `Hệ thống sẽ kiểm tra trên Meta xem "${digits}" là Node Doanh nghiệp ({bm_id}) hay Node Tài khoản quảng cáo (act_${digits}) và gắn đúng BM sở hữu (không bao giờ nhảy sang BM mặc định khác).`,
         tone: 'border-line bg-surface-muted text-ink',
       }
     }
 
     return null
-  }, [bmId, bmsQuery.data, accountsQuery.data])
+  }, [bmId, targetBmExternalId, bmsQuery.data, accountsQuery.data])
 
   const sync = useMutation({
     mutationFn: (overrideId?: string) =>
       api.post<QuickSyncResponse>('/api/v1/meta-connections/quick-sync', {
         business_manager_reference: (overrideId ?? bmId).trim(),
+        label: accountLabel.trim(),
+        access_token: accessToken.trim() || null,
+        target_bm_external_id: overrideId ? null : targetBmExternalId || null,
       }),
     onSuccess: (data) => {
       setResult(data)
+      if (accessToken.trim()) {
+        setAccessToken('')
+      }
       void queryClient.invalidateQueries({ queryKey: ['accounts'] })
       void queryClient.invalidateQueries({ queryKey: ['business-managers'] })
       void queryClient.invalidateQueries({ queryKey: ['meta-connections'] })
@@ -186,33 +216,103 @@ export function QuickMetaSyncBanner() {
   return (
     <Card className="border-brand/30 bg-surface">
       <CardContent className="space-y-3 py-3">
-        <div className="space-y-1">
-          <h2 className="text-sm font-semibold text-ink">{t('qs.title')}</h2>
-          <p className="text-xs text-ink-muted">{t('qs.subtitle')}</p>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="space-y-1">
+            <h2 className="text-sm font-semibold text-ink">{t('qs.title')}</h2>
+            <p className="text-xs text-ink-muted">{t('qs.subtitle')}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowTokenInput((prev) => !prev)}
+            className="rounded border border-brand/40 bg-brand-soft/15 px-2.5 py-1 text-[11px] font-medium text-brand-text hover:bg-brand-soft/30"
+          >
+            {showTokenInput
+              ? '− Ẩn cấu hình Token / Tên gợi nhớ'
+              : '🔑 + Cấp Token đa BM (User Token / BM mới)'}
+          </button>
         </div>
+
         <form
-          className="flex flex-wrap items-end gap-3"
+          className="space-y-2.5"
           onSubmit={(event) => {
             event.preventDefault()
             setResult(null)
-            sync.mutate(bmId)
+            sync.mutate(undefined)
           }}
         >
-          <div className="min-w-[260px] flex-1">
-            <Field label={t('qs.bmLabel')} htmlFor="quick-sync-bm-id">
-              <input
-                id="quick-sync-bm-id"
-                className="input font-mono"
-                value={bmId}
-                onChange={(event) => setBmId(event.target.value)}
-                placeholder={t('qs.bmPlaceholder')}
-                maxLength={120}
-              />
-            </Field>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-[240px] flex-1">
+              <Field label={t('qs.bmLabel')} htmlFor="quick-sync-bm-id">
+                <input
+                  id="quick-sync-bm-id"
+                  className="input font-mono"
+                  value={bmId}
+                  onChange={(event) => setBmId(event.target.value)}
+                  placeholder={t('qs.bmPlaceholder')}
+                  maxLength={120}
+                />
+              </Field>
+            </div>
+
+            <div className="min-w-[230px]">
+              <Field
+                label="Gắn vào BM sở hữu (Tự động hoặc chỉ định)"
+                htmlFor="quick-sync-target-bm"
+              >
+                <select
+                  id="quick-sync-target-bm"
+                  className="input text-xs"
+                  value={targetBmExternalId}
+                  onChange={(event) => setTargetBmExternalId(event.target.value)}
+                >
+                  <option value="">⚡ Tự động xác định theo Meta Graph API</option>
+                  {bmsList.map((bm: ClassifierBM) => (
+                    <option key={bm.id} value={bm.external_id || ''}>
+                      [BM] {bm.name} ({bm.external_id})
+                    </option>
+                  ))}
+                  <option value="personal">
+                    [TKQC Cá nhân] Không thuộc BM (Nguyễn Thiên Triều)
+                  </option>
+                </select>
+              </Field>
+            </div>
+
+            <Button type="submit" disabled={sync.isPending}>
+              {sync.isPending ? t('qs.submitting') : t('qs.submit')}
+            </Button>
           </div>
-          <Button type="submit" disabled={sync.isPending}>
-            {sync.isPending ? t('qs.submitting') : t('qs.submit')}
-          </Button>
+
+          {showTokenInput && (
+            <div className="grid gap-3 rounded-md border border-brand/30 bg-surface-muted/60 p-3 sm:grid-cols-2">
+              <Field
+                label="Meta Access Token (User Token đọc toàn bộ BM hoặc System User Token của BM mới)"
+                htmlFor="quick-sync-access-token"
+              >
+                <input
+                  id="quick-sync-access-token"
+                  type="password"
+                  className="input font-mono text-xs"
+                  value={accessToken}
+                  onChange={(event) => setAccessToken(event.target.value)}
+                  placeholder="EAA... (Dán 1 lần, hệ thống tự mã hoá & lưu để đọc mọi BM tiếp theo)"
+                />
+              </Field>
+              <Field
+                label="Tên hiển thị gợi nhớ cho TKQC / BM (Nếu thêm mới)"
+                htmlFor="quick-sync-account-label"
+              >
+                <input
+                  id="quick-sync-account-label"
+                  className="input text-xs"
+                  value={accountLabel}
+                  onChange={(event) => setAccountLabel(event.target.value)}
+                  placeholder="VD: TK-Xây Dựng, Công Ty Cổ Phần Mắt Bão..."
+                  maxLength={200}
+                />
+              </Field>
+            </div>
+          )}
         </form>
 
         {detectedClassification && (
@@ -230,25 +330,31 @@ export function QuickMetaSyncBanner() {
               <span className="font-semibold text-ink-muted">
                 [BM] Dãy số ID Business Manager:
               </span>
-              {bmsList.map((bm: ClassifierBM) => (
-                <button
-                  key={bm.id}
-                  type="button"
-                  onClick={() => {
-                    const val = bm.external_id || ''
-                    setBmId(val)
-                    setResult(null)
-                    sync.mutate(val)
-                  }}
-                  className="inline-flex items-center gap-1 rounded border border-brand/30 bg-surface px-2 py-0.5 font-mono text-[11px] text-ink hover:border-brand hover:text-brand-text"
-                >
-                  <span className="font-sans font-semibold">{bm.name}:</span>
-                  <span>{bm.external_id}</span>
-                  <span className="font-sans text-[10px] text-emerald-600 dark:text-emerald-400">
-                    ({accountsList.filter((a: ClassifierAccount) => a.business_manager_id === bm.id).length} TKQC)
-                  </span>
-                </button>
-              ))}
+              {bmsList.map((bm: ClassifierBM) => {
+                const count = accountsList.filter(
+                  (a: ClassifierAccount) => a.business_manager_id === bm.id,
+                ).length
+                return (
+                  <button
+                    key={bm.id}
+                    type="button"
+                    onClick={() => {
+                      const val = bm.external_id || ''
+                      setBmId(val)
+                      setTargetBmExternalId('')
+                      setResult(null)
+                      sync.mutate(val)
+                    }}
+                    className="inline-flex items-center gap-1 rounded border border-brand/30 bg-surface px-2 py-0.5 font-mono text-[11px] text-ink hover:border-brand hover:text-brand-text"
+                  >
+                    <span className="font-sans font-semibold">{bm.name}:</span>
+                    <span>{bm.external_id}</span>
+                    <span className="font-sans text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                      ({count} TKQC)
+                    </span>
+                  </button>
+                )
+              })}
             </div>
 
             {personalAccounts.length > 0 && (
@@ -263,6 +369,7 @@ export function QuickMetaSyncBanner() {
                     onClick={() => {
                       const val = acc.external_account_id || ''
                       setBmId(val)
+                      setTargetBmExternalId('')
                       setResult(null)
                       sync.mutate(val)
                     }}
@@ -289,6 +396,7 @@ export function QuickMetaSyncBanner() {
                     onClick={() => {
                       const val = acc.external_account_id || ''
                       setBmId(val)
+                      setTargetBmExternalId('')
                       setResult(null)
                       sync.mutate(val)
                     }}
@@ -325,7 +433,9 @@ export function QuickMetaSyncBanner() {
                   })
                 : t('qs.result.failed', {
                     code: result.failure_code || result.status,
-                    summary: result.failure_summary || 'Token hiện tại trên máy chủ chưa có quyền đọc mã ID này.',
+                    summary:
+                      result.failure_summary ||
+                      'Token hiện tại chưa có quyền đọc mã ID này trên Meta. Bạn có thể chọn "Gắn vào BM sở hữu" ngay ở ô bên trên hoặc bấm "+ Cấp Token đa BM" để dán User Token.',
                   })}
             </p>
             {isSuccess && result.accounts && result.accounts.length > 0 && (
@@ -355,6 +465,14 @@ export function QuickMetaSyncBanner() {
             )}
             {!isSuccess && (
               <div className="flex flex-wrap items-center gap-2 pt-1">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setShowTokenInput(true)}
+                >
+                  🔑 Dán Token hoặc Chọn BM sở hữu ngay trên thanh này
+                </Button>
                 <Button asChild variant="secondary" size="sm">
                   <Link to="/settings#meta-readers">{t('mc.empty.facebook')}</Link>
                 </Button>
