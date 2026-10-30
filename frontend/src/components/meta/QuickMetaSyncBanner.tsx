@@ -227,9 +227,36 @@ export function QuickMetaSyncBanner() {
             className="rounded border border-brand/40 bg-brand-soft/15 px-2.5 py-1 text-[11px] font-medium text-brand-text hover:bg-brand-soft/30"
           >
             {showTokenInput
-              ? '− Ẩn cấu hình Token / Tên gợi nhớ'
-              : '🔑 + Cấp Token đa BM (User Token / BM mới)'}
+              ? '− Đóng hướng dẫn & cài đặt nâng cao'
+              : '❓ Khi nào cần chọn BM hoặc dán Token mới?'}
           </button>
+        </div>
+
+        <div className="grid gap-2 rounded-md border border-line/80 bg-surface-muted/40 p-2.5 text-[11px] text-ink sm:grid-cols-3">
+          <div className="rounded border border-line/60 bg-surface p-2">
+            <div className="font-semibold text-emerald-500">
+              Trường hợp 1: Chỉ cần nhập dãy số ID (Mặc định)
+            </div>
+            <p className="mt-0.5 text-ink-muted">
+              Bạn chỉ cần dán <strong>ID BM</strong> hoặc <strong>ID TKQC</strong> vào ô số (1) rồi bấm <strong>Kết nối</strong>. Ô số (2) cứ để nguyên <em>"Tự động xác định"</em>.
+            </p>
+          </div>
+          <div className="rounded border border-line/60 bg-surface p-2">
+            <div className="font-semibold text-sky-400">
+              Trường hợp 2: Khi nào dùng ô (2) "Gắn vào BM"?
+            </div>
+            <p className="mt-0.5 text-ink-muted">
+              Chỉ dùng khi bạn nhập <strong>1 ID TKQC mới</strong> (ví dụ <code className="font-mono">1730165772447559</code>) và muốn chỉ định ngay nó nằm trong BM nào (ví dụ chọn <em>Xây Dựng - Tân Hòa</em>) hoặc là <em>TKQC Cá nhân</em>.
+            </p>
+          </div>
+          <div className="rounded border border-line/60 bg-surface p-2">
+            <div className="font-semibold text-amber-400">
+              Trường hợp 3: Khi nào bấm nút "Cấp Token mới"?
+            </div>
+            <p className="mt-0.5 text-ink-muted">
+              Chỉ dùng khi bạn thêm một <strong>BM hoàn toàn mới</strong> (ngoài Quảng Cáo Top) và muốn hệ thống tự động kéo tiền chi tiêu & danh sách TKQC từ Meta về.
+            </p>
+          </div>
         </div>
 
         <form
@@ -242,7 +269,7 @@ export function QuickMetaSyncBanner() {
         >
           <div className="flex flex-wrap items-end gap-3">
             <div className="min-w-[240px] flex-1">
-              <Field label={t('qs.bmLabel')} htmlFor="quick-sync-bm-id">
+              <Field label="(1) Nhập Mã ID Business Manager hoặc ID Tài khoản quảng cáo" htmlFor="quick-sync-bm-id">
                 <input
                   id="quick-sync-bm-id"
                   className="input font-mono"
@@ -256,7 +283,7 @@ export function QuickMetaSyncBanner() {
 
             <div className="min-w-[230px]">
               <Field
-                label="Gắn vào BM sở hữu (Tự động hoặc chỉ định)"
+                label="(2) Thuộc BM nào? (Mặc định: Để Tự động)"
                 htmlFor="quick-sync-target-bm"
               >
                 <select
