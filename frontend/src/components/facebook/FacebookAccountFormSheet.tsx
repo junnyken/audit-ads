@@ -18,6 +18,11 @@ import { Button } from '../primitives/button'
 import { Field } from '../primitives/field'
 import { ErrorState } from '../states'
 import { FormSheet } from '../page/FormSheet'
+import {
+  WORKSTATION_REAL_CHROME_PROFILES,
+  fetchRealLocalChromeProfiles,
+  launchInAssignedChromeProfile,
+} from '../../lib/chromeProfileLauncher'
 
 const TWO_FACTOR_OPTIONS = ['unknown', 'app', 'sms', 'security_key', 'none'] as const
 const STATUS_OPTIONS = ['unknown', 'active', 'inactive', 'restricted'] as const
@@ -101,6 +106,14 @@ export function FacebookAccountFormSheet({
   const browserProfiles = useQuery({
     queryKey: ['browser-profile-references', 'options'],
     queryFn: () => api.get<Paged<ReferenceRecord>>('/api/v1/browser-profile-references?page_size=200'),
+    enabled: open,
+    retry: false,
+  })
+
+  const localChromeProfiles = useQuery({
+    queryKey: ['local-chrome-profiles'],
+    queryFn: fetchRealLocalChromeProfiles,
+    initialData: WORKSTATION_REAL_CHROME_PROFILES,
     enabled: open,
     retry: false,
   })
@@ -454,32 +467,28 @@ export function FacebookAccountFormSheet({
                   if (e.target.value) setBrowserProfileLabel(e.target.value)
                 }}
               >
-                <option value="">— Chọn Môi trường Trình duyệt (AdsPower, Hidemyacc, Chrome...) —</option>
+                <option value="">— Chọn Hồ sơ Google Chrome thật trên máy tính hoặc phần mềm Antidetect —</option>
+                <optgroup label="🟢 Hồ sơ Google Chrome thật trên máy tính của bạn (Mở tự động 1 chạm)">
+                  {(localChromeProfiles.data ?? WORKSTATION_REAL_CHROME_PROFILES).map((cp) => (
+                    <option key={cp.folder} value={cp.label}>
+                      {cp.label}
+                    </option>
+                  ))}
+                </optgroup>
                 {browserList.length > 0 && (
-                  <optgroup label="Hồ sơ trình duyệt ?? k?t n?i trong T?i s?n (/assets)">
+                  <optgroup label="Hồ sơ trình duyệt đã kết nối trong Tài sản (/assets)">
                     {browserList.map((b) => {
                       const val = String(b.label || b.profile_reference)
+                      const prov = String(b.provider || 'Browser')
+                      const display = val.toLowerCase().startsWith(prov.toLowerCase()) ? val : `${prov} — ${val}`
                       return (
                         <option key={b.id} value={val}>
-                          {String(b.provider || 'Browser')} — {val}
+                          {display}
                         </option>
                       )
                     })}
                   </optgroup>
                 )}
-                <optgroup label="Google Chrome — Chọn đúng số thứ tự Profile (Mở tự động 1 chạm)">
-                  <option value={`Chrome — Default (${viaSuffix})`}>
-                    Chrome Gốc (Default) → Chrome — Default ({viaSuffix})
-                  </option>
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => {
-                    const generated = `Chrome — Profile #${num} (${viaSuffix})`
-                    return (
-                      <option key={`chrome-prof-${num}`} value={generated}>
-                        Chrome Profile #{num} → {generated}
-                      </option>
-                    )
-                  })}
-                </optgroup>
                 <optgroup label="Khởi tạo nhanh theo phần mềm Antidetect / Trình duyệt">
                   {BROWSER_ENV_PRESETS.map((p) => {
                     const generated = `${p.provider} — Profile (${viaSuffix})`
@@ -491,17 +500,36 @@ export function FacebookAccountFormSheet({
                   })}
                 </optgroup>
               </select>
-              <input
-                id={`${formId}-browser`}
-                className="input"
-                maxLength={160}
-                placeholder={t('fb.browserPlaceholder')}
-                value={browserProfileLabel}
-                onChange={(e) => setBrowserProfileLabel(e.target.value)}
-                data-testid="fb-browser-input"
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  id={`${formId}-browser`}
+                  className="input flex-1"
+                  maxLength={160}
+                  placeholder={t('fb.browserPlaceholder')}
+                  value={browserProfileLabel}
+                  onChange={(e) => setBrowserProfileLabel(e.target.value)}
+                  data-testid="fb-browser-input"
+                />
+                {browserProfileLabel.trim() && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() =>
+                      launchInAssignedChromeProfile(
+                        'https://business.facebook.com/overview',
+                        browserProfileLabel,
+                        label,
+                      )
+                    }
+                    title={`Bấm để mở thử ngay cửa sổ Chrome (${browserProfileLabel})`}
+                  >
+                    🚀 Mở thử Chrome
+                  </Button>
+                )}
+              </div>
               <p className="text-[11px] text-ink-muted">
-                💡 Mẹo: Để bấm nút <strong>🚀 Mở đúng Chrome</strong> tự động bật đúng cửa sổ Chrome của Via này, hãy chọn đúng số <strong>Profile #1, #2, #3...</strong> (hoặc gõ <code>chrome://version</code> trên cửa sổ Chrome đó để xem mục <em>Đường dẫn hồ sơ / Profile Path</em>).
+                💡 Đã tự động quét <strong>{(localChromeProfiles.data ?? WORKSTATION_REAL_CHROME_PROFILES).length} hồ sơ Google Chrome thật</strong> trên máy tính của bạn (theo email & tên hiển thị Chrome). Bạn chỉ cần chọn đúng hồ sơ ở trên rồi bấm <strong>🚀 Mở thử Chrome</strong>.
               </p>
             </div>
           </Field>

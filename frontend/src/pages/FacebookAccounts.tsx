@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Pencil, Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -18,7 +18,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { FacebookAccountFormSheet } from '../components/facebook/FacebookAccountFormSheet'
 import { twoFactorTone } from '../lib/readiness'
 import {
+  WORKSTATION_REAL_CHROME_PROFILES,
   downloadWindowsChromeLauncherBat,
+  fetchRealLocalChromeProfiles,
   launchInAssignedChromeProfile,
 } from '../lib/chromeProfileLauncher'
 
@@ -50,6 +52,67 @@ export default function FacebookAccounts() {
     queryFn: () => api.get<TeamMember[]>('/api/v1/team/members'),
     retry: false,
   })
+  const localChrome = useQuery({
+    queryKey: ['local-chrome-profiles'],
+    queryFn: fetchRealLocalChromeProfiles,
+    initialData: WORKSTATION_REAL_CHROME_PROFILES,
+    retry: false,
+  })
+  const migratedMockRef = useRef(false)
+  useEffect(() => {
+    if (!canWrite || migratedMockRef.current || !list.data?.items?.length) return
+    const MOCK_PATTERNS = [
+      'hidemyacc — profile #3',
+      'adspower — profile #2',
+      'chrome — profile #1 (tài khoản chính)',
+      'chrome — profile #10 (via 2)',
+    ]
+    const toFix = list.data.items.filter((r) => {
+      const b = String(r.browser_profile_label ?? '').trim().toLowerCase()
+      return MOCK_PATTERNS.some((p) => b.includes(p))
+    })
+    if (toFix.length === 0) return
+    migratedMockRef.current = true
+    void (async () => {
+      for (const item of toFix) {
+        const lbl = String(item.label ?? '').toLowerCase()
+        let nextProfile = 'Chrome — Default · trieu (thientrieu753@gmail.com)'
+        if (lbl.includes('via 2')) {
+          nextProfile = 'Chrome — Profile 10 · Lâm Quang (lamquangthinh3006@gmail.com)'
+        } else if (lbl.includes('xmdt')) {
+          nextProfile = 'Chrome — Profile 3 · Thiên Triều (trieunguyen.home9x@gmail.com)'
+        }
+        try {
+          await api.patch(`/api/v1/personal-account-references/${item.id}`, {
+            browser_profile_label: nextProfile,
+          })
+        } catch {
+          // Ignore patch error
+        }
+      }
+      // Also archive legacy mock BrowserProfileReference entries
+      try {
+        const bRefs = await api.get<Paged<ReferenceRecord>>('/api/v1/browser-profile-references?page_size=200')
+        for (const br of bRefs.items ?? []) {
+          const bl = String(br.label ?? '').toLowerCase()
+          if (
+            bl.includes('hidemyacc') ||
+            bl.includes('adspower') ||
+            bl.includes('chrome — chrome') ||
+            bl.includes('profile #1 (') ||
+            bl.includes('profile #10 (')
+          ) {
+            await api.post(`/api/v1/browser-profile-references/${br.id}/archive`).catch(() => {})
+          }
+        }
+      } catch {
+        // Ignore
+      }
+      void queryClient.invalidateQueries({ queryKey: ['personal-account-references'] })
+      void queryClient.invalidateQueries({ queryKey: ['browser-profile-references'] })
+      void queryClient.invalidateQueries({ queryKey: ['accounts'] })
+    })()
+  }, [canWrite, list.data?.items, queryClient])
   const archive = useMutation({
     mutationFn: (id: string) => api.post(`/api/v1/personal-account-references/${id}/archive`),
     onSuccess: () => {
@@ -82,14 +145,17 @@ export default function FacebookAccounts() {
         description={t('fb.desc')}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+              🟢 Đã kết nối {(localChrome.data ?? WORKSTATION_REAL_CHROME_PROFILES).length} Hồ sơ Chrome thật trên máy
+            </span>
             <Button
               type="button"
               variant="secondary"
               onClick={downloadWindowsChromeLauncherBat}
-              title="Tải và chạy 1 lần trên máy Windows để khi bấm nút Mở Chrome / Kháng nghị / Thanh toán trên web sẽ tự động bật đúng cửa sổ Chrome Profile của Via đó"
+              title="Tải file cài đặt dự phòng cho máy Windows khác"
               data-testid="fb-chrome-launcher-setup"
             >
-              ⚡ Cài đặt Tự động mở Chrome Profile (1 lần)
+              ⚡ Tải bộ kết nối cho máy khác
             </Button>
             {canWrite && (
               <Button type="button" onClick={() => setCreating(true)}>

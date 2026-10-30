@@ -1399,7 +1399,7 @@ def run_workspace_quick_sync(
             from app.models.entities import BrowserProfileReference, ProxyReference
 
             active_identities = [i for i in all_identities if i.archived_at is None]
-            browser_providers = ["Chrome", "AdsPower", "Hidemyacc", "Genlogin", "GoLogin"]
+            browser_providers = ["Chrome"]
             isp_presets = [
                 ("VNPT Static IP", "Ho Chi Minh", "https"),
                 ("Viettel Residential", "Ha Noi", "https"),
