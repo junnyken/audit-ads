@@ -476,17 +476,39 @@ def run_workspace_quick_sync(
     from app.core.secret_vault import encrypt_secret
 
     clean_token = (access_token or "").strip()
-    if clean_token and settings.credential_vault_key:
+    now_vault = datetime.now(UTC)
+    if clean_token:
+        # Auto-exchange short-lived (1h) token to long-lived (60d) token when App ID & App Secret are configured
+        if (settings.meta_app_id or "").strip() and (settings.meta_app_secret or "").strip():
+            try:
+                from app.services.meta_reader_credentials import graph_transport
+                ex_resp = graph_transport(settings, "").get(
+                    "oauth/access_token",
+                    {
+                        "grant_type": "fb_exchange_token",
+                        "client_id": settings.meta_app_id.strip(),
+                        "client_secret": settings.meta_app_secret.strip(),
+                        "fb_exchange_token": clean_token,
+                    },
+                )
+                if ex_resp.ok and isinstance(ex_resp.payload, dict) and ex_resp.payload.get("access_token"):
+                    clean_token = str(ex_resp.payload["access_token"]).strip()
+            except Exception:
+                pass
         try:
             with session.begin_nested():
-                cipher = encrypt_secret(clean_token, settings.credential_vault_key)
+                cipher = encrypt_secret(settings, clean_token)
                 new_cred = MetaReaderCredential(
                     workspace_id=workspace_id,
-                    label=(label_clean or f"Token Meta ({bm_ref or 'Đa BM'})")[:200],
-                    kind=ReaderCredentialKind.SYSTEM_USER,
+                    label=(label_clean or f"Token Đa BM ({bm_ref or 'Nguyễn Thiên Triều'})")[:200],
+                    kind=ReaderCredentialKind.USER,
                     status=ReaderCredentialStatus.ACTIVE,
-                    token_ciphertext=cipher,
-                    created_by=actor_id,
+                    encrypted_secret=cipher,
+                    secret_last_rotated_at=now_vault,
+                    connected_by=actor_id,
+                    connected_at=now_vault,
+                    expires_at=now_vault + timedelta(days=60),
+                    data_access_expires_at=now_vault + timedelta(days=90),
                 )
                 session.add(new_cred)
                 session.flush()
@@ -501,7 +523,7 @@ def run_workspace_quick_sync(
                     MetaReaderCredential.workspace_id == workspace_id,
                     MetaReaderCredential.archived_at.is_(None),
                 )
-                .order_by(MetaReaderCredential.updated_at.desc(), MetaReaderCredential.created_at.desc())
+                .order_by(MetaReaderCredential.connected_at.desc(), MetaReaderCredential.id.desc())
             )
             .scalars()
             .all()
