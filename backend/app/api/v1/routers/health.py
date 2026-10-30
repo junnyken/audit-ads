@@ -143,7 +143,8 @@ def health_summary(ctx: Ctx) -> s.HealthSummaryOut:
 
     # Grouped by the expressions themselves, not by output aliases: `ad_accounts.status`
     # already exists, so PostgreSQL would resolve a bare "status" alias to that column.
-    rows = ctx.session.execute(
+    visible = ctx.visible_ad_account_ids()
+    summary_stmt = (
         sa.select(
             status_expr.label("effective_health_status"),
             freshness_expr.label("effective_freshness"),
@@ -152,8 +153,26 @@ def health_summary(ctx: Ctx) -> s.HealthSummaryOut:
         .select_from(AdAccount)
         .outerjoin(AccountHealthSnapshot, AccountHealthSnapshot.ad_account_id == AdAccount.id)
         .where(AdAccount.workspace_id == ctx.workspace_id, AdAccount.archived_at.is_(None))
-        .group_by(status_expr, freshness_expr)
-    ).all()
+    )
+    never_stmt = (
+        sa.select(sa.func.count())
+        .select_from(AdAccount)
+        .outerjoin(AccountHealthSnapshot, AccountHealthSnapshot.ad_account_id == AdAccount.id)
+        .where(
+            AdAccount.workspace_id == ctx.workspace_id,
+            AdAccount.archived_at.is_(None),
+            AccountHealthSnapshot.id.is_(None),
+        )
+    )
+    last_eval_stmt = sa.select(sa.func.max(AccountHealthSnapshot.last_evaluated_at)).where(
+        AccountHealthSnapshot.workspace_id == ctx.workspace_id
+    )
+    if visible is not None:
+        summary_stmt = summary_stmt.where(AdAccount.id.in_(visible))
+        never_stmt = never_stmt.where(AdAccount.id.in_(visible))
+        last_eval_stmt = last_eval_stmt.where(AccountHealthSnapshot.ad_account_id.in_(visible))
+
+    rows = ctx.session.execute(summary_stmt.group_by(status_expr, freshness_expr)).all()
 
     counts = {status.value: 0 for status in HealthStatus}
     stale = total = 0
@@ -164,23 +183,8 @@ def health_summary(ctx: Ctx) -> s.HealthSummaryOut:
         if freshness_value == HealthFreshness.STALE:
             stale += count
 
-    never_evaluated = int(
-        ctx.session.execute(
-            sa.select(sa.func.count())
-            .select_from(AdAccount)
-            .outerjoin(AccountHealthSnapshot, AccountHealthSnapshot.ad_account_id == AdAccount.id)
-            .where(
-                AdAccount.workspace_id == ctx.workspace_id,
-                AdAccount.archived_at.is_(None),
-                AccountHealthSnapshot.id.is_(None),
-            )
-        ).scalar_one()
-    )
-    last_evaluation = ctx.session.execute(
-        sa.select(sa.func.max(AccountHealthSnapshot.last_evaluated_at)).where(
-            AccountHealthSnapshot.workspace_id == ctx.workspace_id
-        )
-    ).scalar()
+    never_evaluated = int(ctx.session.execute(never_stmt).scalar_one())
+    last_evaluation = ctx.session.execute(last_eval_stmt).scalar()
     failed_runs = int(
         ctx.session.execute(
             sa.select(sa.func.count())
@@ -236,6 +240,9 @@ def list_account_health(
         .outerjoin(AccountHealthSnapshot, AccountHealthSnapshot.ad_account_id == AdAccount.id)
         .where(AdAccount.workspace_id == ctx.workspace_id)
     )
+    visible = ctx.visible_ad_account_ids()
+    if visible is not None:
+        stmt = stmt.where(AdAccount.id.in_(visible))
     stmt = (
         stmt.where(AdAccount.archived_at.is_not(None))
         if archived
@@ -385,7 +392,9 @@ def _get_signal(ctx, signal_id: uuid.UUID) -> AccountHealthSignal:
 
 
 def _signal_account(ctx, signal: AccountHealthSignal) -> AdAccount:
-    return get_or_404(ctx.session, AdAccount, signal.ad_account_id, ctx.workspace_id, label="Ad account")
+    return AdAccountRegistryService(
+        ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids()
+    ).get(signal.ad_account_id)
 
 
 @router.get("/account-health/signals/{signal_id}")

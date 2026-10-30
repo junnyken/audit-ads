@@ -45,7 +45,7 @@ def _account_name(ctx, ad_account_id: uuid.UUID | None) -> str | None:
 def _serialize_with_context(ctx, draft) -> dict[str, Any]:
     """Every mutation response carries the same fields the list/detail views do, so the
     frontend never has to special-case a "thin" response right after a write."""
-    service = CampaignDraftService(ctx.session, ctx.workspace_id, ctx.audit)
+    service = CampaignDraftService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     counts = service.open_finding_counts([draft.id]).get(draft.id)
     return _serialize_draft(draft, counts, account_name=_account_name(ctx, draft.ad_account_id))
 
@@ -63,7 +63,7 @@ def list_drafts(
     sort: str = "updated_at",
     sort_direction: str = Query("desc", pattern="^(asc|desc)$"),
 ) -> dict[str, Any]:
-    service = CampaignDraftService(ctx.session, ctx.workspace_id, ctx.audit)
+    service = CampaignDraftService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     rows, total = service.list(
         DraftFilters(
             search=search,
@@ -94,7 +94,7 @@ def list_drafts(
 
 @router.post("", status_code=201)
 def create_draft(ctx: WriteCtx, payload: s.CampaignDraftCreate) -> dict[str, Any]:
-    service = CampaignDraftService(ctx.session, ctx.workspace_id, ctx.audit)
+    service = CampaignDraftService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     draft = service.create(payload.model_dump(), actor_id=ctx.user.id)
     ctx.commit()
     return _serialize_with_context(ctx, draft)
@@ -102,14 +102,14 @@ def create_draft(ctx: WriteCtx, payload: s.CampaignDraftCreate) -> dict[str, Any
 
 @router.get("/{draft_id}")
 def get_draft(ctx: Ctx, draft_id: uuid.UUID) -> dict[str, Any]:
-    service = CampaignDraftService(ctx.session, ctx.workspace_id, ctx.audit)
+    service = CampaignDraftService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     draft = service.get(draft_id)
     return _serialize_with_context(ctx, draft)
 
 
 @router.patch("/{draft_id}")
 def update_draft(ctx: WriteCtx, draft_id: uuid.UUID, payload: s.CampaignDraftUpdate) -> dict[str, Any]:
-    service = CampaignDraftService(ctx.session, ctx.workspace_id, ctx.audit)
+    service = CampaignDraftService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     draft = service.update(
         service.get(draft_id), payload.model_dump(exclude_unset=True), actor_id=ctx.user.id
     )
@@ -119,7 +119,7 @@ def update_draft(ctx: WriteCtx, draft_id: uuid.UUID, payload: s.CampaignDraftUpd
 
 @router.post("/{draft_id}/archive")
 def archive_draft(ctx: WriteCtx, draft_id: uuid.UUID) -> dict[str, Any]:
-    service = CampaignDraftService(ctx.session, ctx.workspace_id, ctx.audit)
+    service = CampaignDraftService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     draft = service.archive(service.get(draft_id))
     ctx.commit()
     return _serialize_with_context(ctx, draft)
@@ -127,7 +127,7 @@ def archive_draft(ctx: WriteCtx, draft_id: uuid.UUID) -> dict[str, Any]:
 
 @router.post("/{draft_id}/restore")
 def restore_draft(ctx: WriteCtx, draft_id: uuid.UUID) -> dict[str, Any]:
-    service = CampaignDraftService(ctx.session, ctx.workspace_id, ctx.audit)
+    service = CampaignDraftService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     draft = service.restore(service.get(draft_id))
     ctx.commit()
     return _serialize_with_context(ctx, draft)
@@ -135,7 +135,7 @@ def restore_draft(ctx: WriteCtx, draft_id: uuid.UUID) -> dict[str, Any]:
 
 @router.post("/{draft_id}/evaluate")
 def evaluate_draft(ctx: WriteCtx, draft_id: uuid.UUID) -> s.PreflightEvaluationRunOut:
-    draft_service = CampaignDraftService(ctx.session, ctx.workspace_id, ctx.audit)
+    draft_service = CampaignDraftService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     draft = draft_service.get(draft_id)
     evaluation = PreflightEvaluationService(ctx.session, ctx.workspace_id, ctx.audit, ctx.user.id)
     run = evaluation.evaluate(draft)
@@ -145,7 +145,7 @@ def evaluate_draft(ctx: WriteCtx, draft_id: uuid.UUID) -> s.PreflightEvaluationR
 
 @router.get("/{draft_id}/evaluation-runs")
 def list_evaluation_runs(ctx: Ctx, draft_id: uuid.UUID) -> list[s.PreflightEvaluationRunOut]:
-    service = CampaignDraftService(ctx.session, ctx.workspace_id, ctx.audit)
+    service = CampaignDraftService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     draft = service.get(draft_id)
     rows = (
         ctx.session.execute(
@@ -161,7 +161,7 @@ def list_evaluation_runs(ctx: Ctx, draft_id: uuid.UUID) -> list[s.PreflightEvalu
 
 @router.get("/{draft_id}/findings")
 def list_findings(ctx: Ctx, draft_id: uuid.UUID, include_superseded: bool = False) -> list[s.PreflightFindingOut]:
-    service = CampaignDraftService(ctx.session, ctx.workspace_id, ctx.audit)
+    service = CampaignDraftService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     draft = service.get(draft_id)
     stmt = sa.select(PreflightFinding).where(PreflightFinding.draft_id == draft.id)
     if not include_superseded:
@@ -173,7 +173,7 @@ def list_findings(ctx: Ctx, draft_id: uuid.UUID, include_superseded: bool = Fals
 
 @router.get("/{draft_id}/landing-page-evidence")
 def list_landing_page_evidence(ctx: Ctx, draft_id: uuid.UUID) -> list[s.LandingPageEvidenceOut]:
-    service = CampaignDraftService(ctx.session, ctx.workspace_id, ctx.audit)
+    service = CampaignDraftService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     draft = service.get(draft_id)
     rows = (
         ctx.session.execute(
@@ -193,7 +193,11 @@ def list_landing_page_evidence(ctx: Ctx, draft_id: uuid.UUID) -> list[s.LandingP
 @findings_router.post("/{finding_id}/acknowledge")
 def acknowledge_finding(ctx: WriteCtx, finding_id: uuid.UUID, payload: s.FindingActionRequest) -> s.PreflightFindingOut:
     service = PreflightFindingService(ctx.session, ctx.workspace_id, ctx.audit, ctx.user.id)
-    finding = service.acknowledge(service.get(finding_id), reason=payload.reason)
+    target = service.get(finding_id)
+    CampaignDraftService(
+        ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids()
+    ).get(target.draft_id)
+    finding = service.acknowledge(target, reason=payload.reason)
     ctx.commit()
     return s.PreflightFindingOut.model_validate(finding)
 
@@ -201,6 +205,10 @@ def acknowledge_finding(ctx: WriteCtx, finding_id: uuid.UUID, payload: s.Finding
 @findings_router.post("/{finding_id}/resolve")
 def resolve_finding(ctx: WriteCtx, finding_id: uuid.UUID, payload: s.FindingActionRequest) -> s.PreflightFindingOut:
     service = PreflightFindingService(ctx.session, ctx.workspace_id, ctx.audit, ctx.user.id)
-    finding = service.resolve(service.get(finding_id), reason=payload.reason)
+    target = service.get(finding_id)
+    CampaignDraftService(
+        ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids()
+    ).get(target.draft_id)
+    finding = service.resolve(target, reason=payload.reason)
     ctx.commit()
     return s.PreflightFindingOut.model_validate(finding)

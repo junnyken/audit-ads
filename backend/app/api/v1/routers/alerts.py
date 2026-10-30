@@ -72,11 +72,13 @@ def _latest_delivery_subquery():
 @router.get("/alerts/summary", response_model=s.AlertSummaryOut)
 def alert_summary(ctx: Ctx) -> s.AlertSummaryOut:
     settings = get_settings()
-    rows = ctx.session.execute(
-        sa.select(Alert.status, Alert.severity, sa.func.count())
-        .where(Alert.workspace_id == ctx.workspace_id, Alert.archived_at.is_(None))
-        .group_by(Alert.status, Alert.severity)
-    ).all()
+    visible = ctx.visible_ad_account_ids()
+    alert_stmt = sa.select(Alert.status, Alert.severity, sa.func.count()).where(
+        Alert.workspace_id == ctx.workspace_id, Alert.archived_at.is_(None)
+    )
+    if visible is not None:
+        alert_stmt = alert_stmt.where(Alert.ad_account_id.in_(visible))
+    rows = ctx.session.execute(alert_stmt.group_by(Alert.status, Alert.severity)).all()
 
     open_by_severity = {severity: 0 for severity in AlertSeverity}
     acknowledged = suppressed = total_active = 0
@@ -91,32 +93,42 @@ def alert_summary(ctx: Ctx) -> s.AlertSummaryOut:
         elif status == AlertStatus.SUPPRESSED:
             suppressed += count
 
-    failed_final = int(
-        ctx.session.execute(
-            sa.select(sa.func.count())
-            .select_from(NotificationDelivery)
-            .where(
-                NotificationDelivery.workspace_id == ctx.workspace_id,
-                NotificationDelivery.status == DeliveryStatus.FAILED_FINAL,
-            )
-        ).scalar_one()
-    )
-    deferred = int(
-        ctx.session.execute(
-            sa.select(sa.func.count())
-            .select_from(NotificationDelivery)
-            .where(
-                NotificationDelivery.workspace_id == ctx.workspace_id,
-                NotificationDelivery.status == DeliveryStatus.PENDING,
-                NotificationDelivery.scheduled_for > sa.func.now(),
-            )
-        ).scalar_one()
-    )
-    last_sent = ctx.session.execute(
-        sa.select(sa.func.max(NotificationDelivery.sent_at)).where(
-            NotificationDelivery.workspace_id == ctx.workspace_id
+    failed_stmt = (
+        sa.select(sa.func.count())
+        .select_from(NotificationDelivery)
+        .where(
+            NotificationDelivery.workspace_id == ctx.workspace_id,
+            NotificationDelivery.status == DeliveryStatus.FAILED_FINAL,
         )
-    ).scalar()
+    )
+    deferred_stmt = (
+        sa.select(sa.func.count())
+        .select_from(NotificationDelivery)
+        .where(
+            NotificationDelivery.workspace_id == ctx.workspace_id,
+            NotificationDelivery.status == DeliveryStatus.PENDING,
+            NotificationDelivery.scheduled_for > sa.func.now(),
+        )
+    )
+    last_sent_stmt = (
+        sa.select(sa.func.max(NotificationDelivery.sent_at))
+        .select_from(NotificationDelivery)
+        .where(NotificationDelivery.workspace_id == ctx.workspace_id)
+    )
+    if visible is not None:
+        failed_stmt = failed_stmt.join(Alert, Alert.id == NotificationDelivery.alert_id).where(
+            Alert.ad_account_id.in_(visible)
+        )
+        deferred_stmt = deferred_stmt.join(Alert, Alert.id == NotificationDelivery.alert_id).where(
+            Alert.ad_account_id.in_(visible)
+        )
+        last_sent_stmt = last_sent_stmt.join(Alert, Alert.id == NotificationDelivery.alert_id).where(
+            Alert.ad_account_id.in_(visible)
+        )
+
+    failed_final = int(ctx.session.execute(failed_stmt).scalar_one())
+    deferred = int(ctx.session.execute(deferred_stmt).scalar_one())
+    last_sent = ctx.session.execute(last_sent_stmt).scalar()
     policy = AlertPolicyService(ctx.session, ctx.workspace_id, ctx.audit).get()
 
     return s.AlertSummaryOut(

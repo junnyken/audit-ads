@@ -200,6 +200,12 @@ class ExtensionContext:
     def commit(self) -> None:
         self.api.commit()
 
+    def visible_ad_account_ids(self) -> set[uuid.UUID] | None:
+        return self.api.visible_ad_account_ids()
+
+    def visible_business_manager_ids(self) -> set[uuid.UUID] | None:
+        return self.api.visible_business_manager_ids()
+
 
 def get_extension_context(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],

@@ -58,10 +58,20 @@ class AccountOperationsRow:
 
 
 class AccountOperationsService:
-    def __init__(self, session: Session, workspace_id: uuid.UUID, audit: AuditLogService) -> None:
+    def __init__(
+        self,
+        session: Session,
+        workspace_id: uuid.UUID,
+        audit: AuditLogService,
+        *,
+        visible_ids: set[uuid.UUID] | None = None,
+        visible_bm_ids: set[uuid.UUID] | None = None,
+    ) -> None:
         self.session = session
         self.workspace_id = workspace_id
         self.audit = audit
+        self.visible_ids = visible_ids
+        self.visible_bm_ids = visible_bm_ids
         self._settings = get_settings()
 
     # ---------------------------------------------------------------- shared decoration
@@ -135,6 +145,8 @@ class AccountOperationsService:
     # ---------------------------------------------------------------- account operations table
     def account_table(self, filters: AccountFilters) -> tuple[list[AccountOperationsRow], int]:
         stmt = sa.select(AdAccount).where(AdAccount.workspace_id == self.workspace_id)
+        if self.visible_ids is not None:
+            stmt = stmt.where(AdAccount.id.in_(self.visible_ids))
         stmt = (
             stmt.where(AdAccount.archived_at.is_not(None))
             if filters.archived
@@ -159,18 +171,17 @@ class AccountOperationsService:
 
     # ---------------------------------------------------------------- workspace overview
     def workspace_overview(self) -> dict:
-        accounts = list(
-            self.session.execute(
-                sa.select(AdAccount).where(
-                    AdAccount.workspace_id == self.workspace_id, AdAccount.archived_at.is_(None)
-                )
-            ).scalars()
+        active_stmt = sa.select(AdAccount).where(
+            AdAccount.workspace_id == self.workspace_id, AdAccount.archived_at.is_(None)
         )
-        archived_count = self.session.execute(
-            sa.select(sa.func.count()).where(
-                AdAccount.workspace_id == self.workspace_id, AdAccount.archived_at.is_not(None)
-            )
-        ).scalar_one()
+        archived_stmt = sa.select(sa.func.count()).where(
+            AdAccount.workspace_id == self.workspace_id, AdAccount.archived_at.is_not(None)
+        )
+        if self.visible_ids is not None:
+            active_stmt = active_stmt.where(AdAccount.id.in_(self.visible_ids))
+            archived_stmt = archived_stmt.where(AdAccount.id.in_(self.visible_ids))
+        accounts = list(self.session.execute(active_stmt).scalars())
+        archived_count = self.session.execute(archived_stmt).scalar_one()
         rows = self._decorate(accounts)
 
         status_counts: dict[str, int] = {}
@@ -197,25 +208,23 @@ class AccountOperationsService:
 
     # ---------------------------------------------------------------- BM operations
     def business_manager_operations(self) -> list[dict]:
-        bms = list(
-            self.session.execute(
-                sa.select(BusinessManager).where(
-                    BusinessManager.workspace_id == self.workspace_id, BusinessManager.archived_at.is_(None)
-                )
-            ).scalars()
+        bm_stmt = sa.select(BusinessManager).where(
+            BusinessManager.workspace_id == self.workspace_id, BusinessManager.archived_at.is_(None)
         )
+        if self.visible_bm_ids is not None:
+            bm_stmt = bm_stmt.where(BusinessManager.id.in_(self.visible_bm_ids))
+        bms = list(self.session.execute(bm_stmt).scalars())
         if not bms:
             return []
 
-        accounts = list(
-            self.session.execute(
-                sa.select(AdAccount).where(
-                    AdAccount.workspace_id == self.workspace_id,
-                    AdAccount.archived_at.is_(None),
-                    AdAccount.business_manager_id.in_([bm.id for bm in bms]),
-                )
-            ).scalars()
+        acc_stmt = sa.select(AdAccount).where(
+            AdAccount.workspace_id == self.workspace_id,
+            AdAccount.archived_at.is_(None),
+            AdAccount.business_manager_id.in_([bm.id for bm in bms]),
         )
+        if self.visible_ids is not None:
+            acc_stmt = acc_stmt.where(AdAccount.id.in_(self.visible_ids))
+        accounts = list(self.session.execute(acc_stmt).scalars())
         rows_by_account = {row.account.id: row for row in self._decorate(accounts)}
 
         result = []

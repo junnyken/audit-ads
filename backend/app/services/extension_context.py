@@ -105,9 +105,16 @@ class ContextResolution:
 class ExtensionContextResolver:
     """Maps what a page showed to exactly one registered account, or admits it cannot."""
 
-    def __init__(self, session: Session, workspace_id: uuid.UUID) -> None:
+    def __init__(
+        self,
+        session: Session,
+        workspace_id: uuid.UUID,
+        *,
+        visible_ids: set[uuid.UUID] | None = None,
+    ) -> None:
         self.session = session
         self.workspace_id = workspace_id
+        self.visible_ids = visible_ids
 
     def resolve(
         self,
@@ -196,12 +203,11 @@ class ExtensionContextResolver:
         "not registered".
         """
         candidates = [canonical, f"act_{canonical}", f"act-{canonical}"]
-        return list(
-            self.session.execute(
-                sa.select(AdAccount).where(
-                    AdAccount.workspace_id == self.workspace_id,
-                    AdAccount.external_account_id.isnot(None),
-                    sa.func.lower(sa.func.trim(AdAccount.external_account_id)).in_(candidates),
-                )
-            ).scalars().all()
+        stmt = sa.select(AdAccount).where(
+            AdAccount.workspace_id == self.workspace_id,
+            AdAccount.external_account_id.isnot(None),
+            sa.func.lower(sa.func.trim(AdAccount.external_account_id)).in_(candidates),
         )
+        if self.visible_ids is not None:
+            stmt = stmt.where(AdAccount.id.in_(self.visible_ids))
+        return list(self.session.execute(stmt).scalars().all())

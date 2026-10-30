@@ -50,7 +50,9 @@ def create_event(ctx: WriteCtx, ad_account_id: uuid.UUID, payload: s.AccountEven
 
 def _event_and_account(ctx, event_id: uuid.UUID) -> tuple[AccountEvent, AdAccount]:
     event = get_or_404(ctx.session, AccountEvent, event_id, ctx.workspace_id, label="Account event")
-    account = get_or_404(ctx.session, AdAccount, event.ad_account_id, ctx.workspace_id, label="Ad account")
+    account = AdAccountRegistryService(
+        ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids()
+    ).get(event.ad_account_id)
     return event, account
 
 

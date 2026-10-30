@@ -346,3 +346,41 @@ def test_health_warning_snapshot_is_a_warning_not_blocking(db_session, workspace
     hit = [f for f in findings if f.rule_key == "account_health_warning"]
     assert len(hit) == 1
     assert hit[0].severity is FindingSeverity.WARNING
+
+
+
+def test_pinned_network_backend_connects_to_validated_ip_and_blocks_dns_rebinding(monkeypatch):
+    """F-02 regression test: once `_assert_safe_url` resolves a hostname to a public IP,
+    `_PinnedSafeNetworkBackend` connects directly to the pinned IP literal and never re-resolves
+    to a rebinded loopback/private address at connect time."""
+    from app.services.preflight_safe_http import _PinnedSafeNetworkBackend
+
+    calls = []
+
+    def fake_getaddrinfo(host, port):
+        calls.append(host)
+        if len(calls) == 1:
+            return [(None, None, None, None, ("93.184.216.34", 0))]
+        # Second DNS call simulates a DNS rebinding flip to loopback
+        return [(None, None, None, None, ("127.0.0.1", 0))]
+
+    monkeypatch.setattr("app.services.preflight_safe_http.socket.getaddrinfo", fake_getaddrinfo)
+
+    host, safe_ips = _assert_safe_url("https://rebind.example.com/offer")
+    assert host == "rebind.example.com"
+    assert safe_ips == ("93.184.216.34",)
+
+    connected_targets = []
+
+    class DummyInnerBackend:
+        def connect_tcp(self, host, port, **kwargs):
+            connected_targets.append((host, port))
+            return "stream-ok"
+
+    backend = _PinnedSafeNetworkBackend(DummyInnerBackend())
+    backend.pin(host, safe_ips)
+    result = backend.connect_tcp("rebind.example.com", 443)
+    assert result == "stream-ok"
+    # Connected directly to the pinned public IP literal, never calling DNS a second time
+    assert connected_targets == [("93.184.216.34", 443)]
+    assert len(calls) == 1

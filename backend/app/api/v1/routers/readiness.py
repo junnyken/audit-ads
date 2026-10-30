@@ -29,8 +29,9 @@ def _readiness_payload(result) -> dict[str, Any]:
 @router.get("/ad-accounts/readiness/summary", response_model=s.ReadinessSummaryOut)
 def readiness_summary(ctx: Ctx) -> s.ReadinessSummaryOut:
     svc = ReadinessRollupService(ctx.session, ctx.workspace_id, ctx.audit)
-    counts = svc.summary()
-    inventory = svc.inventory_summary(visible_ids=ctx.visible_ad_account_ids())
+    visible = ctx.visible_ad_account_ids()
+    counts = svc.summary(visible_ids=visible)
+    inventory = svc.inventory_summary(visible_ids=visible)
     return s.ReadinessSummaryOut(
         total_active=counts["total_active"],
         operationally_ready=counts[ReadinessStatus.OPERATIONALLY_READY.value],
@@ -56,6 +57,9 @@ def readiness_board(
     stmt = sa.select(AdAccount).where(
         AdAccount.workspace_id == ctx.workspace_id, AdAccount.archived_at.is_(None)
     )
+    visible = ctx.visible_ad_account_ids()
+    if visible is not None:
+        stmt = stmt.where(AdAccount.id.in_(visible))
     if readiness_status:
         stmt = stmt.where(AdAccount.readiness_status == ReadinessStatus(readiness_status))
     accounts = list(ctx.session.execute(stmt.limit(page_size)).scalars().all())
@@ -216,7 +220,9 @@ def _account_for_evidence(ctx, evidence: ReadinessEvidence) -> tuple[AdAccount, 
         ctx.workspace_id,
         label="Checklist item",
     )
-    account = get_or_404(ctx.session, AdAccount, item.ad_account_id, ctx.workspace_id, label="Ad account")
+    account = AdAccountRegistryService(
+        ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids()
+    ).get(item.ad_account_id)
     return account, item
 
 

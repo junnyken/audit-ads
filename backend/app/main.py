@@ -119,16 +119,42 @@ def create_app() -> FastAPI:
     def health_live() -> dict[str, str]:
         return {"status": "ok"}
 
+    import threading as _threading
+    import time as _time
+
+    _ready_lock = _threading.Lock()
+    _ready_cache: dict[str, float | int] = {"expires_at": 0.0, "status_code": 200}
+    _READY_CACHE_TTL_SECONDS = 2.0
+
     @app.get("/health/ready", tags=["health"])
     def health_ready() -> JSONResponse:
-        try:
-            with engine.connect() as connection:
-                connection.execute(sa.text("SELECT 1"))
-        except Exception:
-            return JSONResponse(
-                status_code=503, content={"status": "unavailable", "database": "unreachable"}
-            )
-        return JSONResponse(status_code=200, content={"status": "ok", "database": "reachable"})
+        now = _time.monotonic()
+        with _ready_lock:
+            if now < _ready_cache["expires_at"]:
+                cached_code = int(_ready_cache["status_code"])
+                if cached_code == 200:
+                    return JSONResponse(
+                        status_code=200, content={"status": "ok", "database": "reachable"}
+                    )
+                return JSONResponse(
+                    status_code=503,
+                    content={"status": "unavailable", "database": "unreachable"},
+                )
+            try:
+                with engine.connect() as connection:
+                    connection.execute(sa.text("SELECT 1"))
+                _ready_cache["status_code"] = 200
+                _ready_cache["expires_at"] = now + _READY_CACHE_TTL_SECONDS
+                return JSONResponse(
+                    status_code=200, content={"status": "ok", "database": "reachable"}
+                )
+            except Exception:
+                _ready_cache["status_code"] = 503
+                _ready_cache["expires_at"] = now + 1.0
+                return JSONResponse(
+                    status_code=503,
+                    content={"status": "unavailable", "database": "unreachable"},
+                )
 
     return app
 

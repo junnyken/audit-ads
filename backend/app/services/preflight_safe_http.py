@@ -89,12 +89,9 @@ def _is_unsafe_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     )
 
 
-def _assert_safe_host(hostname: str) -> None:
-    """Resolve every address for `hostname` and refuse if any one of them is unsafe.
-
-    A hostname can resolve to several addresses (round-robin DNS, dual-stack A+AAAA); refusing
-    only the first would leave a bypass. Resolution failure is refused too — an attacker
-    controlling DNS can otherwise pass validation and then answer differently at connect time.
+def _assert_safe_host(hostname: str) -> tuple[str, ...]:
+    """Resolve every address for `hostname`, refuse if any one of them is unsafe, and return
+    the validated IP literals so the transport can pin them at connect time (anti-DNS-rebinding).
     """
     try:
         infos = socket.getaddrinfo(hostname, None)
@@ -102,20 +99,72 @@ def _assert_safe_host(hostname: str) -> None:
         raise _UnsafeTarget(f"dns_resolution_failed: {exc}") from exc
     if not infos:
         raise _UnsafeTarget("dns_resolution_empty")
+    safe_ips: list[str] = []
     for _family, _type, _proto, _canon, sockaddr in infos:
         raw = sockaddr[0]
         ip = ipaddress.ip_address(raw)
         if _is_unsafe_ip(ip):
             raise _UnsafeTarget(f"unsafe_address:{raw}")
+        if raw not in safe_ips:
+            safe_ips.append(raw)
+    return tuple(safe_ips)
 
 
-def _assert_safe_url(url: str) -> None:
+def _assert_safe_url(url: str) -> tuple[str, tuple[str, ...]]:
     parsed = urlparse(url)
     if parsed.scheme not in ALLOWED_SCHEMES:
         raise _UnsafeTarget(f"unsupported_scheme:{parsed.scheme}")
     if not parsed.hostname:
         raise _UnsafeTarget("missing_host")
-    _assert_safe_host(parsed.hostname)
+    safe_ips = _assert_safe_host(parsed.hostname)
+    return parsed.hostname.lower(), safe_ips
+
+
+class _PinnedSafeNetworkBackend:
+    """Wraps the underlying httpcore NetworkBackend to connect exclusively to the IP literals
+    validated by `_assert_safe_url`, eliminating the DNS rebinding (TOCTOU) window while
+    preserving the original hostname in httpcore's TLS SNI (`start_tls`)."""
+
+    def __init__(self, inner: object) -> None:
+        self._inner = inner
+        self._pinned: dict[str, tuple[str, ...]] = {}
+
+    def pin(self, hostname: str, ips: tuple[str, ...]) -> None:
+        self._pinned[hostname.lower()] = ips
+
+    def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: object = None,
+    ):
+        ips = self._pinned.get(host.lower())
+        if not ips:
+            ips = _assert_safe_host(host)
+            self._pinned[host.lower()] = ips
+        last_exc: Exception | None = None
+        for ip_raw in ips:
+            ip_obj = ipaddress.ip_address(ip_raw)
+            if _is_unsafe_ip(ip_obj):
+                raise _UnsafeTarget(f"unsafe_address:{ip_raw}")
+            try:
+                return self._inner.connect_tcp(
+                    ip_raw,
+                    port,
+                    timeout=timeout,
+                    local_address=local_address,
+                    socket_options=socket_options,
+                )
+            except Exception as exc:  # pragma: no cover - fall back to next validated A/AAAA record
+                last_exc = exc
+        if last_exc is not None:
+            raise last_exc
+        raise _UnsafeTarget("dns_resolution_empty")
+
+    def __getattr__(self, name: str):
+        return getattr(self._inner, name)
 
 
 class _SignalScanner(HTMLParser):
@@ -150,7 +199,7 @@ def safe_fetch(
     max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
 ) -> SafeFetchResult:
     try:
-        _assert_safe_url(url)
+        initial_host, initial_ips = _assert_safe_url(url)
     except _UnsafeTarget as exc:
         return SafeFetchResult(
             outcome=FetchOutcome.BLOCKED_UNSAFE, url=url, fetch_error=exc.reason
@@ -160,11 +209,16 @@ def safe_fetch(
     current_url = url
     redirect_count = 0
 
-    # Redirects are followed manually, one hop at a time, so every hop is re-validated against
-    # the same safety check as the original URL — httpx's built-in redirect following would
-    # not re-run our DNS/IP allowlist on each hop.
+    transport = httpx.HTTPTransport()
+    pinned_backend = _PinnedSafeNetworkBackend(transport._pool._network_backend)
+    pinned_backend.pin(initial_host, initial_ips)
+    transport._pool._network_backend = pinned_backend
+
     with httpx.Client(
-        timeout=timeout_seconds, follow_redirects=False, headers={"User-Agent": "AdsOps-Preflight/1"}
+        transport=transport,
+        timeout=timeout_seconds,
+        follow_redirects=False,
+        headers={"User-Agent": "AdsOps-Preflight/1"},
     ) as client:
         while True:
             try:
@@ -185,11 +239,13 @@ def safe_fetch(
                                 outcome=FetchOutcome.UNREACHABLE,
                                 url=url,
                                 final_url=current_url,
+                                redirect_count=redirect_count,
                                 fetch_error="redirect_without_location",
                             )
                         next_url = urljoin(current_url, location)
                         try:
-                            _assert_safe_url(next_url)
+                            next_host, next_ips = _assert_safe_url(next_url)
+                            pinned_backend.pin(next_host, next_ips)
                         except _UnsafeTarget as exc:
                             return SafeFetchResult(
                                 outcome=FetchOutcome.BLOCKED_UNSAFE,
@@ -234,6 +290,14 @@ def safe_fetch(
                     final_url=current_url,
                     redirect_count=redirect_count,
                     fetch_error=f"timeout: {exc}",
+                )
+            except _UnsafeTarget as exc:
+                return SafeFetchResult(
+                    outcome=FetchOutcome.BLOCKED_UNSAFE,
+                    url=url,
+                    final_url=current_url,
+                    redirect_count=redirect_count,
+                    fetch_error=exc.reason,
                 )
             except httpx.TransportError as exc:
                 return SafeFetchResult(

@@ -254,3 +254,50 @@ def test_meta_operations_are_owner_only(api, client, member_headers):
     # …and the owner is unaffected.
     assert api.get("/api/v1/meta-connections").status_code == 200
 
+
+
+
+def test_secondary_summaries_and_boards_respect_member_scope(api, client, db_session, member_headers):
+    """F-01 regression test: readiness summary/board, account-operations, health summary/list,
+    alert summary, extension summary, and event mutations must never leak out-of-scope accounts."""
+    bm_hidden = api.post("/api/v1/business-managers", json={"name": "Hidden BM"}).json()
+    hidden = api.post(
+        "/api/v1/ad-accounts",
+        json={"display_name": "Hidden Account", "business_manager_id": bm_hidden["id"]},
+    ).json()
+    ev = api.post(
+        f"/api/v1/ad-accounts/{hidden['id']}/events",
+        json={
+            "event_type": "account_warning",
+            "severity": "warning",
+            "source": "manual",
+            "occurred_at": datetime.now(UTC).isoformat(),
+            "summary": "Hidden event",
+        },
+    ).json()["event"]
+
+    # Unassigned member sees 0 on all secondary aggregation & board routes
+    assert client.get("/api/v1/ad-accounts/readiness/summary", headers=member_headers).json()["total_active"] == 0
+    assert client.get("/api/v1/ad-accounts/readiness/board", headers=member_headers).json()["rows"] == []
+    assert client.get("/api/v1/account-operations/overview", headers=member_headers).json()["total_accounts"] == 0
+    assert client.get("/api/v1/account-operations/business-managers", headers=member_headers).json() == []
+    assert client.get("/api/v1/account-operations/accounts", headers=member_headers).json()["total"] == 0
+    assert client.get("/api/v1/account-health/summary", headers=member_headers).json()["total_active"] == 0
+    assert client.get("/api/v1/account-health", headers=member_headers).json()["total"] == 0
+    assert client.get("/api/v1/alerts/summary", headers=member_headers).json()["total_active"] == 0
+
+    # Direct access / mutation on out-of-scope account or its events returns 404
+    assert client.get(f"/api/v1/ad-accounts/{hidden['id']}/extension-summary", headers=member_headers).status_code == 404
+    assert (
+        client.patch(
+            f"/api/v1/account-events/{ev['id']}",
+            headers=member_headers,
+            json={"summary": "tampered"},
+        ).status_code
+        == 404
+    )
+
+    # Owner still sees the account across all secondary routes
+    assert api.get("/api/v1/ad-accounts/readiness/summary").json()["total_active"] == 1
+    assert len(api.get("/api/v1/ad-accounts/readiness/board").json()["rows"]) == 1
+    assert api.get("/api/v1/account-operations/overview").json()["total_accounts"] == 1

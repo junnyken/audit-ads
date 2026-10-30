@@ -46,14 +46,30 @@ class DraftFilters:
 
 
 class CampaignDraftService:
-    def __init__(self, session: Session, workspace_id: uuid.UUID, audit: AuditLogService) -> None:
+    def __init__(
+        self,
+        session: Session,
+        workspace_id: uuid.UUID,
+        audit: AuditLogService,
+        *,
+        visible_ids: set[uuid.UUID] | None = None,
+    ) -> None:
         self.session = session
         self.workspace_id = workspace_id
         self.audit = audit
+        self.visible_ids = visible_ids
+
+    def _ensure_account_visible(self, ad_account_id: uuid.UUID | None, *, label: str = "Ad account") -> None:
+        if ad_account_id is not None and self.visible_ids is not None and ad_account_id not in self.visible_ids:
+            from app.core.errors import NotFoundError
+
+            raise NotFoundError(f"{label} not found.")
 
     # ---------------------------------------------------------------- reads
     def get(self, draft_id: uuid.UUID) -> CampaignDraft:
-        return get_or_404(self.session, CampaignDraft, draft_id, self.workspace_id, label="Campaign draft")
+        draft = get_or_404(self.session, CampaignDraft, draft_id, self.workspace_id, label="Campaign draft")
+        self._ensure_account_visible(draft.ad_account_id, label="Campaign draft")
+        return draft
 
     def _has_blocking_findings_exists(self):
         return (
@@ -69,6 +85,13 @@ class CampaignDraftService:
 
     def list(self, filters: DraftFilters) -> tuple[Sequence[CampaignDraft], int]:
         stmt = sa.select(CampaignDraft).where(CampaignDraft.workspace_id == self.workspace_id)
+        if self.visible_ids is not None:
+            stmt = stmt.where(
+                sa.or_(
+                    CampaignDraft.ad_account_id.is_(None),
+                    CampaignDraft.ad_account_id.in_(self.visible_ids),
+                )
+            )
         stmt = (
             stmt.where(CampaignDraft.archived_at.is_not(None))
             if filters.archived
@@ -120,6 +143,8 @@ class CampaignDraftService:
         payload = dict(payload)
         if payload.get("ad_account_id"):
             get_or_404(self.session, AdAccount, payload["ad_account_id"], self.workspace_id, label="Ad account")
+            self._ensure_account_visible(payload["ad_account_id"], label="Ad account")
+            self._ensure_account_visible(payload["ad_account_id"], label="Ad account")
 
         draft = CampaignDraft(
             workspace_id=self.workspace_id,

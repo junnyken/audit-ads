@@ -39,13 +39,25 @@ def _serialize_row(row: AccountOperationsRow) -> dict[str, Any]:
 
 @router.get("/overview")
 def operations_overview(ctx: Ctx) -> s.OperationsOverviewOut:
-    service = AccountOperationsService(ctx.session, ctx.workspace_id, ctx.audit)
+    service = AccountOperationsService(
+        ctx.session,
+        ctx.workspace_id,
+        ctx.audit,
+        visible_ids=ctx.visible_ad_account_ids(),
+        visible_bm_ids=ctx.visible_business_manager_ids(),
+    )
     return s.OperationsOverviewOut.model_validate(service.workspace_overview())
 
 
 @router.get("/business-managers")
 def business_manager_operations(ctx: Ctx) -> list[s.BusinessManagerOperationsOut]:
-    service = AccountOperationsService(ctx.session, ctx.workspace_id, ctx.audit)
+    service = AccountOperationsService(
+        ctx.session,
+        ctx.workspace_id,
+        ctx.audit,
+        visible_ids=ctx.visible_ad_account_ids(),
+        visible_bm_ids=ctx.visible_business_manager_ids(),
+    )
     return [s.BusinessManagerOperationsOut.model_validate(row) for row in service.business_manager_operations()]
 
 
@@ -61,7 +73,13 @@ def account_operations_table(
     sort: str = "updated_at",
     sort_direction: str = Query("desc", pattern="^(asc|desc)$"),
 ) -> dict[str, Any]:
-    service = AccountOperationsService(ctx.session, ctx.workspace_id, ctx.audit)
+    service = AccountOperationsService(
+        ctx.session,
+        ctx.workspace_id,
+        ctx.audit,
+        visible_ids=ctx.visible_ad_account_ids(),
+        visible_bm_ids=ctx.visible_business_manager_ids(),
+    )
     rows, total = service.account_table(
         AccountFilters(
             search=search,

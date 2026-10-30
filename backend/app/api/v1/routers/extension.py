@@ -114,7 +114,9 @@ def resolve_context(ctx: ExtCtx, payload: s.ContextResolveRequest) -> dict[str, 
     installations = ExtensionInstallationService(ctx.session, ctx.workspace_id, ctx.audit)
     installations.touch(ctx.installation, version=payload.extension_version or None)
 
-    resolution = ExtensionContextResolver(ctx.session, ctx.workspace_id).resolve(
+    resolution = ExtensionContextResolver(
+        ctx.session, ctx.workspace_id, visible_ids=ctx.visible_ad_account_ids()
+    ).resolve(
         external_account_id=payload.external_account_id,
         raw_path=payload.safe_path,
         declared_page_type=payload.page_type.value if payload.page_type else None,
@@ -140,7 +142,9 @@ def resolve_context(ctx: ExtCtx, payload: s.ContextResolveRequest) -> dict[str, 
 @router.get("/accounts/{ad_account_id}/summary", response_model=s.ExtensionSummaryResponse)
 def extension_summary_for_extension(ctx: ExtCtx, ad_account_id: uuid.UUID) -> dict[str, Any]:
     """The same summary, for an account the operator picked by hand after an ambiguous page."""
-    account = _load_account(ctx.session, ctx.workspace_id, ad_account_id)
+    account = _load_account(
+        ctx.session, ctx.workspace_id, ad_account_id, visible_ids=ctx.visible_ad_account_ids()
+    )
     return ExtensionSummaryService(ctx.session, ctx.workspace_id, ctx.audit).build(account)
 
 
@@ -154,7 +158,9 @@ def record_event(ctx: ExtCtx, payload: s.ExtensionEventRequest) -> dict[str, Any
     It goes through `AccountEventService`, so it lands in the same timeline, writes the same
     audit row and recalculates readiness the same way a dashboard-entered event does.
     """
-    account = _load_account(ctx.session, ctx.workspace_id, payload.ad_account_id)
+    account = _load_account(
+        ctx.session, ctx.workspace_id, payload.ad_account_id, visible_ids=ctx.visible_ad_account_ids()
+    )
     context = build_source_context(
         page_type=payload.page_type,
         context_status=payload.context_status,
@@ -191,15 +197,25 @@ def record_event(ctx: ExtCtx, payload: s.ExtensionEventRequest) -> dict[str, Any
 @account_router.get("/{ad_account_id}/extension-summary", response_model=s.ExtensionSummaryResponse)
 def extension_summary(ctx: AnyCtx, ad_account_id: uuid.UUID) -> dict[str, Any]:
     """The account summary as the extension sees it, readable from either session type."""
-    account = _load_account(ctx.session, ctx.workspace_id, ad_account_id)
+    account = _load_account(
+        ctx.session, ctx.workspace_id, ad_account_id, visible_ids=ctx.visible_ad_account_ids()
+    )
     return ExtensionSummaryService(ctx.session, ctx.workspace_id, ctx.audit).build(account)
 
 
-def _load_account(session, workspace_id: uuid.UUID, ad_account_id: uuid.UUID) -> AdAccount:
-    """A foreign account is reported as missing, never as forbidden: an error that
-    distinguishes the two tells a caller which ids exist in another workspace."""
+def _load_account(
+    session,
+    workspace_id: uuid.UUID,
+    ad_account_id: uuid.UUID,
+    *,
+    visible_ids: set[uuid.UUID] | None = None,
+) -> AdAccount:
+    """A foreign or out-of-scope account is reported as missing, never as forbidden: an error that
+    distinguishes the two tells a caller which ids exist outside their scope."""
     account = session.get(AdAccount, ad_account_id)
     if account is None or account.workspace_id != workspace_id:
+        raise NotFoundError("That ad account was not found.")
+    if visible_ids is not None and account.id not in visible_ids:
         raise NotFoundError("That ad account was not found.")
     return account
 

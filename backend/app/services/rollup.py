@@ -81,11 +81,14 @@ class ReadinessRollupService:
                 )
         return result
 
-    def summary(self) -> dict[str, int]:
+    def summary(self, *, visible_ids: set[uuid.UUID] | None = None) -> dict[str, int]:
+        stmt = sa.select(AdAccount.readiness_status, AdAccount.archived_at, sa.func.count()).where(
+            AdAccount.workspace_id == self.workspace_id
+        )
+        if visible_ids is not None:
+            stmt = stmt.where(AdAccount.id.in_(visible_ids))
         rows = self.session.execute(
-            sa.select(AdAccount.readiness_status, AdAccount.archived_at, sa.func.count())
-            .where(AdAccount.workspace_id == self.workspace_id)
-            .group_by(AdAccount.readiness_status, AdAccount.archived_at)
+            stmt.group_by(AdAccount.readiness_status, AdAccount.archived_at)
         ).all()
         counts = {status.value: 0 for status in ReadinessStatus}
         archived = 0
