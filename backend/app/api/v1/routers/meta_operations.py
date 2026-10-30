@@ -754,6 +754,27 @@ def run_workspace_quick_sync(
 
         if existing_ws_accounts and latest_ws_run is not None:
             if clean_token and not clean_input:
+                from app.models.spend import AdAccountSpendObservation
+                observed_acc_ids = set(
+                    session.execute(
+                        sa.select(AdAccountSpendObservation.ad_account_id)
+                        .where(AdAccountSpendObservation.workspace_id == workspace_id)
+                        .distinct()
+                    )
+                    .scalars()
+                    .all()
+                )
+                unobs = [a for a in existing_ws_accounts if a.id not in observed_acc_ids]
+                for acc_u in unobs[:10]:
+                    with contextlib.suppress(Exception), session.begin_nested():
+                        reader = spend_service.resolve_spend_connection(session, workspace_id, acc_u)
+                        if reader is not None:
+                            prov = spend_service.provider_for_connection(reader)
+                            spend_service.SpendObservationService(
+                                session, workspace_id
+                            ).read_and_record(
+                                acc_u, reader, prov, trigger=SpendObservationTrigger.MANUAL_REFRESH
+                            )
                 all_active_bms = (
                     session.execute(
                         sa.select(BusinessManager).where(

@@ -184,6 +184,16 @@ def _reconcile_production_bm_links(session, workspace_id) -> None:
         "Xây Dựng - Tân Hòa",
         "Trang quản lý tài sản doanh nghiệp (Sở hữu TKQC TK-Xây Dựng 1730165772447559)",
     )
+    mat_bao_bm = _ensure_bm(
+        "102968402561310",
+        "Công Ty Cổ Phần Mắt Bão",
+        "Trang quản lý tài sản doanh nghiệp (6 tài khoản quảng cáo Mắt Bão)",
+    )
+    _ensure_bm(
+        "816138097891502",
+        "Mat Bao Corporation",
+        "Trang quản lý tài sản doanh nghiệp (Mat Bao Corporation)",
+    )
 
     trieu_via = (
         session.execute(
@@ -312,6 +322,54 @@ def _reconcile_production_bm_links(session, workspace_id) -> None:
                 xd_acc.personal_account_reference_id = trieu_via.id
                 changed = True
 
+    # 1b) Ensure all 6 Ad Accounts of BM Công Ty Cổ Phần Mắt Bão (102968402561310) exist and are mapped to mat_bao_bm
+    if mat_bao_bm is not None:
+        mb_accounts_spec = [
+            ("659208850058410", "CTY MẮT BÃO", "VND", "Asia/Ho_Chi_Minh"),
+            ("4109242709312785", "Công Ty MBI - MBC", "VND", "Asia/Ho_Chi_Minh"),
+            ("996876978574999", "CP MẮT BÃO INVOICE", "USD", "Asia/Ho_Chi_Minh"),
+            ("487663100420907", "Branding_Công ty CP Mắt Bão", "USD", "Asia/Ho_Chi_Minh"),
+            ("160263643531519", "Hóa đơn điện tử MIFI", "USD", "Asia/Ho_Chi_Minh"),
+            ("764307044801093", "Công ty CP Mắt Bão", "USD", "Asia/Ho_Chi_Minh"),
+        ]
+        for mb_ext, mb_name, mb_curr, mb_tz in mb_accounts_spec:
+            mb_acc = acc_by_ext.get(mb_ext)
+            if mb_acc is None:
+                try:
+                    with session.begin_nested():
+                        mb_acc = AdAccount(
+                            workspace_id=workspace_id,
+                            display_name=mb_name,
+                            external_account_id=mb_ext,
+                            account_type=AccountType.BUSINESS_MANAGER,
+                            business_manager_id=mat_bao_bm.id,
+                            personal_account_reference_id=trieu_via.id if trieu_via else None,
+                            status=AccountStatus.ACTIVE,
+                            currency=mb_curr,
+                            timezone=mb_tz,
+                            country="VN",
+                            owner_label="Công Ty Cổ Phần Mắt Bão",
+                            last_manual_review_at=now_ts,
+                        )
+                        session.add(mb_acc)
+                        session.flush()
+                        acc_by_ext[mb_ext] = mb_acc
+                        newly_initialized.append(mb_acc)
+                        changed = True
+                except Exception:
+                    pass
+            else:
+                if mb_acc.archived_at is not None:
+                    mb_acc.archived_at = None
+                    changed = True
+                if mb_acc.business_manager_id != mat_bao_bm.id or mb_acc.account_type != AccountType.BUSINESS_MANAGER:
+                    mb_acc.business_manager_id = mat_bao_bm.id
+                    mb_acc.account_type = AccountType.BUSINESS_MANAGER
+                    changed = True
+                if trieu_via is not None and mb_acc.personal_account_reference_id != trieu_via.id:
+                    mb_acc.personal_account_reference_id = trieu_via.id
+                    changed = True
+
     # 2) Ensure Personal Ad Account Nguyễn Thiên Triều (349735764764551) exists and is PERSONAL_REFERENCE (no BM)
     pers_acc = acc_by_ext.get("349735764764551")
     if pers_acc is None:
@@ -353,7 +411,88 @@ def _reconcile_production_bm_links(session, workspace_id) -> None:
             pers_acc.owner_label = "Nguyễn Thiên Triều"
             changed = True
 
-    # Initialize assets, checklist & readiness for newly created accounts
+    # Also include any existing active account whose readiness is still UNKNOWN (e.g. newly discovered from multi-BM sync)
+    from app.core.enums import MetaEnvironment, ReadinessStatus
+    from app.models.meta_operations import MetaConnection
+    for cand_a in acc_by_ext.values():
+        if cand_a.archived_at is None and cand_a.readiness_status == ReadinessStatus.UNKNOWN and cand_a not in newly_initialized:
+            newly_initialized.append(cand_a)
+            changed = True
+
+    # Ensure every active BusinessManager has an active PRODUCTION MetaConnection so spend_service can observe all BMs
+    all_bms_now = (
+        session.execute(
+            sa.select(BusinessManager).where(
+                BusinessManager.workspace_id == workspace_id,
+                BusinessManager.archived_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    existing_prod_conns = {
+        (c.business_manager_reference or "").strip(): c
+        for c in session.execute(
+            sa.select(MetaConnection).where(
+                MetaConnection.workspace_id == workspace_id,
+                MetaConnection.archived_at.is_(None),
+                MetaConnection.environment == MetaEnvironment.PRODUCTION,
+            )
+        )
+        .scalars()
+        .all()
+    }
+    for b_row in all_bms_now:
+        b_ext = (b_row.external_id or "").strip()
+        if b_ext and b_ext not in existing_prod_conns:
+            try:
+                with session.begin_nested():
+                    c_new = MetaConnection(
+                        workspace_id=workspace_id,
+                        label=b_row.name[:200],
+                        environment=MetaEnvironment.PRODUCTION,
+                        business_manager_reference=b_ext,
+                        auto_discovery_enabled=True,
+                        auto_import_enabled=True,
+                        automation_enabled_by=actor_id,
+                        automation_enabled_at=now_ts,
+                        created_by=actor_id,
+                    )
+                    session.add(c_new)
+                    session.flush()
+                    existing_prod_conns[b_ext] = c_new
+                    changed = True
+            except Exception:
+                pass
+        if trieu_via is not None:
+            has_b_lnk = session.execute(
+                sa.select(PersonalAccountBusinessLink.id).where(
+                    PersonalAccountBusinessLink.workspace_id == workspace_id,
+                    PersonalAccountBusinessLink.personal_account_reference_id == trieu_via.id,
+                    PersonalAccountBusinessLink.business_manager_id == b_row.id,
+                    PersonalAccountBusinessLink.unlinked_at.is_(None),
+                )
+            ).first()
+            if has_b_lnk is None:
+                try:
+                    with session.begin_nested():
+                        session.add(
+                            PersonalAccountBusinessLink(
+                                workspace_id=workspace_id,
+                                personal_account_reference_id=trieu_via.id,
+                                business_manager_id=b_row.id,
+                                role=IdentityBusinessRole.ADMIN,
+                                linked_at=now_ts,
+                                linked_by=actor_id,
+                                note=f"Quản trị viên BM {b_row.name}",
+                            )
+                        )
+                        session.flush()
+                        changed = True
+                except Exception:
+                    pass
+
+    # Initialize assets, checklist & readiness for newly created or uninitialized accounts
     if newly_initialized:
         default_browser = (
             session.execute(
@@ -480,7 +619,7 @@ def _reconcile_production_bm_links(session, workspace_id) -> None:
 
     for acc in active_accounts:
         ext_acc = canonical_external_id(acc.external_account_id)
-        if ext_acc in ("349735764764551", "1730165772447559"):
+        if ext_acc in ("349735764764551", "1730165772447559", "659208850058410", "4109242709312785", "996876978574999", "487663100420907", "160263643531519", "764307044801093"):
             continue
         if ext_acc == "148004397" and trieu_bm is not None:
             if acc.business_manager_id != trieu_bm.id:
