@@ -67,6 +67,26 @@ export function withCommonFields(fields: FieldSpec[]): FieldSpec[] {
   return [...fields, STATUS_FIELD, NOTES_FIELD]
 }
 
+function parseBmLimit(notesRaw: unknown, currentCount: number): { limit: number; tierLabel: string; verified: boolean; explicit: boolean } {
+  const notes = String(notesRaw ?? '')
+  const match = notes.match(/\[BM_LIMIT:(\d+)\]/i)
+  if (match) {
+    const lim = parseInt(match[1], 10)
+    const verified = lim >= 10 || /xmdn|verified/i.test(notes)
+    return {
+      limit: lim,
+      tierLabel: lim >= 10 ? `BM${lim} ?? ???? XMDN` : `BM${lim} ?? Ch??a XMDN`,
+      verified,
+      explicit: true,
+    }
+  }
+  if (currentCount > 10) return { limit: 30, tierLabel: 'BM30 ?? ???? XMDN', verified: true, explicit: false }
+  if (currentCount > 5) return { limit: 10, tierLabel: 'BM10 ?? ???? XMDN', verified: true, explicit: false }
+  if (currentCount > 3) return { limit: 5, tierLabel: 'BM5 ?? ???? c?? bill', verified: false, explicit: false }
+  if (currentCount > 1) return { limit: 3, tierLabel: 'BM3 ?? ???? c?? bill', verified: false, explicit: false }
+  return { limit: 5, tierLabel: 'BM1???BM5 ?? Ti??u chu???n', verified: false, explicit: false }
+}
+
 /** What the record is called in a sentence: its first required text field, else its id. */
 function recordLabel(spec: ResourceSpec, record: ReferenceRecord): string {
   for (const field of spec.fields) {
@@ -90,6 +110,7 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
   const [readBack, setReadBack] = useState<{ ok: boolean; text: string } | null>(null)
 
   const isBmResource = spec.key === 'business-managers'
+  const isPaymentResource = spec.key === 'payment-profile-references'
 
   const list = useQuery({
     queryKey: [spec.key, 'list', { archived, search }],
@@ -100,7 +121,7 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
   const bmAccountsQuery = useQuery({
     queryKey: ['accounts', 'by-bm-lookup'],
     queryFn: () => api.get<Paged<AdAccount>>('/api/v1/ad-accounts?page_size=200'),
-    enabled: isBmResource,
+    enabled: isBmResource || isPaymentResource,
   })
 
   function invalidate() {
@@ -109,8 +130,6 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
     void queryClient.invalidateQueries({ queryKey: ['business-managers', 'options'] })
   }
 
-  // Archive / restore: ask, write, then read the list back and say what the server now holds
-  // (skill 6.4). "Sent" is not "done".
   const change = useMutation({
     mutationFn: async ({ kind, record }: { kind: 'archive' | 'restore'; record: ReferenceRecord }) => {
       await api.post(`${spec.path}/${record.id}/${kind}`)
@@ -120,7 +139,6 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
           api.get<Paged<ReferenceRecord>>(`${spec.path}${query({ archived, search, page_size: 200 })}`),
         staleTime: 0,
       })
-      // Archiving from the active list (or restoring from the archived list) must make the row leave it.
       return { kind, record, gone: !fresh.items.some((item) => item.id === record.id) }
     },
     onSuccess: ({ kind, record, gone }) => {
@@ -138,11 +156,13 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
   const visibleFields = spec.fields.filter((field) => !field.hideInTable)
   const name = t(spec.singular)
   const rows = list.data?.items ?? []
-  const bmAccountColLabel = language === 'vi' ? 'Tài khoản quảng cáo' : 'Ad accounts'
+  const bmAccountColLabel = language === 'vi' ? 'T??i kho???n QC & H???n m???c BM' : 'Ad accounts & BM limit'
+  const paymentAccountColLabel = language === 'vi' ? 'TKQC ??ang g???n (An to??n ??? 3/th???)' : 'Linked Ad Accounts (Safe ??? 3)'
 
   const accountsByBmId = new Map<string, AdAccount[]>()
+  const allAccounts = bmAccountsQuery.data?.items ?? []
   if (isBmResource) {
-    for (const acc of bmAccountsQuery.data?.items ?? []) {
+    for (const acc of allAccounts) {
       if (acc.business_manager_id) {
         const cur = accountsByBmId.get(acc.business_manager_id) ?? []
         cur.push(acc)
@@ -151,9 +171,23 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
     }
   }
 
+  function getAccountsForPaymentCard(record: ReferenceRecord): AdAccount[] {
+    const code = String(record.reference_code ?? '').trim().toLowerCase()
+    const lbl = String(record.label ?? '').trim().toLowerCase()
+    if (!code && !lbl) return []
+    return allAccounts.filter((acc) => {
+      const pLabels = acc.payment_profile_labels ?? []
+      return pLabels.some((pl) => {
+        const low = pl.toLowerCase()
+        return (code && low.includes(code)) || (lbl && low.includes(lbl))
+      })
+    })
+  }
+
   const columns = [
     ...visibleFields.map((field) => t(field.label)),
     ...(isBmResource ? [bmAccountColLabel] : []),
+    ...(isPaymentResource ? [paymentAccountColLabel] : []),
     t('ref.col.updated'),
     t('pg.actions'),
   ]
@@ -170,6 +204,12 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
           </Button>
         </div>
       </div>
+
+      {isPaymentResource && (
+        <div className="rounded-md border border-line bg-surface px-3.5 py-2 text-xs text-ink">
+          <strong>Quy t???c an to??n th??? thanh to??n:</strong> Meta cho ph??p g???n t???i ??a <strong>9???10 TKQC / 1 th???</strong>, nh??ng th???c chi???n ch??? n??n g???n t???i ??a <strong className="text-success-text">1 ??? 3 TKQC / 1 th???</strong> ????? tr??nh ch???t li??n ?????i (b??o th???) khi 1 TKQC b??? v?? hi???u ho?? ho???c th??? h???t ti???n.
+        </div>
+      )}
 
       {spec.note && <Note>{t(spec.note)}</Note>}
       {readBack && (
@@ -203,6 +243,7 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
                   <TableHead key={field.name}>{t(field.label)}</TableHead>
                 ))}
                 {isBmResource && <TableHead>{bmAccountColLabel}</TableHead>}
+                {isPaymentResource && <TableHead>{paymentAccountColLabel}</TableHead>}
                 <TableHead>{t('ref.col.updated')}</TableHead>
                 <TableHead className="text-right">{t('pg.actions')}</TableHead>
               </TableRow>
@@ -227,7 +268,7 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
                         </a>
                       ) : (
                         <span className={field.name.includes('reference') ? 'font-mono text-xs' : undefined}>
-                          {record[field.name] ? String(record[field.name]) : '—'}
+                          {record[field.name] ? String(record[field.name]) : '???'}
                         </span>
                       )}
                     </TableCell>
@@ -236,50 +277,84 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
                     <TableCell label={bmAccountColLabel}>
                       {(() => {
                         const linkedAccs = accountsByBmId.get(String(record.id)) ?? []
-                        if (linkedAccs.length === 0) {
-                          return (
-                            <span className="text-xs text-ink-muted">
-                              {language === 'vi' ? 'Chưa có TKQC' : '0 accounts'}
-                            </span>
-                          )
-                        }
+                        const bmQuota = parseBmLimit(record.notes, linkedAccs.length)
+                        const remaining = Math.max(0, bmQuota.limit - linkedAccs.length)
+                        return (
+                          <div className="space-y-1.5">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <Badge tone={linkedAccs.length >= bmQuota.limit ? 'caution' : 'positive'}>
+                                {`${linkedAccs.length} / ${bmQuota.limit} TKQC`}
+                              </Badge>
+                              <Badge tone={bmQuota.verified ? 'info' : 'neutral'}>
+                                {bmQuota.tierLabel}
+                              </Badge>
+                              <span className="text-[11px] font-medium text-ink-muted">
+                                {remaining > 0 ? `(C??n t???o ???????c ${remaining})` : '(Ch???m tr???n h???n m???c)'}
+                              </span>
+                            </div>
+                            {linkedAccs.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {linkedAccs.slice(0, 4).map((acc) => (
+                                  <Link
+                                    key={acc.id}
+                                    to={`/accounts/${acc.id}`}
+                                    className="inline-flex items-center rounded border border-line bg-surface-muted px-1.5 py-0.5 text-[11px] font-medium text-ink hover:border-brand hover:text-brand-text"
+                                  >
+                                    {acc.display_name}
+                                  </Link>
+                                ))}
+                                {linkedAccs.length > 4 && (
+                                  <Link
+                                    to="/accounts"
+                                    className="inline-flex items-center rounded border border-line bg-surface-muted px-1.5 py-0.5 text-[11px] font-semibold text-brand-text hover:underline"
+                                  >
+                                    +{linkedAccs.length - 4} TKQC kh??c ???
+                                  </Link>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })()}
+                    </TableCell>
+                  )}
+                  {isPaymentResource && (
+                    <TableCell label={paymentAccountColLabel}>
+                      {(() => {
+                        const linkedAccs = getAccountsForPaymentCard(record)
+                        const count = linkedAccs.length
+                        const tone = count === 0 ? 'neutral' : count <= 2 ? 'positive' : count === 3 ? 'caution' : 'attention'
+                        const statusText =
+                          count === 0
+                            ? '0 / 3 TKQC ?? Ch??a g???n'
+                            : count <= 2
+                              ? `${count} / 3 TKQC ?? An to??n`
+                              : count === 3
+                                ? '3 / 3 TKQC ?? T???i ??a khuy???n ngh???'
+                                : `?????? ${count} / 10 TKQC ?? V?????t ng?????ng an to??n (D??? ch???t li??n ?????i)`
                         return (
                           <div className="space-y-1">
                             <div className="flex flex-wrap items-center gap-1.5">
-                              <Badge tone="positive">
-                                {language === 'vi'
-                                  ? `${linkedAccs.length} tài khoản`
-                                  : `${linkedAccs.length} account(s)`}
-                              </Badge>
-                              <Link
-                                to="/accounts"
-                                className="text-xs font-medium text-brand-text hover:underline"
-                              >
-                                {language === 'vi' ? 'Xem danh sách →' : 'View all →'}
-                              </Link>
+                              <Badge tone={tone}>{statusText}</Badge>
                             </div>
-                            <div className="flex flex-wrap gap-1">
-                              {linkedAccs.slice(0, 4).map((acc) => (
-                                <Link
-                                  key={acc.id}
-                                  to={`/accounts/${acc.id}`}
-                                  className="inline-flex items-center rounded border border-line bg-surface-muted px-1.5 py-0.5 text-[11px] font-medium text-ink hover:border-brand hover:text-brand-text"
-                                >
-                                  {acc.display_name}
-                                  {acc.external_account_id && acc.external_account_id !== acc.display_name
-                                    ? ` (${acc.external_account_id})`
-                                    : ''}
-                                </Link>
-                              ))}
-                              {linkedAccs.length > 4 && (
-                                <Link
-                                  to="/accounts"
-                                  className="inline-flex items-center rounded border border-line bg-surface-muted px-1.5 py-0.5 text-[11px] text-ink-muted hover:text-ink"
-                                >
-                                  +{linkedAccs.length - 4} {language === 'vi' ? 'khác' : 'more'}
-                                </Link>
-                              )}
-                            </div>
+                            {count > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {linkedAccs.slice(0, 4).map((acc) => (
+                                  <Link
+                                    key={acc.id}
+                                    to={`/accounts/${acc.id}`}
+                                    className="inline-flex items-center rounded border border-line bg-surface-muted px-1.5 py-0.5 text-[11px] font-medium text-ink hover:border-brand hover:text-brand-text"
+                                  >
+                                    {acc.display_name}
+                                  </Link>
+                                ))}
+                                {count > 4 && (
+                                  <span className="text-[11px] font-medium text-ink-muted">
+                                    +{count - 4} kh??c
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </div>
                         )
                       })()}
@@ -310,7 +385,7 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
                             onClick={() => setPending({ kind: 'archive', record })}
                           >
                             <Trash2 className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
-                            {language === 'vi' ? 'Xóa' : 'Delete'}
+                            {language === 'vi' ? 'X??a' : 'Delete'}
                           </Button>
                         </>
                       )}
@@ -372,6 +447,7 @@ function ReferenceSheet({
 }) {
   const { t } = useI18n()
   const [values, setValues] = useState<Record<string, string>>({})
+  const [bmLimitOption, setBmLimitOption] = useState<string>('')
   const [touched, setTouched] = useState<Record<string, boolean>>({})
   const [showAdvanced, setShowAdvanced] = useState(Boolean(record))
 
@@ -381,6 +457,9 @@ function ReferenceSheet({
       const current = record?.[field.name]
       next[field.name] = current === null || current === undefined ? '' : String(current)
     }
+    const rawNotes = String(record?.notes ?? '')
+    const m = rawNotes.match(/\[BM_LIMIT:(\d+)\]/i)
+    setBmLimitOption(m ? m[1] : '')
     setValues(next)
     setTouched({})
     setShowAdvanced(Boolean(record))
@@ -393,8 +472,11 @@ function ReferenceSheet({
         const raw = (values[field.name] ?? '').trim()
         payload[field.name] = raw === '' ? (field.required ? raw : null) : field.uppercase ? raw.toUpperCase() : raw
       }
-      // Text columns are non-nullable on the server; only optional identifiers may be null.
-      if (payload.notes === null) payload.notes = ''
+      let cleanNotes = String(payload.notes ?? '').replace(/\[BM_LIMIT:\d+\]\s*/gi, '').trim()
+      if (spec.key === 'business-managers' && bmLimitOption) {
+        cleanNotes = `[BM_LIMIT:${bmLimitOption}] ${cleanNotes}`.trim()
+      }
+      payload.notes = cleanNotes
       return record
         ? api.patch(`${spec.path}/${record.id}`, payload)
         : api.post(spec.path, payload)
@@ -473,6 +555,30 @@ function ReferenceSheet({
             </Field>
           )
         })}
+
+        {spec.key === 'business-managers' && (
+          <Field
+            htmlFor="bm-limit-select"
+            label="C???p ????? BM & Gi???i h???n t???o T??i kho???n QC"
+            hint="BM m???i t???o ???????c 1 TKQC (BM1). Sau khi thanh to??n bill ?????u ti??n t??ng l??n 3???5 TKQC (BM3/BM5). Sau khi X??c minh doanh nghi???p (XMDN) t??ng l??n 10 ??? 30 ??? 250+ TKQC."
+          >
+            <select
+              id="bm-limit-select"
+              className="input"
+              value={bmLimitOption}
+              onChange={(e) => setBmLimitOption(e.target.value)}
+            >
+              <option value="">T??? ?????ng nh???n di???n theo s??? TKQC hi???n t???i</option>
+              <option value="1">BM1 ??? M???i t???o / Ch??a bill (T???i ??a 1 TKQC)</option>
+              <option value="3">BM3 ??? ???? c?? bill thanh to??n (T???i ??a 3 TKQC)</option>
+              <option value="5">BM5 ??? Ti??u chu???n (T???i ??a 5 TKQC)</option>
+              <option value="10">BM10 ??? ???? X??c minh doanh nghi???p / XMDN (T???i ??a 10 TKQC)</option>
+              <option value="30">BM30 ??? ???? XMDN C???p cao (T???i ??a 30 TKQC)</option>
+              <option value="250">BM250 ??? Agency XMDN (T???i ??a 250 TKQC)</option>
+            </select>
+          </Field>
+        )}
+
         {spec.key === 'business-managers' && (
           <div>
             <Button
