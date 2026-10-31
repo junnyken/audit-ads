@@ -595,8 +595,23 @@ export function FacebookAccountFormSheet({
                 )}
               </div>
               <p className="text-[11px] text-ink-muted">
-                💡 Khi bạn dán <code>IP:Port:User:Pass</code> vào ô này, bấm <strong>🚀 Mở Chrome</strong> sẽ tự động gắn sẵn Proxy & tự đăng nhập vào đúng Chrome Profile (hoặc bấm <strong>🔌 Xuất SwitchyOmega</strong> nếu muốn nhập file <code>.bak</code> vào tiện ích SwitchyOmega).
+                💡 Dán <code>IP:Port:User:Pass</code> (chuẩn <strong>IPv4 Dân cư tĩnh VN</strong>, tối đa <strong>1–2 Via/Proxy</strong>) → bấm <strong>🚀 Mở Chrome</strong> để tự động gắn Proxy.
               </p>
+              <div className="flex flex-wrap items-center gap-1.5 pt-0.5 text-[11px]">
+                <span className="font-semibold text-ink-muted">Mua & Quản lý Proxy:</span>
+                <a href="https://proxyvn.vn/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface px-1.5 py-0.5 font-semibold text-brand-text hover:border-brand hover:underline">
+                  🛒 ProxyVN.vn ↗
+                </a>
+                <a href="https://zingproxy.com/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface px-1.5 py-0.5 font-semibold text-brand-text hover:border-brand hover:underline">
+                  🛒 ZingProxy.com ↗
+                </a>
+                <a href="https://muaproxy.vn/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface px-1.5 py-0.5 font-semibold text-brand-text hover:border-brand hover:underline">
+                  🛒 MuaProxy.vn ↗
+                </a>
+                <a href="https://vproxy.vn/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface px-1.5 py-0.5 font-semibold text-brand-text hover:border-brand hover:underline">
+                  🛒 VProxy.vn ↗
+                </a>
+              </div>
             </div>
           </Field>
         </div>

@@ -211,6 +211,29 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
         </div>
       )}
 
+      {spec.key === 'proxy-references' && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-line bg-surface px-3.5 py-2 text-xs text-ink">
+          <div>
+            <strong>Chuẩn Proxy nuôi Via:</strong> Dùng <strong className="text-brand-text">IPv4 Dân cư tĩnh VN (Viettel/VNPT/FPT)</strong> · Hạn mức: <strong className="text-success-text">1 Proxy = 1–2 Via</strong> (tránh IPv6 & Proxy xoay).
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] font-semibold text-ink-muted">Mua & Gia hạn nhanh:</span>
+            <a href="https://proxyvn.vn/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface-muted px-2 py-0.5 text-[11px] font-semibold text-brand-text hover:border-brand hover:underline">
+              🛒 ProxyVN.vn ↗
+            </a>
+            <a href="https://zingproxy.com/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface-muted px-2 py-0.5 text-[11px] font-semibold text-brand-text hover:border-brand hover:underline">
+              🛒 ZingProxy.com ↗
+            </a>
+            <a href="https://muaproxy.vn/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface-muted px-2 py-0.5 text-[11px] font-semibold text-brand-text hover:border-brand hover:underline">
+              🛒 MuaProxy.vn ↗
+            </a>
+            <a href="https://vproxy.vn/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface-muted px-2 py-0.5 text-[11px] font-semibold text-brand-text hover:border-brand hover:underline">
+              🛒 VProxy.vn ↗
+            </a>
+          </div>
+        </div>
+      )}
+
       {spec.note && <Note>{t(spec.note)}</Note>}
       {readBack && (
         <Note role="status" tone={readBack.ok ? undefined : 'caution'}>
