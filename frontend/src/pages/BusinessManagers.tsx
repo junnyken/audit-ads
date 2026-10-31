@@ -11,7 +11,7 @@ export default function BusinessManagers() {
   const [tab, setTab] = useState('bm')
   return (
     <div className="space-y-4">
-      <PageHeader title={t('bm.title')} description={t('bm.desc')} />
+      <PageHeader title={t('bm.title')} />
       <QuickMetaSyncBanner />
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList aria-label={t('bm.title')}>

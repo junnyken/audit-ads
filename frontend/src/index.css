@@ -27,30 +27,23 @@
 }
 
 @layer components {
-  .card { @apply bg-surface border border-line rounded-lg; }
+  .card { @apply bg-surface border border-line rounded-lg shadow-sm; }
   .btn {
     @apply inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-[13px]
-           font-medium border transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+           font-semibold border transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .btn-primary { @apply btn bg-brand text-brand-fg border-brand hover:bg-brand-dark hover:border-brand-dark; }
   .btn-secondary { @apply btn bg-surface text-ink border-line-strong hover:bg-surface-sunken; }
   .btn-ghost { @apply btn bg-transparent border-transparent text-ink-muted hover:bg-surface-sunken; }
   .input {
-    @apply w-full rounded-md border border-line-strong bg-surface px-2.5 py-1.5 text-[13px]
+    @apply w-full rounded-md border border-line-strong bg-surface px-2.5 py-1.5 text-[13px] font-medium text-ink
            placeholder:text-ink-faint disabled:bg-surface-muted;
   }
-  .label { @apply block text-[12px] font-medium text-ink-muted mb-1; }
-  .th { @apply text-left text-[11px] font-semibold uppercase tracking-wide text-ink-faint px-3 py-2; }
-  .td { @apply px-3 py-2 align-middle border-t border-line; }
-  /* Wide content scrolls inside its own container; the page body never scrolls sideways. */
+  .label { @apply block text-[12px] font-semibold text-ink mb-1; }
+  .th { @apply text-left text-[11px] font-bold uppercase tracking-wide text-ink px-3 py-2.5 bg-surface-muted/60; }
+  .td { @apply px-3 py-2.5 align-middle border-t border-line text-ink; }
   .table-scroll { @apply w-full overflow-x-auto; }
 
-  /*
-   * Table -> cards at 640px and below (U1 T2). The header row stays in the DOM, visually hidden,
-   * so the columns keep their names for assistive technology; each cell prints its own caption
-   * from `data-label`. Roles are set explicitly in primitives/table.tsx because overriding
-   * `display` strips the native table semantics in some browsers.
-   */
   @media (max-width: 640px) {
     .tbl-cards, .tbl-cards tbody, .tbl-cards tr, .tbl-cards td { display: block; width: 100%; }
     .tbl-cards thead {
@@ -63,23 +56,18 @@
     }
     .tbl-cards td[data-label]::before {
       content: attr(data-label);
-      @apply shrink-0 text-left text-xs text-ink-faint;
+      @apply shrink-0 text-left text-xs font-semibold text-ink-muted;
     }
     .tbl-cards td.cell-title { @apply block text-left; }
     .tbl-cards td.cell-title::before { content: none; }
   }
 
-  /*
-   * The six tones (U1 §10b). Which state gets which tone is decided in src/lib/readiness.ts and
-   * nowhere else; this block only paints them. Light/dark values live in tokens.css, so a badge
-   * keeps its meaning when the theme changes.
-   */
-  .tone-positive { @apply bg-tone-positive-bg text-tone-positive-fg border-tone-positive-border; }
-  .tone-caution { @apply bg-tone-caution-bg text-tone-caution-fg border-tone-caution-border; }
-  .tone-attention { @apply bg-tone-attention-bg text-tone-attention-fg border-tone-attention-border; }
-  .tone-info { @apply bg-tone-info-bg text-tone-info-fg border-tone-info-border; }
-  .tone-neutral { @apply bg-tone-neutral-bg text-tone-neutral-fg border-tone-neutral-border; }
-  .tone-muted { @apply bg-tone-muted-bg text-tone-muted-fg border-tone-muted-border; }
+  .tone-positive { @apply bg-tone-positive-bg text-tone-positive-fg border-tone-positive-border font-semibold; }
+  .tone-caution { @apply bg-tone-caution-bg text-tone-caution-fg border-tone-caution-border font-semibold; }
+  .tone-attention { @apply bg-tone-attention-bg text-tone-attention-fg border-tone-attention-border font-semibold; }
+  .tone-info { @apply bg-tone-info-bg text-tone-info-fg border-tone-info-border font-semibold; }
+  .tone-neutral { @apply bg-tone-neutral-bg text-tone-neutral-fg border-tone-neutral-border font-semibold; }
+  .tone-muted { @apply bg-tone-muted-bg text-tone-muted-fg border-tone-muted-border font-medium; }
   .tone-dot-positive { @apply bg-tone-positive-fg; }
   .tone-dot-caution { @apply bg-tone-caution-fg; }
   .tone-dot-attention { @apply bg-tone-attention-fg; }

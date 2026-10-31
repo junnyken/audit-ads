@@ -8,7 +8,11 @@ import AlertDrawer from '../components/AlertDrawer'
 import { ALERT_SEVERITY_META, ALERT_STATUS_META, DELIVERY_STATUS_META } from '../lib/alerts'
 import { HEALTH_META } from '../lib/health'
 import { READINESS_META } from '../lib/readiness'
-import { formatCount, formatDateTime, formatRelative } from '../lib/format'
+import {
+  formatShortProfileBadge,
+  launchInAssignedChromeProfile,
+} from '../lib/chromeProfileLauncher'
+import { formatDateTime, formatRelative } from '../lib/format'
 import { columnsStorageKey, loadColumns, saveColumns } from '../lib/columnPrefs'
 import { useAuth } from '../hooks/useAuth'
 import { useI18n } from '../i18n'
@@ -18,14 +22,13 @@ import { Badge } from '../components/primitives/badge'
 import { Button } from '../components/primitives/button'
 import { Card } from '../components/primitives/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/primitives/table'
-import { EmptyState, ErrorState, PartialDataNote } from '../components/states'
+import { EmptyState, ErrorState } from '../components/states'
 import { PageHeader } from '../components/page/PageHeader'
 import { CheckField, FilterChips, SearchField, SelectField } from '../components/page/Filters'
 import type { FilterChip } from '../components/page/Filters'
 import { ColumnChooser, ListToolbar } from '../components/page/ListToolbar'
 import { Pager } from '../components/page/Pager'
 import { TableSkeleton } from '../components/page/TableSkeleton'
-import { Note } from './account/parts'
 
 const SORT_KEYS = ['severity', 'last_observed_at', 'first_observed_at', 'title'] as const
 const SEVERITY_OPTIONS = ['critical', 'warning', 'info']
@@ -37,7 +40,7 @@ const DELIVERY_OPTIONS = ['pending', 'sent', 'failed_transient', 'failed_final',
 
 const COLUMN_IDS = ['severity', 'account', 'facebook_identity', 'health', 'readiness', 'source', 'status', 'first', 'last', 'delivery', 'notified', 'suppression'] as const
 type ColumnId = (typeof COLUMN_IDS)[number]
-const DEFAULT_COLUMNS: ColumnId[] = ['severity', 'account', 'facebook_identity', 'health', 'status', 'last', 'delivery', 'suppression']
+const DEFAULT_COLUMNS: ColumnId[] = ['severity', 'account', 'facebook_identity', 'status', 'last']
 const COLUMN_LABEL: Record<ColumnId, TranslationKey> = {
   severity: 'al.col.severity',
   account: 'al.col.account',
@@ -51,6 +54,42 @@ const COLUMN_LABEL: Record<ColumnId, TranslationKey> = {
   delivery: 'al.col.delivery',
   notified: 'al.col.notified',
   suppression: 'al.col.suppression',
+}
+
+function formatConciseAlert(row: AlertRow): { title: string; summary: string } {
+  const rawTitle = (row.title || '').trim()
+  const rawSummary = (row.summary || '').trim()
+  const lowerT = rawTitle.toLowerCase()
+  const lowerS = rawSummary.toLowerCase()
+
+  if (lowerT.includes('not operable') || lowerS.includes('account_status 101') || lowerS.includes('closed')) {
+    return {
+      title: 'Tài khoản đã đóng trên Meta (Mã 101)',
+      summary: 'Meta ghi nhận tài khoản đã đóng hoặc ngừng hoạt động.',
+    }
+  }
+  if (lowerT.includes('account status is disabled') || lowerT.includes('disabled')) {
+    return {
+      title: 'Tài khoản quảng cáo bị vô hiệu hoá',
+      summary: 'Cần mở Chrome quản trị để kiểm tra chất lượng tài khoản hoặc kháng nghị.',
+    }
+  }
+  if (lowerT.includes('unsettled') || lowerS.includes('unsettled') || lowerT.includes('billing')) {
+    return {
+      title: 'Tài khoản có dư nợ chưa thanh toán',
+      summary: 'Cần mở trang Lập hoá đơn trên Meta để thanh toán dư nợ.',
+    }
+  }
+  if (lowerT.includes('restricted')) {
+    return {
+      title: 'Tài khoản đang bị hạn chế quảng cáo',
+      summary: 'Cần xác minh danh tính hoặc kháng nghị trên trang Chất lượng tài khoản.',
+    }
+  }
+  return {
+    title: rawTitle,
+    summary: rawSummary.length > 110 ? `${rawSummary.slice(0, 108)}…` : rawSummary,
+  }
 }
 
 export default function Alerts() {
@@ -87,7 +126,7 @@ export default function Alerts() {
     setParams(next, { replace: true })
   }
 
-  const storageKey = columnsStorageKey('alerts', user?.id)
+  const storageKey = columnsStorageKey('alerts_v2', user?.id)
   const [visible, setVisible] = useState<ColumnId[]>(() => loadColumns(storageKey, COLUMN_IDS, DEFAULT_COLUMNS))
   const shown = COLUMN_IDS.filter((id) => visible.includes(id))
   function chooseColumns(next: ColumnId[]) {
@@ -124,10 +163,6 @@ export default function Alerts() {
   const moreCount = [filters.source_type, filters.health_status, filters.readiness_status, filters.suppressed, filters.archived ? 'x' : ''].filter(Boolean).length
   const clearAll = () => setParams({}, { replace: true })
 
-  // Only when the summary says so: an unloaded summary is "not known", never "configured".
-  const transportMissing =
-    summary.data && (!summary.data.telegram_transport_configured || !summary.data.recipient_configured)
-
   const items = rows.data?.items ?? []
 
   function cell(id: ColumnId, row: AlertRow) {
@@ -148,7 +183,7 @@ export default function Alerts() {
         return (
           <TableCell key={id} label={label}>
             {row.ad_account_id ? (
-              <Link to={`/accounts/${row.ad_account_id}?tab=health`} className="text-brand-text hover:underline">
+              <Link to={`/accounts/${row.ad_account_id}?tab=health`} className="font-semibold text-brand-text hover:underline">
                 {row.account_display_name}
               </Link>
             ) : (
@@ -159,27 +194,43 @@ export default function Alerts() {
         )
       case 'facebook_identity': {
         const identities = row.facebook_identities ?? []
+        const primary = identities[0]
+        const actDigits = (row.account_reference || '').replace(/^act[-_]/i, '').trim()
+        const targetUrl = actDigits
+          ? `https://business.facebook.com/accountquality/?landing_page=overview&act=${encodeURIComponent(actDigits)}`
+          : 'https://business.facebook.com/accountquality'
         return (
           <TableCell key={id} label={label} className="text-xs">
-            {identities.length > 0 ? (
+            {primary ? (
               <div className="space-y-1">
-                {identities.map((identity) => (
-                  <div key={identity.id}>
-                    <Link to={`/facebook-accounts/${identity.id}`} className="font-medium text-brand-text hover:underline">
-                      {identity.label}
-                    </Link>
-                    <span className="block text-2xs text-ink-muted">
-                      {[identity.owner_member_name, t(`twoFactor.${identity.two_factor_method}`)].filter(Boolean).join(' · ')}
-                    </span>
-                    {(identity.client_name || identity.device_label || identity.browser_profile_label) && (
-                      <span className="block text-2xs font-medium text-ink">
-                        {[identity.client_name, identity.device_label, identity.browser_profile_label]
-                          .filter(Boolean)
-                          .join(' · ')}
-                      </span>
-                    )}
-                  </div>
-                ))}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Link to={`/facebook-accounts/${primary.id}`} className="font-semibold text-brand-text hover:underline">
+                    {primary.label}
+                  </Link>
+                  {primary.browser_profile_label && (
+                    <span className="text-ink-muted">· {formatShortProfileBadge(primary)}</span>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      launchInAssignedChromeProfile(
+                        targetUrl,
+                        primary.browser_profile_label,
+                        primary.label,
+                        primary.network_label,
+                      )
+                    }
+                    className="inline-flex items-center rounded border border-emerald-600/50 bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-bold text-emerald-800 hover:bg-emerald-500/25 dark:text-emerald-300"
+                    title={`Mở trang Chất lượng tài khoản trên đúng Chrome Profile (${primary.browser_profile_label})`}
+                  >
+                    🚀 Mở Chrome xử lý
+                  </button>
+                  {identities.length > 1 && (
+                    <span className="text-[11px] font-medium text-ink-muted">+{identities.length - 1} VIA dự phòng</span>
+                  )}
+                </div>
               </div>
             ) : row.ad_account_id ? (
               <span className="text-ink-muted">{t('al.fb.unlinked')}</span>
@@ -217,13 +268,13 @@ export default function Alerts() {
         )
       case 'first':
         return (
-          <TableCell key={id} label={label} className="whitespace-nowrap text-xs text-ink-muted" title={formatDateTime(row.first_observed_at)}>
+          <TableCell key={id} label={label} className="whitespace-nowrap text-xs font-medium text-ink-muted" title={formatDateTime(row.first_observed_at)}>
             {formatRelative(row.first_observed_at)}
           </TableCell>
         )
       case 'last':
         return (
-          <TableCell key={id} label={label} className="whitespace-nowrap text-xs text-ink-muted" title={formatDateTime(row.last_observed_at)}>
+          <TableCell key={id} label={label} className="whitespace-nowrap text-xs font-medium text-ink-muted" title={formatDateTime(row.last_observed_at)}>
             {formatRelative(row.last_observed_at)}
           </TableCell>
         )
@@ -236,9 +287,6 @@ export default function Alerts() {
               </Badge>
             ) : (
               <span className="text-ink-faint">—</span>
-            )}
-            {row.delivery_skip_reason && (
-              <span className="mt-0.5 block max-w-[220px] text-2xs text-ink-muted">{enumLabel('skipReason', row.delivery_skip_reason)}</span>
             )}
           </TableCell>
         )
@@ -261,26 +309,20 @@ export default function Alerts() {
     }
   }
 
-  const headerNames = [t('al.col.alert'), ...shown.map((id) => t(COLUMN_LABEL[id])), t('col.actions')]
+  const headerNames = [t('al.col.alert'), ...shown.map((id) => t(COLUMN_LABEL[id]))]
 
   return (
     <div className="space-y-4">
-      <PageHeader
-        title={t('al.title')}
-        description={t('al.desc')}
-        meta={rows.data ? t('al.count', { count: formatCount(rows.data.total) }) : '—'}
-      />
+      <PageHeader title={t('al.title')} />
 
-      {transportMissing && (
-        <Note tone="caution" role="status">
-          <strong>{t('al.transport')}</strong>{' '}
-          <Link to="/settings" className="font-medium underline">
-            {t('al.transport.link')}
-          </Link>
-          .
-        </Note>
+      {summary.data && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <SummaryTile label="Nghiêm trọng" value={summary.data.open_critical} tone="attention" active={filters.severity === 'critical' && filters.status === 'open'} onClick={() => update({ severity: 'critical', status: 'open' })} />
+          <SummaryTile label="Cảnh báo" value={summary.data.open_warning} tone="caution" active={filters.severity === 'warning' && filters.status === 'open'} onClick={() => update({ severity: 'warning', status: 'open' })} />
+          <SummaryTile label="Đã ghi nhận" value={summary.data.acknowledged} tone="info" active={filters.status === 'acknowledged'} onClick={() => update({ status: 'acknowledged', severity: null })} />
+          <SummaryTile label="Tạm tắt" value={summary.data.suppressed} tone="muted" active={filters.suppressed === 'true'} onClick={() => update({ suppressed: 'true', status: null, severity: null })} />
+        </div>
       )}
-      {summary.isError && <PartialDataNote>{t('al.partial.summary')}</PartialDataNote>}
 
       <ListToolbar
         label={t('al.toolbar')}
@@ -300,19 +342,16 @@ export default function Alerts() {
               onChange={(value) => update({ status: value })}
               options={[['', t('al.filter.statusActive')], ...STATUS_OPTIONS.map((v) => [v, enumLabel('alertStatus', v)] as [string, string])]}
             />
-            <SelectField
-              label={t('al.filter.delivery')}
-              value={filters.delivery_status}
-              onChange={(value) => update({ delivery_status: value })}
-              options={[
-                ['', t('filter.any')],
-                ...DELIVERY_OPTIONS.map((v) => [v, v === 'failed_final' ? t('al.filter.deliveryFailed') : enumLabel('delivery', v)] as [string, string]),
-              ]}
-            />
           </>
         }
         more={
           <>
+            <SelectField
+              label={t('al.filter.delivery')}
+              value={filters.delivery_status}
+              onChange={(value) => update({ delivery_status: value })}
+              options={[['', t('filter.any')], ...DELIVERY_OPTIONS.map((v) => [v, enumLabel('delivery', v)] as [string, string])]}
+            />
             <SelectField
               label={t('al.filter.source')}
               value={filters.source_type}
@@ -381,22 +420,25 @@ export default function Alerts() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {items.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell className="cell-title min-w-[240px] max-w-[320px]">
-                      <button type="button" className="text-left font-medium text-brand-text hover:underline" onClick={() => setSelected(row.id)}>
-                        {row.title}
-                      </button>
-                      <p className="text-xs text-ink-muted">{row.summary}</p>
-                    </TableCell>
-                    {shown.map((id) => cell(id, row))}
-                    <TableCell className="w-10 text-right">
-                      <Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label={t('al.openNamed', { title: row.title })} onClick={() => setSelected(row.id)}>
-                        <ChevronRight className="h-4 w-4" aria-hidden="true" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {items.map((row) => {
+                  const formatted = formatConciseAlert(row)
+                  return (
+                    <TableRow key={row.id}>
+                      <TableCell className="cell-title min-w-[220px] max-w-[300px]">
+                        <button type="button" className="text-left font-semibold text-brand-text hover:underline" onClick={() => setSelected(row.id)}>
+                          {formatted.title}
+                        </button>
+                        <p className="mt-0.5 text-xs text-ink-muted">{formatted.summary}</p>
+                      </TableCell>
+                      {shown.map((id) => cell(id, row))}
+                      <TableCell className="w-10 text-right">
+                        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label={t('al.openNamed', { title: formatted.title })} onClick={() => setSelected(row.id)}>
+                          <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
               </TableBody>
             </Table>
           </Card>
@@ -405,20 +447,38 @@ export default function Alerts() {
             pages={rows.data!.total_pages}
             total={rows.data!.total}
             onPage={(page) => update({ page })}
-            note={
-              summary.data
-                ? summary.data.last_successful_notification_at
-                  ? t('al.lastSuccess', { time: formatRelative(summary.data.last_successful_notification_at) })
-                  : t('al.lastSuccessNone')
-                : undefined
-            }
           />
         </>
       )}
 
-      <Note>{t('al.disclaimer')}</Note>
-
       <AlertDrawer alertId={selected} onClose={() => setSelected(null)} onChanged={refresh} />
     </div>
+  )
+}
+
+function SummaryTile({
+  label,
+  value,
+  tone,
+  active,
+  onClick,
+}: {
+  label: string
+  value: number
+  tone: 'attention' | 'caution' | 'info' | 'muted'
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`card flex items-baseline justify-between gap-2 px-3.5 py-2.5 text-left transition-colors hover:bg-surface-sunken ${
+        active ? 'ring-2 ring-brand' : ''
+      }`}
+    >
+      <span className="text-xs font-semibold text-ink-muted">{label}</span>
+      <Badge tone={tone}>{value}</Badge>
+    </button>
   )
 }

@@ -19,9 +19,11 @@ import { FacebookAccountFormSheet } from '../components/facebook/FacebookAccount
 import { twoFactorTone } from '../lib/readiness'
 import {
   WORKSTATION_REAL_CHROME_PROFILES,
+  downloadSwitchyOmegaConfig,
   downloadWindowsChromeLauncherBat,
   fetchRealLocalChromeProfiles,
   launchInAssignedChromeProfile,
+  parseProxyString,
 } from '../lib/chromeProfileLauncher'
 
 export default function FacebookAccounts() {
@@ -142,7 +144,6 @@ export default function FacebookAccounts() {
     <div className="space-y-4">
       <PageHeader
         title={t('fb.title')}
-        description={t('fb.desc')}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
@@ -297,25 +298,38 @@ export default function FacebookAccounts() {
                                     'https://business.facebook.com/overview',
                                     browserLabel,
                                     String(row.label ?? ''),
+                                    networkLabel,
                                   )
                                 }
-                                className="inline-flex items-center rounded border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
-                                title={`Tự động bật cửa sổ Google Chrome (${browserLabel}) của VIA ${String(row.label ?? '')}`}
+                                className="inline-flex items-center rounded border border-emerald-600/50 bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800 hover:bg-emerald-500/25 dark:text-emerald-300"
+                                title={`Tự động bật cửa sổ Google Chrome (${browserLabel}) kèm Proxy của VIA ${String(row.label ?? '')}`}
                               >
                                 🚀 Mở Chrome
                               </button>
                             </p>
                           )}
                           {networkLabel && (
-                            <p>
-                              <span className="text-ink-muted">IP/Mạng:</span>{' '}
-                              <Link
-                                to="/assets?tab=proxy-references"
-                                className="font-mono font-medium text-brand-text hover:underline"
-                                title="Kết nối trực tiếp tới Nhà mạng Proxy IP trong Tài sản"
-                              >
-                                {networkLabel} ↗
-                              </Link>
+                            <p className="flex flex-wrap items-center gap-1.5">
+                              <span>
+                                <span className="text-ink-muted">IP/Mạng:</span>{' '}
+                                <Link
+                                  to="/assets?tab=proxy-references"
+                                  className="font-mono font-semibold text-brand-text hover:underline"
+                                  title="Kết nối trực tiếp tới Nhà mạng Proxy IP trong Tài sản"
+                                >
+                                  {networkLabel} ↗
+                                </Link>
+                              </span>
+                              {parseProxyString(networkLabel) && (
+                                <button
+                                  type="button"
+                                  onClick={() => downloadSwitchyOmegaConfig(networkLabel, String(row.label ?? ''))}
+                                  className="inline-flex items-center rounded border border-brand/40 bg-brand-soft/20 px-1.5 py-0.5 text-[10px] font-semibold text-brand-text hover:bg-brand-soft/40"
+                                  title="Xuất file cấu hình .bak cho tiện ích Proxy SwitchyOmega (hoặc bấm Mở Chrome để tự động gắn Proxy)"
+                                >
+                                  🔌 SwitchyOmega (.bak)
+                                </button>
+                              )}
                             </p>
                           )}
                           {sharedBrowser.length > 0 && (

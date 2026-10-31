@@ -45,7 +45,7 @@ const SORT_KEYS = ['updated_at', 'last_manual_review_at', 'readiness_status', 'd
  */
 const COLUMN_IDS = ['recorded', 'platform', 'readiness', 'checklist', 'spend', 'facebookIdentity', 'paymentProfile', 'currency', 'updated', 'type', 'browserRef', 'proxyRef', 'review'] as const
 type ColumnId = (typeof COLUMN_IDS)[number]
-const DEFAULT_COLUMNS: ColumnId[] = ['recorded', 'platform', 'readiness', 'checklist', 'spend', 'updated']
+const DEFAULT_COLUMNS: ColumnId[] = ['recorded', 'platform', 'spend', 'updated']
 
 const COLUMN_LABEL: Record<ColumnId, TranslationKey> = {
   recorded: 'col.recorded',
@@ -107,7 +107,7 @@ export default function Accounts() {
   }
 
   // ---- columns (persisted per viewer; storage may throw, see lib/columnPrefs) -------------------
-  const storageKey = columnsStorageKey('accounts', user?.id)
+  const storageKey = columnsStorageKey('accounts_v2', user?.id)
   const [visible, setVisible] = useState<ColumnId[]>(() => loadColumns(storageKey, COLUMN_IDS, DEFAULT_COLUMNS))
   const shown = COLUMN_IDS.filter((id) => visible.includes(id))
   function chooseColumns(next: ColumnId[]) {
@@ -775,30 +775,26 @@ export default function Accounts() {
                         <TableRow key={`${groupTitle}-${account.id}`}>
                           <TableCell className="cell-title min-w-[220px]">
                             <div className="flex flex-wrap items-center gap-1.5">
-                              <Link to={`/accounts/${account.id}`} className="font-medium text-brand-text hover:underline">
+                              <Link to={`/accounts/${account.id}`} className="font-semibold text-brand-text hover:underline">
                                 {account.display_name}
                               </Link>
                               {currBadge && (
-                                <span className="rounded border border-line bg-surface-muted px-1.5 py-0.5 font-mono text-2xs font-medium text-ink-muted">
+                                <span className="rounded border border-line-strong bg-surface-muted px-1.5 py-0.5 font-mono text-2xs font-bold text-ink">
                                   {currBadge}
                                 </span>
                               )}
+                              {account.external_account_id && (
+                                <span className="font-mono text-xs font-medium text-ink-muted">· {account.external_account_id}</span>
+                              )}
                             </div>
-                            {account.external_account_id && (
-                              <span className="block font-mono text-xs text-ink-muted">{account.external_account_id}</span>
-                            )}
-                            <span className="block text-xs text-ink-muted">
-                              {account.business_manager_name ?? account.personal_account_reference_label ?? '—'}
-                            </span>
-                            {account.facebook_identities && account.facebook_identities.length > 0 && (
-                              <span className="mt-0.5 flex flex-wrap items-center gap-1 text-2xs text-ink-muted">
-                                <span>
-                                  VIA: <strong className="font-medium text-ink">{account.facebook_identities[0].label}</strong>
-                                  {account.facebook_identities[0].browser_profile_label
-                                    ? ` · ${formatShortProfileBadge(account.facebook_identities[0])}`
-                                    : ''}
-                                </span>
-                                {account.facebook_identities[0].browser_profile_label && (
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-ink-muted">
+                              <span className="font-medium text-ink">
+                                {account.business_manager_name ?? account.personal_account_reference_label ?? '—'}
+                              </span>
+                              {account.facebook_identities && account.facebook_identities.length > 0 && (
+                                <>
+                                  <span>·</span>
+                                  <span>{formatShortProfileBadge(account.facebook_identities[0])}</span>
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -810,35 +806,17 @@ export default function Accounts() {
                                         targetUrl,
                                         account.facebook_identities![0].browser_profile_label,
                                         account.facebook_identities![0].label,
+                                        account.facebook_identities![0].network_label,
                                       )
                                     }}
-                                    className="inline-flex items-center rounded border border-emerald-500/40 bg-emerald-500/10 px-1 py-0.2 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+                                    className="inline-flex items-center rounded border border-emerald-600/50 bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800 hover:bg-emerald-500/25 dark:text-emerald-300"
                                     title={`Mở TKQC này bằng đúng cửa sổ Chrome (${account.facebook_identities[0].browser_profile_label})`}
                                   >
-                                    🚀 Mở đúng Chrome
+                                    🚀 Mở Chrome
                                   </button>
-                                )}
-                              </span>
-                            )}
-                            {account.payment_profile_labels && account.payment_profile_labels.length > 0 && (
-                              <span className="mt-0.5 block text-2xs font-medium text-ink-muted" data-testid="account-row-pttt">
-                                {`PTTT: ${account.payment_profile_labels.join(' · ')}`}
-                              </span>
-                            )}
-                            {account.client_name && (
-                              <span className="block text-xs font-medium text-brand-text">
-                                {`${t('fb.clientName')}: ${account.client_name}`}
-                              </span>
-                            )}
-                            {account.tags.length > 0 && (
-                              <span className="mt-1 flex flex-wrap gap-1">
-                                {account.tags.map((tag) => (
-                                  <span key={tag} className="rounded bg-surface-sunken px-1.5 py-0.5 text-2xs text-ink-muted">
-                                    {tag}
-                                  </span>
-                                ))}
-                              </span>
-                            )}
+                                </>
+                              )}
+                            </div>
                           </TableCell>
                           {shown.map((id) => renderCell(id, account))}
                           <TableCell className="whitespace-nowrap text-right">
@@ -930,7 +908,6 @@ export default function Accounts() {
               </Button>
             </div>
           </div>
-          <p className="text-xs text-ink-faint">{t('accounts.metaNote')}</p>
         </>
       )}
 

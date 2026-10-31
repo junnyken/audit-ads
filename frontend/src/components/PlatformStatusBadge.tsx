@@ -74,7 +74,12 @@ export default function PlatformStatusBadge({
   const actionUrl = isBillingIssue ? billingUrl : isDisabledOrClosed ? appealUrl : null
 
   function handleLaunchProfile(url: string) {
-    launchInAssignedChromeProfile(url, primaryIdentity?.browser_profile_label, primaryIdentity?.label)
+    launchInAssignedChromeProfile(
+      url,
+      primaryIdentity?.browser_profile_label,
+      primaryIdentity?.label,
+      primaryIdentity?.network_label,
+    )
     setCopiedFeedback('launched')
     setTimeout(() => setCopiedFeedback(null), 2500)
   }

@@ -20,8 +20,10 @@ import { ErrorState } from '../states'
 import { FormSheet } from '../page/FormSheet'
 import {
   WORKSTATION_REAL_CHROME_PROFILES,
+  downloadSwitchyOmegaConfig,
   fetchRealLocalChromeProfiles,
   launchInAssignedChromeProfile,
+  parseProxyString,
 } from '../../lib/chromeProfileLauncher'
 
 const TWO_FACTOR_OPTIONS = ['unknown', 'app', 'sms', 'security_key', 'none'] as const
@@ -520,6 +522,7 @@ export function FacebookAccountFormSheet({
                         'https://business.facebook.com/overview',
                         browserProfileLabel,
                         label,
+                        networkLabel,
                       )
                     }
                     title={`Bấm để mở thử ngay cửa sổ Chrome (${browserProfileLabel})`}
@@ -569,15 +572,31 @@ export function FacebookAccountFormSheet({
                   })}
                 </optgroup>
               </select>
-              <input
-                id={`${formId}-network`}
-                className="input"
-                maxLength={160}
-                placeholder={t('fb.networkPlaceholder')}
-                value={networkLabel}
-                onChange={(e) => setNetworkLabel(e.target.value)}
-                data-testid="fb-network-input"
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  id={`${formId}-network`}
+                  className="input flex-1 font-mono text-xs"
+                  maxLength={160}
+                  placeholder="Dán trực tiếp Proxy: 103.145.67.89:8080:user:pass (hoặc chọn nhà mạng ở trên)"
+                  value={networkLabel}
+                  onChange={(e) => setNetworkLabel(e.target.value)}
+                  data-testid="fb-network-input"
+                />
+                {parseProxyString(networkLabel) && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => downloadSwitchyOmegaConfig(networkLabel, label)}
+                    title="Xuất file cấu hình .bak nhập 1 chạm vào Proxy SwitchyOmega"
+                  >
+                    🔌 Xuất SwitchyOmega (.bak)
+                  </Button>
+                )}
+              </div>
+              <p className="text-[11px] text-ink-muted">
+                💡 Khi bạn dán <code>IP:Port:User:Pass</code> vào ô này, bấm <strong>🚀 Mở Chrome</strong> sẽ tự động gắn sẵn Proxy & tự đăng nhập vào đúng Chrome Profile (hoặc bấm <strong>🔌 Xuất SwitchyOmega</strong> nếu muốn nhập file <code>.bak</code> vào tiện ích SwitchyOmega).
+              </p>
             </div>
           </Field>
         </div>

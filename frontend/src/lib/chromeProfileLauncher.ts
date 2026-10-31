@@ -8,10 +8,6 @@ export interface RealChromeProfile {
   label: string
 }
 
-/**
- * Fallback snapshot of the 14 real Chrome profiles detected on the workstation
- * in case the local bridge on 127.0.0.1:17890 is still starting up.
- */
 export const WORKSTATION_REAL_CHROME_PROFILES: RealChromeProfile[] = [
   {
     folder: 'Default',
@@ -113,10 +109,6 @@ export const WORKSTATION_REAL_CHROME_PROFILES: RealChromeProfile[] = [
   },
 ]
 
-/**
- * Queries the local Windows Chrome Bridge (`http://127.0.0.1:17890/chrome-profiles`) to get
- * the live list of real Google Chrome profiles from `%LOCALAPPDATA%\Google\Chrome\User Data\Local State`.
- */
 export async function fetchRealLocalChromeProfiles(): Promise<RealChromeProfile[]> {
   try {
     const controller = new AbortController()
@@ -138,9 +130,6 @@ export async function fetchRealLocalChromeProfiles(): Promise<RealChromeProfile[
   return WORKSTATION_REAL_CHROME_PROFILES
 }
 
-/**
- * Extracts the Google Chrome `--profile-directory` folder name from a browser profile label.
- */
 export function resolveChromeProfileDirectory(
   browserProfileLabel?: string | null,
   viaLabel?: string | null,
@@ -157,7 +146,6 @@ export function resolveChromeProfileDirectory(
     return `Profile ${profileMatch[1]}`
   }
 
-  // Also check if email or profile name matches one of the known real profiles
   const lower = raw.toLowerCase()
   for (const p of WORKSTATION_REAL_CHROME_PROFILES) {
     if (p.email && lower.includes(p.email.toLowerCase())) {
@@ -179,66 +167,151 @@ export function resolveChromeProfileDirectory(
   return 'Default'
 }
 
-/**
- * Formats a concise human-readable badge for the assigned Chrome / Browser profile.
- */
 export function formatShortProfileBadge(identity?: FacebookIdentity | null): string | null {
   if (!identity) return null
   const browser = (identity.browser_profile_label || '').trim()
   const via = (identity.label || '').trim()
   if (browser) {
-    const clean = browser.replace(/^Chrome\s*—\s*/i, '')
-    return clean.length > 36 ? `${clean.slice(0, 34)}…` : clean
+    const clean = browser.replace(/^Chrome\s*—\s*/i, '').replace(/\s*\([^)]*\)\s*$/, '')
+    return clean.length > 26 ? `${clean.slice(0, 24)}…` : clean
   }
   return via || null
 }
 
+export interface ParsedProxyInfo {
+  scheme: string
+  host: string
+  port: number
+  user: string
+  pass: string
+}
+
+export function parseProxyString(raw?: string | null): ParsedProxyInfo | null {
+  if (!raw) return null
+  const s = raw.trim()
+  const mAt = s.match(/(?:(http|https|socks5):\/\/)?([^:\s]+):([^@\s]+)@(\d{1,3}(?:\.\d{1,3}){3}):(\d{2,5})/i)
+  if (mAt) {
+    return {
+      scheme: (mAt[1] || 'http').toLowerCase(),
+      user: mAt[2],
+      pass: mAt[3],
+      host: mAt[4],
+      port: Number(mAt[5]),
+    }
+  }
+  const mColon4 = s.match(/(\d{1,3}(?:\.\d{1,3}){3}):(\d{2,5}):([^:\s]+):([^\s]+)/)
+  if (mColon4) {
+    return {
+      scheme: 'http',
+      host: mColon4[1],
+      port: Number(mColon4[2]),
+      user: mColon4[3],
+      pass: mColon4[4],
+    }
+  }
+  const mColon2 = s.match(/(\d{1,3}(?:\.\d{1,3}){3}):(\d{2,5})/)
+  if (mColon2) {
+    return {
+      scheme: 'http',
+      host: mColon2[1],
+      port: Number(mColon2[2]),
+      user: '',
+      pass: '',
+    }
+  }
+  return null
+}
+
 /**
- * Builds the `adsops-chrome://open?...` custom protocol URL handled by the Windows helper script.
+ * Generates and downloads a ready-to-import Proxy SwitchyOmega `.bak` configuration file
+ * for the specified proxy string (`IP:Port:User:Pass` or `IP:Port`).
  */
+export function downloadSwitchyOmegaConfig(rawProxy: string, viaLabel?: string): boolean {
+  const parsed = parseProxyString(rawProxy)
+  if (!parsed) return false
+  const profileKey = `+Via_${(viaLabel || 'AdsOps').replace(/[^a-zA-Z0-9_-]/g, '_')}`
+  const omegaConfig: Record<string, unknown> = {
+    '-addConditionsToBottom': false,
+    '-confirmDeletion': true,
+    '-downloadInterval': 1440,
+    '-enableQuickSwitch': false,
+    '-MonitorWebRequests': true,
+    '-quickSwitchProfiles': [],
+    '-refreshOnProfileChange': true,
+    '-revertProxyChanges': false,
+    '-showExternalProfile': true,
+    '-showInspectMenu': true,
+    '-startupProfileName': profileKey.slice(1),
+    schemaVersion: 2,
+    [profileKey]: {
+      bypassList: [
+        { conditionType: 'BypassCondition', pattern: '127.0.0.1' },
+        { conditionType: 'BypassCondition', pattern: '[::1]' },
+        { conditionType: 'BypassCondition', pattern: 'localhost' },
+      ],
+      color: '#1d4ed8',
+      fallbackProxy: {
+        host: parsed.host,
+        port: parsed.port,
+        scheme: parsed.scheme,
+      },
+      ...(parsed.user && parsed.pass
+        ? {
+            auth: {
+              fallbackProxy: {
+                username: parsed.user,
+                password: parsed.pass,
+              },
+            },
+          }
+        : {}),
+      name: profileKey.slice(1),
+      profileType: 'FixedProfile',
+      revision: '1',
+    },
+  }
+  const blob = new Blob([JSON.stringify(omegaConfig, null, 2)], {
+    type: 'application/json;charset=utf-8;',
+  })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `SwitchyOmega-${profileKey.slice(1)}-${parsed.host}.bak`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+  return true
+}
+
 export function buildAdsOpsChromeProtocolUrl(
   targetUrl: string,
   browserProfileLabel?: string | null,
   viaLabel?: string | null,
+  proxyLabel?: string | null,
 ): string {
   const profileDir = resolveChromeProfileDirectory(browserProfileLabel, viaLabel)
   const params = new URLSearchParams({
     profile: profileDir,
     name: (browserProfileLabel || viaLabel || '').trim(),
+    proxy: (proxyLabel || '').trim(),
     url: targetUrl,
   })
   return `adsops-chrome://open?${params.toString()}`
 }
 
-/**
- * Builds the fallback Windows Run (`Win + R`) command line for launching Chrome with the target profile.
- */
-export function buildWindowsChromeCommand(
-  targetUrl: string,
-  browserProfileLabel?: string | null,
-  viaLabel?: string | null,
-): string {
-  const profileDir = resolveChromeProfileDirectory(browserProfileLabel, viaLabel)
-  return `chrome.exe --profile-directory="${profileDir}" "${targetUrl}"`
-}
-
-/**
- * Launches the target URL in the assigned Google Chrome profile on Windows.
- * 1. First calls the instant local bridge (`http://127.0.0.1:17890/open`) which opens Chrome immediately with zero popup.
- * 2. Falls back to the `adsops-chrome://` Windows URL protocol if the local HTTP bridge is unreachable.
- */
 export function launchInAssignedChromeProfile(
   targetUrl: string,
   browserProfileLabel?: string | null,
   viaLabel?: string | null,
+  proxyLabel?: string | null,
 ): void {
   const profileDir = resolveChromeProfileDirectory(browserProfileLabel, viaLabel)
   const nameHint = (browserProfileLabel || viaLabel || '').trim()
+  const cleanProxy = (proxyLabel || '').trim()
 
   if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-    void navigator.clipboard.writeText(targetUrl).catch(() => {
-      // Ignore clipboard permission errors
-    })
+    void navigator.clipboard.writeText(targetUrl).catch(() => {})
   }
 
   void (async () => {
@@ -251,6 +324,7 @@ export function launchInAssignedChromeProfile(
         body: JSON.stringify({
           profile: profileDir,
           name: nameHint,
+          proxy: cleanProxy,
           url: targetUrl,
         }),
         signal: controller.signal,
@@ -263,7 +337,7 @@ export function launchInAssignedChromeProfile(
       // Fallback to adsops-chrome:// protocol
     }
 
-    const protocolUrl = buildAdsOpsChromeProtocolUrl(targetUrl, browserProfileLabel, viaLabel)
+    const protocolUrl = buildAdsOpsChromeProtocolUrl(targetUrl, browserProfileLabel, viaLabel, cleanProxy)
     const anchor = document.createElement('a')
     anchor.href = protocolUrl
     anchor.style.display = 'none'
@@ -275,10 +349,6 @@ export function launchInAssignedChromeProfile(
   })()
 }
 
-/**
- * Downloads the 1-click Windows installer (`Cai-Dat-Mo-Chrome-Profile-AdsOps.bat`) that registers
- * the `adsops-chrome://` protocol under `HKEY_CURRENT_USER\Software\Classes\adsops-chrome`.
- */
 export function downloadWindowsChromeLauncherBat(): void {
   const psScriptLines = [
     'param([string]$RawUri)',
@@ -287,7 +357,6 @@ export function downloadWindowsChromeLauncherBat(): void {
     '  $u = [System.Uri]$RawUri',
     '  $q = $u.Query.TrimStart("?")',
     '  $profileDir = "Default"',
-    '  $profileName = ""',
     '  $targetUrl = ""',
     '  foreach ($pair in ($q -split "&")) {',
     '    if (-not $pair) { continue }',
@@ -295,12 +364,9 @@ export function downloadWindowsChromeLauncherBat(): void {
     '    $k = [System.Uri]::UnescapeDataString($kv[0].Replace("+", " "))',
     '    $v = if ($kv.Length -gt 1) { [System.Uri]::UnescapeDataString($kv[1].Replace("+", " ")) } else { "" }',
     '    if ($k -eq "profile" -and $v) { $profileDir = $v }',
-    '    elseif ($k -eq "name" -and $v) { $profileName = $v }',
     '    elseif ($k -eq "url" -and $v) { $targetUrl = $v }',
     '  }',
     '  if (-not ($targetUrl -match "^https://")) { exit 0 }',
-    '  $userData = Join-Path $env:LOCALAPPDATA "Google\\Chrome\\User Data"',
-    '  $resolvedDir = $profileDir',
     '  $chromePaths = @(',
     '    (Join-Path $env:ProgramFiles "Google\\Chrome\\Application\\chrome.exe"),',
     '    (Join-Path ${env:ProgramFiles(x86)} "Google\\Chrome\\Application\\chrome.exe"),',
@@ -308,9 +374,9 @@ export function downloadWindowsChromeLauncherBat(): void {
     '  )',
     '  $chromeExe = $chromePaths | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1',
     '  if ($chromeExe) {',
-    '    Start-Process -FilePath $chromeExe -ArgumentList @("--profile-directory=$resolvedDir", $targetUrl)',
+    '    Start-Process -FilePath $chromeExe -ArgumentList @("--profile-directory=$profileDir", $targetUrl)',
     '  } else {',
-    '    Start-Process "chrome.exe" -ArgumentList @("--profile-directory=$resolvedDir", $targetUrl)',
+    '    Start-Process "chrome.exe" -ArgumentList @("--profile-directory=$profileDir", $targetUrl)',
     '  }',
     '} catch {}',
   ]
@@ -320,9 +386,6 @@ export function downloadWindowsChromeLauncherBat(): void {
   const batContent = [
     '@echo off',
     'chcp 65001 >nul',
-    'echo ====================================================================',
-    'echo   CAI DAT BO KET NOI MO DUNG CHROME PROFILE CHO ADSOPS CONTROL CENTER',
-    'echo ====================================================================',
     'set "ADSOPS_DIR=%LOCALAPPDATA%\\AdsOps"',
     'if not exist "%ADSOPS_DIR%" mkdir "%ADSOPS_DIR%"',
     'set "PS_FILE=%ADSOPS_DIR%\\open_chrome_profile.ps1"',
@@ -330,8 +393,7 @@ export function downloadWindowsChromeLauncherBat(): void {
     'reg add "HKCU\\Software\\Classes\\adsops-chrome" /ve /d "URL:AdsOps Chrome Profile Launcher" /f >nul',
     'reg add "HKCU\\Software\\Classes\\adsops-chrome" /v "URL Protocol" /d "" /f >nul',
     'reg add "HKCU\\Software\\Classes\\adsops-chrome\\shell\\open\\command" /ve /d "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \\"%PS_FILE%\\" \\"%%1\\"" /f >nul',
-    'echo.',
-    'echo [THANH CONG] Da cai dat xong giao thuc mo dung Google Chrome Profile!',
+    'echo [THANH CONG] Da cai dat xong!',
     'pause',
   ].join('\r\n')
 
