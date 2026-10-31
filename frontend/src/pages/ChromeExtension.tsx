@@ -1,6 +1,19 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
+import {
+  Building2,
+  CreditCard,
+  Download,
+  ExternalLink,
+  Globe,
+  Layers,
+  Play,
+  Puzzle,
+  ShieldCheck,
+  Terminal,
+  UserRoundCog,
+} from 'lucide-react'
 import { api } from '../lib/api'
 import type { Paged, ReferenceRecord } from '../lib/types'
 import { Badge } from '../components/primitives/badge'
@@ -8,7 +21,7 @@ import { Button } from '../components/primitives/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/primitives/card'
 import {
   WORKSTATION_REAL_CHROME_PROFILES,
-  downloadChromeExtensionPackageBat,
+  downloadChromeExtensionZip,
   downloadSwitchyOmegaConfig,
   fetchRealLocalChromeProfiles,
   launchChromeWithExtensionPreview,
@@ -39,24 +52,34 @@ export default function ChromeExtensionPage() {
 
   return (
     <div className="space-y-6">
-      {/* HERO BANNER — GIỚI THIỆU WEBSITE & TIỆN ÍCH CHROME */}
-      <div className="rounded-xl border border-line bg-surface p-6 shadow-sm">
+      {/* HERO BANNER */}
+      <div className="rounded-xl border border-line bg-surface p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-3xl space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="info">Nền tảng Quản trị Quảng cáo Meta & Tiện ích Chrome</Badge>
-              <Badge tone="positive">Chuẩn Manifest V3 · Tích hợp Proxy Tự động</Badge>
+              <Badge tone="info">Tiện ích Google Chrome chính thức · v2.1</Badge>
+              <Badge tone="positive">Chuẩn Manifest V3 · Gói cài đặt .ZIP</Badge>
             </div>
-            <h1 className="text-2xl font-extrabold tracking-tight text-ink">
-              AdsOps Control Center & Tiện ích Google Chrome («AdsOps Hộ Chiếu Via»)
+            <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-ink">
+              Trung tâm Tiện ích Google Chrome («AdsOps Companion») & Quy chuẩn Vận hành
             </h1>
             <p className="text-sm leading-relaxed text-ink-muted">
-              Hệ thống trung tâm giúp bạn <strong>quản lý dàn 20+ Business Manager (BM) và hàng chục Tài khoản quảng cáo (TKQC)</strong> từ A–Z trên một màn hình duy nhất, kết hợp với <strong>Tiện ích Google Chrome chuyên dụng</strong> để tự động cách ly từng Via vào đúng Hồ sơ trình duyệt thật kèm Proxy riêng — chống chết dàn (liên đới) tuyệt đối.
+              Tiện ích <strong>AdsOps Companion (<code>.zip</code>)</strong> cài trực tiếp vào từng Hồ sơ Google Chrome giúp bạn định danh chính xác đang mở <strong>Via nào</strong>, bọc <strong>Proxy IPv4 riêng</strong> (tự động điền User/Pass ngầm), tự động bắt mã <strong>ID BM / ID TKQC</strong> từ tab Facebook đang mở và cung cấp 5 nút xử lý Kháng nghị / Thanh toán dư nợ 1 chạm.
             </p>
           </div>
+
           <div className="flex flex-wrap items-center gap-2">
+            <a
+              href="/adsops-chrome-extension.zip"
+              download="AdsOps-Chrome-Extension-v2.1.zip"
+              className="inline-flex items-center gap-2 rounded-md bg-brand px-3.5 py-2 text-xs font-semibold text-brand-fg hover:bg-brand-hover transition-colors"
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+              <span>Tải Gói Tiện Ích Chuẩn (.zip)</span>
+            </a>
             <Button
               type="button"
+              variant="secondary"
               onClick={() =>
                 launchChromeWithExtensionPreview(
                   'https://business.facebook.com/overview',
@@ -66,77 +89,67 @@ export default function ChromeExtensionPage() {
                 )
               }
             >
-              🚀 Mở Chrome & Xem Ngay Tiện Ích
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => downloadChromeExtensionPackageBat(selectedViaLabel, shortFolder, proxyInput)}
-            >
-              📦 Tải Tiện Ích Chrome (.bat ra Desktop)
+              <Play className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+              Mở Chrome & Xem Tiện Ích Ngay
             </Button>
           </div>
         </div>
 
-        {/* 4 TRỤ CỘT: DÙNG ĐỂ LÀM GÌ & TẬN DỤNG TRONG VIỆC GÌ */}
-        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-lg border border-line bg-surface-muted/50 p-3.5">
-            <div className="text-xs font-extrabold uppercase tracking-wider text-brand-text">
-              1. Tận dụng Quản lý Đa BM & Chi tiêu
+        {/* 4 PILLARS */}
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-lg border border-line bg-surface-muted/40 p-3.5">
+            <div className="flex items-center gap-2 text-xs font-bold text-ink">
+              <UserRoundCog className="h-4 w-4 text-brand-text shrink-0" aria-hidden="true" />
+              <span>1. Định danh Via & Hồ sơ Chrome</span>
             </div>
-            <p className="mt-1.5 text-xs leading-relaxed text-ink">
-              Kết nối <strong>BM Trung tâm (Partner)</strong> để tự động đồng bộ chi tiêu (<em>Hôm nay, 7 Ngày, Tháng này</em>) và trạng thái sống/chết của <strong>toàn bộ BM & TKQC</strong> về một bảng mà không cần đăng nhập vào từng Via để xem.
+            <p className="mt-1 text-xs leading-relaxed text-ink-muted">
+              Mỗi Profile Chrome gắn cố định 1 Via. Nhìn góc phải trình duyệt biết ngay đang cầm Via nào, chống đăng nhập nhầm nick.
             </p>
           </div>
 
-          <div className="rounded-lg border border-line bg-surface-muted/50 p-3.5">
-            <div className="text-xs font-extrabold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
-              2. Tận dụng Cách ly Via & Chống chết dàn
+          <div className="rounded-lg border border-line bg-surface-muted/40 p-3.5">
+            <div className="flex items-center gap-2 text-xs font-bold text-ink">
+              <Globe className="h-4 w-4 text-brand-text shrink-0" aria-hidden="true" />
+              <span>2. Bọc Proxy & Tự nạp mật khẩu</span>
             </div>
-            <p className="mt-1.5 text-xs leading-relaxed text-ink">
-              Áp dụng quy chuẩn <strong>1 Hồ sơ Chrome = 1 Via = 1 Proxy</strong>. Khi TKQC bị vô hiệu hoá hoặc nợ bill, bấm <strong>🚀 Mở Chrome</strong> là máy tự mở đúng trình duyệt của <strong>Via dự phòng</strong> để kháng nghị/thanh toán ngay.
+            <p className="mt-1 text-xs leading-relaxed text-ink-muted">
+              Nhập <code>IP:Port:User:Pass</code> ngay trong tiện ích để bật/tắt Proxy riêng cho Profile đó và kiểm tra IP Public thật.
             </p>
           </div>
 
-          <div className="rounded-lg border border-line bg-surface-muted/50 p-3.5">
-            <div className="text-xs font-extrabold uppercase tracking-wider text-amber-700 dark:text-amber-400">
-              3. Tận dụng Tiện ích Chrome Hộ Chiếu Via
+          <div className="rounded-lg border border-line bg-surface-muted/40 p-3.5">
+            <div className="flex items-center gap-2 text-xs font-bold text-ink">
+              <Terminal className="h-4 w-4 text-brand-text shrink-0" aria-hidden="true" />
+              <span>3. Bắt nhanh ID BM & ID TKQC</span>
             </div>
-            <p className="mt-1.5 text-xs leading-relaxed text-ink">
-              Tiện ích nằm ngay góc phải Google Chrome: hiển thị <strong>Tên Via đang mở</strong>, tự động nạp <strong>Proxy IP:Port:User:Pass</strong> không cần gõ mật khẩu, kiểm tra <strong>IP thật</strong> và có sẵn <strong>5 nút kháng nghị / thanh toán 1 chạm</strong>.
+            <p className="mt-1 text-xs leading-relaxed text-ink-muted">
+              Tự động tách <code>act_id</code> và <code>business_id</code> từ thanh địa chỉ Facebook để sao chép hoặc đồng bộ về bảng điều khiển.
             </p>
           </div>
 
-          <div className="rounded-lg border border-line bg-surface-muted/50 p-3.5">
-            <div className="text-xs font-extrabold uppercase tracking-wider text-purple-700 dark:text-purple-400">
-              4. Tận dụng Canh 4 Hạn mức Vàng Meta
+          <div className="rounded-lg border border-line bg-surface-muted/40 p-3.5">
+            <div className="flex items-center gap-2 text-xs font-bold text-ink">
+              <ShieldCheck className="h-4 w-4 text-brand-text shrink-0" aria-hidden="true" />
+              <span>4. Canh 4 Hạn mức An toàn Meta</span>
             </div>
-            <p className="mt-1.5 text-xs leading-relaxed text-ink">
-              Tự động đếm và cảnh báo màu khi vượt ngưỡng: <strong>1 Via ≤ 2 BM gốc</strong> · <strong>BM XMDN (1 → 10 → 30+ TKQC)</strong> · <strong>1 Thẻ Visa/Master ≤ 3 TKQC</strong> (chống bão thẻ) · <strong>1 Proxy ≤ 2 Via</strong>.
+            <p className="mt-1 text-xs leading-relaxed text-ink-muted">
+              Kiểm soát ngưỡng: <strong>1 Via ≤ 2 BM gốc</strong> · <strong>BM XMDN (1→30+ TKQC)</strong> · <strong>1 Thẻ ≤ 3 TKQC</strong> · <strong>1 Proxy ≤ 2 Via</strong>.
             </p>
           </div>
         </div>
       </div>
 
-      {/* KHU VỰC TRÌNH TẠO TIỆN ÍCH & MÔ PHỎNG SỐNG ĐỘNG TRÊN CHROME */}
+      {/* GENERATOR + LIVE PREVIEW */}
       <div className="grid gap-6 lg:grid-cols-12">
-        {/* CỘT TRÁI (7 CỘT): CẤU HÌNH & KÍCH HOẠT TIỆN ÍCH CHROME */}
         <Card className="lg:col-span-7">
           <CardHeader>
-            <CardTitle>🧩 Trình Kích Hoạt & Cài Đặt Tiện Ích Google Chrome</CardTitle>
+            <CardTitle>Đóng gói Tiện ích Chrome (.zip) theo từng Via & Proxy</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="rounded-md border border-brand/30 bg-brand-soft/15 p-3 text-xs text-ink">
-              <strong>Vì sao trước đó bạn chưa nhìn thấy biểu tượng Tiện ích trên Chrome?</strong>
-              <p className="mt-1 text-ink-muted">
-                Mặc định Google Chrome giấu các tiện ích mới vào bên trong biểu tượng <strong>Mảnh ghép (🧩 Tiện ích)</strong> ở góc trên bên phải trình duyệt. Khi bạn bấm nút <strong>«🚀 Mở Chrome & Hiển Thị Ngay Tiện Ích»</strong> bên dưới, hệ thống sẽ vừa nạp tiện ích vào Chrome vừa <strong>bật sẵn giao diện Tiện ích lên một tab trực quan</strong> để bạn thấy ngay lập tức!
-              </p>
-            </div>
-
             {vias.length > 0 && (
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-ink">
-                  1. Chọn nhanh từ Tài khoản Facebook (Via) đã khai báo của bạn:
+                  1. Chọn nhanh từ Tài khoản Facebook (Via) đã khai báo:
                 </label>
                 <div className="flex flex-wrap gap-2">
                   {vias.map((v) => {
@@ -159,7 +172,7 @@ export default function ChromeExtensionPage() {
                             : 'border-line bg-surface hover:bg-surface-muted text-ink'
                         }`}
                       >
-                        <div>👤 {lbl}</div>
+                        <div>{lbl}</div>
                         <div className="text-[10px] font-normal text-ink-muted">{prof}</div>
                       </button>
                     )
@@ -171,7 +184,7 @@ export default function ChromeExtensionPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1">
                 <label className="text-xs font-bold text-ink" htmlFor="ext-via-name">
-                  Tên định danh Via hiển thị trên Tiện ích:
+                  Tên định danh Via nạp sẵn vào Tiện ích:
                 </label>
                 <input
                   id="ext-via-name"
@@ -203,7 +216,7 @@ export default function ChromeExtensionPage() {
 
             <div className="space-y-1">
               <label className="text-xs font-bold text-ink" htmlFor="ext-proxy-str">
-                Proxy gắn vào Tiện ích (Định dạng <code>IP:Port:User:Pass</code> hoặc tên nhà mạng):
+                Cấu hình Proxy nạp sẵn (<code>IP:Port:User:Pass</code> hoặc để trống):
               </label>
               <input
                 id="ext-proxy-str"
@@ -213,18 +226,18 @@ export default function ChromeExtensionPage() {
                 placeholder="VD: 103.145.67.89:8080:myuser:mypass"
               />
               <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px]">
-                <span className="font-semibold text-ink-muted">Mua Proxy IPv4 Dân cư tĩnh VN (1–2 Via/Proxy):</span>
-                <a href="https://proxyvn.vn/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface-muted px-1.5 py-0.5 font-semibold text-brand-text hover:underline">
-                  🛒 ProxyVN.vn ↗
+                <span className="font-semibold text-ink-muted">Nhà cung cấp Proxy IPv4 Dân cư tĩnh VN (1–2 Via/Proxy):</span>
+                <a href="https://proxyvn.vn/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface-muted px-2 py-0.5 font-semibold text-brand-text hover:underline">
+                  ProxyVN.vn ↗
                 </a>
-                <a href="https://zingproxy.com/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface-muted px-1.5 py-0.5 font-semibold text-brand-text hover:underline">
-                  🛒 ZingProxy.com ↗
+                <a href="https://zingproxy.com/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface-muted px-2 py-0.5 font-semibold text-brand-text hover:underline">
+                  ZingProxy.com ↗
                 </a>
-                <a href="https://muaproxy.vn/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface-muted px-1.5 py-0.5 font-semibold text-brand-text hover:underline">
-                  🛒 MuaProxy.vn ↗
+                <a href="https://muaproxy.vn/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface-muted px-2 py-0.5 font-semibold text-brand-text hover:underline">
+                  MuaProxy.vn ↗
                 </a>
-                <a href="https://vproxy.vn/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface-muted px-1.5 py-0.5 font-semibold text-brand-text hover:underline">
-                  🛒 VProxy.vn ↗
+                <a href="https://vproxy.vn/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface-muted px-2 py-0.5 font-semibold text-brand-text hover:underline">
+                  VProxy.vn ↗
                 </a>
               </div>
             </div>
@@ -232,6 +245,15 @@ export default function ChromeExtensionPage() {
             <div className="flex flex-wrap items-center gap-2.5 pt-2">
               <Button
                 type="button"
+                onClick={() => downloadChromeExtensionZip(selectedViaLabel, shortFolder, proxyInput)}
+              >
+                <Download className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                Tải Tiện Ích Chrome Đã Cấu Hình (.zip)
+              </Button>
+
+              <Button
+                type="button"
+                variant="secondary"
                 onClick={() =>
                   launchChromeWithExtensionPreview(
                     'https://business.facebook.com/overview',
@@ -241,15 +263,8 @@ export default function ChromeExtensionPage() {
                   )
                 }
               >
-                🚀 Mở Chrome & Hiển Thị Ngay Tiện Ích
-              </Button>
-
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => downloadChromeExtensionPackageBat(selectedViaLabel, shortFolder, proxyInput)}
-              >
-                📦 Tải Gói Tiện Ích (.bat ra Desktop)
+                <Play className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                Mở Chrome & Xem Trực Tiếp Tiện Ích
               </Button>
 
               {parsedProxy && (
@@ -258,165 +273,175 @@ export default function ChromeExtensionPage() {
                   variant="secondary"
                   onClick={() => downloadSwitchyOmegaConfig(proxyInput, selectedViaLabel)}
                 >
-                  🔌 Xuất File SwitchyOmega (.bak)
+                  Xuất File SwitchyOmega (.bak)
                 </Button>
               )}
             </div>
 
-            {/* HƯỚNG DẪN GHIM TIỆN ÍCH LÊN THANH CÔNG CỤ CHROME */}
-            <div className="rounded-lg border border-line bg-surface-muted p-3.5 space-y-2">
-              <div className="text-xs font-extrabold text-ink">
-                📌 Cách ghim biểu tượng «🛡️ AdsOps Hộ Chiếu Via» ra ngoài góc phải Chrome (Chỉ làm 1 lần):
+            {/* 4-STEP INSTALL GUIDE */}
+            <div className="rounded-lg border border-line bg-surface-muted p-4 space-y-2">
+              <div className="text-xs font-bold text-ink">
+                Hướng dẫn cài đặt gói <code>.zip</code> vào trình duyệt Google Chrome:
               </div>
               <ol className="list-decimal pl-4 space-y-1 text-xs text-ink-muted">
                 <li>
-                  Bấm nút <strong>🚀 Mở Chrome & Hiển Thị Ngay Tiện Ích</strong> ở trên (Thư mục tiện ích cũng đã được tạo sẵn trên máy của bạn tại <code>Desktop\AdsOps_Tien_Ich_Chrome</code>).
+                  Bấm <strong>Tải Tiện Ích Chrome Đã Cấu Hình (.zip)</strong> ở trên rồi giải nén ra một thư mục (hoặc dùng thư mục đã tạo sẵn tại <code>Desktop\AdsOps_Tien_Ich_Chrome</code>).
                 </li>
                 <li>
-                  Trên góc trên bên phải cửa sổ Google Chrome vừa mở, bấm vào biểu tượng <strong>Mảnh ghép 🧩 (Tiện ích / Extensions)</strong>.
+                  Trên cửa sổ Chrome của Via, truy cập địa chỉ: <strong><code>chrome://extensions</code></strong> và bật công tắc <strong>Chế độ dành cho nhà phát triển (Developer mode)</strong> ở góc trên bên phải.
                 </li>
                 <li>
-                  Bấm vào nút <strong>Ghim 📌 (Pin)</strong> bên cạnh dòng <strong>AdsOps Companion · {shortFolder}</strong> — biểu tượng huy hiệu xanh <strong><code>{parsedProxy ? 'PRX' : shortFolder.replace('Profile ', 'P').slice(0, 3).toUpperCase()}</code></strong> sẽ hiện cố định trên thanh công cụ Chrome!
+                  Bấm nút <strong>Tải tiện ích đã giải nén (Load unpacked)</strong> ở góc trên bên trái → chọn thư mục vừa giải nén.
+                </li>
+                <li>
+                  Bấm biểu tượng <strong>Mảnh ghép Tiện ích</strong> trên góc phải thanh công cụ Chrome → bấm nút <strong>Ghim (Pin)</strong> cạnh <strong>AdsOps Companion</strong> để hiện cố định huy hiệu <code>{parsedProxy ? 'PRX' : shortFolder.replace('Profile ', 'P').slice(0, 3).toUpperCase()}</code>.
                 </li>
               </ol>
             </div>
           </CardContent>
         </Card>
 
-        {/* CỘT PHẢI (5 CỘT): MÔ PHỎNG TRỰC QUAN POPUP TIỆN ÍCH CHROME */}
+        {/* LIVE EXTENSION POPUP PREVIEW */}
         <div className="lg:col-span-5 space-y-2">
           <div className="text-xs font-bold uppercase tracking-wider text-ink-muted">
-            👁️ Bản Xem Trước Trực Tiếp Giao Diện Tiện Ích Trên Chrome (Live Preview):
+            Bản xem trước trực tiếp giao diện Tiện ích trên Chrome:
           </div>
 
-          <div className="mx-auto w-full max-w-[360px] rounded-xl border-2 border-slate-300 bg-[#f8fafc] p-4 text-[#0f172a] shadow-lg">
-            {/* Chrome Toolbar Mockup */}
-            <div className="mb-3 flex items-center justify-between rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] text-slate-600">
-              <span className="truncate font-mono">🔒 business.facebook.com</span>
-              <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 font-bold text-slate-900">
-                🧩 <span className={`rounded px-1 text-[10px] text-white ${parsedProxy ? 'bg-green-600' : 'bg-blue-600'}`}>
+          <div className="mx-auto w-full max-w-[370px] rounded-xl border border-line bg-surface p-4 shadow-md">
+            <div className="mb-3 flex items-center justify-between rounded-md border border-line bg-surface-muted px-3 py-1.5 text-xs">
+              <span className="font-mono text-ink-muted truncate">business.facebook.com/overview</span>
+              <span className="inline-flex items-center gap-1.5 font-mono text-[11px] font-bold text-brand-text">
+                <Puzzle className="h-3.5 w-3.5" aria-hidden="true" />
+                <span className={`rounded px-1.5 py-0.5 text-[10px] text-white ${parsedProxy ? 'bg-emerald-700' : 'bg-blue-700'}`}>
                   {parsedProxy ? 'PRX' : shortFolder.replace('Profile ', 'P').slice(0, 3).toUpperCase()}
                 </span>
               </span>
             </div>
 
-            {/* Popup Header */}
-            <div className="flex items-center justify-between border-b border-slate-300 pb-2.5 mb-2.5">
-              <div className="text-[13px] font-extrabold text-slate-900">🛡️ AdsOps Hộ Chiếu Via</div>
-              <span
-                className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${
-                  parsedProxy
-                    ? 'border-green-300 bg-green-100 text-green-800'
-                    : 'border-blue-300 bg-blue-100 text-blue-800'
-                }`}
-              >
-                {parsedProxy ? '🟢 ĐÃ BỌC PROXY' : '🔵 CHROME CỐ ĐỊNH'}
-              </span>
-            </div>
-
-            {/* Card 1: Via & Chrome Profile */}
-            <div className="rounded-lg border border-slate-300 bg-white p-2.5 mb-2.5">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                Tài khoản Via & Hồ sơ Chrome
-              </div>
-              <div className="mt-0.5 text-[13px] font-bold text-slate-950">{selectedViaLabel || 'Via Chính'}</div>
-              <div className="mt-0.5 text-[11px] text-slate-700">
-                📁 Thư mục Chrome: <strong>{shortFolder}</strong>
-              </div>
-            </div>
-
-            {/* Card 2: Proxy / Network */}
-            <div className="rounded-lg border border-slate-300 bg-white p-2.5 mb-2.5">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                Kết nối Mạng / Proxy
-              </div>
-              <div className="mt-0.5 text-[12px] font-bold text-slate-900 break-all">
-                {parsedProxy
-                  ? `${parsedProxy.scheme.toUpperCase()}://${parsedProxy.host}:${parsedProxy.port}${
-                      parsedProxy.user ? ' (Đã tự nạp User/Pass)' : ''
-                    }`
-                  : proxyInput || 'Mạng trực tiếp (Chưa gắn Proxy)'}
-              </div>
-              <div className="mt-1.5 flex items-center justify-between border-t border-dashed border-slate-200 pt-1.5 text-[11px]">
-                <span className="text-slate-600">IP Public hiện tại:</span>
-                <span className="font-mono font-bold text-teal-700">
-                  {parsedProxy ? parsedProxy.host : 'Tự động kiểm tra khi mở'}
+            <div className="rounded-lg border border-line bg-canvas p-3.5 space-y-3">
+              <div className="flex items-center justify-between border-b border-line pb-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-brand text-[11px] font-extrabold text-brand-fg">
+                    AO
+                  </span>
+                  <span className="text-xs font-extrabold text-ink">AdsOps Hộ Chiếu Via</span>
+                </div>
+                <span
+                  className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+                    parsedProxy
+                      ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
+                      : 'border-brand/40 bg-brand-light text-brand-text'
+                  }`}
+                >
+                  {parsedProxy ? 'ĐANG BỌC PROXY' : 'MẠNG TRỰC TIẾP'}
                 </span>
               </div>
-            </div>
 
-            {/* 5 Quick Action Buttons */}
-            <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-              Lối tắt xử lý nhanh Meta trên đúng Via này
-            </div>
-            <div className="space-y-1.5">
-              <a
-                href="https://business.facebook.com/accountquality"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-between rounded-md border border-red-300 bg-red-50 px-2.5 py-2 text-xs font-semibold text-red-800 hover:bg-red-100"
-              >
-                <span>🛡️ Chất lượng TK & Kháng nghị Meta</span>
-                <span>↗</span>
-              </a>
-              <a
-                href="https://adsmanager.facebook.com/ads/manager/account_settings/account_billing/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-between rounded-md border border-blue-300 bg-blue-50 px-2.5 py-2 text-xs font-semibold text-blue-800 hover:bg-blue-100"
-              >
-                <span>💳 Thanh toán & Xử lý Dư nợ (Billing)</span>
-                <span>↗</span>
-              </a>
-              <a
-                href="https://business.facebook.com/settings"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-between rounded-md border border-slate-300 bg-white px-2.5 py-2 text-xs font-semibold text-slate-900 hover:bg-slate-100"
-              >
-                <span>🏢 Cài đặt Business Manager (BM)</span>
-                <span>↗</span>
-              </a>
-              <a
-                href="https://adsmanager.facebook.com/adsmanager/manage/campaigns"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-between rounded-md border border-slate-300 bg-white px-2.5 py-2 text-xs font-semibold text-slate-900 hover:bg-slate-100"
-              >
-                <span>📊 Trình quản lý Quảng cáo (Ads Manager)</span>
-                <span>↗</span>
-              </a>
-              <a
-                href="https://iphey.com/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-between rounded-md border border-slate-300 bg-white px-2.5 py-2 text-xs font-semibold text-slate-900 hover:bg-slate-100"
-              >
-                <span>🔍 Kiểm tra độ sạch IP & Vân tay máy (Iphey)</span>
-                <span>↗</span>
-              </a>
+              <div className="rounded-md border border-line bg-surface p-2.5 space-y-2">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-ink-muted">
+                  1. Định danh Via & Hồ sơ Chrome
+                </div>
+                <div className="grid grid-cols-3 gap-1.5 text-xs">
+                  <div className="col-span-2 rounded border border-line bg-surface-muted px-2 py-1.5 font-semibold text-ink truncate">
+                    {selectedViaLabel || 'Via Chính'}
+                  </div>
+                  <div className="rounded border border-line bg-surface-muted px-2 py-1.5 font-mono text-xs font-semibold text-ink">
+                    {shortFolder}
+                  </div>
+                </div>
+
+                <div className="text-[10px] font-bold uppercase tracking-wider text-ink-muted pt-1">
+                  2. Cấu hình Proxy riêng (IP:Port:User:Pass)
+                </div>
+                <div className="rounded border border-line bg-surface-muted px-2 py-1.5 font-mono text-[11px] text-ink truncate">
+                  {parsedProxy
+                    ? `${parsedProxy.host}:${parsedProxy.port}${parsedProxy.user ? `:${parsedProxy.user}:••••` : ''}`
+                    : proxyInput || 'Chưa gắn Proxy (Dùng mạng gốc)'}
+                </div>
+
+                <div className="flex items-center justify-between border-t border-dashed border-line pt-2 text-[11px]">
+                  <span className="text-ink-muted">IP Public thực tế:</span>
+                  <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                    {parsedProxy ? parsedProxy.host : 'Tự động kiểm tra khi mở'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-ink-muted">
+                  3. Lối tắt xử lý nhanh trên đúng Via này
+                </div>
+                <a
+                  href="https://business.facebook.com/accountquality"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between rounded border border-danger-line bg-danger-soft px-2.5 py-1.5 text-xs font-semibold text-danger-text hover:opacity-90"
+                >
+                  <span>Chất lượng tài khoản & Kháng nghị Meta</span>
+                  <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                </a>
+                <a
+                  href="https://adsmanager.facebook.com/ads/manager/account_settings/account_billing/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between rounded border border-brand/30 bg-brand-light px-2.5 py-1.5 text-xs font-semibold text-brand-text hover:opacity-90"
+                >
+                  <span>Thanh toán & Xử lý dư nợ (Billing)</span>
+                  <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                </a>
+                <a
+                  href="https://business.facebook.com/settings"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between rounded border border-line bg-surface px-2.5 py-1.5 text-xs font-semibold text-ink hover:bg-surface-muted"
+                >
+                  <span>Cài đặt Business Manager (BM Settings)</span>
+                  <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                </a>
+                <a
+                  href="https://adsmanager.facebook.com/adsmanager/manage/campaigns"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between rounded border border-line bg-surface px-2.5 py-1.5 text-xs font-semibold text-ink hover:bg-surface-muted"
+                >
+                  <span>Trình quản lý Quảng cáo (Ads Manager)</span>
+                  <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                </a>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* LIÊN KẾT NHANH ĐẾN CÁC PHÂN HỆ TRONG HỆ THỐNG */}
+      {/* QUICK NAVIGATION CARDS */}
       <div className="grid gap-3 sm:grid-cols-4">
-        <Link to="/facebook-accounts" className="rounded-lg border border-line bg-surface p-3.5 hover:border-brand">
-          <div className="text-xs font-bold text-brand-text">👤 Quản lý Tài khoản FB (Via) →</div>
-          <p className="mt-1 text-[11px] text-ink-muted">Gán Hồ sơ Chrome cố định & Proxy IPv4 cho từng Via.</p>
+        <Link to="/facebook-accounts" className="rounded-lg border border-line bg-surface p-3.5 hover:border-brand transition-colors">
+          <div className="flex items-center gap-2 text-xs font-bold text-brand-text">
+            <UserRoundCog className="h-4 w-4" aria-hidden="true" />
+            <span>Quản lý Tài khoản FB (Via) →</span>
+          </div>
+          <p className="mt-1 text-xs text-ink-muted">Gán Hồ sơ Chrome cố định & Proxy IPv4 cho từng Via.</p>
         </Link>
-        <Link to="/business-managers" className="rounded-lg border border-line bg-surface p-3.5 hover:border-brand">
-          <div className="text-xs font-bold text-brand-text">🏢 Quản lý Business Manager →</div>
-          <p className="mt-1 text-[11px] text-ink-muted">Theo dõi hạn mức BM1 / BM5 / BM10 (Đã XMDN) & đồng bộ Meta.</p>
+        <Link to="/business-managers" className="rounded-lg border border-line bg-surface p-3.5 hover:border-brand transition-colors">
+          <div className="flex items-center gap-2 text-xs font-bold text-brand-text">
+            <Building2 className="h-4 w-4" aria-hidden="true" />
+            <span>Quản lý Business Manager →</span>
+          </div>
+          <p className="mt-1 text-xs text-ink-muted">Theo dõi hạn mức BM1 / BM5 / BM10 (Đã XMDN) & đồng bộ Meta.</p>
         </Link>
-        <Link to="/accounts" className="rounded-lg border border-line bg-surface p-3.5 hover:border-brand">
-          <div className="text-xs font-bold text-brand-text">💳 Quản lý Tài khoản Quảng cáo →</div>
-          <p className="mt-1 text-[11px] text-ink-muted">Kiểm tra chi tiêu, trạng thái Meta & hạn mức 1 Thẻ ≤ 3 TKQC.</p>
+        <Link to="/accounts" className="rounded-lg border border-line bg-surface p-3.5 hover:border-brand transition-colors">
+          <div className="flex items-center gap-2 text-xs font-bold text-brand-text">
+            <CreditCard className="h-4 w-4" aria-hidden="true" />
+            <span>Quản lý Tài khoản Quảng cáo →</span>
+          </div>
+          <p className="mt-1 text-xs text-ink-muted">Kiểm tra chi tiêu, trạng thái Meta & hạn mức 1 Thẻ ≤ 3 TKQC.</p>
         </Link>
-        <Link to="/alerts" className="rounded-lg border border-line bg-surface p-3.5 hover:border-brand">
-          <div className="text-xs font-bold text-brand-text">🔔 Cảnh báo & Kháng nghị nhanh →</div>
-          <p className="mt-1 text-[11px] text-ink-muted">Phát hiện TKQC bị vô hiệu hoá & bấm 1 chạm mở đúng Chrome xử lý.</p>
+        <Link to="/assets?tab=proxy-references" className="rounded-lg border border-line bg-surface p-3.5 hover:border-brand transition-colors">
+          <div className="flex items-center gap-2 text-xs font-bold text-brand-text">
+            <Layers className="h-4 w-4" aria-hidden="true" />
+            <span>Quản lý Kho Proxy & Thẻ →</span>
+          </div>
+          <p className="mt-1 text-xs text-ink-muted">Quản lý danh sách Proxy IPv4 Dân cư tĩnh và Phương thức thanh toán.</p>
         </Link>
       </div>
     </div>
