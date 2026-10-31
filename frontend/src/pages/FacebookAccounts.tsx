@@ -357,7 +357,24 @@ export default function FacebookAccounts() {
                         {t(`twoFactor.${String(row.two_factor_method)}` as never)}
                       </Badge>
                     </TableCell>
-                    <TableCell label={columns[4]}>{s ? s.business_manager_count : '—'}</TableCell>
+                    <TableCell label={columns[4]}>
+                      {s ? (
+                        <div className="space-y-0.5">
+                          <Badge tone={s.business_manager_count <= 2 ? 'positive' : s.business_manager_count <= 4 ? 'info' : 'caution'}>
+                            {`${s.business_manager_count} BM`}
+                          </Badge>
+                          <div className="text-[10px] text-ink-muted">
+                            {s.business_manager_count <= 2
+                              ? 'An toàn (≤ 2 BM gốc/Via)'
+                              : s.business_manager_count <= 4
+                                ? 'Chạm trần tạo BM (Max 4)'
+                                : 'Via Tổng / Partner'}
+                          </div>
+                        </div>
+                      ) : (
+                        '—'
+                      )}
+                    </TableCell>
                     <TableCell label={columns[5]}>{s ? s.ad_account_count : '—'}</TableCell>
                     <TableCell label={columns[6]}>
                       <Badge tone={String(row.status) === 'active' ? 'positive' : 'neutral'}>

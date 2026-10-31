@@ -75,16 +75,16 @@ function parseBmLimit(notesRaw: unknown, currentCount: number): { limit: number;
     const verified = lim >= 10 || /xmdn|verified/i.test(notes)
     return {
       limit: lim,
-      tierLabel: lim >= 10 ? `BM${lim} ?? ???? XMDN` : `BM${lim} ?? Ch??a XMDN`,
+      tierLabel: lim >= 10 ? `BM${lim} · Đã XMDN` : `BM${lim} · Chưa XMDN`,
       verified,
       explicit: true,
     }
   }
-  if (currentCount > 10) return { limit: 30, tierLabel: 'BM30 ?? ???? XMDN', verified: true, explicit: false }
-  if (currentCount > 5) return { limit: 10, tierLabel: 'BM10 ?? ???? XMDN', verified: true, explicit: false }
-  if (currentCount > 3) return { limit: 5, tierLabel: 'BM5 ?? ???? c?? bill', verified: false, explicit: false }
-  if (currentCount > 1) return { limit: 3, tierLabel: 'BM3 ?? ???? c?? bill', verified: false, explicit: false }
-  return { limit: 5, tierLabel: 'BM1???BM5 ?? Ti??u chu???n', verified: false, explicit: false }
+  if (currentCount > 10) return { limit: 30, tierLabel: 'BM30 · Đã XMDN', verified: true, explicit: false }
+  if (currentCount > 5) return { limit: 10, tierLabel: 'BM10 · Đã XMDN', verified: true, explicit: false }
+  if (currentCount > 3) return { limit: 5, tierLabel: 'BM5 · Đã có bill', verified: false, explicit: false }
+  if (currentCount > 1) return { limit: 3, tierLabel: 'BM3 · Đã có bill', verified: false, explicit: false }
+  return { limit: 5, tierLabel: 'BM1–BM5 · Tiêu chuẩn', verified: false, explicit: false }
 }
 
 /** What the record is called in a sentence: its first required text field, else its id. */
@@ -156,8 +156,8 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
   const visibleFields = spec.fields.filter((field) => !field.hideInTable)
   const name = t(spec.singular)
   const rows = list.data?.items ?? []
-  const bmAccountColLabel = language === 'vi' ? 'T??i kho???n QC & H???n m???c BM' : 'Ad accounts & BM limit'
-  const paymentAccountColLabel = language === 'vi' ? 'TKQC ??ang g???n (An to??n ??? 3/th???)' : 'Linked Ad Accounts (Safe ??? 3)'
+  const bmAccountColLabel = language === 'vi' ? 'Tài khoản QC & Hạn mức BM' : 'Ad accounts & BM limit'
+  const paymentAccountColLabel = language === 'vi' ? 'TKQC đang gắn (An toàn ≤ 3/thẻ)' : 'Linked Ad Accounts (Safe ≤ 3)'
 
   const accountsByBmId = new Map<string, AdAccount[]>()
   const allAccounts = bmAccountsQuery.data?.items ?? []
@@ -207,7 +207,7 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
 
       {isPaymentResource && (
         <div className="rounded-md border border-line bg-surface px-3.5 py-2 text-xs text-ink">
-          <strong>Quy t???c an to??n th??? thanh to??n:</strong> Meta cho ph??p g???n t???i ??a <strong>9???10 TKQC / 1 th???</strong>, nh??ng th???c chi???n ch??? n??n g???n t???i ??a <strong className="text-success-text">1 ??? 3 TKQC / 1 th???</strong> ????? tr??nh ch???t li??n ?????i (b??o th???) khi 1 TKQC b??? v?? hi???u ho?? ho???c th??? h???t ti???n.
+          <strong>Quy tắc an toàn thẻ thanh toán:</strong> Meta cho phép gắn tối đa <strong>9–10 TKQC / 1 thẻ</strong>, nhưng thực chiến chỉ nên gắn tối đa <strong className="text-success-text">1 – 3 TKQC / 1 thẻ</strong> để tránh chết liên đới (bão thẻ) khi 1 TKQC bị vô hiệu hoá hoặc thẻ hụt tiền.
         </div>
       )}
 
@@ -268,7 +268,7 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
                         </a>
                       ) : (
                         <span className={field.name.includes('reference') ? 'font-mono text-xs' : undefined}>
-                          {record[field.name] ? String(record[field.name]) : '???'}
+                          {record[field.name] ? String(record[field.name]) : '—'}
                         </span>
                       )}
                     </TableCell>
@@ -289,7 +289,7 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
                                 {bmQuota.tierLabel}
                               </Badge>
                               <span className="text-[11px] font-medium text-ink-muted">
-                                {remaining > 0 ? `(C??n t???o ???????c ${remaining})` : '(Ch???m tr???n h???n m???c)'}
+                                {remaining > 0 ? `(Còn tạo được ${remaining})` : '(Chạm trần hạn mức)'}
                               </span>
                             </div>
                             {linkedAccs.length > 0 && (
@@ -308,7 +308,7 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
                                     to="/accounts"
                                     className="inline-flex items-center rounded border border-line bg-surface-muted px-1.5 py-0.5 text-[11px] font-semibold text-brand-text hover:underline"
                                   >
-                                    +{linkedAccs.length - 4} TKQC kh??c ???
+                                    +{linkedAccs.length - 4} TKQC khác →
                                   </Link>
                                 )}
                               </div>
@@ -326,12 +326,12 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
                         const tone = count === 0 ? 'neutral' : count <= 2 ? 'positive' : count === 3 ? 'caution' : 'attention'
                         const statusText =
                           count === 0
-                            ? '0 / 3 TKQC ?? Ch??a g???n'
+                            ? '0 / 3 TKQC · Chưa gắn'
                             : count <= 2
-                              ? `${count} / 3 TKQC ?? An to??n`
+                              ? `${count} / 3 TKQC · An toàn`
                               : count === 3
-                                ? '3 / 3 TKQC ?? T???i ??a khuy???n ngh???'
-                                : `?????? ${count} / 10 TKQC ?? V?????t ng?????ng an to??n (D??? ch???t li??n ?????i)`
+                                ? '3 / 3 TKQC · Tối đa khuyến nghị'
+                                : `⚠️ ${count} / 10 TKQC · Vượt ngưỡng an toàn (Dễ chết liên đới)`
                         return (
                           <div className="space-y-1">
                             <div className="flex flex-wrap items-center gap-1.5">
@@ -350,7 +350,7 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
                                 ))}
                                 {count > 4 && (
                                   <span className="text-[11px] font-medium text-ink-muted">
-                                    +{count - 4} kh??c
+                                    +{count - 4} khác
                                   </span>
                                 )}
                               </div>
@@ -385,7 +385,7 @@ export default function ReferenceManager({ spec }: { spec: ResourceSpec }) {
                             onClick={() => setPending({ kind: 'archive', record })}
                           >
                             <Trash2 className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
-                            {language === 'vi' ? 'X??a' : 'Delete'}
+                            {language === 'vi' ? 'Xóa' : 'Delete'}
                           </Button>
                         </>
                       )}
@@ -559,8 +559,8 @@ function ReferenceSheet({
         {spec.key === 'business-managers' && (
           <Field
             htmlFor="bm-limit-select"
-            label="C???p ????? BM & Gi???i h???n t???o T??i kho???n QC"
-            hint="BM m???i t???o ???????c 1 TKQC (BM1). Sau khi thanh to??n bill ?????u ti??n t??ng l??n 3???5 TKQC (BM3/BM5). Sau khi X??c minh doanh nghi???p (XMDN) t??ng l??n 10 ??? 30 ??? 250+ TKQC."
+            label="Cấp độ BM & Giới hạn tạo Tài khoản QC"
+            hint="BM mới tạo được 1 TKQC (BM1). Sau khi thanh toán bill đầu tiên tăng lên 3–5 TKQC (BM3/BM5). Sau khi Xác minh doanh nghiệp (XMDN) tăng lên 10 → 30 → 250+ TKQC."
           >
             <select
               id="bm-limit-select"
@@ -568,13 +568,13 @@ function ReferenceSheet({
               value={bmLimitOption}
               onChange={(e) => setBmLimitOption(e.target.value)}
             >
-              <option value="">T??? ?????ng nh???n di???n theo s??? TKQC hi???n t???i</option>
-              <option value="1">BM1 ??? M???i t???o / Ch??a bill (T???i ??a 1 TKQC)</option>
-              <option value="3">BM3 ??? ???? c?? bill thanh to??n (T???i ??a 3 TKQC)</option>
-              <option value="5">BM5 ??? Ti??u chu???n (T???i ??a 5 TKQC)</option>
-              <option value="10">BM10 ??? ???? X??c minh doanh nghi???p / XMDN (T???i ??a 10 TKQC)</option>
-              <option value="30">BM30 ??? ???? XMDN C???p cao (T???i ??a 30 TKQC)</option>
-              <option value="250">BM250 ??? Agency XMDN (T???i ??a 250 TKQC)</option>
+              <option value="">Tự động nhận diện theo số TKQC hiện tại</option>
+              <option value="1">BM1 — Mới tạo / Chưa bill (Tối đa 1 TKQC)</option>
+              <option value="3">BM3 — Đã có bill thanh toán (Tối đa 3 TKQC)</option>
+              <option value="5">BM5 — Tiêu chuẩn (Tối đa 5 TKQC)</option>
+              <option value="10">BM10 — Đã Xác minh doanh nghiệp / XMDN (Tối đa 10 TKQC)</option>
+              <option value="30">BM30 — Đã XMDN Cấp cao (Tối đa 30 TKQC)</option>
+              <option value="250">BM250 — Agency XMDN (Tối đa 250 TKQC)</option>
             </select>
           </Field>
         )}

@@ -17,37 +17,37 @@ export default function BusinessManagers() {
       <div className="grid gap-2.5 sm:grid-cols-3">
         <div className="rounded-md border border-line bg-surface px-3.5 py-2.5">
           <div className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">
-            1. H???n m???c Via ??? BM
+            1. Hạn mức Via → BM
           </div>
           <div className="mt-1 text-xs font-semibold text-ink">
-            T??? t???o t???i ??a <span className="text-brand-text">2 BM / Via</span> (Via c???: 4 BM)
+            Tự tạo tối đa <span className="text-brand-text">2 BM / Via</span> (Via cổ: 4 BM)
           </div>
           <div className="mt-0.5 text-[11px] text-ink-muted">
-            An to??n: M???i Via g???c ch??? c???m <strong>1???2 BM</strong>. Nick ch??nh nh???n quy???n qua <strong>BM ?????i t??c (Partner)</strong> kh??ng gi???i h???n.
+            An toàn: Mỗi Via gốc chỉ cầm <strong>1–2 BM</strong>. Nick chính nhận quyền qua <strong>BM Đối tác (Partner)</strong> không giới hạn.
           </div>
         </div>
 
         <div className="rounded-md border border-line bg-surface px-3.5 py-2.5">
           <div className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">
-            2. H???n m???c BM ??? T??i kho???n QC
+            2. Hạn mức BM → Tài khoản QC
           </div>
           <div className="mt-1 text-xs font-semibold text-ink">
-            Ch??a XMDN: <span className="text-warning-text">1 ??? 3 ??? 5 TKQC</span> ?? ???? XMDN: <span className="text-success-text">5 ??? 10 ??? 30 ??? 250+ TKQC</span>
+            Chưa XMDN: <span className="text-warning-text">1 → 3 → 5 TKQC</span> · Đã XMDN: <span className="text-success-text">5 → 10 → 30 → 250+ TKQC</span>
           </div>
           <div className="mt-0.5 text-[11px] text-ink-muted">
-            BM m???i t???o ???????c 1 TKQC; sau bill ?????u ti??n l??n 3???5 TKQC; X??c minh doanh nghi???p (XMDN) m??? 10???30+ TKQC.
+            BM mới tạo được 1 TKQC; sau bill đầu tiên lên 3–5 TKQC; Xác minh doanh nghiệp (XMDN) mở 10–30+ TKQC.
           </div>
         </div>
 
         <div className="rounded-md border border-line bg-surface px-3.5 py-2.5">
           <div className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">
-            3. H???n m???c 1 Th??? ??? T??i kho???n QC
+            3. Hạn mức 1 Thẻ → Tài khoản QC
           </div>
           <div className="mt-1 text-xs font-semibold text-ink">
-            An to??n: <span className="text-success-text">1???3 TKQC / Th???</span> ?? Tr???n Meta: <span className="text-danger-text">9???10 TKQC / Th???</span>
+            An toàn: <span className="text-success-text">1–3 TKQC / Thẻ</span> · Trần Meta: <span className="text-danger-text">9–10 TKQC / Thẻ</span>
           </div>
           <div className="mt-0.5 text-[11px] text-ink-muted">
-            Kh??ng g???n qu?? 3 TKQC chung 1 th??? tr???c ti???p ????? tr??nh ch???t li??n ?????i (b??o th???) khi 1 TKQC b??? kho?? ho???c h???t ti???n.
+            Không gắn quá 3 TKQC chung 1 thẻ trực tiếp để tránh chết liên đới (bão thẻ) khi 1 TKQC bị khoá hoặc hụt tiền.
           </div>
         </div>
       </div>

@@ -280,11 +280,23 @@ export default function Accounts() {
           <TableCell key={id} label={label}>
             {account.payment_profile_labels?.length ? (
               <div className="flex flex-wrap gap-1">
-                {account.payment_profile_labels.map((pay) => (
-                  <Badge key={pay} tone="neutral">
-                    {pay}
-                  </Badge>
-                ))}
+                {account.payment_profile_labels.map((pay) => {
+                  const sharedCount = rows.filter((r) => r.payment_profile_labels?.includes(pay)).length
+                  const tone = sharedCount <= 2 ? 'positive' : sharedCount === 3 ? 'caution' : 'attention'
+                  return (
+                    <Badge
+                      key={pay}
+                      tone={tone}
+                      title={
+                        sharedCount <= 3
+                          ? `Thẻ đang gắn ${sharedCount}/3 TKQC (Trong ngưỡng an toàn chống chết liên đới)`
+                          : `CẢNH BÁO: Thẻ đang gắn ${sharedCount} TKQC (Vượt ngưỡng an toàn 3 TKQC/thẻ, tối đa kỹ thuật Meta là 10 TKQC)`
+                      }
+                    >
+                      {`${pay} · ${sharedCount}/3 TK`}
+                    </Badge>
+                  )
+                })}
               </div>
             ) : (
               <span className="text-ink-faint">{'—'}</span>
