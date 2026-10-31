@@ -26,6 +26,7 @@ const TeamSeats = lazy(() => import('./pages/TeamSeats'))
 const FacebookAccounts = lazy(() => import('./pages/FacebookAccounts'))
 const FacebookAccountDetail = lazy(() => import('./pages/FacebookAccountDetail'))
 const SecurityDevices = lazy(() => import('./pages/SecurityDevices'))
+const ChromeExtension = lazy(() => import('./pages/ChromeExtension'))
 import { Skeleton } from './components/primitives/skeleton'
 import { LoadingRegion } from './components/states'
 
@@ -52,6 +53,7 @@ export default function App() {
         <Route path="business-managers" element={<BusinessManagers />} />
         <Route path="assets" element={<Assets />} />
         <Route path="facebook-accounts" element={<FacebookAccounts />} />
+        <Route path="chrome-extension" element={<ChromeExtension />} />
         <Route path="facebook-accounts/:identityId" element={<FacebookAccountDetail />} />
         <Route path="readiness" element={<ReadinessPage />} />
         <Route path="account-health" element={<AccountHealth />} />

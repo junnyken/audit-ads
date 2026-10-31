@@ -407,3 +407,149 @@ export function downloadWindowsChromeLauncherBat(): void {
   link.remove()
   URL.revokeObjectURL(url)
 }
+
+export function launchChromeWithExtensionPreview(
+  targetUrl: string,
+  browserProfileLabel?: string | null,
+  identityLabel?: string | null,
+  networkLabel?: string | null,
+): void {
+  const dir = resolveChromeProfileDirectory(browserProfileLabel, identityLabel)
+  const nameParam = identityLabel ? `&name=${encodeURIComponent(identityLabel)}` : ''
+  const proxyParam = networkLabel ? `&proxy=${encodeURIComponent(networkLabel)}` : ''
+  const localBridgeUrl = `http://127.0.0.1:17890/open?profile=${encodeURIComponent(dir)}${nameParam}${proxyParam}&show_ext=1&url=${encodeURIComponent(targetUrl)}`
+
+  fetch(localBridgeUrl, { method: 'GET', mode: 'cors' })
+    .then((res) => {
+      if (!res.ok) throw new Error('Bridge HTTP error')
+    })
+    .catch(() => {
+      window.open(targetUrl, '_blank', 'noopener,noreferrer')
+    })
+}
+
+export function downloadChromeExtensionPackageBat(
+  viaName = 'Via Chính (AdsOps)',
+  profileDir = 'Default',
+  rawProxy = '',
+): void {
+  const parsed = parseProxyString(rawProxy)
+  const host = parsed?.host ?? ''
+  const port = parsed?.port ?? 8080
+  const user = parsed?.user ?? ''
+  const pass = parsed?.pass ?? ''
+  const scheme = parsed?.scheme ?? 'http'
+  const hasProxy = Boolean(host)
+
+  const manifestObj = {
+    version: '2.0.0',
+    manifest_version: 3,
+    name: hasProxy
+      ? `AdsOps Companion · ${profileDir} · Proxy ${host}:${port}`
+      : `AdsOps Companion · ${profileDir} (${viaName})`,
+    description: 'Tiện ích hộ chiếu Via, tự động gắn Proxy & phím tắt kháng nghị/thanh toán Meta của AdsOps Control Center.',
+    permissions: ['proxy', 'tabs', 'storage', 'webRequest', 'webRequestAuthProvider'],
+    host_permissions: ['<all_urls>'],
+    background: { service_worker: 'background.js' },
+    action: {
+      default_title: `AdsOps Hộ Chiếu Via (${viaName})`,
+      default_popup: 'popup.html',
+    },
+  }
+
+  let bgJs = `chrome.action.setBadgeText({ text: "${hasProxy ? 'PRX' : 'VIA'}" });
+chrome.action.setBadgeBackgroundColor({ color: "${hasProxy ? '#16a34a' : '#2563eb'}" });
+`
+  if (hasProxy) {
+    bgJs += `const proxyConfig = { mode: "fixed_servers", rules: { singleProxy: { scheme: "${scheme}", host: "${host}", port: ${port} }, bypassList: ["localhost", "127.0.0.1"] } };
+chrome.proxy.settings.set({ value: proxyConfig, scope: "regular" }, () => {});
+`
+    if (user && pass) {
+      bgJs += `chrome.webRequest.onAuthRequired.addListener(() => ({ authCredentials: { username: ${JSON.stringify(user)}, password: ${JSON.stringify(pass)} } }), { urls: ["<all_urls>"] }, ["blocking"]);
+`
+    }
+  }
+
+  const proxyDisplay = hasProxy
+    ? `${scheme.toUpperCase()}://${host}:${port}${user ? ' (Tự động nạp User/Pass)' : ''}`
+    : (rawProxy || 'Mạng trực tiếp (Chưa gắn Proxy)')
+
+  const popupHtml = `<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  body { width: 340px; background: #f8fafc; color: #0f172a; padding: 14px; }
+  .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #cbd5e1; padding-bottom: 10px; margin-bottom: 10px; }
+  .brand { font-size: 13px; font-weight: 800; color: #0f172a; }
+  .badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 999px; background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+  .card { background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+  .label { font-size: 10px; font-weight: 700; text-transform: uppercase; color: #475569; }
+  .val { font-size: 13px; font-weight: 700; color: #090d16; margin-top: 2px; }
+  .sub { font-size: 11px; color: #334155; margin-top: 3px; }
+  .grid { display: grid; grid-template-columns: 1fr; gap: 6px; margin-top: 6px; }
+  .btn { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: 6px; border: 1px solid #cbd5e1; background: #ffffff; color: #0f172a; font-size: 12px; font-weight: 600; text-decoration: none; }
+  .btn:hover { background: #f1f5f9; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">🛡️ AdsOps Hộ Chiếu Via</div>
+    <span class="badge">${hasProxy ? '🟢 ĐÃ BỌC PROXY' : '🔵 CHROME CỐ ĐỊNH'}</span>
+  </div>
+  <div class="card">
+    <div class="label">Tài khoản Via & Hồ sơ Chrome</div>
+    <div class="val">${viaName}</div>
+    <div class="sub">📁 Thư mục Chrome: <strong>${profileDir}</strong></div>
+  </div>
+  <div class="card">
+    <div class="label">Kết nối Mạng / Proxy</div>
+    <div class="val" style="font-size:12px;">${proxyDisplay}</div>
+  </div>
+  <div class="label">Lối tắt xử lý nhanh Meta</div>
+  <div class="grid">
+    <a class="btn" href="https://business.facebook.com/accountquality" target="_blank"><span>🛡️ Chất lượng TK & Kháng nghị Meta</span><span>↗</span></a>
+    <a class="btn" href="https://adsmanager.facebook.com/ads/manager/account_settings/account_billing/" target="_blank"><span>💳 Thanh toán & Dư nợ (Billing)</span><span>↗</span></a>
+    <a class="btn" href="https://business.facebook.com/settings" target="_blank"><span>🏢 Cài đặt Business Manager (BM)</span><span>↗</span></a>
+    <a class="btn" href="https://adsmanager.facebook.com/adsmanager/manage/campaigns" target="_blank"><span>📊 Trình quản lý Quảng cáo</span><span>↗</span></a>
+    <a class="btn" href="https://iphey.com/" target="_blank"><span>🔍 Kiểm tra độ sạch IP (Iphey)</span><span>↗</span></a>
+  </div>
+</body>
+</html>`
+
+  const b64Manifest = btoa(unescape(encodeURIComponent(JSON.stringify(manifestObj, null, 2))))
+  const b64Bg = btoa(unescape(encodeURIComponent(bgJs)))
+  const b64Popup = btoa(unescape(encodeURIComponent(popupHtml)))
+
+  const batLines = [
+    '@echo off',
+    'chcp 65001 >nul',
+    'set "EXT_DIR=%USERPROFILE%\Desktop\AdsOps_Tien_Ich_Chrome"',
+    'if not exist "%EXT_DIR%" mkdir "%EXT_DIR%"',
+    `powershell -NoProfile -ExecutionPolicy Bypass -Command "[IO.File]::WriteAllText('%EXT_DIR%\manifest.json', [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64Manifest}')))"`,
+    `powershell -NoProfile -ExecutionPolicy Bypass -Command "[IO.File]::WriteAllText('%EXT_DIR%\background.js', [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64Bg}')))"`,
+    `powershell -NoProfile -ExecutionPolicy Bypass -Command "[IO.File]::WriteAllText('%EXT_DIR%\popup.html', [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64Popup}')))"`,
+    'echo ==========================================================',
+    'echo [THANH CONG] Da tao thu muc Tien ich Google Chrome tai:',
+    'echo   %EXT_DIR%',
+    'echo.',
+    'echo Cach gan co dinh len Chrome (neu muon cai thu cong):',
+    'echo   1. Mo Chrome -> nhap: chrome://extensions',
+    'echo   2. Bat "Che do nha phat trien" (Developer mode) o goc phai',
+    'echo   3. Bam "Tai tien ich da giai nen" (Load unpacked) -> Chon thu muc AdsOps_Tien_Ich_Chrome tren Desktop',
+    'echo ==========================================================',
+    'explorer "%EXT_DIR%"',
+    'pause',
+  ]
+
+  const blob = new Blob([batLines.join('\r\n')], { type: 'application/bat;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'Cai-Dat-Tien-Ich-Chrome-AdsOps.bat'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}

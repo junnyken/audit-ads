@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom'
+import { Puzzle } from 'lucide-react'
 import { useI18n } from '../../i18n'
 import { cn } from '../../lib/cn'
 import { NAV_GROUPS } from './nav'
@@ -49,6 +50,30 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
           </section>
         )
       })}
+          <section aria-label="Tiện ích Google Chrome">
+        <h2 className="px-2 pb-1 text-2xs font-semibold uppercase tracking-[0.04em] text-ink-faint">
+          TIỆN ÍCH TRÌNH DUYỆT
+        </h2>
+        <ul className="flex flex-col gap-0.5">
+          <li>
+            <NavLink
+              to="/chrome-extension"
+              onClick={onNavigate}
+              className={({ isActive }) =>
+                cn(
+                  'flex items-center gap-2.5 rounded-md px-2 py-2 text-sm font-bold transition-colors',
+                  isActive
+                    ? 'bg-brand-light text-brand-text'
+                    : 'text-brand-text hover:bg-surface-sunken',
+                )
+              }
+            >
+              <Puzzle className="h-5 w-5 shrink-0" aria-hidden="true" />
+              <span className="min-w-0 truncate">Tiện ích Chrome (Via)</span>
+            </NavLink>
+          </li>
+        </ul>
+      </section>
     </nav>
   )
 }
