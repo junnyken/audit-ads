@@ -17,8 +17,8 @@ import { api } from '../lib/api'
 import type { AdAccount, Paged, ReferenceRecord } from '../lib/types'
 
 interface IdentitySummary {
-  identity: { id: string; label: string }
-  bm_count: number
+  id: string
+  business_manager_count: number
   ad_account_count: number
 }
 import { Badge } from '../components/primitives/badge'
@@ -69,8 +69,12 @@ export default function ChromeExtensionPage() {
 
   const summaryById = useMemo(() => {
     const map = new Map<string, IdentitySummary>()
-    for (const s of summaries) {
-      map.set(s.identity.id, s)
+    if (Array.isArray(summaries)) {
+      for (const s of summaries) {
+        if (s && s.id) {
+          map.set(String(s.id), s)
+        }
+      }
     }
     return map
   }, [summaries])
@@ -87,14 +91,17 @@ export default function ChromeExtensionPage() {
 
   // Accounts linked to the currently selected Via (fallback to all accounts if Tài Khoản Chính or none matched)
   const viaAccounts = useMemo(() => {
-    if (!allAccounts.length) return []
+    if (!Array.isArray(allAccounts) || !allAccounts.length) return []
+    const selLower = String(selectedViaLabel || '').toLowerCase()
     const matched = allAccounts.filter((acc) =>
-      acc.facebook_identities?.some(
-        (fid) =>
-          (selectedViaId && fid.id === selectedViaId) ||
-          fid.label.toLowerCase() === selectedViaLabel.toLowerCase() ||
-          selectedViaLabel.toLowerCase().includes(fid.label.toLowerCase()),
-      ),
+      Array.isArray(acc?.facebook_identities) &&
+      acc.facebook_identities.some((fid) => {
+        const fidLabel = String(fid?.label || '').toLowerCase()
+        return (
+          (selectedViaId && fid?.id === selectedViaId) ||
+          (fidLabel && (fidLabel === selLower || selLower.includes(fidLabel)))
+        )
+      }),
     )
     return matched.length > 0 ? matched : allAccounts
   }, [allAccounts, selectedViaId, selectedViaLabel])
@@ -240,7 +247,7 @@ export default function ChromeExtensionPage() {
                     const prof = String(v.browser_profile_label ?? 'Chrome — Default · trieu (thientrieu753@gmail.com)')
                     const net = String(v.network_label ?? '')
                     const sum = summaryById.get(v.id)
-                    const bmCount = sum?.bm_count ?? 0
+                    const bmCount = sum?.business_manager_count ?? 0
                     const adCount = sum?.ad_account_count ?? 0
                     const active = selectedViaLabel === lbl
                     return (
