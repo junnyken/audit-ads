@@ -169,3 +169,158 @@ def assign_reader_identity(ctx: OwnerCtx, reader_id: uuid.UUID, payload: s.Reade
             )
     ctx.commit()
     return {"personal_account_reference_id": target}
+
+
+@router.post("/facebook-identities/auto-connect-token")
+def auto_connect_facebook_token(ctx: WriteCtx, payload: dict[str, Any]) -> dict[str, Any]:
+    import json as _json
+    import urllib.parse as _urlparse
+    import urllib.request as _urlreq
+    from datetime import UTC, datetime
+    import sqlalchemy as sa
+    from app.core.enums import IdentityBusinessRole, IdentityOwnershipType, ReferenceStatus, TwoFactorMethod
+    from app.models.entities import BusinessManager, PersonalAccountBusinessLink, PersonalAccountReference, WorkspaceMember
+
+    raw_token = str(payload.get("access_token") or "").strip()
+    browser_profile_label = str(payload.get("browser_profile_label") or "").strip()
+    network_label = str(payload.get("network_label") or "").strip()
+
+    if not raw_token:
+        from app.core.errors import ValidationError
+        raise ValidationError("Vui lòng dán Token Facebook (EAAB...) để tự động lấy thông tin tài khoản.")
+
+    def _graph_get(path: str, params: dict[str, str]) -> dict[str, Any]:
+        qs = _urlparse.urlencode({**params, "access_token": raw_token})
+        url = f"https://graph.facebook.com/v21.0/{path}?{qs}"
+        with _urlreq.urlopen(url, timeout=20) as resp:
+            return _json.loads(resp.read().decode("utf-8"))
+
+    try:
+        me_data = _graph_get("me", {"fields": "id,name,email"})
+    except Exception as exc:
+        from app.core.errors import ValidationError
+        raise ValidationError(f"Token không hợp lệ hoặc đã hết hạn ({type(exc).__name__}).") from None
+
+    fb_id = str(me_data.get("id") or "").strip()
+    fb_name = str(me_data.get("name") or fb_id or "Via Facebook").strip()
+    fb_email = str(me_data.get("email") or "").strip()
+
+    ident = ctx.session.execute(
+        sa.select(PersonalAccountReference).where(
+            PersonalAccountReference.workspace_id == ctx.workspace_id,
+            sa.or_(
+                PersonalAccountReference.external_reference_id == fb_id,
+                sa.func.lower(PersonalAccountReference.label) == fb_name.lower(),
+            ),
+        )
+    ).scalars().first()
+
+    owner_member = ctx.session.execute(
+        sa.select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == ctx.workspace_id,
+            WorkspaceMember.user_id == ctx.user.id,
+            WorkspaceMember.archived_at.is_(None),
+        )
+    ).scalars().first()
+
+    if ident is None:
+        ident = PersonalAccountReference(
+            workspace_id=ctx.workspace_id,
+            label=fb_name[:200],
+            display_name=fb_name[:200],
+            external_reference_id=fb_id[:120],
+            status=ReferenceStatus.ACTIVE,
+            two_factor_method=TwoFactorMethod.APP,
+            ownership_type=IdentityOwnershipType.AGENCY_OWNED,
+            owner_member_id=owner_member.id if owner_member else None,
+            browser_profile_label=browser_profile_label[:160],
+            network_label=network_label[:160],
+            device_label="",
+            notes="Kết nối tự động qua Meta Graph API (/me)",
+        )
+        ctx.session.add(ident)
+        ctx.session.flush()
+    else:
+        ident.archived_at = None
+        ident.status = ReferenceStatus.ACTIVE
+        ident.display_name = fb_name[:200]
+        if fb_id:
+            ident.external_reference_id = fb_id[:120]
+        if browser_profile_label:
+            ident.browser_profile_label = browser_profile_label[:160]
+        if network_label:
+            ident.network_label = network_label[:160]
+        ctx.session.flush()
+
+    if fb_email:
+        try:
+            _service(ctx).set_email(ident, fb_email)
+        except Exception:
+            pass
+
+    linked_bms: list[str] = []
+    try:
+        bms_resp = _graph_get("me/businesses", {"fields": "id,name,permitted_roles", "limit": "50"})
+        for b_item in bms_resp.get("data", []) or []:
+            b_ext = str(b_item.get("id") or "").strip()
+            b_name = str(b_item.get("name") or b_ext).strip()
+            if not b_ext:
+                continue
+            bm_row = ctx.session.execute(
+                sa.select(BusinessManager).where(
+                    BusinessManager.workspace_id == ctx.workspace_id,
+                    BusinessManager.external_id == b_ext,
+                )
+            ).scalars().first()
+            if bm_row is None:
+                bm_row = BusinessManager(
+                    workspace_id=ctx.workspace_id,
+                    external_id=b_ext[:120],
+                    name=b_name[:200],
+                    country="VN",
+                    currency="VND",
+                    status=ReferenceStatus.ACTIVE,
+                )
+                ctx.session.add(bm_row)
+                ctx.session.flush()
+            else:
+                bm_row.archived_at = None
+                bm_row.status = ReferenceStatus.ACTIVE
+
+            roles_raw = [str(r).upper() for r in (b_item.get("permitted_roles") or [])]
+            role_enum = IdentityBusinessRole.ADMIN if "ADMIN" in roles_raw else IdentityBusinessRole.EMPLOYEE
+            existing_lnk = ctx.session.execute(
+                sa.select(PersonalAccountBusinessLink).where(
+                    PersonalAccountBusinessLink.workspace_id == ctx.workspace_id,
+                    PersonalAccountBusinessLink.personal_account_reference_id == ident.id,
+                    PersonalAccountBusinessLink.business_manager_id == bm_row.id,
+                )
+            ).scalars().first()
+            if existing_lnk is None:
+                ctx.session.add(
+                    PersonalAccountBusinessLink(
+                        workspace_id=ctx.workspace_id,
+                        personal_account_reference_id=ident.id,
+                        business_manager_id=bm_row.id,
+                        role=role_enum,
+                        external_business_user_id=fb_id[:120],
+                        linked_at=datetime.now(UTC),
+                        linked_by=ctx.user.id,
+                        note="Đồng bộ tự động từ Token Via",
+                    )
+                )
+            else:
+                existing_lnk.unlinked_at = None
+                existing_lnk.role = role_enum
+            linked_bms.append(b_name)
+    except Exception:
+        pass
+
+    ctx.commit()
+    return {
+        "id": str(ident.id),
+        "label": ident.label,
+        "external_reference_id": ident.external_reference_id,
+        "email_hint": ident.email_hint,
+        "linked_business_managers": linked_bms,
+    }

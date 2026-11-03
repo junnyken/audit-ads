@@ -1,6 +1,5 @@
 import { useEffect, useId, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { ExternalLink } from 'lucide-react'
+import { Sparkles } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import type {
@@ -31,36 +30,6 @@ const STATUS_OPTIONS = ['unknown', 'active', 'inactive', 'restricted'] as const
 const OWNERSHIP_OPTIONS: IdentityOwnershipType[] = ['agency_owned', 'client_provided']
 const BM_ROLES: IdentityBusinessRole[] = ['admin', 'employee', 'unknown']
 
-const DEVICE_PRESETS = [
-  'Máy trạm Agency #1 (Admin)',
-  'Máy trạm Agency #2 (Media Buyer)',
-  'Máy trạm Agency #3 (Backup)',
-  'VPS Windows Cloud #1 (AdsOps)',
-  'VPS Windows Cloud #2 (AdsOps)',
-  'Laptop Vận hành Ads (Từ xa)',
-  'MacBook Pro Agency',
-]
-
-const BROWSER_ENV_PRESETS = [
-  { provider: 'Chrome', name: 'Chrome Profile' },
-  { provider: 'AdsPower', name: 'AdsPower Antidetect' },
-  { provider: 'Hidemyacc', name: 'Hidemyacc Antidetect' },
-  { provider: 'Genlogin', name: 'Genlogin Antidetect' },
-  { provider: 'GoLogin', name: 'GoLogin Antidetect' },
-  { provider: 'Dolphin{anty}', name: 'Dolphin{anty}' },
-  { provider: 'MoreLogin', name: 'MoreLogin Antidetect' },
-  { provider: 'Multilogin', name: 'Multilogin' },
-]
-
-const PROXY_ISP_PRESETS = [
-  { provider: 'VNPT Static IP', name: 'VNPT IP Tĩnh Doanh Nghiệp (VN)', protocol: 'https', region: 'Ho Chi Minh' },
-  { provider: 'Viettel Residential', name: 'Viettel IP Dân Cư Tĩnh (VN)', protocol: 'https', region: 'Ha Noi' },
-  { provider: 'FPT Static IP', name: 'FPT Telecom IP Tĩnh (VN)', protocol: 'https', region: 'Ho Chi Minh' },
-  { provider: 'Mobile 4G/5G VN', name: 'Proxy 4G/5G Di Động VN (Mobifone/Viettel)', protocol: 'http', region: 'Viet Nam' },
-  { provider: '922Proxy VN', name: '922Proxy / BrightData Dân Cư VN', protocol: 'socks5', region: 'Ho Chi Minh' },
-  { provider: 'Static IP US/SG', name: 'Proxy Tĩnh Quốc Tế (US / Singapore)', protocol: 'https', region: 'Singapore' },
-]
-
 export function FacebookAccountFormSheet({
   open,
   onClose,
@@ -80,6 +49,9 @@ export function FacebookAccountFormSheet({
   const enumLabel = useEnumLabel()
   const queryClient = useQueryClient()
   const formId = useId()
+
+  const [autoToken, setAutoToken] = useState('')
+  const [autoConnectMsg, setAutoConnectMsg] = useState<string | null>(null)
 
   const [label, setLabel] = useState('')
   const [displayName, setDisplayName] = useState('')
@@ -105,24 +77,10 @@ export function FacebookAccountFormSheet({
     retry: false,
   })
 
-  const browserProfiles = useQuery({
-    queryKey: ['browser-profile-references', 'options'],
-    queryFn: () => api.get<Paged<ReferenceRecord>>('/api/v1/browser-profile-references?page_size=200'),
-    enabled: open,
-    retry: false,
-  })
-
   const localChromeProfiles = useQuery({
     queryKey: ['local-chrome-profiles'],
     queryFn: fetchRealLocalChromeProfiles,
     initialData: WORKSTATION_REAL_CHROME_PROFILES,
-    enabled: open,
-    retry: false,
-  })
-
-  const proxyReferences = useQuery({
-    queryKey: ['proxy-references', 'options'],
-    queryFn: () => api.get<Paged<ReferenceRecord>>('/api/v1/proxy-references?page_size=200'),
     enabled: open,
     retry: false,
   })
@@ -146,6 +104,8 @@ export function FacebookAccountFormSheet({
 
   useEffect(() => {
     if (!open) return
+    setAutoToken('')
+    setAutoConnectMsg(null)
     setLabel(String(record?.label ?? ''))
     setDisplayName(String(record?.display_name ?? ''))
     setExternalId(String(record?.external_reference_id ?? ''))
@@ -159,19 +119,55 @@ export function FacebookAccountFormSheet({
     setClientName(String(record?.client_name ?? ''))
     setDeviceLabel(String(record?.device_label ?? ''))
     setBrowserProfileLabel(String(record?.browser_profile_label ?? ''))
-    setNetworkLabel(String(record?.network_label ?? ''))
+    const rawNet = String(record?.network_label ?? '')
+    setNetworkLabel(
+      rawNet.toLowerCase().startsWith('vnpt static ip — line #') ||
+        rawNet.toLowerCase().startsWith('fpt static ip — line #') ||
+        rawNet.toLowerCase().startsWith('viettel residential — line #')
+        ? ''
+        : rawNet,
+    )
     setSelectedBmId('')
     setSelectedBmRole('admin')
   }, [open, record])
 
-  const browserList = Array.isArray(browserProfiles.data?.items) ? browserProfiles.data.items : []
-  const proxyList = Array.isArray(proxyReferences.data?.items) ? proxyReferences.data.items : []
+  const autoConnect = useMutation({
+    mutationFn: () =>
+      api.post<{
+        id: string
+        label: string
+        external_reference_id: string
+        email_hint: string | null
+        linked_business_managers: string[]
+      }>('/api/v1/facebook-identities/auto-connect-token', {
+        access_token: autoToken.trim(),
+        browser_profile_label: browserProfileLabel.trim(),
+        network_label: networkLabel.trim(),
+      }),
+    onSuccess: (res) => {
+      setLabel(res.label)
+      setDisplayName(res.label)
+      setExternalId(res.external_reference_id || '')
+      setAutoConnectMsg(
+        `Đã kết nối tự động: ${res.label} (ID: ${res.external_reference_id})${
+          res.linked_business_managers.length > 0 ? ` · BM: ${res.linked_business_managers.join(', ')}` : ''
+        }`,
+      )
+      void queryClient.invalidateQueries({ queryKey: ['personal-account-references'] })
+      void queryClient.invalidateQueries({ queryKey: ['facebook-identities'] })
+      void queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      if (!record) {
+        setTimeout(() => onClose(), 900)
+      }
+    },
+  })
 
   const save = useMutation({
     mutationFn: async () => {
+      const cleanLabel = label.trim()
       const payload: Record<string, unknown> = {
-        label: label.trim(),
-        display_name: displayName.trim(),
+        label: cleanLabel,
+        display_name: (displayName.trim() || cleanLabel),
         external_reference_id: externalId.trim() || null,
         status,
         two_factor_method: twoFactor,
@@ -190,60 +186,6 @@ export function FacebookAccountFormSheet({
       const saved = record
         ? await api.patch<ReferenceRecord>(`/api/v1/personal-account-references/${record.id}`, payload)
         : await api.post<ReferenceRecord>('/api/v1/personal-account-references', payload)
-
-      // Auto-sync Browser Profile into /assets (browser-profile-references) if not already registered
-      const cleanBrowser = browserProfileLabel.trim()
-      if (cleanBrowser) {
-        const existsBrowser = browserList.some(
-          (b) => String(b.label ?? '').toLowerCase() === cleanBrowser.toLowerCase() || String(b.profile_reference ?? '').toLowerCase() === cleanBrowser.toLowerCase(),
-        )
-        if (!existsBrowser) {
-          const matchedPreset = BROWSER_ENV_PRESETS.find((p) => cleanBrowser.toLowerCase().includes(p.provider.toLowerCase()))
-          const providerName = matchedPreset?.provider ?? (cleanBrowser.split(/[?-]/)[0]?.trim() || 'Chrome')
-          const refSlug = cleanBrowser.replace(/[^a-zA-Z0-9_-]+/g, '-').toUpperCase().slice(0, 60)
-          try {
-            await api.post('/api/v1/browser-profile-references', {
-              provider: providerName,
-              profile_reference: `PROF-${refSlug}`,
-              label: cleanBrowser,
-              local_or_remote: 'local',
-              status: 'active',
-              notes: `Đồng bộ tự động từ VIA ${label.trim()}`,
-            })
-          } catch {
-            // Ignore duplicate profile reference errors
-          }
-        }
-      }
-
-      // Auto-sync Proxy ISP into /assets (proxy-references) if not already registered
-      const cleanNetwork = networkLabel.trim()
-      if (cleanNetwork) {
-        const existsProxy = proxyList.some(
-          (p) => String(p.label ?? '').toLowerCase() === cleanNetwork.toLowerCase() || String(p.proxy_reference ?? '').toLowerCase() === cleanNetwork.toLowerCase(),
-        )
-        if (!existsProxy) {
-          const matchedIsp = PROXY_ISP_PRESETS.find(
-            (p) => cleanNetwork.toLowerCase().includes(p.provider.toLowerCase()) || cleanNetwork.toLowerCase().includes(p.name.split(' ')[0].toLowerCase()),
-          )
-          const ispProvider = matchedIsp?.provider ?? (cleanNetwork.split(/[?-]/)[0]?.trim() || 'VNPT Static IP')
-          const refSlug = cleanNetwork.replace(/[^a-zA-Z0-9_-]+/g, '-').toUpperCase().slice(0, 60)
-          try {
-            await api.post('/api/v1/proxy-references', {
-              provider: ispProvider,
-              proxy_reference: `PRX-${refSlug}`,
-              label: cleanNetwork,
-              country: 'VN',
-              region: matchedIsp?.region ?? 'Ho Chi Minh',
-              protocol: matchedIsp?.protocol ?? 'https',
-              status: 'active',
-              notes: `Đồng bộ tự động từ VIA ${label.trim()}`,
-            })
-          } catch {
-            // Ignore duplicate proxy reference errors
-          }
-        }
-      }
 
       if (selectedBmId) {
         const alreadyLinked = (profile.data?.business_links ?? []).some(
@@ -266,8 +208,6 @@ export function FacebookAccountFormSheet({
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: ['personal-account-references'] })
       void queryClient.invalidateQueries({ queryKey: ['facebook-identities'] })
-      void queryClient.invalidateQueries({ queryKey: ['browser-profile-references'] })
-      void queryClient.invalidateQueries({ queryKey: ['proxy-references'] })
       void queryClient.invalidateQueries({ queryKey: ['accounts'] })
       void queryClient.invalidateQueries({ queryKey: ['readiness-summary'] })
       onSaved?.(saved)
@@ -277,14 +217,14 @@ export function FacebookAccountFormSheet({
 
   const bmList = Array.isArray(bms.data?.items) ? bms.data.items : []
   const existingLinks = Array.isArray(profile.data?.business_links) ? profile.data.business_links : []
-  const viaSuffix = (label.trim() || 'VIA').slice(0, 40)
+  const chromeList = localChromeProfiles.data ?? WORKSTATION_REAL_CHROME_PROFILES
 
   return (
     <FormSheet
       open={open}
       onClose={onClose}
       title={record ? t('fb.form.editTitle') : t('fb.form.addTitle')}
-      description={t('fb.form.desc')}
+      description="Chỉ cần chọn Hồ sơ Chrome thật (và Proxy nếu có), hoặc dán Token để tự động điền toàn bộ thông tin từ Meta."
       footer={
         <>
           <Button type="button" variant="secondary" onClick={onClose}>
@@ -298,60 +238,147 @@ export function FacebookAccountFormSheet({
     >
       <form
         id={formId}
-        className="space-y-3"
+        className="space-y-3.5"
         onSubmit={(event) => {
           event.preventDefault()
           if (label.trim()) save.mutate()
         }}
       >
-        <Field htmlFor={`${formId}-label`} label={t('res.f.label')} required>
+        {/* KHỐI 1: TỰ ĐỘNG LẤY THÔNG TIN BẰNG TOKEN (KHÔNG CẦN NHẬP TAY) */}
+        <div className="rounded-md border border-brand/40 bg-brand-soft/15 p-3 space-y-2">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-brand-text">
+            <Sparkles className="h-3.5 w-3.5" />
+            <span>Kết nối tự động bằng Token Facebook (Tự động lấy Tên, ID, Email & BM)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="password"
+              className="input flex-1 font-mono text-xs"
+              placeholder="Dán Token EAAB... của Via vào đây để tự động tạo & điền hết thông tin"
+              value={autoToken}
+              onChange={(e) => setAutoToken(e.target.value)}
+            />
+            <Button
+              type="button"
+              size="sm"
+              disabled={!autoToken.trim() || autoConnect.isPending}
+              onClick={() => autoConnect.mutate()}
+            >
+              {autoConnect.isPending ? 'Đang lấy...' : '⚡ Tự động lấy'}
+            </Button>
+          </div>
+          {autoConnectMsg && (
+            <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">✓ {autoConnectMsg}</p>
+          )}
+          {autoConnect.isError && <ErrorState error={autoConnect.error} compact />}
+        </div>
+
+        {/* KHỐI 2: 3 TRƯỜNG CỐT LÕI (TÊN VIA · HỒ SƠ CHROME THẬT · PROXY THẬT) */}
+        <Field htmlFor={`${formId}-label`} label="1. Tên Via / Tài khoản Facebook" required>
           <input
             id={`${formId}-label`}
             className="input"
             required
             maxLength={200}
+            placeholder="VD: Thiên Triều Mới, Via 2..."
             value={label}
-            onChange={(e) => setLabel(e.target.value)}
+            onChange={(e) => {
+              setLabel(e.target.value)
+              if (!displayName) setDisplayName(e.target.value)
+            }}
           />
         </Field>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field htmlFor={`${formId}-ownership`} label={t('fb.ownership')}>
+
+        <Field htmlFor={`${formId}-browser`} label="2. Hồ sơ Google Chrome thật trên máy tính (Mở 1 chạm)">
+          <div className="space-y-1.5">
             <select
-              id={`${formId}-ownership`}
-              className="input"
-              value={ownershipType}
-              onChange={(e) => setOwnershipType(e.target.value as IdentityOwnershipType)}
-              data-testid="fb-ownership-select"
+              id={`${formId}-browser`}
+              aria-label="Chọn môi trường trình duyệt"
+              className="input text-xs"
+              value={browserProfileLabel}
+              onChange={(e) => {
+                const chosen = e.target.value
+                setBrowserProfileLabel(chosen)
+                if (!label.trim() && chosen) {
+                  const shortName = chosen.replace(/^Chrome\s*—\s*/i, '').split(' (')[0]
+                  setLabel(shortName)
+                }
+              }}
+              data-testid="fb-browser-input"
             >
-              {OWNERSHIP_OPTIONS.map((opt) => (
-                <option key={opt} value={opt}>
-                  {t(`fb.ownership.${opt}` as never)}
+              <option value="">— Chọn Hồ sơ Google Chrome thật trên máy tính ({chromeList.length} hồ sơ) —</option>
+              {chromeList.map((cp) => (
+                <option key={cp.folder} value={cp.label}>
+                  {cp.label}
                 </option>
               ))}
+              {browserProfileLabel && !chromeList.some((c) => c.label === browserProfileLabel) && (
+                <option value={browserProfileLabel}>{browserProfileLabel}</option>
+              )}
             </select>
-          </Field>
-          <Field htmlFor={`${formId}-client`} label={t('fb.clientName')}>
-            <input
-              id={`${formId}-client`}
-              className="input"
-              maxLength={200}
-              placeholder={t('fb.clientPlaceholder')}
-              value={clientName}
-              onChange={(e) => setClientName(e.target.value)}
-              data-testid="fb-client-input"
-            />
-          </Field>
-        </div>
+            {browserProfileLabel.trim() && (
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] text-ink-muted">
+                  Hồ sơ đã chọn: <strong className="text-ink">{browserProfileLabel}</strong>
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() =>
+                    launchInAssignedChromeProfile(
+                      'https://business.facebook.com/overview',
+                      browserProfileLabel,
+                      label,
+                      networkLabel,
+                    )
+                  }
+                >
+                  🚀 Mở thử Chrome
+                </Button>
+              </div>
+            )}
+          </div>
+        </Field>
 
-        {/* Business Manager link section */}
+        <Field htmlFor={`${formId}-network`} label="3. Proxy riêng (Tùy chọn — Bỏ trống nếu dùng Mạng gốc)">
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <input
+                id={`${formId}-network`}
+                className="input flex-1 font-mono text-xs"
+                maxLength={160}
+                placeholder="Dán IP:Port:User:Pass (VD: 103.145.67.89:8080:user:pass) hoặc để trống"
+                value={networkLabel}
+                onChange={(e) => setNetworkLabel(e.target.value)}
+                data-testid="fb-network-input"
+              />
+              {parseProxyString(networkLabel) && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => downloadSwitchyOmegaConfig(networkLabel, label)}
+                >
+                  🔌 SwitchyOmega (.bak)
+                </Button>
+              )}
+            </div>
+            <p className="text-[11px] text-ink-muted">
+              Để trống nếu chạy trực tiếp trên Wifi/Mạng gốc. Chỉ dán khi bạn có Proxy thật muốn bọc riêng cho Via này.
+            </p>
+          </div>
+        </Field>
+
+        {/* Liên kết BM (hiện gọn nếu đã có hoặc muốn gắn thêm) */}
         <div className="rounded-md border border-line bg-surface-muted p-3 space-y-2">
-          <p className="text-xs font-semibold text-ink">{t('fb.detail.bm')}</p>
+          <p className="text-xs font-semibold text-ink">Business Manager đang cầm ({existingLinks.length})</p>
           {existingLinks.length > 0 && (
-            <ul className="space-y-1.5">
+            <ul className="space-y-1">
               {existingLinks.map((lnk) => (
                 <li
                   key={lnk.id}
-                  className="flex items-center justify-between gap-2 rounded border border-line bg-surface px-2.5 py-1.5 text-xs"
+                  className="flex items-center justify-between gap-2 rounded border border-line bg-surface px-2.5 py-1 text-xs"
                 >
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-ink">{lnk.business_manager_name}</span>
@@ -371,10 +398,10 @@ export function FacebookAccountFormSheet({
             </ul>
           )}
           <div className="grid gap-2 sm:grid-cols-2">
-            <Field htmlFor={`${formId}-bm`} label={t('fb.businessManagers')}>
+            <Field htmlFor={`${formId}-bm`} label="Gắn thêm vào BM">
               <select
                 id={`${formId}-bm`}
-                className="input"
+                className="input text-xs"
                 value={selectedBmId}
                 onChange={(e) => setSelectedBmId(e.target.value)}
               >
@@ -389,7 +416,7 @@ export function FacebookAccountFormSheet({
             <Field htmlFor={`${formId}-bm-role`} label={t('fb.form.bmRole')}>
               <select
                 id={`${formId}-bm-role`}
-                className="input"
+                className="input text-xs"
                 value={selectedBmRole}
                 onChange={(e) => setSelectedBmRole(e.target.value as IdentityBusinessRole)}
               >
@@ -403,313 +430,95 @@ export function FacebookAccountFormSheet({
           </div>
         </div>
 
-        {/* Fixed Login Environment with Dropdown Selectors & Direct Asset Connections */}
-        <div className="rounded-md border border-line bg-surface-muted p-3 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <p className="text-xs font-semibold text-ink">{t('fb.env.title')}</p>
-              <p className="text-xs text-ink-muted">{t('fb.env.desc')}</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Link
-                to="/assets?tab=browser-profile-references"
-                onClick={onClose}
-                className="inline-flex items-center gap-1 rounded border border-line bg-surface px-2 py-1 text-xs font-medium text-brand-text hover:bg-surface-hover"
-              >
-                Hồ sơ trình duyệt <ExternalLink className="h-3 w-3" />
-              </Link>
-              <Link
-                to="/assets?tab=proxy-references"
-                onClick={onClose}
-                className="inline-flex items-center gap-1 rounded border border-line bg-surface px-2 py-1 text-xs font-medium text-brand-text hover:bg-surface-hover"
-              >
-                Nhà mạng Proxy IP <ExternalLink className="h-3 w-3" />
-              </Link>
-            </div>
-          </div>
-
-          {/* 1. Device / Workstation selector */}
-          <Field htmlFor={`${formId}-device`} label={t('fb.deviceLabel')}>
-            <div className="space-y-1.5">
-              <select
-                aria-label="Chọn máy trạm cố định"
-                className="input text-xs"
-                value={DEVICE_PRESETS.includes(deviceLabel) ? deviceLabel : ''}
-                onChange={(e) => {
-                  if (e.target.value) setDeviceLabel(e.target.value)
-                }}
-              >
-                <option value="">— Chọn nhanh Thiết bị / Máy trạm —</option>
-                {DEVICE_PRESETS.map((preset) => (
-                  <option key={preset} value={preset}>
-                    {preset}
-                  </option>
-                ))}
-              </select>
-              <input
-                id={`${formId}-device`}
-                className="input"
-                maxLength={160}
-                placeholder={t('fb.devicePlaceholder')}
-                value={deviceLabel}
-                onChange={(e) => setDeviceLabel(e.target.value)}
-                data-testid="fb-device-input"
-              />
-            </div>
-          </Field>
-
-          {/* 2. Browser / Antidetect Environment selector */}
-          <Field htmlFor={`${formId}-browser`} label={t('fb.browserLabel')}>
-            <div className="space-y-1.5">
-              <select
-                aria-label="Chọn môi trường trình duyệt"
-                className="input text-xs"
-                value=""
-                onChange={(e) => {
-                  if (e.target.value) setBrowserProfileLabel(e.target.value)
-                }}
-              >
-                <option value="">— Chọn Hồ sơ Google Chrome thật trên máy tính hoặc phần mềm Antidetect —</option>
-                <optgroup label="🟢 Hồ sơ Google Chrome thật trên máy tính của bạn (Mở tự động 1 chạm)">
-                  {(localChromeProfiles.data ?? WORKSTATION_REAL_CHROME_PROFILES).map((cp) => (
-                    <option key={cp.folder} value={cp.label}>
-                      {cp.label}
+        {/* KHỐI 3: TÙY CHỌN NÂNG CAO (THU GỌN ĐỂ KHÔNG PHẢI NHẬP NHIỀU) */}
+        <details className="rounded-md border border-line bg-surface-muted/50 p-3 text-xs">
+          <summary className="cursor-pointer font-semibold text-ink-muted hover:text-ink">
+            ⚙️ Tùy chọn nâng cao (ID Meta, 2FA, Người giữ, Ghi chú — Không bắt buộc)
+          </summary>
+          <div className="mt-3 space-y-3 border-t border-line pt-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field htmlFor={`${formId}-ext`} label={t('res.f.externalReferenceId')}>
+                <input
+                  id={`${formId}-ext`}
+                  className="input font-mono text-xs"
+                  maxLength={120}
+                  value={externalId}
+                  onChange={(e) => setExternalId(e.target.value)}
+                />
+              </Field>
+              <Field htmlFor={`${formId}-2fa`} label={t('fb.twoFactor')}>
+                <select
+                  id={`${formId}-2fa`}
+                  className="input text-xs"
+                  value={twoFactor}
+                  onChange={(e) => setTwoFactor(e.target.value)}
+                >
+                  {TWO_FACTOR_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {t(`twoFactor.${opt}` as never)}
                     </option>
                   ))}
-                </optgroup>
-                {browserList.length > 0 && (
-                  <optgroup label="Hồ sơ trình duyệt đã kết nối trong Tài sản (/assets)">
-                    {browserList.map((b) => {
-                      const val = String(b.label || b.profile_reference)
-                      const prov = String(b.provider || 'Browser')
-                      const display = val.toLowerCase().startsWith(prov.toLowerCase()) ? val : `${prov} — ${val}`
-                      return (
-                        <option key={b.id} value={val}>
-                          {display}
-                        </option>
-                      )
-                    })}
-                  </optgroup>
-                )}
-                <optgroup label="Khởi tạo nhanh theo phần mềm Antidetect / Trình duyệt">
-                  {BROWSER_ENV_PRESETS.map((p) => {
-                    const generated = `${p.provider} — Profile (${viaSuffix})`
-                    return (
-                      <option key={p.provider} value={generated}>
-                        {p.name} → {generated}
-                      </option>
-                    )
-                  })}
-                </optgroup>
-              </select>
-              <div className="flex items-center gap-2">
-                <input
-                  id={`${formId}-browser`}
-                  className="input flex-1"
-                  maxLength={160}
-                  placeholder={t('fb.browserPlaceholder')}
-                  value={browserProfileLabel}
-                  onChange={(e) => setBrowserProfileLabel(e.target.value)}
-                  data-testid="fb-browser-input"
-                />
-                {browserProfileLabel.trim() && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    onClick={() =>
-                      launchInAssignedChromeProfile(
-                        'https://business.facebook.com/overview',
-                        browserProfileLabel,
-                        label,
-                        networkLabel,
-                      )
-                    }
-                    title={`Bấm để mở thử ngay cửa sổ Chrome (${browserProfileLabel})`}
+                </select>
+              </Field>
+              <Field htmlFor={`${formId}-ownership`} label={t('fb.ownership')}>
+                <select
+                  id={`${formId}-ownership`}
+                  className="input text-xs"
+                  value={ownershipType}
+                  onChange={(e) => setOwnershipType(e.target.value as IdentityOwnershipType)}
+                  data-testid="fb-ownership-select"
+                >
+                  {OWNERSHIP_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {t(`fb.ownership.${opt}` as never)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field htmlFor={`${formId}-status`} label={t('res.f.status')}>
+                <select
+                  id={`${formId}-status`}
+                  className="input text-xs"
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value)}
+                >
+                  {STATUS_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {enumLabel('refStatus', opt)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              {canAssignOwner && (
+                <Field htmlFor={`${formId}-owner`} label={t('fb.owner')}>
+                  <select
+                    id={`${formId}-owner`}
+                    className="input text-xs"
+                    value={ownerMemberId}
+                    onChange={(e) => setOwnerMemberId(e.target.value)}
                   >
-                    🚀 Mở thử Chrome
-                  </Button>
-                )}
-              </div>
-              <p className="text-[11px] text-ink-muted">
-                💡 Đã tự động quét <strong>{(localChromeProfiles.data ?? WORKSTATION_REAL_CHROME_PROFILES).length} hồ sơ Google Chrome thật</strong> trên máy tính của bạn (theo email & tên hiển thị Chrome). Bạn chỉ cần chọn đúng hồ sơ ở trên rồi bấm <strong>🚀 Mở thử Chrome</strong>.
-              </p>
-            </div>
-          </Field>
-
-          {/* 3. Proxy / ISP Network selector */}
-          <Field htmlFor={`${formId}-network`} label={t('fb.networkLabel')}>
-            <div className="space-y-1.5">
-              <select
-                aria-label="Chọn nhà mạng Proxy IP"
-                className="input text-xs"
-                value=""
-                onChange={(e) => {
-                  if (e.target.value) setNetworkLabel(e.target.value)
-                }}
-              >
-                <option value="">— Chọn Nhà mạng / Proxy IP (VNPT, Viettel, FPT, 4G...) —</option>
-                {proxyList.length > 0 && (
-                  <optgroup label="Hồ sơ Proxy đã kết nối trong Tài sản (/assets)">
-                    {proxyList.map((px) => {
-                      const val = String(px.label || px.proxy_reference)
-                      return (
-                        <option key={px.id} value={val}>
-                          {String(px.provider || 'Proxy')} — {val}
-                        </option>
-                      )
-                    })}
-                  </optgroup>
-                )}
-                <optgroup label="Khởi tạo nhanh theo Nhà mạng / Loại Proxy IP (Tách riêng cho VIA này)">
-                  {PROXY_ISP_PRESETS.map((isp) => {
-                    const generated = `${isp.provider} — Line (${viaSuffix})`
-                    return (
-                      <option key={isp.provider} value={generated}>
-                        {isp.name} → {generated}
+                    <option value="">—</option>
+                    {members.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.full_name || m.email}
                       </option>
-                    )
-                  })}
-                </optgroup>
-              </select>
-              <div className="flex items-center gap-2">
-                <input
-                  id={`${formId}-network`}
-                  className="input flex-1 font-mono text-xs"
-                  maxLength={160}
-                  placeholder="Dán trực tiếp Proxy: 103.145.67.89:8080:user:pass (hoặc chọn nhà mạng ở trên)"
-                  value={networkLabel}
-                  onChange={(e) => setNetworkLabel(e.target.value)}
-                  data-testid="fb-network-input"
-                />
-                {parseProxyString(networkLabel) && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => downloadSwitchyOmegaConfig(networkLabel, label)}
-                    title="Xuất file cấu hình .bak nhập 1 chạm vào Proxy SwitchyOmega"
-                  >
-                    🔌 Xuất SwitchyOmega (.bak)
-                  </Button>
-                )}
-              </div>
-              <p className="text-[11px] text-ink-muted">
-                💡 Dán <code>IP:Port:User:Pass</code> (chuẩn <strong>IPv4 Dân cư tĩnh VN</strong>, tối đa <strong>1–2 Via/Proxy</strong>) → bấm <strong>🚀 Mở Chrome</strong> để tự động gắn Proxy.
-              </p>
-              <div className="flex flex-wrap items-center gap-1.5 pt-0.5 text-[11px]">
-                <span className="font-semibold text-ink-muted">Mua & Quản lý Proxy:</span>
-                <a href="https://proxyvn.vn/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface px-1.5 py-0.5 font-semibold text-brand-text hover:border-brand hover:underline">
-                  🛒 ProxyVN.vn ↗
-                </a>
-                <a href="https://zingproxy.com/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface px-1.5 py-0.5 font-semibold text-brand-text hover:border-brand hover:underline">
-                  🛒 ZingProxy.com ↗
-                </a>
-                <a href="https://muaproxy.vn/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface px-1.5 py-0.5 font-semibold text-brand-text hover:border-brand hover:underline">
-                  🛒 MuaProxy.vn ↗
-                </a>
-                <a href="https://vproxy.vn/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface px-1.5 py-0.5 font-semibold text-brand-text hover:border-brand hover:underline">
-                  🛒 VProxy.vn ↗
-                </a>
-              </div>
+                    ))}
+                  </select>
+                </Field>
+              )}
             </div>
-          </Field>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          {canAssignOwner && (
-            <Field htmlFor={`${formId}-owner`} label={t('fb.owner')}>
-              <select
-                id={`${formId}-owner`}
-                className="input"
-                value={ownerMemberId}
-                onChange={(e) => setOwnerMemberId(e.target.value)}
-              >
-                <option value="">—</option>
-                {members.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.full_name || m.email}
-                  </option>
-                ))}
-              </select>
+            <Field htmlFor={`${formId}-notes`} label={t('res.f.notes')}>
+              <textarea
+                id={`${formId}-notes`}
+                className="input min-h-[3.5rem] text-xs"
+                maxLength={5000}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+              />
             </Field>
-          )}
-          <Field htmlFor={`${formId}-2fa`} label={t('fb.twoFactor')}>
-            <select
-              id={`${formId}-2fa`}
-              className="input"
-              value={twoFactor}
-              onChange={(e) => setTwoFactor(e.target.value)}
-            >
-              {TWO_FACTOR_OPTIONS.map((opt) => (
-                <option key={opt} value={opt}>
-                  {t(`twoFactor.${opt}` as never)}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field htmlFor={`${formId}-status`} label={t('res.f.status')}>
-            <select
-              id={`${formId}-status`}
-              className="input"
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-            >
-              {STATUS_OPTIONS.map((opt) => (
-                <option key={opt} value={opt}>
-                  {enumLabel('refStatus', opt)}
-                </option>
-              ))}
-            </select>
-          </Field>
-        </div>
+          </div>
+        </details>
 
-        <Field htmlFor={`${formId}-display`} label={t('res.f.displayName')}>
-          <input
-            id={`${formId}-display`}
-            className="input"
-            maxLength={200}
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-          />
-        </Field>
-        <Field htmlFor={`${formId}-ext`} label={t('res.f.externalReferenceId')}>
-          <input
-            id={`${formId}-ext`}
-            className="input font-mono"
-            maxLength={120}
-            value={externalId}
-            onChange={(e) => setExternalId(e.target.value)}
-          />
-        </Field>
-        <Field htmlFor={`${formId}-vault`} label={t('fb.form.vaultLabel')}>
-          <input
-            id={`${formId}-vault`}
-            className="input"
-            maxLength={2048}
-            placeholder="Bitwarden → Agency/FB2"
-            value={vaultReference}
-            onChange={(e) => setVaultReference(e.target.value)}
-          />
-        </Field>
-        <Field htmlFor={`${formId}-recovery`} label={t('fb.detail.recovery')}>
-          <textarea
-            id={`${formId}-recovery`}
-            className="input min-h-[4rem]"
-            maxLength={2000}
-            value={recoveryNote}
-            onChange={(e) => setRecoveryNote(e.target.value)}
-          />
-        </Field>
-        <Field htmlFor={`${formId}-notes`} label={t('res.f.notes')}>
-          <textarea
-            id={`${formId}-notes`}
-            className="input min-h-[4rem]"
-            maxLength={5000}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
-        </Field>
         {save.isError && <ErrorState error={save.error} compact />}
       </form>
     </FormSheet>

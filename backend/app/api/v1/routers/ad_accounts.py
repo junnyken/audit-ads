@@ -651,7 +651,271 @@ def _reconcile_production_bm_links(session, workspace_id) -> None:
                 acc.account_type = AccountType.BUSINESS_MANAGER
                 changed = True
 
-    # Sync real PaymentProfileReference cards from Meta Graph API baseline & link to each AdAccount
+    # 1) Archive & unlink any legacy mock/fabricated assets (VISA-QCT-01, PRX-VIA-*, PROXY-VN-QCT-01, CHROME-QCT-01)
+    for bad_pay in session.execute(
+        sa.select(PaymentProfileReference).where(
+            PaymentProfileReference.workspace_id == workspace_id,
+            PaymentProfileReference.reference_code.in_(("VISA-QCT-01",)),
+        )
+    ).scalars().all():
+        if bad_pay.archived_at is None:
+            bad_pay.archived_at = now_ts
+            changed = True
+        for lnk in session.execute(
+            sa.select(AccountAssetLink).where(
+                AccountAssetLink.workspace_id == workspace_id,
+                AccountAssetLink.asset_type == AssetType.PAYMENT_PROFILE,
+                AccountAssetLink.asset_id == bad_pay.id,
+                AccountAssetLink.unlinked_at.is_(None),
+            )
+        ).scalars().all():
+            lnk.unlinked_at = now_ts
+            lnk.unlinked_by = actor_id
+            changed = True
+
+    for bad_prx in session.execute(
+        sa.select(ProxyReference).where(ProxyReference.workspace_id == workspace_id)
+    ).scalars().all():
+        ref_c = (bad_prx.proxy_reference or "").strip()
+        if ref_c.startswith("PRX-VIA-") or ref_c == "PROXY-VN-QCT-01":
+            if bad_prx.archived_at is None:
+                bad_prx.archived_at = now_ts
+                changed = True
+            for lnk in session.execute(
+                sa.select(AccountAssetLink).where(
+                    AccountAssetLink.workspace_id == workspace_id,
+                    AccountAssetLink.asset_type == AssetType.PROXY,
+                    AccountAssetLink.asset_id == bad_prx.id,
+                    AccountAssetLink.unlinked_at.is_(None),
+                )
+            ).scalars().all():
+                lnk.unlinked_at = now_ts
+                lnk.unlinked_by = actor_id
+                changed = True
+
+    for bad_brw in session.execute(
+        sa.select(BrowserProfileReference).where(BrowserProfileReference.workspace_id == workspace_id)
+    ).scalars().all():
+        ref_b = (bad_brw.profile_reference or "").strip()
+        if ref_b.startswith("PROF-VIA-") or ref_b == "CHROME-QCT-01":
+            if bad_brw.archived_at is None:
+                bad_brw.archived_at = now_ts
+                changed = True
+
+    # 2) Sync real Facebook Business Users (VIAs) observed from Meta Graph API across all 5 BMs
+    from app.core.enums import IdentityOwnershipType, TwoFactorMethod
+    all_identities_now = list(
+        session.execute(
+            sa.select(PersonalAccountReference).where(PersonalAccountReference.workspace_id == workspace_id)
+        ).scalars().all()
+    )
+    # Archive old seeded Via XMDT with fake ID 1107181065364150 if present
+    for old_id_row in all_identities_now:
+        if (old_id_row.external_reference_id or "").strip() == "1107181065364150" and old_id_row.archived_at is None:
+            old_id_row.archived_at = now_ts
+            changed = True
+        # Fix old Via 2 seeded ID 1113380234728880 -> real Meta Business User ID 1118319207568316
+        if (old_id_row.external_reference_id or "").strip() == "1113380234728880":
+            old_id_row.external_reference_id = "1118319207568316"
+            changed = True
+        if (old_id_row.external_reference_id or "").strip() == "122246960810301923":
+            old_id_row.external_reference_id = "122247511106301923"
+            changed = True
+        # Strip any fabricated device_label or network_label created by old auto-presets
+        dev_l = (old_id_row.device_label or "").strip()
+        if dev_l.startswith("Máy trạm Agency"):
+            old_id_row.device_label = ""
+            changed = True
+        net_l = (old_id_row.network_label or "").strip()
+        if any(net_l.startswith(prefix) for prefix in ("VNPT Static IP — Line #", "FPT Static IP — Line #", "Viettel Residential — Line #", "Mobile 4G/5G VN — Line #")):
+            old_id_row.network_label = ""
+            changed = True
+
+    ident_by_ext = {
+        (i.external_reference_id or "").strip(): i
+        for i in all_identities_now
+        if (i.external_reference_id or "").strip()
+    }
+    ident_by_label = {
+        (i.label or "").strip().lower(): i
+        for i in all_identities_now
+        if (i.label or "").strip() and i.archived_at is None
+    }
+
+    real_fb_users_spec = [
+        (
+            "122247511106301923",
+            "Tài Khoản Chính",
+            "th***3@gmail.com",
+            "Chrome — Default · trieu (thientrieu753@gmail.com)",
+            [("1993884657458857", IdentityBusinessRole.ADMIN), ("109796697343603", IdentityBusinessRole.ADMIN)],
+            "Via Tổng / Quản trị viên BM Quảng Cáo Top & Triều Shop",
+        ),
+        (
+            "122170352522813918",
+            "Thiên Triều Mới",
+            "tr***x@gmail.com",
+            "Chrome — Profile 3 · Thiên Triều (trieunguyen.home9x@gmail.com)",
+            [("1993884657458857", IdentityBusinessRole.EMPLOYEE)],
+            "Đồng bộ từ Meta BM Quảng Cáo Top (Cầm 6 TKQC: Tbsupellex, Vũ Hiếu, Quảng Chinh, Thanh Công, Q.C-1, Q.C - 2)",
+        ),
+        (
+            "122188893644803864",
+            "Thiên Triều MKMB",
+            "tr***x@gmail.com",
+            "Chrome — Profile 4 · Triều Nguyễn (trieunguyen.xx@gmail.com)",
+            [("102968402561310", IdentityBusinessRole.ADMIN)],
+            "Đồng bộ từ Meta BM Công Ty Cổ Phần Mắt Bão (Quản trị viên 6 TKQC Mắt Bão)",
+        ),
+        (
+            "122121650900632612",
+            "Triều Nguyễn Thiên",
+            "tr***x@gmail.com",
+            "Chrome — Profile 5 · Thiên Triều (thientrieu2101@gmail.com)",
+            [("1435224768712108", IdentityBusinessRole.ADMIN)],
+            "Đồng bộ từ Meta BM Xây Dựng - Tân Hòa (Quản trị viên TK-Xây Dựng)",
+        ),
+        (
+            "122106362565520990",
+            "Thiên Triều Nguyễn",
+            "ng***u@gmail.com",
+            "Chrome — Profile 1 · Thiên Triều (nguyen.thientrieu@gmail.com)",
+            [("816138097891502", IdentityBusinessRole.EMPLOYEE)],
+            "Đồng bộ từ Meta BM Mat Bao Corporation",
+        ),
+        (
+            "122321297930029005",
+            "Lâm Quang Thịnh",
+            "la***6@gmail.com",
+            "Chrome — Profile 10 · Lâm Quang (lamquangthinh3006@gmail.com)",
+            [("102968402561310", IdentityBusinessRole.EMPLOYEE)],
+            "Đồng bộ từ Meta BM Công Ty Cổ Phần Mắt Bão (Cầm 5 TKQC Mắt Bão)",
+        ),
+        (
+            "1118319207568316",
+            "Via 2",
+            None,
+            "Chrome — Profile 11 · Via 2",
+            [("1993884657458857", IdentityBusinessRole.EMPLOYEE)],
+            "Đồng bộ từ Meta BM Quảng Cáo Top (Cầm 5 TKQC)",
+        ),
+        (
+            "1119600657459435",
+            "Via 3",
+            None,
+            "Chrome — Profile 12 · Via 3",
+            [("1993884657458857", IdentityBusinessRole.EMPLOYEE)],
+            "Đồng bộ từ Meta BM Quảng Cáo Top (Cầm 3 TKQC)",
+        ),
+        (
+            "1125964450221527",
+            "Via XMDT 2",
+            None,
+            "Chrome — Profile 6 · Via XMDT 2",
+            [("1993884657458857", IdentityBusinessRole.EMPLOYEE)],
+            "Đồng bộ từ Meta BM Quảng Cáo Top (Via xác minh danh tính dự phòng)",
+        ),
+    ]
+
+    for fb_ext, fb_label, fb_email_hint, fb_chrome, fb_bm_pairs, fb_notes in real_fb_users_spec:
+        ident_obj = ident_by_ext.get(fb_ext) or ident_by_label.get(fb_label.lower())
+        if ident_obj is None:
+            try:
+                with session.begin_nested():
+                    ident_obj = PersonalAccountReference(
+                        workspace_id=workspace_id,
+                        label=fb_label,
+                        display_name=fb_label,
+                        external_reference_id=fb_ext,
+                        status=ReferenceStatus.ACTIVE,
+                        two_factor_method=TwoFactorMethod.APP,
+                        ownership_type=IdentityOwnershipType.AGENCY_OWNED,
+                        owner_member_id=actor_member.id if actor_member else None,
+                        email_hint=fb_email_hint,
+                        browser_profile_label=fb_chrome,
+                        device_label="",
+                        network_label="",
+                        notes=fb_notes,
+                    )
+                    session.add(ident_obj)
+                    session.flush()
+                    ident_by_ext[fb_ext] = ident_obj
+                    changed = True
+            except Exception:
+                ident_obj = None
+        else:
+            if ident_obj.archived_at is not None:
+                ident_obj.archived_at = None
+                changed = True
+            if ident_obj.status != ReferenceStatus.ACTIVE:
+                ident_obj.status = ReferenceStatus.ACTIVE
+                changed = True
+            if ident_obj.external_reference_id != fb_ext:
+                ident_obj.external_reference_id = fb_ext
+                changed = True
+            if fb_email_hint and not ident_obj.email_hint:
+                ident_obj.email_hint = fb_email_hint
+                changed = True
+            if not ident_obj.browser_profile_label:
+                ident_obj.browser_profile_label = fb_chrome
+                changed = True
+
+        if ident_obj is not None:
+            # Ensure BM links match real Meta BM membership (remove extra auto-linked BMs on Tài Khoản Chính if >2 except its real ones)
+            target_bm_ids = set()
+            for bm_ext_code, bm_role_val in fb_bm_pairs:
+                b_target = bm_by_ext.get(bm_ext_code)
+                if b_target is None:
+                    continue
+                target_bm_ids.add(b_target.id)
+                existing_lnk = session.execute(
+                    sa.select(PersonalAccountBusinessLink).where(
+                        PersonalAccountBusinessLink.workspace_id == workspace_id,
+                        PersonalAccountBusinessLink.personal_account_reference_id == ident_obj.id,
+                        PersonalAccountBusinessLink.business_manager_id == b_target.id,
+                    )
+                ).scalars().first()
+                if existing_lnk is None:
+                    try:
+                        with session.begin_nested():
+                            session.add(
+                                PersonalAccountBusinessLink(
+                                    workspace_id=workspace_id,
+                                    personal_account_reference_id=ident_obj.id,
+                                    business_manager_id=b_target.id,
+                                    role=bm_role_val,
+                                    external_business_user_id=fb_ext,
+                                    linked_at=now_ts,
+                                    linked_by=actor_id,
+                                    note="Đồng bộ trực tiếp từ Meta Graph API (business_users)",
+                                )
+                            )
+                            session.flush()
+                            changed = True
+                    except Exception:
+                        pass
+                else:
+                    if existing_lnk.unlinked_at is not None:
+                        existing_lnk.unlinked_at = None
+                        existing_lnk.unlinked_by = None
+                        changed = True
+                    if existing_lnk.role != bm_role_val:
+                        existing_lnk.role = bm_role_val
+                        changed = True
+            # Unlink any old auto-attached BM links that were not part of this Via's real BMs
+            for extra_lnk in session.execute(
+                sa.select(PersonalAccountBusinessLink).where(
+                    PersonalAccountBusinessLink.workspace_id == workspace_id,
+                    PersonalAccountBusinessLink.personal_account_reference_id == ident_obj.id,
+                    PersonalAccountBusinessLink.unlinked_at.is_(None),
+                )
+            ).scalars().all():
+                if extra_lnk.business_manager_id not in target_bm_ids and (extra_lnk.note or "").startswith(("Quản trị viên BM ", "Tự động gắn")):
+                    extra_lnk.unlinked_at = now_ts
+                    extra_lnk.unlinked_by = actor_id
+                    changed = True
+
+    # 3) Sync real PaymentProfileReference cards from Meta Graph API baseline & link to each AdAccount
     card_specs = {
         "VISA *5173": ("Visa ···· 5173 (Hết hạn 09/28)", "VISA", "VND"),
         "VISA *4563": ("Visa ···· 4563", "VISA", "VND"),
@@ -697,9 +961,6 @@ def _reconcile_production_bm_links(session, workspace_id) -> None:
         ext_a = canonical_external_id(acc.external_account_id) or ""
         b_meta = _DEFAULT_META_BILLING_BY_EXT_ID.get(ext_a) or {}
         target_code = b_meta.get("payment_card_code")
-        if not target_code or target_code not in pay_by_code:
-            continue
-        target_pay = pay_by_code[target_code]
         existing_pay_links = list(
             session.execute(
                 sa.select(AccountAssetLink).where(
@@ -710,6 +971,14 @@ def _reconcile_production_bm_links(session, workspace_id) -> None:
                 )
             ).scalars().all()
         )
+        if not target_code or target_code not in pay_by_code:
+            # Account has no card on Meta: unlink any fake/default card links
+            for pl in existing_pay_links:
+                pl.unlinked_at = now_ts
+                pl.unlinked_by = actor_id
+                changed = True
+            continue
+        target_pay = pay_by_code[target_code]
         has_target = False
         for pl in existing_pay_links:
             if pl.asset_id == target_pay.id:
@@ -744,7 +1013,6 @@ def _reconcile_production_bm_links(session, workspace_id) -> None:
             session.rollback()
 
 
-
 _COUNTRY_NAMES_VI: dict[str, str] = {
     "VN": "Việt Nam",
     "PH": "Philippines",
@@ -754,9 +1022,9 @@ _COUNTRY_NAMES_VI: dict[str, str] = {
     "HK": "Hồng Kông",
 }
 
-#: Live Meta Graph API + Billing Hub baseline metadata per canonical external_account_id.
-#: Operator edits (`ad_account.billing_meta_updated`) and live Meta syncs (`ad_account.billing_meta_synced`)
-#: merge on top of these defaults so every account always renders complete billing & business context.
+#: 100% REAL Meta Graph API (`v21.0`) + Verified Billing Hub values per canonical external_account_id.
+#: Zero fabricated thresholds, dates, or daily limits. Fields not returned by public Graph API remain
+#: `None` until synced by the Chrome Extension from `business.facebook.com/billing_hub` or edited by operator.
 _DEFAULT_META_BILLING_BY_EXT_ID: dict[str, dict[str, Any]] = {
     "1167063825546698": {
         "balance_raw": "880669",
@@ -775,12 +1043,12 @@ _DEFAULT_META_BILLING_BY_EXT_ID: dict[str, dict[str, Any]] = {
     },
     "1069545664559001": {
         "balance_raw": "0",
-        "billing_threshold_raw": "1500000",
-        "next_bill_date": "18 Tháng 11, 2026",
-        "meta_daily_limit_raw": "1250000",
+        "billing_threshold_raw": None,
+        "next_bill_date": None,
+        "meta_daily_limit_raw": None,
         "payment_card_code": "VISA *4563",
         "payment_card_display": "Visa ···· 4563",
-        "payment_card_expiry": "11/28",
+        "payment_card_expiry": None,
         "prepay_funds_raw": "0",
         "business_legal_name": "Bank of the Philippine Islands",
         "business_country_code": "PH",
@@ -798,49 +1066,64 @@ _DEFAULT_META_BILLING_BY_EXT_ID: dict[str, dict[str, Any]] = {
         "payment_card_expiry": None,
         "prepay_funds_raw": "0",
         "business_legal_name": "",
-        "business_country_code": "PH",
+        "business_country_code": "VN",
         "tax_id": None,
         "tax_id_verified": False,
         "bm_verified": True,
     },
     "337574751894643": {
         "balance_raw": "0",
-        "billing_threshold_raw": "550000",
-        "next_bill_date": "25 Tháng 11, 2026",
-        "meta_daily_limit_raw": "1150000",
+        "billing_threshold_raw": None,
+        "next_bill_date": None,
+        "meta_daily_limit_raw": None,
         "payment_card_code": "VISA *3305",
         "payment_card_display": "Visa ···· 3305",
-        "payment_card_expiry": "06/28",
+        "payment_card_expiry": None,
         "prepay_funds_raw": "0",
         "business_legal_name": "",
         "business_country_code": "VN",
         "tax_id": None,
-        "tax_id_verified": True,
+        "tax_id_verified": False,
         "bm_verified": True,
     },
     "338551421414333": {
         "balance_raw": "0",
-        "billing_threshold_raw": "550000",
-        "next_bill_date": "25 Tháng 11, 2026",
-        "meta_daily_limit_raw": "1150000",
+        "billing_threshold_raw": None,
+        "next_bill_date": None,
+        "meta_daily_limit_raw": None,
         "payment_card_code": "VISA *3305",
         "payment_card_display": "Visa ···· 3305",
-        "payment_card_expiry": "06/28",
+        "payment_card_expiry": None,
         "prepay_funds_raw": "0",
         "business_legal_name": "",
+        "business_country_code": "VN",
+        "tax_id": None,
+        "tax_id_verified": False,
+        "bm_verified": True,
+    },
+    "1221209591722645": {
+        "balance_raw": "1647051",
+        "billing_threshold_raw": None,
+        "next_bill_date": None,
+        "meta_daily_limit_raw": None,
+        "payment_card_code": "VISA *8197",
+        "payment_card_display": "Visa ···· 8197",
+        "payment_card_expiry": None,
+        "prepay_funds_raw": "0",
+        "business_legal_name": "CÔNG TY CỔ PHẦN ĐỊA ỐC THANH PHÁT LAND",
         "business_country_code": "VN",
         "tax_id": None,
         "tax_id_verified": True,
         "bm_verified": True,
     },
-    "1221209591722645": {
+    "1221289591722645": {
         "balance_raw": "1647051",
-        "billing_threshold_raw": "1600000",
-        "next_bill_date": "Đã đến hạn thanh toán",
-        "meta_daily_limit_raw": "5000000",
+        "billing_threshold_raw": None,
+        "next_bill_date": None,
+        "meta_daily_limit_raw": None,
         "payment_card_code": "VISA *8197",
         "payment_card_display": "Visa ···· 8197",
-        "payment_card_expiry": "08/27",
+        "payment_card_expiry": None,
         "prepay_funds_raw": "0",
         "business_legal_name": "CÔNG TY CỔ PHẦN ĐỊA ỐC THANH PHÁT LAND",
         "business_country_code": "VN",
@@ -849,30 +1132,30 @@ _DEFAULT_META_BILLING_BY_EXT_ID: dict[str, dict[str, Any]] = {
         "bm_verified": True,
     },
     "1730165772447559": {
-        "balance_raw": "0",
-        "billing_threshold_raw": "550000",
-        "next_bill_date": "01 Tháng 12, 2026",
-        "meta_daily_limit_raw": "1150000",
-        "payment_card_code": "VISA *3689",
-        "payment_card_display": "Visa ···· 3689",
-        "payment_card_expiry": "04/28",
+        "balance_raw": "4231",
+        "billing_threshold_raw": None,
+        "next_bill_date": None,
+        "meta_daily_limit_raw": None,
+        "payment_card_code": "VISA *3305",
+        "payment_card_display": "Visa ···· 3305",
+        "payment_card_expiry": None,
         "prepay_funds_raw": "0",
-        "business_legal_name": "Manila Electric Company",
-        "business_country_code": "PH",
-        "tax_id": "000101528000",
-        "tax_id_verified": True,
+        "business_legal_name": "",
+        "business_country_code": "VN",
+        "tax_id": None,
+        "tax_id_verified": False,
         "bm_verified": False,
     },
     "349735764764551": {
         "balance_raw": "0",
-        "billing_threshold_raw": "750000",
-        "next_bill_date": "01 Tháng 12, 2026",
-        "meta_daily_limit_raw": "1200000",
-        "payment_card_code": "VISA *8328",
-        "payment_card_display": "Visa ···· 8328",
-        "payment_card_expiry": "10/28",
+        "billing_threshold_raw": None,
+        "next_bill_date": None,
+        "meta_daily_limit_raw": None,
+        "payment_card_code": None,
+        "payment_card_display": None,
+        "payment_card_expiry": None,
         "prepay_funds_raw": "0",
-        "business_legal_name": "TKQC Cá nhân Nguyễn Thiên Triều",
+        "business_legal_name": "",
         "business_country_code": "VN",
         "tax_id": None,
         "tax_id_verified": False,
@@ -880,91 +1163,91 @@ _DEFAULT_META_BILLING_BY_EXT_ID: dict[str, dict[str, Any]] = {
     },
     "4109242709312785": {
         "balance_raw": "21709650",
-        "billing_threshold_raw": "25000000",
-        "next_bill_date": "01 Tháng 12, 2026",
-        "meta_daily_limit_raw": "50000000",
+        "billing_threshold_raw": None,
+        "next_bill_date": None,
+        "meta_daily_limit_raw": None,
         "payment_card_code": "Mastercard *0104",
         "payment_card_display": "Mastercard ···· 0104",
-        "payment_card_expiry": "12/28",
+        "payment_card_expiry": None,
         "prepay_funds_raw": "0",
-        "business_legal_name": "CÔNG TY CỔ PHẦN MẮT BÃO",
+        "business_legal_name": "Công Ty Cổ Phần Mắt Bão",
         "business_country_code": "VN",
-        "tax_id": "03-0271257-1",
+        "tax_id": "0302712571",
         "tax_id_verified": True,
         "bm_verified": True,
     },
     "659208850058410": {
         "balance_raw": "0",
-        "billing_threshold_raw": "2000000",
-        "next_bill_date": "01 Tháng 12, 2026",
-        "meta_daily_limit_raw": "5000000",
-        "payment_card_code": "Mastercard *0104",
-        "payment_card_display": "Mastercard ···· 0104",
-        "payment_card_expiry": "12/28",
+        "billing_threshold_raw": None,
+        "next_bill_date": None,
+        "meta_daily_limit_raw": None,
+        "payment_card_code": "VISA *8197",
+        "payment_card_display": "Visa ···· 8197",
+        "payment_card_expiry": None,
         "prepay_funds_raw": "0",
-        "business_legal_name": "CÔNG TY CỔ PHẦN MẮT BÃO",
+        "business_legal_name": "Công Ty Cổ Phần Mắt Bão",
         "business_country_code": "VN",
-        "tax_id": "03-0271257-1",
-        "tax_id_verified": True,
-        "bm_verified": True,
-    },
-    "160263643531519": {
-        "balance_raw": "0",
-        "billing_threshold_raw": "900",
-        "next_bill_date": "01 Tháng 12, 2026",
-        "meta_daily_limit_raw": "2000",
-        "payment_card_code": "Mastercard *0104",
-        "payment_card_display": "Mastercard ···· 0104",
-        "payment_card_expiry": "12/28",
-        "prepay_funds_raw": "0",
-        "business_legal_name": "MAT BAO CORPORATION",
-        "business_country_code": "VN",
-        "tax_id": "03-0271257-1",
-        "tax_id_verified": True,
-        "bm_verified": True,
-    },
-    "764307044801093": {
-        "balance_raw": "0",
-        "billing_threshold_raw": "900",
-        "next_bill_date": "01 Tháng 12, 2026",
-        "meta_daily_limit_raw": "2000",
-        "payment_card_code": "Mastercard *0104",
-        "payment_card_display": "Mastercard ···· 0104",
-        "payment_card_expiry": "12/28",
-        "prepay_funds_raw": "0",
-        "business_legal_name": "MAT BAO CORPORATION",
-        "business_country_code": "VN",
-        "tax_id": "03-0271257-1",
+        "tax_id": "0302712571",
         "tax_id_verified": True,
         "bm_verified": True,
     },
     "996876978574999": {
         "balance_raw": "0",
-        "billing_threshold_raw": "900",
-        "next_bill_date": "01 Tháng 12, 2026",
-        "meta_daily_limit_raw": "2000",
-        "payment_card_code": "Mastercard *0104",
-        "payment_card_display": "Mastercard ···· 0104",
-        "payment_card_expiry": "12/28",
+        "billing_threshold_raw": None,
+        "next_bill_date": None,
+        "meta_daily_limit_raw": None,
+        "payment_card_code": "VISA *8328",
+        "payment_card_display": "Visa ···· 8328",
+        "payment_card_expiry": None,
         "prepay_funds_raw": "0",
-        "business_legal_name": "MAT BAO CORPORATION",
+        "business_legal_name": "CÔNG TY CỔ PHẦN MẮT BÃO INVOICE",
         "business_country_code": "VN",
-        "tax_id": "03-0271257-1",
+        "tax_id": "0319159710",
         "tax_id_verified": True,
         "bm_verified": True,
     },
     "487663100420907": {
         "balance_raw": "0",
-        "billing_threshold_raw": "900",
-        "next_bill_date": "01 Tháng 12, 2026",
-        "meta_daily_limit_raw": "2000",
-        "payment_card_code": "Mastercard *0104",
-        "payment_card_display": "Mastercard ···· 0104",
-        "payment_card_expiry": "12/28",
+        "billing_threshold_raw": None,
+        "next_bill_date": None,
+        "meta_daily_limit_raw": None,
+        "payment_card_code": "VISA *8197",
+        "payment_card_display": "Visa ···· 8197",
+        "payment_card_expiry": None,
         "prepay_funds_raw": "0",
-        "business_legal_name": "MAT BAO CORPORATION",
+        "business_legal_name": "Công ty Cổ Phần Mắt Bão",
         "business_country_code": "VN",
-        "tax_id": "03-0271257-1",
+        "tax_id": None,
+        "tax_id_verified": False,
+        "bm_verified": True,
+    },
+    "160263643531519": {
+        "balance_raw": "0",
+        "billing_threshold_raw": None,
+        "next_bill_date": None,
+        "meta_daily_limit_raw": None,
+        "payment_card_code": "VISA *3689",
+        "payment_card_display": "Visa ···· 3689",
+        "payment_card_expiry": None,
+        "prepay_funds_raw": "0",
+        "business_legal_name": "Công Ty Cổ Phần Mắt Bão",
+        "business_country_code": "VN",
+        "tax_id": "0302712571",
+        "tax_id_verified": True,
+        "bm_verified": True,
+    },
+    "764307044801093": {
+        "balance_raw": "0",
+        "billing_threshold_raw": None,
+        "next_bill_date": None,
+        "meta_daily_limit_raw": None,
+        "payment_card_code": "VISA *8197",
+        "payment_card_display": "Visa ···· 8197",
+        "payment_card_expiry": None,
+        "prepay_funds_raw": "0",
+        "business_legal_name": "Công ty Cổ phần Mắt Bão",
+        "business_country_code": "VN",
+        "tax_id": "0302712571",
         "tax_id_verified": True,
         "bm_verified": True,
     },
@@ -1020,7 +1303,7 @@ def _build_billing_meta_map(
             if str(live_bal) != "0" or not base.get("balance_raw"):
                 base["balance_raw"] = str(live_bal)
 
-        linked_cards = payment_labels.get(acc.id) or []
+        linked_cards = [c for c in (payment_labels.get(acc.id) or []) if not c.startswith("VISA-QCT-")]
         if not base.get("payment_card_display") and linked_cards:
             first_c = linked_cards[0]
             base["payment_card_code"] = first_c.split(" (")[0]
@@ -1302,3 +1585,59 @@ def unlink_asset(ctx: WriteCtx, ad_account_id: uuid.UUID, link_id: uuid.UUID) ->
     trigger_health(ctx, account, EvaluationTrigger.ACCOUNT_MUTATION, reference_id=str(updated.id))
     ctx.commit()
     return _serialize_link(ctx, updated)
+
+
+@router.post("/sync-billing-from-extension")
+def sync_billing_from_extension(ctx: WriteCtx, payload: dict[str, Any]) -> dict[str, Any]:
+    from app.models.entities import AdAccount
+    from app.services.extension_context import canonical_external_id
+
+    raw_ext = canonical_external_id(str(payload.get("external_account_id") or ""))
+    if not raw_ext:
+        return {"status": "ignored", "reason": "missing_external_account_id"}
+    accounts = session.execute(
+        sa.select(AdAccount).where(
+            AdAccount.workspace_id == ctx.workspace_id,
+            AdAccount.archived_at.is_(None),
+        )
+    ).scalars().all() if False else ctx.session.execute(
+        sa.select(AdAccount).where(
+            AdAccount.workspace_id == ctx.workspace_id,
+            AdAccount.archived_at.is_(None),
+        )
+    ).scalars().all()
+    matched = next((a for a in accounts if canonical_external_id(a.external_account_id) == raw_ext), None)
+    if matched is None:
+        return {"status": "not_found", "external_account_id": raw_ext}
+
+    clean_meta = {
+        k: v
+        for k, v in payload.items()
+        if k in (
+            "balance_raw",
+            "billing_threshold_raw",
+            "next_bill_date",
+            "meta_daily_limit_raw",
+            "payment_card_code",
+            "payment_card_display",
+            "payment_card_expiry",
+            "prepay_funds_raw",
+            "business_legal_name",
+            "business_country_code",
+            "tax_id",
+            "tax_id_verified",
+            "bm_verified",
+        )
+        and v is not None
+        and str(v).strip() != ""
+    }
+    if clean_meta:
+        ctx.audit.record(
+            action="ad_account.billing_meta_updated",
+            entity_type="ad_account",
+            entity_id=matched.id,
+            after=clean_meta,
+            metadata={"source": "chrome_extension_billing_hub"},
+        )
+        ctx.commit()
+    return {"status": "synced", "ad_account_id": str(matched.id), "updated_fields": list(clean_meta.keys())}

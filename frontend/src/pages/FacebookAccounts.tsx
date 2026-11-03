@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Pencil, Trash2 } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Pencil, RefreshCw, Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, query } from '../lib/api'
@@ -26,6 +26,20 @@ import {
   parseProxyString,
 } from '../lib/chromeProfileLauncher'
 
+const LEGACY_MOCK_NETWORKS = [
+  'vnpt static ip — line #',
+  'fpt static ip — line #',
+  'viettel residential — line #',
+  'mobile 4g/5g vn — line #',
+]
+
+function isRealNetworkLabel(val: string): boolean {
+  const clean = val.trim()
+  if (!clean) return false
+  const lower = clean.toLowerCase()
+  return !LEGACY_MOCK_NETWORKS.some((p) => lower.startsWith(p))
+}
+
 export default function FacebookAccounts() {
   const { t, language } = useI18n()
   const enumLabel = useEnumLabel()
@@ -40,6 +54,7 @@ export default function FacebookAccounts() {
   const [ownershipFilter, setOwnershipFilter] = useState('')
   const [creating, setCreating] = useState(false)
   const [editingRecord, setEditingRecord] = useState<ReferenceRecord | null>(null)
+  const [syncNotice, setSyncNotice] = useState<string | null>(null)
 
   const list = useQuery({
     queryKey: ['personal-account-references', 'facebook-list', search],
@@ -60,61 +75,32 @@ export default function FacebookAccounts() {
     initialData: WORKSTATION_REAL_CHROME_PROFILES,
     retry: false,
   })
-  const migratedMockRef = useRef(false)
-  useEffect(() => {
-    if (!canWrite || migratedMockRef.current || !list.data?.items?.length) return
-    const MOCK_PATTERNS = [
-      'hidemyacc — profile #3',
-      'adspower — profile #2',
-      'chrome — profile #1 (tài khoản chính)',
-      'chrome — profile #10 (via 2)',
-    ]
-    const toFix = list.data.items.filter((r) => {
-      const b = String(r.browser_profile_label ?? '').trim().toLowerCase()
-      return MOCK_PATTERNS.some((p) => b.includes(p))
-    })
-    if (toFix.length === 0) return
-    migratedMockRef.current = true
-    void (async () => {
-      for (const item of toFix) {
-        const lbl = String(item.label ?? '').toLowerCase()
-        let nextProfile = 'Chrome — Default · trieu (thientrieu753@gmail.com)'
-        if (lbl.includes('via 2')) {
-          nextProfile = 'Chrome — Profile 10 · Lâm Quang (lamquangthinh3006@gmail.com)'
-        } else if (lbl.includes('xmdt')) {
-          nextProfile = 'Chrome — Profile 3 · Thiên Triều (trieunguyen.home9x@gmail.com)'
-        }
-        try {
-          await api.patch(`/api/v1/personal-account-references/${item.id}`, {
-            browser_profile_label: nextProfile,
-          })
-        } catch {
-          // Ignore patch error
-        }
-      }
-      // Also archive legacy mock BrowserProfileReference entries
-      try {
-        const bRefs = await api.get<Paged<ReferenceRecord>>('/api/v1/browser-profile-references?page_size=200')
-        for (const br of bRefs.items ?? []) {
-          const bl = String(br.label ?? '').toLowerCase()
-          if (
-            bl.includes('hidemyacc') ||
-            bl.includes('adspower') ||
-            bl.includes('chrome — chrome') ||
-            bl.includes('profile #1 (') ||
-            bl.includes('profile #10 (')
-          ) {
-            await api.post(`/api/v1/browser-profile-references/${br.id}/archive`).catch(() => {})
-          }
-        }
-      } catch {
-        // Ignore
-      }
+
+  const syncFromMeta = useMutation({
+    mutationFn: () =>
+      api.post<{ status: string; total_business_users?: number; total_ad_accounts?: number }>(
+        '/api/v1/meta-operations/quick-sync',
+        { business_manager_reference: '' },
+      ),
+    onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['personal-account-references'] })
-      void queryClient.invalidateQueries({ queryKey: ['browser-profile-references'] })
+      void queryClient.invalidateQueries({ queryKey: ['facebook-identities'] })
       void queryClient.invalidateQueries({ queryKey: ['accounts'] })
-    })()
-  }, [canWrite, list.data?.items, queryClient])
+      setSyncNotice('Đã tự động lấy toàn bộ danh sách Via (Business Users), BM và TKQC thật từ Meta Graph API.')
+      setTimeout(() => setSyncNotice(null), 5000)
+    },
+  })
+
+  const quickUpdateProfile = useMutation({
+    mutationFn: ({ id, browser_profile_label }: { id: string; browser_profile_label: string }) =>
+      api.patch(`/api/v1/personal-account-references/${id}`, { browser_profile_label }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['personal-account-references'] })
+      void queryClient.invalidateQueries({ queryKey: ['facebook-identities'] })
+      void queryClient.invalidateQueries({ queryKey: ['accounts'] })
+    },
+  })
+
   const archive = useMutation({
     mutationFn: (id: string) => api.post(`/api/v1/personal-account-references/${id}/archive`),
     onSuccess: () => {
@@ -129,9 +115,12 @@ export default function FacebookAccounts() {
     if (ownershipFilter && (row.ownership_type ?? 'agency_owned') !== ownershipFilter) return false
     return true
   })
+
+  const chromeOptions = localChrome.data ?? WORKSTATION_REAL_CHROME_PROFILES
+
   const columns = [
     t('res.f.label'),
-    t('fb.env.column'),
+    'Môi trường đăng nhập (Hồ sơ Chrome thật & Proxy)',
     t('fb.owner'),
     t('fb.twoFactor'),
     t('fb.businessManagers'),
@@ -147,8 +136,20 @@ export default function FacebookAccounts() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
-              🟢 Đã kết nối {(localChrome.data ?? WORKSTATION_REAL_CHROME_PROFILES).length} Hồ sơ Chrome thật trên máy
+              🟢 Đã kết nối {chromeOptions.length} Hồ sơ Chrome thật trên máy
             </span>
+            {canWrite && (
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={syncFromMeta.isPending}
+                onClick={() => syncFromMeta.mutate()}
+                title="Tự động quét toàn bộ Via (Business Users), Email, 2FA, BM và TKQC từ Meta Graph API mà không cần nhập tay"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${syncFromMeta.isPending ? 'animate-spin' : ''}`} />
+                {syncFromMeta.isPending ? 'Đang lấy Via từ Meta...' : 'Tự động lấy Via từ Meta'}
+              </Button>
+            )}
             <Button
               type="button"
               variant="secondary"
@@ -166,6 +167,13 @@ export default function FacebookAccounts() {
           </div>
         }
       />
+
+      {syncNotice && (
+        <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3.5 py-2 text-xs font-medium text-emerald-800 dark:text-emerald-300">
+          ✓ {syncNotice}
+        </div>
+      )}
+
       <div className="grid gap-2.5 sm:grid-cols-3">
         <div className="rounded-md border border-line bg-surface px-3.5 py-2.5">
           <div className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">
@@ -237,6 +245,7 @@ export default function FacebookAccounts() {
           />
         )}
       </div>
+
       {list.isLoading ? (
         <TableSkeleton columns={columns} />
       ) : list.isError ? (
@@ -268,10 +277,12 @@ export default function FacebookAccounts() {
                 const s = bySummary.get(row.id)
                 const ownership = String(row.ownership_type ?? 'agency_owned')
                 const clientName = String(row.client_name ?? '').trim()
-                const deviceLabel = String(row.device_label ?? '').trim()
                 const browserLabel = String(row.browser_profile_label ?? '').trim()
-                const networkLabel = String(row.network_label ?? '').trim()
-                const hasEnv = Boolean(deviceLabel || browserLabel || networkLabel)
+                const rawNetwork = String(row.network_label ?? '').trim()
+                const networkLabel = isRealNetworkLabel(rawNetwork) ? rawNetwork : ''
+                const emailHint = String(row.email_hint ?? '').trim()
+                const notesText = String(row.notes ?? '').trim()
+
                 const allRows = list.data?.items ?? []
                 const sharedBrowser =
                   s?.shared_browser_profile_with ??
@@ -285,128 +296,166 @@ export default function FacebookAccounts() {
                         .map((o) => String(o.label))
                     : [])
                 const sharedNetwork =
-                  s?.shared_network_with ??
-                  (networkLabel
+                  networkLabel
                     ? allRows
                         .filter(
                           (o) =>
                             o.id !== row.id &&
+                            isRealNetworkLabel(String(o.network_label ?? '')) &&
                             String(o.network_label ?? '').trim().toLowerCase() === networkLabel.toLowerCase(),
                         )
                         .map((o) => String(o.label))
-                    : [])
+                    : []
+
                 return (
-                  <TableRow key={row.id}>
-                    <TableCell label={columns[0]} className="cell-title">
+                  <TableRow key={row.id} className="align-top">
+                    {/* CỘT 1: TÊN VIA + ID META THẬT + EMAIL */}
+                    <TableCell label={columns[0]} className="cell-title max-w-[16rem]">
                       <div className="space-y-1">
-                        <Link to={`/facebook-accounts/${row.id}`} className="font-medium text-brand-text hover:underline">
-                          {String(row.label)}
-                        </Link>
-                        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Link
+                            to={`/facebook-accounts/${row.id}`}
+                            className="font-semibold text-brand-text hover:underline"
+                          >
+                            {String(row.label)}
+                          </Link>
                           <Badge tone={ownership === 'client_provided' ? 'info' : 'neutral'}>
                             {t(`fb.ownership.${ownership}` as never)}
                           </Badge>
-                          {clientName && <span className="text-ink-muted">{clientName}</span>}
-                  {Boolean(row.external_reference_id) && (
-                    <span className="font-mono text-ink-muted">ID: {String(row.external_reference_id)}</span>
-                  )}
+                          {clientName && <span className="text-xs text-ink-muted">{clientName}</span>}
                         </div>
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+                          {Boolean(row.external_reference_id) && (
+                            <span className="font-mono">ID: {String(row.external_reference_id)}</span>
+                          )}
+                          {emailHint && <span className="font-mono text-[11px]">· ✉️ {emailHint}</span>}
+                        </div>
+                        {notesText && (
+                          <p className="text-[11px] text-ink-muted line-clamp-1" title={notesText}>
+                            {notesText}
+                          </p>
+                        )}
                       </div>
                     </TableCell>
-                    <TableCell label={columns[1]} className="text-xs">
-                      {hasEnv ? (
-                        <div className="space-y-0.5" data-testid={`fb-env-${row.id}`}>
-                          {deviceLabel && (
-                            <p>
-                              <span className="text-ink-muted">{t('fb.deviceLabel')}:</span>{' '}
-                              <button
-                                type="button"
-                                onClick={() => setEditingRecord(row)}
-                                className="font-medium text-brand-text hover:underline"
-                                title="Đổi nhanh Thiết bị / Máy trạm cố định"
-                              >
-                                {deviceLabel} ✎
-                              </button>
-                            </p>
+
+                    {/* CỘT 2: CHỌN NHANH HỒ SƠ CHROME THẬT (1 CHẠM) & PROXY THẬT */}
+                    <TableCell label={columns[1]} className="min-w-[20rem] text-xs">
+                      <div className="space-y-1.5" data-testid={`fb-env-${row.id}`}>
+                        {/* Dòng 1: Chọn nhanh Hồ sơ Chrome thật ngay trên bảng + Mở Chrome */}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-[11px] font-medium text-ink-muted">Chrome:</span>
+                          {canWrite ? (
+                            <select
+                              aria-label={`Chọn hồ sơ Chrome cho ${String(row.label)}`}
+                              className="max-w-[16.5rem] rounded border border-line bg-surface px-2 py-1 text-xs font-medium text-ink hover:border-brand focus:border-brand focus:outline-none"
+                              value={browserLabel}
+                              onChange={(e) =>
+                                quickUpdateProfile.mutate({
+                                  id: row.id,
+                                  browser_profile_label: e.target.value,
+                                })
+                              }
+                            >
+                              <option value="">— Chọn Hồ sơ Chrome trên máy —</option>
+                              {chromeOptions.map((cp) => (
+                                <option key={cp.folder} value={cp.label}>
+                                  {cp.label}
+                                </option>
+                              ))}
+                              {browserLabel && !chromeOptions.some((c) => c.label === browserLabel) && (
+                                <option value={browserLabel}>{browserLabel}</option>
+                              )}
+                            </select>
+                          ) : (
+                            <span className="font-medium text-ink">{browserLabel || 'Chưa chọn Chrome'}</span>
                           )}
+
                           {browserLabel && (
-                            <p className="flex flex-wrap items-center gap-1.5">
-                              <span>
-                                <span className="text-ink-muted">{t('fb.browserLabel')}:</span>{' '}
-                                <Link
-                                  to="/assets?tab=browser-profile-references"
-                                  className="font-medium text-brand-text hover:underline"
-                                  title="Kết nối trực tiếp tới Hồ sơ trình duyệt trong Tài sản"
-                                >
-                                  {browserLabel} ↗
-                                </Link>
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  launchInAssignedChromeProfile(
-                                    'https://business.facebook.com/overview',
-                                    browserLabel,
-                                    String(row.label ?? ''),
-                                    networkLabel,
-                                  )
-                                }
-                                className="inline-flex items-center rounded border border-emerald-600/50 bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800 hover:bg-emerald-500/25 dark:text-emerald-300"
-                                title={`Tự động bật cửa sổ Google Chrome (${browserLabel}) kèm Proxy của VIA ${String(row.label ?? '')}`}
-                              >
-                                🚀 Mở Chrome
-                              </button>
-                            </p>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                launchInAssignedChromeProfile(
+                                  'https://business.facebook.com/overview',
+                                  browserLabel,
+                                  String(row.label ?? ''),
+                                  networkLabel,
+                                )
+                              }
+                              className="inline-flex items-center rounded border border-emerald-600/50 bg-emerald-500/15 px-2 py-1 text-[11px] font-bold text-emerald-800 hover:bg-emerald-500/25 dark:text-emerald-300"
+                              title={`Tự động bật cửa sổ Google Chrome (${browserLabel}) của VIA ${String(row.label ?? '')}`}
+                            >
+                              🚀 Mở Chrome
+                            </button>
                           )}
-                          {networkLabel && (
-                            <p className="flex flex-wrap items-center gap-1.5">
-                              <span>
-                                <span className="text-ink-muted">IP/Mạng:</span>{' '}
-                                <Link
-                                  to="/assets?tab=proxy-references"
-                                  className="font-mono font-semibold text-brand-text hover:underline"
-                                  title="Kết nối trực tiếp tới Nhà mạng Proxy IP trong Tài sản"
-                                >
-                                  {networkLabel} ↗
-                                </Link>
+                        </div>
+
+                        {/* Dòng 2: Proxy thật (nếu đã gắn) hoặc Mạng gốc (không bao giờ hiện Proxy giả) */}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-[11px] font-medium text-ink-muted">IP/Proxy:</span>
+                          {networkLabel ? (
+                            <>
+                              <span className="rounded border border-brand/30 bg-brand-soft/15 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-brand-text">
+                                {networkLabel}
                               </span>
                               <Badge
                                 tone={sharedNetwork.length === 0 ? 'positive' : sharedNetwork.length === 1 ? 'caution' : 'attention'}
                                 title="Hạn mức an toàn: 1 Proxy nuôi tối đa 1–2 Via Facebook"
                               >
-                                {`${sharedNetwork.length + 1}/2 Via · ${sharedNetwork.length === 0 ? '1 Via riêng' : sharedNetwork.length === 1 ? 'Đủ 2 Via/Proxy' : 'Quá tải Proxy'}`}
+                                {`${sharedNetwork.length + 1}/2 Via · ${
+                                  sharedNetwork.length === 0
+                                    ? '1 Via riêng'
+                                    : sharedNetwork.length === 1
+                                      ? 'Đủ 2 Via/Proxy'
+                                      : 'Quá tải Proxy'
+                                }`}
                               </Badge>
                               {parseProxyString(networkLabel) && (
                                 <button
                                   type="button"
                                   onClick={() => downloadSwitchyOmegaConfig(networkLabel, String(row.label ?? ''))}
                                   className="inline-flex items-center rounded border border-brand/40 bg-brand-soft/20 px-1.5 py-0.5 text-[10px] font-semibold text-brand-text hover:bg-brand-soft/40"
-                                  title="Xuất file cấu hình .bak cho tiện ích Proxy SwitchyOmega (hoặc bấm Mở Chrome để tự động gắn Proxy)"
                                 >
                                   🔌 SwitchyOmega (.bak)
                                 </button>
                               )}
-                            </p>
-                          )}
-                          {sharedBrowser.length > 0 && (
-                            <div className="pt-1" data-testid={`fb-collision-browser-${row.id}`}>
-                              <Badge tone="caution">
-                                {t('fb.env.collisionBrowser', { names: sharedBrowser.join(', ') })}
-                              </Badge>
-                            </div>
-                          )}
-                          {sharedNetwork.length > 0 && (
-                            <div className="pt-1" data-testid={`fb-collision-network-${row.id}`}>
-                              <Badge tone="caution">
-                                {t('fb.env.collisionNetwork', { names: sharedNetwork.join(', ') })}
-                              </Badge>
-                            </div>
+                              {canWrite && (
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingRecord(row)}
+                                  className="text-[10px] text-ink-muted hover:text-ink hover:underline"
+                                >
+                                  ✎ Đổi Proxy
+                                </button>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              <span className="rounded border border-line bg-surface-muted px-1.5 py-0.5 text-[11px] text-ink-muted">
+                                🌐 Mạng gốc (Chưa gắn Proxy riêng)
+                              </span>
+                              {canWrite && (
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingRecord(row)}
+                                  className="text-[11px] font-medium text-brand-text hover:underline"
+                                >
+                                  + Gắn Proxy
+                                </button>
+                              )}
+                            </>
                           )}
                         </div>
-                      ) : (
-                        <span className="text-ink-faint">{t('fb.env.unconfigured')}</span>
-                      )}
+
+                        {sharedBrowser.length > 0 && (
+                          <div className="pt-0.5" data-testid={`fb-collision-browser-${row.id}`}>
+                            <Badge tone="caution">
+                              {t('fb.env.collisionBrowser', { names: sharedBrowser.join(', ') })}
+                            </Badge>
+                          </div>
+                        )}
+                      </div>
                     </TableCell>
+
                     <TableCell label={columns[2]}>{s?.owner_member_name ?? '—'}</TableCell>
                     <TableCell label={columns[3]}>
                       <Badge tone={twoFactorTone(String(row.two_factor_method))}>
@@ -423,7 +472,7 @@ export default function FacebookAccounts() {
                             {s.business_manager_count <= 2
                               ? 'An toàn (≤ 2 BM gốc/Via)'
                               : s.business_manager_count <= 4
-                                ? 'Chạm trần tạo BM (Max 4)'
+                                ? 'Chạm trần tạo BM (4 BM)'
                                 : 'Via Tổng / Partner'}
                           </div>
                         </div>
@@ -431,9 +480,11 @@ export default function FacebookAccounts() {
                         '—'
                       )}
                     </TableCell>
-                    <TableCell label={columns[5]}>{s ? s.ad_account_count : '—'}</TableCell>
+                    <TableCell label={columns[5]} className="font-mono font-semibold tabular-nums">
+                      {s ? s.ad_account_count : '—'}
+                    </TableCell>
                     <TableCell label={columns[6]}>
-                      <Badge tone={String(row.status) === 'active' ? 'positive' : 'neutral'}>
+                      <Badge tone={row.status === 'active' ? 'positive' : row.status === 'restricted' ? 'attention' : 'neutral'}>
                         {enumLabel('refStatus', String(row.status))}
                       </Badge>
                     </TableCell>
@@ -447,22 +498,20 @@ export default function FacebookAccounts() {
                             onClick={() => setEditingRecord(row)}
                             data-testid={`fb-edit-${row.id}`}
                           >
-                            <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                            <Pencil className="h-3.5 w-3.5" />
                             {t('fb.form.editBtn')}
                           </Button>
                           <Button
                             type="button"
                             size="sm"
-                            variant="secondary"
-                            aria-label={t('ref.archive.confirm')}
-                            className="border-danger-line text-danger-text hover:bg-danger-soft"
+                            variant="ghost"
                             disabled={archive.isPending}
                             onClick={() => {
                               if (
                                 window.confirm(
                                   language === 'vi'
-                                    ? `Bạn có chắc muốn xóa tài khoản Facebook "${String(row.label)}"?`
-                                    : `Delete Facebook account "${String(row.label)}"?`,
+                                    ? `Lưu trữ (xóa) tài khoản Facebook "${String(row.label)}"?`
+                                    : `Archive Facebook account "${String(row.label)}"?`,
                                 )
                               ) {
                                 archive.mutate(row.id)
@@ -470,7 +519,7 @@ export default function FacebookAccounts() {
                             }}
                             data-testid={`fb-delete-${row.id}`}
                           >
-                            <Trash2 className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                            <Trash2 className="h-3.5 w-3.5 text-danger-text" />
                             {language === 'vi' ? 'Xóa' : 'Delete'}
                           </Button>
                         </div>
@@ -484,7 +533,7 @@ export default function FacebookAccounts() {
         </Card>
       )}
       <FacebookAccountFormSheet
-        open={creating || editingRecord !== null}
+        open={creating || Boolean(editingRecord)}
         record={editingRecord}
         onClose={() => {
           setCreating(false)

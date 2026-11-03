@@ -286,12 +286,15 @@ export default function Accounts() {
         const pctThresh = numThresh > 0 ? Math.min(100, Math.round((numBal / numThresh) * 100)) : 0
         const billDate = bm.next_bill_date ?? null
         const dailyLimit = bm.meta_daily_limit_raw ?? null
+        const validProfileLabels = (account.payment_profile_labels ?? []).filter(
+          (lbl) => !lbl.startsWith('VISA-QCT-'),
+        )
         const cardDisplay =
           bm.payment_card_display ||
-          (account.payment_profile_labels?.[0]
-            ? account.payment_profile_labels[0].split(' (')[0].replace('VISA *', 'Visa ···· ').replace('Mastercard *', 'Mastercard ···· ')
+          (validProfileLabels[0]
+            ? validProfileLabels[0].split(' (')[0].replace('VISA *', 'Visa ···· ').replace('Mastercard *', 'Mastercard ···· ')
             : null)
-        const cardCode = bm.payment_card_code || (account.payment_profile_labels?.[0]?.split(' (')[0] ?? null)
+        const cardCode = bm.payment_card_code || (validProfileLabels[0]?.split(' (')[0] ?? null)
         const cardExpiry = bm.payment_card_expiry ?? null
         const sharedCount = cardCode
           ? rows.filter(
@@ -389,14 +392,25 @@ export default function Accounts() {
               )}
 
               <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line/70 pt-1.5 text-[11px]">
-                <span className="inline-flex items-center gap-1">
-                  <Gauge className="h-3 w-3 text-emerald-500" aria-hidden="true" />
-                  <span className="text-ink-muted">GH ngày (Meta đặt):</span>
-                  <strong className="font-mono font-semibold tabular-nums text-ink">
-                    {dailyLimit ? prettyMoney(dailyLimit, curr) : 'Không giới hạn'}
-                  </strong>
-                </span>
-                {account.facebook_identities?.[0]?.browser_profile_label && (
+                {dailyLimit ? (
+                  <span className="inline-flex items-center gap-1">
+                    <Gauge className="h-3 w-3 text-emerald-500" aria-hidden="true" />
+                    <span className="text-ink-muted">GH ngày (Meta đặt):</span>
+                    <strong className="font-mono font-semibold tabular-nums text-ink">
+                      {prettyMoney(dailyLimit, curr)}
+                    </strong>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setEditingAccount(account)}
+                    className="inline-flex items-center gap-1 text-[11px] text-ink-muted hover:text-brand-text hover:underline"
+                    title="Nhập nhanh Ngưỡng thanh toán, Ngày TT hoặc Giới hạn ngày từ Billing Hub"
+                  >
+                    <span>✎ Cập nhật Ngưỡng / Ngày TT</span>
+                  </button>
+                )}
+                {account.facebook_identities?.[0]?.browser_profile_label ? (
                   <button
                     type="button"
                     onClick={() =>
@@ -408,11 +422,21 @@ export default function Accounts() {
                       )
                     }
                     className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-brand-text hover:underline"
-                    title="Mở trực tiếp trang Thanh toán & Ngưỡng Bill của TKQC này trên Meta"
+                    title="Mở trực tiếp trang Thanh toán & Ngưỡng Bill của TKQC này trên Meta (Tiện ích Chrome tự động đồng bộ Ngưỡng & Ngày TT)"
+                  >
+                    ⚡ Billing Meta (Tự đọc Ngưỡng)
+                    <ExternalLink className="h-2.5 w-2.5" aria-hidden="true" />
+                  </button>
+                ) : (
+                  <a
+                    href={billingUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-brand-text hover:underline"
                   >
                     Billing Meta
                     <ExternalLink className="h-2.5 w-2.5" aria-hidden="true" />
-                  </button>
+                  </a>
                 )}
               </div>
             </div>
@@ -965,7 +989,7 @@ export default function Accounts() {
                                 </>
                               )}
                             </div>
-                            {account.billing_meta && (account.billing_meta.business_legal_name || account.billing_meta.tax_id || account.billing_meta.tax_id_verified) && (
+                            {account.billing_meta && (account.billing_meta.business_legal_name || account.billing_meta.tax_id) && (
                               <div className="mt-1.5 flex flex-wrap items-center gap-1.5 rounded border border-line/80 bg-surface-muted/40 px-2 py-1 text-[11px]">
                                 <Building2 className="h-3 w-3 shrink-0 text-ink-muted" aria-hidden="true" />
                                 <span className="font-medium text-ink">
