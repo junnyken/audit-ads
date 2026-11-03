@@ -131,7 +131,97 @@ export default function Accounts() {
     queryFn: () => api.get<Paged<AdAccount>>(`/api/v1/ad-accounts${query(filters)}`),
   })
 
-  const rows = accounts.data?.items ?? []
+  const baseRows = accounts.data?.items ?? []
+  const [quickSlice, setQuickSlice] = useState<'all' | 'active' | 'has_debt' | 'restricted' | 'disabled' | 'has_card'>('all')
+  const [cardFilter, setCardFilter] = useState<string | null>(null)
+
+  const summaryStats = (() => {
+    let activeCount = 0
+    let hasDebtCount = 0
+    let restrictedCount = 0
+    let disabledCount = 0
+    let hasCardCount = 0
+    let totalDebtVnd = 0
+    let totalTodayVnd = 0
+    let total7dVnd = 0
+    let totalMtdVnd = 0
+    let totalLifetimeVnd = 0
+
+    const cardMap = new Map<string, { display: string; code: string; count: number; debtVnd: number; expiry: string | null }>()
+
+    for (const a of baseRows) {
+      const bm = a.billing_meta ?? {}
+      const curr = a.currency || a.spend?.observed_currency || 'VND'
+      const bal = Number(bm.balance_raw ?? a.spend_periods?.balance_raw ?? 0) || 0
+      const validLabels = (a.payment_profile_labels ?? []).filter((lbl) => !lbl.startsWith('VISA-QCT-'))
+      const cardDisp =
+        bm.payment_card_display ||
+        (validLabels[0]
+          ? validLabels[0].split(' (')[0].replace('VISA *', 'Visa ···· ').replace('Mastercard *', 'Mastercard ···· ')
+          : null)
+      const cardCode = bm.payment_card_code || (validLabels[0]?.split(' (')[0] ?? null)
+
+      if (a.status === 'active') activeCount++
+      if (a.status === 'restricted') restrictedCount++
+      if (a.status === 'disabled') disabledCount++
+      if (bal > 0) hasDebtCount++
+      if (cardDisp) hasCardCount++
+
+      if (curr !== 'USD') {
+        totalDebtVnd += bal
+        totalTodayVnd += Number(a.spend_periods?.today_partial_raw ?? 0) || 0
+        total7dVnd += Number(a.spend_periods?.last_7d_raw ?? 0) || 0
+        totalMtdVnd += Number(a.spend_periods?.mtd_raw ?? 0) || 0
+        totalLifetimeVnd += Number(a.spend_periods?.amount_spent_raw ?? 0) || 0
+      }
+
+      if (cardDisp && cardCode) {
+        const prev = cardMap.get(cardCode) ?? {
+          display: cardDisp,
+          code: cardCode,
+          count: 0,
+          debtVnd: 0,
+          expiry: bm.payment_card_expiry ?? null,
+        }
+        prev.count += 1
+        if (curr !== 'USD') prev.debtVnd += bal
+        if (!prev.expiry && bm.payment_card_expiry) prev.expiry = bm.payment_card_expiry
+        cardMap.set(cardCode, prev)
+      }
+    }
+
+    const cards = Array.from(cardMap.values()).sort((x, y) => y.debtVnd - x.debtVnd || y.count - x.count)
+    return {
+      totalCount: baseRows.length,
+      activeCount,
+      hasDebtCount,
+      restrictedCount,
+      disabledCount,
+      hasCardCount,
+      totalDebtVnd,
+      totalTodayVnd,
+      total7dVnd,
+      totalMtdVnd,
+      totalLifetimeVnd,
+      cards,
+    }
+  })()
+
+  const rows = baseRows.filter((a) => {
+    const bm = a.billing_meta ?? {}
+    const bal = Number(bm.balance_raw ?? a.spend_periods?.balance_raw ?? 0) || 0
+    const validLabels = (a.payment_profile_labels ?? []).filter((lbl) => !lbl.startsWith('VISA-QCT-'))
+    const cardCode = bm.payment_card_code || (validLabels[0]?.split(' (')[0] ?? null)
+    const hasCard = Boolean(bm.payment_card_display || validLabels.length > 0)
+
+    if (cardFilter && cardCode !== cardFilter) return false
+    if (quickSlice === 'active') return a.status === 'active'
+    if (quickSlice === 'has_debt') return bal > 0
+    if (quickSlice === 'restricted') return a.status === 'restricted'
+    if (quickSlice === 'disabled') return a.status === 'disabled'
+    if (quickSlice === 'has_card') return hasCard
+    return true
+  })
   const bmOptions = (businessManagers.data?.items ?? []).map((bm) => [bm.id, String(bm.name)] as [string, string])
   const facebookOptions = (facebookIdentities.data?.items ?? []).map((identity) => [identity.id, String(identity.label)] as [string, string])
 
@@ -508,48 +598,57 @@ export default function Accounts() {
       return s
     }
     const headers = [
-      t('col.account'),
-      'External ID',
-      t('fb.clientName'),
+      'Tên TKQC',
+      'ID TKQC (External ID)',
       'Business Manager',
-      t('fb.title'),
-      t('col.currency'),
-      t('col.paymentProfile'),
-      t('overview.spend.periodToday'),
-      t('col.spend'),
-      t('overview.spend.period7d'),
-      t('overview.spend.periodMtd'),
-      t('sp.pacing.dailyBudget'),
-      t('sp.pacing.monthlyBudget'),
-      t('col.recorded'),
-      t('col.platform'),
-      t('col.readiness'),
-      'Tags',
+      'XMDN BM',
+      'Pháp nhân Doanh nghiệp',
+      'Mã số thuế (MST)',
+      'Via & Hồ sơ Chrome',
+      'Tiền tệ',
+      'Dư nợ hiện tại',
+      'Số dư đạt (Ngưỡng TT)',
+      'Ngày thanh toán tiếp theo',
+      'Giới hạn chi tiêu ngày (Meta đặt)',
+      'Phương thức thanh toán (Thẻ)',
+      'Chi tiêu Hôm nay',
+      'Chi tiêu Hôm qua',
+      'Chi tiêu 7 ngày',
+      'Chi tiêu Tháng này (MTD)',
+      'Chi tiêu Lũy kế',
+      'Trạng thái Meta',
     ]
     const csvRows = [
       headers.map(esc).join(','),
       ...rows.map((a) => {
-        const curr = a.spend?.observed_currency || a.currency || '—'
-        const vias = a.facebook_identities?.map((i) => i.label).join('; ') || '—'
-        const pttt = a.payment_profile_labels?.join('; ') || '—'
+        const bm = a.billing_meta ?? {}
+        const curr = a.spend?.observed_currency || a.currency || 'VND'
+        const vias =
+          a.facebook_identities
+            ?.map((i) => `${i.label}${i.browser_profile_label ? ` (${i.browser_profile_label})` : ''}`)
+            .join('; ') || '—'
+        const validLabels = (a.payment_profile_labels ?? []).filter((lbl) => !lbl.startsWith('VISA-QCT-'))
+        const cardTxt = bm.payment_card_display || validLabels.join('; ') || 'Chưa gắn thẻ'
         return [
           a.display_name,
           a.external_account_id || '—',
-          a.client_name || '—',
           a.business_manager_name || a.personal_account_reference_label || '—',
+          bm.bm_verified ? 'Đã XMDN' : 'Chưa XMDN',
+          bm.business_legal_name || '—',
+          bm.tax_id ? `${bm.tax_id}${bm.tax_id_verified ? ' (Đã xác minh)' : ''}` : '—',
           vias,
           curr,
-          pttt,
-          a.spend_periods?.today_partial_raw ?? '—',
-          a.spend?.latest_complete_day?.spend_raw ?? '—',
-          a.spend_periods?.last_7d_raw ?? '—',
-          a.spend_periods?.mtd_raw ?? '—',
-          a.planned_daily_budget_raw ?? '—',
-          a.planned_monthly_budget_raw ?? '—',
-          enumLabel('accountStatus', a.status),
-          a.platform_status?.status ?? '—',
-          enumLabel('readiness', a.readiness_status),
-          a.tags.join('; ') || '—',
+          bm.balance_raw ?? a.spend_periods?.balance_raw ?? '0',
+          bm.billing_threshold_raw ?? '—',
+          bm.next_bill_date ?? '—',
+          bm.meta_daily_limit_raw ?? '—',
+          cardTxt,
+          a.spend_periods?.today_partial_raw ?? '0',
+          a.spend?.latest_complete_day?.spend_raw ?? '0',
+          a.spend_periods?.last_7d_raw ?? '0',
+          a.spend_periods?.mtd_raw ?? '0',
+          a.spend_periods?.amount_spent_raw ?? '0',
+          a.platform_status?.status ?? enumLabel('accountStatus', a.status),
         ]
           .map(esc)
           .join(',')
@@ -626,6 +725,169 @@ export default function Accounts() {
       </header>
 
       <QuickMetaSyncBanner />
+
+      {baseRows.length > 0 && (
+        <div className="space-y-3 rounded-xl border border-line bg-surface p-4">
+          {/* Top KPI Summary Bar */}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-lg border border-line bg-surface-muted/40 p-3">
+              <div className="flex items-center justify-between text-xs text-ink-muted">
+                <span>Tổng Dư nợ cần thanh toán</span>
+                <Badge tone={summaryStats.hasDebtCount > 0 ? 'caution' : 'positive'}>
+                  {summaryStats.hasDebtCount} TK có dư nợ
+                </Badge>
+              </div>
+              <div className="mt-1 font-mono text-lg font-extrabold tabular-nums text-amber-600 dark:text-amber-400">
+                {prettyMoney(String(summaryStats.totalDebtVnd), 'VND')}
+              </div>
+              <div className="mt-0.5 text-[11px] text-ink-muted">
+                Cộng tự động từ số dư nợ thực tế trên Meta
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-line bg-surface-muted/40 p-3">
+              <div className="flex items-center justify-between text-xs text-ink-muted">
+                <span>Chi tiêu Hôm nay · 7 Ngày</span>
+                <span className="font-mono text-[11px] text-emerald-600 dark:text-emerald-400">
+                  {summaryStats.activeCount}/{summaryStats.totalCount} TK đang sống
+                </span>
+              </div>
+              <div className="mt-1 font-mono text-lg font-extrabold tabular-nums text-ink">
+                {prettyMoney(String(summaryStats.totalTodayVnd), 'VND')}
+                <span className="ml-1.5 text-xs font-semibold text-ink-muted">
+                  (7N: {prettyMoney(String(summaryStats.total7dVnd), 'VND')})
+                </span>
+              </div>
+              <div className="mt-0.5 text-[11px] text-ink-muted">
+                Cập nhật trực tiếp từ Meta Insights API
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-line bg-surface-muted/40 p-3">
+              <div className="flex items-center justify-between text-xs text-ink-muted">
+                <span>Chi tiêu Tháng này (MTD)</span>
+                <span className="font-mono text-[11px] text-ink-muted">Tháng hiện tại</span>
+              </div>
+              <div className="mt-1 font-mono text-lg font-extrabold tabular-nums text-brand-text">
+                {prettyMoney(String(summaryStats.totalMtdVnd), 'VND')}
+              </div>
+              <div className="mt-0.5 text-[11px] text-ink-muted">
+                Tổng chi tiêu từ đầu tháng đến hôm nay
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-line bg-surface-muted/40 p-3">
+              <div className="flex items-center justify-between text-xs text-ink-muted">
+                <span>Tổng Chi tiêu Lũy kế toàn dàn</span>
+                <button
+                  type="button"
+                  onClick={exportCsv}
+                  className="font-semibold text-brand-text hover:underline"
+                  title="Tải file Excel/CSV đối soát toàn bộ Dư nợ, Chi tiêu & Thẻ"
+                >
+                  📥 Xuất CSV đối soát
+                </button>
+              </div>
+              <div className="mt-1 font-mono text-lg font-extrabold tabular-nums text-ink">
+                {prettyMoney(String(summaryStats.totalLifetimeVnd), 'VND')}
+              </div>
+              <div className="mt-0.5 text-[11px] text-ink-muted">
+                Tổng chi tiêu lịch sử của {summaryStats.totalCount} TKQC
+              </div>
+            </div>
+          </div>
+
+          {/* Card Debt & Limit Matrix */}
+          {summaryStats.cards.length > 0 && (
+            <div className="border-t border-line pt-3">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span className="font-bold text-ink">
+                  💳 Tổng hợp Dư nợ chờ trừ theo từng Thẻ thanh toán (Bấm vào thẻ để lọc nhanh TKQC):
+                </span>
+                {cardFilter && (
+                  <button
+                    type="button"
+                    onClick={() => setCardFilter(null)}
+                    className="font-semibold text-brand-text hover:underline"
+                  >
+                    ✕ Bỏ lọc thẻ ({cardFilter})
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {summaryStats.cards.map((c) => {
+                  const isSelected = cardFilter === c.code
+                  const overLimit = c.count > 3
+                  return (
+                    <button
+                      key={c.code}
+                      type="button"
+                      onClick={() => setCardFilter(isSelected ? null : c.code)}
+                      className={`inline-flex flex-wrap items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs transition ${
+                        isSelected
+                          ? 'border-brand bg-brand-light text-brand-text ring-1 ring-brand/40'
+                          : 'border-line bg-surface-muted/50 hover:bg-surface-muted text-ink'
+                      }`}
+                    >
+                      <span className="inline-flex items-center gap-1 font-mono font-bold">
+                        <CreditCard className="h-3.5 w-3.5 text-brand-text" aria-hidden="true" />
+                        {c.display}
+                        {c.expiry ? <span className="font-normal text-ink-muted">({c.expiry})</span> : null}
+                      </span>
+                      <Badge tone={overLimit ? 'attention' : c.count === 3 ? 'caution' : 'positive'}>
+                        {c.count}/3 TK
+                      </Badge>
+                      <span className="text-[11px] text-ink-muted">
+                        Dư nợ:{' '}
+                        <strong
+                          className={`font-mono ${
+                            c.debtVnd > 0 ? 'text-amber-600 dark:text-amber-300' : 'text-ink'
+                          }`}
+                        >
+                          {prettyMoney(String(c.debtVnd), 'VND')}
+                        </strong>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* 1-Click Quick Status Filter Pills (SMIT / sMeta style) */}
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-xs font-bold text-ink-muted">Lọc nhanh 1 chạm:</span>
+              {(
+                [
+                  ['all', `Tất cả (${summaryStats.totalCount})`],
+                  ['active', `🟢 Đang hoạt động (${summaryStats.activeCount})`],
+                  ['has_debt', `💰 Có dư nợ > 0 (${summaryStats.hasDebtCount})`],
+                  ['restricted', `🟡 Nợ cước / Hạn chế (${summaryStats.restrictedCount})`],
+                  ['disabled', `🔴 Đã đóng / Vô hiệu hóa (${summaryStats.disabledCount})`],
+                  ['has_card', `💳 Đã gắn thẻ (${summaryStats.hasCardCount})`],
+                ] as const
+              ).map(([sliceKey, label]) => {
+                const active = quickSlice === sliceKey
+                return (
+                  <button
+                    key={sliceKey}
+                    type="button"
+                    onClick={() => setQuickSlice(sliceKey)}
+                    className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                      active
+                        ? 'border-brand bg-brand text-brand-fg'
+                        : 'border-line bg-surface hover:bg-surface-muted text-ink'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {(orphanCount > 0 || filters.unassigned_identity === 'true') && (
         <div

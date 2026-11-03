@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Pencil, RefreshCw, Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -38,6 +38,195 @@ function isRealNetworkLabel(val: string): boolean {
   if (!clean) return false
   const lower = clean.toLowerCase()
   return !LEGACY_MOCK_NETWORKS.some((p) => lower.startsWith(p))
+}
+
+
+function extractBase32Secret(vaultRef?: unknown): string | null {
+  const raw = String(vaultRef ?? '').trim()
+  if (!raw || raw.startsWith('meta-user://') || raw.startsWith('http')) return null
+  const stripped = raw.replace(/^2fa:\/\//i, '').replace(/[\s-]/g, '').toUpperCase()
+  if (/^[A-Z2-7]{12,128}$/.test(stripped)) {
+    return stripped
+  }
+  return null
+}
+
+function base32ToBytes(b32: string): Uint8Array {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+  let bits = 0
+  let value = 0
+  const out: number[] = []
+  for (let i = 0; i < b32.length; i++) {
+    const idx = alphabet.indexOf(b32[i])
+    if (idx === -1) continue
+    value = (value << 5) | idx
+    bits += 5
+    if (bits >= 8) {
+      out.push((value >>> (bits - 8)) & 0xff)
+      bits -= 8
+    }
+  }
+  return new Uint8Array(out)
+}
+
+async function generateTotpCode(secretBase32: string): Promise<string> {
+  const keyBytes = base32ToBytes(secretBase32)
+  const epochSec = Math.floor(Date.now() / 1000)
+  const counter = Math.floor(epochSec / 30)
+  const counterBytes = new Uint8Array(8)
+  let tmp = counter
+  for (let i = 7; i >= 0; i--) {
+    counterBytes[i] = tmp & 0xff
+    tmp = Math.floor(tmp / 256)
+  }
+  const cryptoKey = await window.crypto.subtle.importKey(
+    'raw',
+    keyBytes as unknown as BufferSource,
+    { name: 'HMAC', hash: 'SHA-1' },
+    false,
+    ['sign'],
+  )
+  const sig = new Uint8Array(await window.crypto.subtle.sign('HMAC', cryptoKey, counterBytes as unknown as BufferSource))
+  const offset = sig[sig.length - 1] & 0x0f
+  const binary =
+    ((sig[offset] & 0x7f) << 24) |
+    ((sig[offset + 1] & 0xff) << 16) |
+    ((sig[offset + 2] & 0xff) << 8) |
+    (sig[offset + 3] & 0xff)
+  return String(binary % 1_000_000).padStart(6, '0')
+}
+
+function TwoFactorOtpCell({
+  row,
+  canWrite,
+  badgeLabel,
+  onSaveSecret,
+}: {
+  row: ReferenceRecord
+  canWrite: boolean
+  badgeLabel: string
+  onSaveSecret: (id: string, secret: string) => void
+}) {
+  const secret = extractBase32Secret(row.vault_reference)
+  const [otp, setOtp] = useState<string>('------')
+  const [secLeft, setSecLeft] = useState<number>(30 - (Math.floor(Date.now() / 1000) % 30))
+  const [copied, setCopied] = useState(false)
+  const [editingKey, setEditingKey] = useState(false)
+  const [draftKey, setDraftKey] = useState(secret ?? '')
+
+  useEffect(() => {
+    if (!secret) return
+    let cancelled = false
+    const tick = () => {
+      const rem = 30 - (Math.floor(Date.now() / 1000) % 30)
+      setSecLeft(rem)
+      void generateTotpCode(secret)
+        .then((code) => {
+          if (!cancelled) setOtp(code)
+        })
+        .catch(() => {})
+    }
+    tick()
+    const timer = window.setInterval(tick, 1000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [secret])
+
+  if (editingKey) {
+    return (
+      <div className="space-y-1.5 min-w-[175px]">
+        <input
+          type="text"
+          className="input font-mono text-xs py-1 px-2"
+          placeholder="Dán khóa 2FA (VD: JBSWY3DP...)"
+          value={draftKey}
+          onChange={(e) => setDraftKey(e.target.value)}
+        />
+        <div className="flex items-center gap-1.5 text-[11px]">
+          <button
+            type="button"
+            onClick={() => {
+              const cleaned = draftKey.replace(/[\s-]/g, '').toUpperCase()
+              onSaveSecret(row.id, cleaned ? `2fa://${cleaned}` : '')
+              setEditingKey(false)
+            }}
+            className="rounded bg-brand px-2 py-0.5 font-semibold text-brand-fg hover:bg-brand-hover"
+          >
+            Lưu 2FA
+          </button>
+          <button
+            type="button"
+            onClick={() => setEditingKey(false)}
+            className="rounded border border-line px-2 py-0.5 text-ink-muted hover:bg-surface-muted"
+          >
+            Hủy
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (secret) {
+    return (
+      <div className="space-y-1">
+        <div className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-1">
+          <span className="font-mono text-xs font-extrabold tracking-wider text-emerald-700 dark:text-emerald-300 tabular-nums">
+            {otp.slice(0, 3)} {otp.slice(3)}
+          </span>
+          <span className="font-mono text-[10px] text-ink-muted tabular-nums">({secLeft}s)</span>
+          <button
+            type="button"
+            onClick={() => {
+              void navigator.clipboard.writeText(otp)
+              setCopied(true)
+              setTimeout(() => setCopied(false), 1500)
+            }}
+            className="rounded bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold text-white hover:bg-emerald-500"
+            title="Sao chép mã OTP 2FA 6 số"
+          >
+            {copied ? 'Đã chép' : 'Copy'}
+          </button>
+        </div>
+        {canWrite && (
+          <div>
+            <button
+              type="button"
+              onClick={() => {
+                setDraftKey(secret)
+                setEditingKey(true)
+              }}
+              className="text-[10px] text-ink-muted hover:text-brand-text hover:underline"
+            >
+              ✎ Đổi khóa 2FA
+            </button>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-1">
+      <Badge tone={twoFactorTone(String(row.two_factor_method))}>{badgeLabel}</Badge>
+      {canWrite && (
+        <div>
+          <button
+            type="button"
+            onClick={() => {
+              setDraftKey('')
+              setEditingKey(true)
+            }}
+            className="text-[11px] font-medium text-brand-text hover:underline"
+            title="Dán chuỗi khóa 2FA (Secret Key) để tự động lấy mã OTP 6 số trực tiếp trên bảng"
+          >
+            + Gắn khóa 2FA (Lấy mã 6 số)
+          </button>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function FacebookAccounts() {
@@ -98,6 +287,18 @@ export default function FacebookAccounts() {
       void queryClient.invalidateQueries({ queryKey: ['personal-account-references'] })
       void queryClient.invalidateQueries({ queryKey: ['facebook-identities'] })
       void queryClient.invalidateQueries({ queryKey: ['accounts'] })
+    },
+  })
+
+  const quickUpdate2fa = useMutation({
+    mutationFn: ({ id, vault_reference }: { id: string; vault_reference: string }) =>
+      api.patch(`/api/v1/personal-account-references/${id}`, {
+        vault_reference,
+        two_factor_method: vault_reference ? 'app' : 'none',
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['personal-account-references'] })
+      void queryClient.invalidateQueries({ queryKey: ['facebook-identities'] })
     },
   })
 
@@ -458,9 +659,12 @@ export default function FacebookAccounts() {
 
                     <TableCell label={columns[2]}>{s?.owner_member_name ?? '—'}</TableCell>
                     <TableCell label={columns[3]}>
-                      <Badge tone={twoFactorTone(String(row.two_factor_method))}>
-                        {t(`twoFactor.${String(row.two_factor_method)}` as never)}
-                      </Badge>
+                      <TwoFactorOtpCell
+                        row={row}
+                        canWrite={canWrite}
+                        badgeLabel={t(`twoFactor.${String(row.two_factor_method)}` as never)}
+                        onSaveSecret={(id, secret) => quickUpdate2fa.mutate({ id, vault_reference: secret })}
+                      />
                     </TableCell>
                     <TableCell label={columns[4]}>
                       {s ? (

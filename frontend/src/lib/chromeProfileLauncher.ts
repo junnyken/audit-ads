@@ -548,6 +548,13 @@ export function downloadChromeExtensionZip(
       default_title: `AdsOps Companion (${viaName})`,
       default_popup: 'popup.html',
     },
+    content_scripts: [
+      {
+        matches: ['https://business.facebook.com/*', 'https://adsmanager.facebook.com/*'],
+        js: ['content.js'],
+        run_at: 'document_idle',
+      },
+    ],
   }
 
   const defaultStateJson = JSON.stringify({
@@ -941,9 +948,58 @@ refreshIp();`
   ].join('\r\n')
 
   const slug = profileDir.replace(/[^a-zA-Z0-9_-]/g, '-')
+  const contentJs = `// AdsOps Companion — Auto-Read Meta Billing Hub Content Script
+(function() {
+  let lastSyncedAct = "";
+  function scanBillingDom() {
+    const url = window.location.href;
+    if (!url.includes("billing_hub") && !url.includes("account_billing")) return;
+    const actMatch = url.match(/(?:act=|asset_id=)(\\d{6,25})/i);
+    if (!actMatch) return;
+    const actId = actMatch[1];
+    const bodyText = document.body ? document.body.innerText : "";
+    if (!bodyText || bodyText.length < 100) return;
+
+    const threshMatch = bodyText.match(/(?:Số dư của bạn đạt|Payment threshold)[\\s\\n:]*([0-9.,]+)\\s*(?:₫|VND|USD|\$)/i);
+    const dateMatch = bodyText.match(/(?:Và vào ngày này|And on this date)[\\s\\n:]*([^\\n]{5,30})/i);
+    const dslMatch = bodyText.match(/(?:Giới hạn chi tiêu hàng ngày \\(do Meta đặt\\)|Daily spending limit)[\\s\\n:]*([0-9.,]+)\\s*(?:₫|VND|USD|\$)/i);
+    const cardMatch = bodyText.match(/(Visa|Mastercard)\\s*[·•*\\-.\\s]{2,8}\\s*(\\d{4})/i);
+
+    const threshRaw = threshMatch ? threshMatch[1].replace(/[.,\\s]/g, "") : null;
+    const nextDate = dateMatch ? dateMatch[1].trim() : null;
+    const dslRaw = dslMatch ? dslMatch[1].replace(/[.,\\s]/g, "") : null;
+    const cardDisp = cardMatch ? (cardMatch[1] + " ···· " + cardMatch[2]) : null;
+
+    if (!threshRaw && !nextDate && !dslRaw) return;
+    const syncKey = [actId, threshRaw, nextDate, dslRaw, cardDisp].join("|");
+    if (syncKey === lastSyncedAct) return;
+    lastSyncedAct = syncKey;
+
+    if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(["accounts"], (res) => {
+        const list = Array.isArray(res.accounts) ? res.accounts : [];
+        const updated = list.map((a) => {
+          if (String(a.external_account_id || "").replace(/^act_/i, "") === actId) {
+            return Object.assign({}, a, {
+              billing_threshold_raw: threshRaw || a.billing_threshold_raw,
+              next_bill_date: nextDate || a.next_bill_date,
+              meta_daily_limit_raw: dslRaw || a.meta_daily_limit_raw,
+              payment_card_display: cardDisp || a.payment_card_display
+            });
+          }
+          return a;
+        });
+        chrome.storage.local.set({ accounts: updated });
+      });
+    }
+  }
+  setInterval(scanBillingDom, 3000);
+})();`
+
   const zipBlob = buildStoreZip([
     { name: 'AdsOps-Chrome-Extension/manifest.json', content: JSON.stringify(manifestObj, null, 2) },
     { name: 'AdsOps-Chrome-Extension/background.js', content: backgroundJs },
+    { name: 'AdsOps-Chrome-Extension/content.js', content: contentJs },
     { name: 'AdsOps-Chrome-Extension/popup.html', content: popupHtml },
     { name: 'AdsOps-Chrome-Extension/popup.js', content: popupJs },
     { name: 'AdsOps-Chrome-Extension/HUONG-DAN-CAI-DAT.txt', content: readmeTxt },
