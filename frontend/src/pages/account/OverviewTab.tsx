@@ -10,7 +10,10 @@ import { ErrorState, LoadingRegion } from '../../components/states'
 import PlatformStatusBadge from '../../components/PlatformStatusBadge'
 import { READINESS_META, accountStatusTone, severityTone } from '../../lib/readiness'
 import { disableReasonText, platformStatusBadge, recordedStatusSuggestion } from '../../lib/platformStatus'
+import { Building2, Calendar, ExternalLink, ShieldCheck, Wallet } from 'lucide-react'
 import { formatDateTime, formatRelative } from '../../lib/format'
+import { prettyMoney } from '../../lib/spend'
+import { launchInAssignedChromeProfile } from '../../lib/chromeProfileLauncher'
 import { getActiveLanguage, translate } from '../../i18n/translate'
 import type { Language } from '../../i18n/types'
 import { useEnumLabel } from '../../i18n/labels'
@@ -99,6 +102,233 @@ export default function OverviewTab({
 
   return (
     <div className="grid gap-4 xl:grid-cols-2">
+      {/* Bảng Thanh toán, Ngưỡng Bill & Thông tin Doanh nghiệp (chuẩn Meta Billing Hub) */}
+      {(() => {
+        const bm = account.billing_meta ?? {}
+        const curr = account.currency || account.spend?.observed_currency || 'VND'
+        const rawBal = bm.balance_raw ?? account.spend_periods?.balance_raw ?? '0'
+        const numBal = Number(rawBal) || 0
+        const rawThresh = bm.billing_threshold_raw ?? null
+        const numThresh = rawThresh ? Number(rawThresh) || 0 : 0
+        const pctThresh = numThresh > 0 ? Math.min(100, Math.round((numBal / numThresh) * 100)) : 0
+        const billDate = bm.next_bill_date ?? 'Chưa thiết lập'
+        const dailyLimit = bm.meta_daily_limit_raw ?? null
+        const cardDisplay =
+          bm.payment_card_display ||
+          (account.payment_profile_labels?.[0]
+            ? account.payment_profile_labels[0].split(' (')[0].replace('VISA *', 'Visa ···· ').replace('Mastercard *', 'Mastercard ···· ')
+            : null)
+        const cardExpiry = bm.payment_card_expiry ?? null
+        const actRaw = (account.external_account_id || '').replace(/^act[-_]/i, '').trim()
+        const billingUrl = actRaw
+          ? `https://business.facebook.com/billing_hub/accounts/details?act=${encodeURIComponent(actRaw)}`
+          : 'https://business.facebook.com/billing_hub/payment_activity'
+
+        return (
+          <div className="grid gap-4 xl:col-span-2 lg:grid-cols-12">
+            {/* Cột trái (7/12): Dư nợ, Ngưỡng thanh toán, Ngày TT, Giới hạn chi tiêu ngày & Phương thức thanh toán */}
+            <div className="space-y-4 rounded-xl border border-line bg-surface p-5 shadow-xs lg:col-span-7">
+              <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line pb-4">
+                <div>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Dư nợ hiện tại</span>
+                  <div className="mt-1 flex items-baseline gap-2">
+                    <span className="font-mono text-2xl font-bold tabular-nums text-ink">
+                      {prettyMoney(String(rawBal), curr)}
+                    </span>
+                    <span className="text-xs text-ink-muted">+ bất kỳ khoản phí nào có thể áp dụng</span>
+                  </div>
+                  <p className="mt-1 text-xs text-ink-muted">
+                    {account.status === 'restricted' && numBal > 0
+                      ? 'Tài khoản đang có khoản thanh toán đến hạn cần xử lý.'
+                      : 'Hiện chưa có khoản thanh toán nào đến hạn.'}
+                  </p>
+                </div>
+                {account.facebook_identities?.[0]?.browser_profile_label && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() =>
+                      launchInAssignedChromeProfile(
+                        billingUrl,
+                        account.facebook_identities![0].browser_profile_label,
+                        account.facebook_identities![0].label,
+                        account.facebook_identities![0].network_label,
+                      )
+                    }
+                  >
+                    Thanh toán ngay trên Meta
+                    <ExternalLink className="ml-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                  </Button>
+                )}
+              </div>
+
+              {/* Bạn sẽ thanh toán khi */}
+              <div className="space-y-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                  Bạn sẽ thanh toán khi
+                </h3>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="flex items-center gap-3 rounded-lg border border-line bg-surface-muted/50 p-3">
+                    <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-line bg-surface text-ink-muted">
+                      <Wallet className="h-4 w-4" aria-hidden="true" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs text-ink-muted">Số dư của bạn đạt</div>
+                      <div className="font-mono text-sm font-bold tabular-nums text-ink">
+                        {rawThresh ? prettyMoney(rawThresh, curr) : 'Chưa đặt ngưỡng'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 rounded-lg border border-line bg-surface-muted/50 p-3">
+                    <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-line bg-surface text-ink-muted">
+                      <Calendar className="h-4 w-4" aria-hidden="true" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs text-ink-muted">Và vào ngày này</div>
+                      <div className="text-sm font-bold text-ink">{billDate}</div>
+                    </div>
+                  </div>
+                </div>
+                {numThresh > 0 && (
+                  <div className="flex items-center gap-2 pt-1">
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-line">
+                      <div
+                        className={`h-full rounded-full ${
+                          pctThresh >= 90 ? 'bg-rose-500' : pctThresh >= 65 ? 'bg-amber-500' : 'bg-emerald-500'
+                        }`}
+                        style={{ width: `${pctThresh}%` }}
+                      />
+                    </div>
+                    <span className="font-mono text-xs font-semibold tabular-nums text-ink-muted">
+                      Đã dùng {pctThresh}% ngưỡng bill
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Giới hạn chi tiêu hàng ngày (do Meta đặt) */}
+              <div className="rounded-lg border border-line/80 bg-surface-muted/30 px-3.5 py-2.5 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium text-ink">
+                    Giới hạn chi tiêu hàng ngày (do Meta đặt):{' '}
+                    <strong className="font-mono font-bold tabular-nums">
+                      {dailyLimit ? prettyMoney(dailyLimit, curr) : 'Không giới hạn'}
+                    </strong>
+                  </span>
+                </div>
+                <p className="mt-1 flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
+                  Mức chi tiêu dự kiến hôm nay của bạn nằm trong giới hạn này
+                </p>
+              </div>
+
+              {/* Phương thức thanh toán */}
+              <div className="space-y-2 border-t border-line pt-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                  Phương thức thanh toán
+                </h3>
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface-muted/40 p-3">
+                  <div className="flex items-center gap-3">
+                    <span className="inline-flex h-8 items-center rounded bg-blue-700 px-2.5 font-mono text-xs font-extrabold tracking-wider text-white">
+                      {cardDisplay?.toLowerCase().includes('master') ? 'MASTERCARD' : 'VISA'}
+                    </span>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-sm font-bold text-ink">
+                          {cardDisplay ?? 'Chưa gắn thẻ thanh toán'}
+                        </span>
+                        {cardDisplay && (
+                          <span className="rounded bg-surface-muted px-2 py-0.5 text-[11px] font-semibold text-ink-muted border border-line">
+                            Mặc định
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-ink-muted">
+                        {cardExpiry
+                          ? `Hết hạn vào ${cardExpiry} · Tự động tính phí theo ${cardDisplay} để thanh toán dư nợ`
+                          : 'Thanh toán tự động khi đạt ngưỡng lập hóa đơn'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right text-xs text-ink-muted">
+                    <div>Quỹ trả trước</div>
+                    <div className="font-mono font-bold tabular-nums text-ink">{prettyMoney('0', curr)}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Cột phải (5/12): Thông tin doanh nghiệp & Xác minh thuế */}
+            <div className="flex flex-col justify-between space-y-4 rounded-xl border border-line bg-surface p-5 shadow-xs lg:col-span-5">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between border-b border-line pb-3">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="h-4 w-4 text-brand-text" aria-hidden="true" />
+                    <h3 className="text-base font-semibold text-ink">Thông tin doanh nghiệp</h3>
+                  </div>
+                  {bm.bm_verified ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-300">
+                      <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                      BM Đã XMDN
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
+                      BM Chưa XMDN
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <div className="text-xs font-semibold text-ink-muted">Tên doanh nghiệp</div>
+                    <div className="mt-1 text-sm font-bold text-ink">
+                      {bm.business_legal_name || 'Chưa khai báo pháp nhân'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-ink-muted">Địa chỉ</div>
+                    <div className="mt-1 text-sm font-medium text-ink">
+                      {bm.business_country_label || bm.business_country_code || account.country || 'Việt Nam'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-ink-muted">Đơn vị tiền tệ</div>
+                    <div className="mt-1 text-sm font-medium text-ink">
+                      {curr === 'VND' ? 'Đồng Việt Nam VND' : curr === 'USD' ? 'Đô la Mỹ USD' : curr}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-ink-muted">
+                      <span>Mã số thuế</span>
+                      {bm.tax_id_verified && (
+                        <span className="h-2 w-2 rounded-full bg-emerald-500" title="Đã xác minh" />
+                      )}
+                    </div>
+                    <div className="mt-1 font-mono text-sm font-bold text-ink">
+                      {bm.tax_id
+                        ? `${bm.tax_id} ${bm.tax_id_verified ? 'đã được xác minh' : '(chưa xác minh)'}`
+                        : bm.tax_id_verified
+                          ? 'Đã xác minh thuế trên Meta'
+                          : 'Chưa cập nhật MST'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-line bg-surface-muted/40 p-3 text-xs text-ink-muted">
+                <div className="font-semibold text-ink">
+                  BM chủ quản: {account.business_manager_name ?? account.personal_account_reference_label ?? '—'}
+                </div>
+                <p className="mt-0.5">
+                  Bạn có thể bấm nút <strong>Sửa</strong> ở góc phải phía trên để cập nhật nhanh Ngưỡng thanh toán, Ngày lập hóa đơn hoặc Thông tin doanh nghiệp của tài khoản này.
+                </p>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       <Panel title={t('ov.identity.title')}>
         <dl className={DL_CLASS}>
           <Row label={t('ov.name')}>{account.display_name}</Row>

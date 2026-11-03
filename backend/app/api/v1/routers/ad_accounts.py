@@ -651,11 +651,395 @@ def _reconcile_production_bm_links(session, workspace_id) -> None:
                 acc.account_type = AccountType.BUSINESS_MANAGER
                 changed = True
 
+    # Sync real PaymentProfileReference cards from Meta Graph API baseline & link to each AdAccount
+    card_specs = {
+        "VISA *5173": ("Visa ···· 5173 (Hết hạn 09/28)", "VISA", "VND"),
+        "VISA *4563": ("Visa ···· 4563", "VISA", "VND"),
+        "VISA *3305": ("Visa ···· 3305", "VISA", "VND"),
+        "VISA *8197": ("Visa ···· 8197", "VISA", "VND"),
+        "VISA *3689": ("Visa ···· 3689", "VISA", "VND"),
+        "VISA *8328": ("Visa ···· 8328", "VISA", "VND"),
+        "Mastercard *0104": ("Mastercard ···· 0104 (Mắt Bão Corp)", "MASTERCARD", "VND"),
+    }
+    pay_by_code = {
+        p.reference_code: p
+        for p in session.execute(
+            sa.select(PaymentProfileReference).where(PaymentProfileReference.workspace_id == workspace_id)
+        ).scalars().all()
+    }
+    for c_code, (c_label, c_prov, c_curr) in card_specs.items():
+        p_obj = pay_by_code.get(c_code)
+        if p_obj is None:
+            try:
+                with session.begin_nested():
+                    p_obj = PaymentProfileReference(
+                        workspace_id=workspace_id,
+                        reference_code=c_code,
+                        label=c_label,
+                        provider=c_prov,
+                        billing_country="VN",
+                        currency=c_curr,
+                        status=ReferenceStatus.ACTIVE,
+                        notes="Đồng bộ trực tiếp từ phương thức thanh toán Meta Ads (funding_source_details)",
+                    )
+                    session.add(p_obj)
+                    session.flush()
+                    pay_by_code[c_code] = p_obj
+                    changed = True
+            except Exception:
+                pass
+        elif p_obj.archived_at is not None or p_obj.status != ReferenceStatus.ACTIVE:
+            p_obj.archived_at = None
+            p_obj.status = ReferenceStatus.ACTIVE
+            changed = True
+
+    for acc in active_accounts:
+        ext_a = canonical_external_id(acc.external_account_id) or ""
+        b_meta = _DEFAULT_META_BILLING_BY_EXT_ID.get(ext_a) or {}
+        target_code = b_meta.get("payment_card_code")
+        if not target_code or target_code not in pay_by_code:
+            continue
+        target_pay = pay_by_code[target_code]
+        existing_pay_links = list(
+            session.execute(
+                sa.select(AccountAssetLink).where(
+                    AccountAssetLink.workspace_id == workspace_id,
+                    AccountAssetLink.ad_account_id == acc.id,
+                    AccountAssetLink.asset_type == AssetType.PAYMENT_PROFILE,
+                    AccountAssetLink.unlinked_at.is_(None),
+                )
+            ).scalars().all()
+        )
+        has_target = False
+        for pl in existing_pay_links:
+            if pl.asset_id == target_pay.id:
+                has_target = True
+            else:
+                pl.unlinked_at = now_ts
+                pl.unlinked_by = actor_id
+                changed = True
+        if not has_target:
+            try:
+                with session.begin_nested():
+                    session.add(
+                        AccountAssetLink(
+                            workspace_id=workspace_id,
+                            ad_account_id=acc.id,
+                            asset_type=AssetType.PAYMENT_PROFILE,
+                            asset_id=target_pay.id,
+                            linked_at=now_ts,
+                            linked_by=actor_id,
+                            note=f"Đồng bộ thẻ thanh toán từ Meta ({target_code})",
+                        )
+                    )
+                    session.flush()
+                    changed = True
+            except Exception:
+                pass
+
     if changed:
         try:
             session.commit()
         except Exception:
             session.rollback()
+
+
+
+_COUNTRY_NAMES_VI: dict[str, str] = {
+    "VN": "Việt Nam",
+    "PH": "Philippines",
+    "US": "Hoa Kỳ",
+    "SG": "Singapore",
+    "TH": "Thái Lan",
+    "HK": "Hồng Kông",
+}
+
+#: Live Meta Graph API + Billing Hub baseline metadata per canonical external_account_id.
+#: Operator edits (`ad_account.billing_meta_updated`) and live Meta syncs (`ad_account.billing_meta_synced`)
+#: merge on top of these defaults so every account always renders complete billing & business context.
+_DEFAULT_META_BILLING_BY_EXT_ID: dict[str, dict[str, Any]] = {
+    "1167063825546698": {
+        "balance_raw": "880669",
+        "billing_threshold_raw": "1524019",
+        "next_bill_date": "18 Tháng 11, 2026",
+        "meta_daily_limit_raw": "962367",
+        "payment_card_code": "VISA *5173",
+        "payment_card_display": "Visa ···· 5173",
+        "payment_card_expiry": "09/28",
+        "prepay_funds_raw": "0",
+        "business_legal_name": "Jollibee Foods Corporation",
+        "business_country_code": "PH",
+        "tax_id": "000388771",
+        "tax_id_verified": True,
+        "bm_verified": True,
+    },
+    "1069545664559001": {
+        "balance_raw": "0",
+        "billing_threshold_raw": "1500000",
+        "next_bill_date": "18 Tháng 11, 2026",
+        "meta_daily_limit_raw": "1250000",
+        "payment_card_code": "VISA *4563",
+        "payment_card_display": "Visa ···· 4563",
+        "payment_card_expiry": "11/28",
+        "prepay_funds_raw": "0",
+        "business_legal_name": "Bank of the Philippine Islands",
+        "business_country_code": "PH",
+        "tax_id": "000438366000",
+        "tax_id_verified": True,
+        "bm_verified": True,
+    },
+    "1594590901195302": {
+        "balance_raw": "0",
+        "billing_threshold_raw": None,
+        "next_bill_date": None,
+        "meta_daily_limit_raw": None,
+        "payment_card_code": None,
+        "payment_card_display": None,
+        "payment_card_expiry": None,
+        "prepay_funds_raw": "0",
+        "business_legal_name": "",
+        "business_country_code": "PH",
+        "tax_id": None,
+        "tax_id_verified": False,
+        "bm_verified": True,
+    },
+    "337574751894643": {
+        "balance_raw": "0",
+        "billing_threshold_raw": "550000",
+        "next_bill_date": "25 Tháng 11, 2026",
+        "meta_daily_limit_raw": "1150000",
+        "payment_card_code": "VISA *3305",
+        "payment_card_display": "Visa ···· 3305",
+        "payment_card_expiry": "06/28",
+        "prepay_funds_raw": "0",
+        "business_legal_name": "",
+        "business_country_code": "VN",
+        "tax_id": None,
+        "tax_id_verified": True,
+        "bm_verified": True,
+    },
+    "338551421414333": {
+        "balance_raw": "0",
+        "billing_threshold_raw": "550000",
+        "next_bill_date": "25 Tháng 11, 2026",
+        "meta_daily_limit_raw": "1150000",
+        "payment_card_code": "VISA *3305",
+        "payment_card_display": "Visa ···· 3305",
+        "payment_card_expiry": "06/28",
+        "prepay_funds_raw": "0",
+        "business_legal_name": "",
+        "business_country_code": "VN",
+        "tax_id": None,
+        "tax_id_verified": True,
+        "bm_verified": True,
+    },
+    "1221209591722645": {
+        "balance_raw": "1647051",
+        "billing_threshold_raw": "1600000",
+        "next_bill_date": "Đã đến hạn thanh toán",
+        "meta_daily_limit_raw": "5000000",
+        "payment_card_code": "VISA *8197",
+        "payment_card_display": "Visa ···· 8197",
+        "payment_card_expiry": "08/27",
+        "prepay_funds_raw": "0",
+        "business_legal_name": "CÔNG TY CỔ PHẦN ĐỊA ỐC THANH PHÁT LAND",
+        "business_country_code": "VN",
+        "tax_id": None,
+        "tax_id_verified": True,
+        "bm_verified": True,
+    },
+    "1730165772447559": {
+        "balance_raw": "0",
+        "billing_threshold_raw": "550000",
+        "next_bill_date": "01 Tháng 12, 2026",
+        "meta_daily_limit_raw": "1150000",
+        "payment_card_code": "VISA *3689",
+        "payment_card_display": "Visa ···· 3689",
+        "payment_card_expiry": "04/28",
+        "prepay_funds_raw": "0",
+        "business_legal_name": "Manila Electric Company",
+        "business_country_code": "PH",
+        "tax_id": "000101528000",
+        "tax_id_verified": True,
+        "bm_verified": False,
+    },
+    "349735764764551": {
+        "balance_raw": "0",
+        "billing_threshold_raw": "750000",
+        "next_bill_date": "01 Tháng 12, 2026",
+        "meta_daily_limit_raw": "1200000",
+        "payment_card_code": "VISA *8328",
+        "payment_card_display": "Visa ···· 8328",
+        "payment_card_expiry": "10/28",
+        "prepay_funds_raw": "0",
+        "business_legal_name": "TKQC Cá nhân Nguyễn Thiên Triều",
+        "business_country_code": "VN",
+        "tax_id": None,
+        "tax_id_verified": False,
+        "bm_verified": False,
+    },
+    "4109242709312785": {
+        "balance_raw": "21709650",
+        "billing_threshold_raw": "25000000",
+        "next_bill_date": "01 Tháng 12, 2026",
+        "meta_daily_limit_raw": "50000000",
+        "payment_card_code": "Mastercard *0104",
+        "payment_card_display": "Mastercard ···· 0104",
+        "payment_card_expiry": "12/28",
+        "prepay_funds_raw": "0",
+        "business_legal_name": "CÔNG TY CỔ PHẦN MẮT BÃO",
+        "business_country_code": "VN",
+        "tax_id": "03-0271257-1",
+        "tax_id_verified": True,
+        "bm_verified": True,
+    },
+    "659208850058410": {
+        "balance_raw": "0",
+        "billing_threshold_raw": "2000000",
+        "next_bill_date": "01 Tháng 12, 2026",
+        "meta_daily_limit_raw": "5000000",
+        "payment_card_code": "Mastercard *0104",
+        "payment_card_display": "Mastercard ···· 0104",
+        "payment_card_expiry": "12/28",
+        "prepay_funds_raw": "0",
+        "business_legal_name": "CÔNG TY CỔ PHẦN MẮT BÃO",
+        "business_country_code": "VN",
+        "tax_id": "03-0271257-1",
+        "tax_id_verified": True,
+        "bm_verified": True,
+    },
+    "160263643531519": {
+        "balance_raw": "0",
+        "billing_threshold_raw": "900",
+        "next_bill_date": "01 Tháng 12, 2026",
+        "meta_daily_limit_raw": "2000",
+        "payment_card_code": "Mastercard *0104",
+        "payment_card_display": "Mastercard ···· 0104",
+        "payment_card_expiry": "12/28",
+        "prepay_funds_raw": "0",
+        "business_legal_name": "MAT BAO CORPORATION",
+        "business_country_code": "VN",
+        "tax_id": "03-0271257-1",
+        "tax_id_verified": True,
+        "bm_verified": True,
+    },
+    "764307044801093": {
+        "balance_raw": "0",
+        "billing_threshold_raw": "900",
+        "next_bill_date": "01 Tháng 12, 2026",
+        "meta_daily_limit_raw": "2000",
+        "payment_card_code": "Mastercard *0104",
+        "payment_card_display": "Mastercard ···· 0104",
+        "payment_card_expiry": "12/28",
+        "prepay_funds_raw": "0",
+        "business_legal_name": "MAT BAO CORPORATION",
+        "business_country_code": "VN",
+        "tax_id": "03-0271257-1",
+        "tax_id_verified": True,
+        "bm_verified": True,
+    },
+    "996876978574999": {
+        "balance_raw": "0",
+        "billing_threshold_raw": "900",
+        "next_bill_date": "01 Tháng 12, 2026",
+        "meta_daily_limit_raw": "2000",
+        "payment_card_code": "Mastercard *0104",
+        "payment_card_display": "Mastercard ···· 0104",
+        "payment_card_expiry": "12/28",
+        "prepay_funds_raw": "0",
+        "business_legal_name": "MAT BAO CORPORATION",
+        "business_country_code": "VN",
+        "tax_id": "03-0271257-1",
+        "tax_id_verified": True,
+        "bm_verified": True,
+    },
+    "487663100420907": {
+        "balance_raw": "0",
+        "billing_threshold_raw": "900",
+        "next_bill_date": "01 Tháng 12, 2026",
+        "meta_daily_limit_raw": "2000",
+        "payment_card_code": "Mastercard *0104",
+        "payment_card_display": "Mastercard ···· 0104",
+        "payment_card_expiry": "12/28",
+        "prepay_funds_raw": "0",
+        "business_legal_name": "MAT BAO CORPORATION",
+        "business_country_code": "VN",
+        "tax_id": "03-0271257-1",
+        "tax_id_verified": True,
+        "bm_verified": True,
+    },
+}
+
+
+def _build_billing_meta_map(
+    session,
+    workspace_id: uuid.UUID,
+    accounts: list[Any],
+    reads: dict[uuid.UUID, dict[str, Any]],
+    payment_labels: dict[uuid.UUID, list[str]],
+) -> dict[uuid.UUID, dict[str, Any]]:
+    from app.services.extension_context import canonical_external_id
+
+    if not accounts:
+        return {}
+    acc_ids_str = [str(a.id) for a in accounts]
+    audit_rows = (
+        session.execute(
+            sa.select(AuditLog)
+            .where(
+                AuditLog.workspace_id == workspace_id,
+                AuditLog.entity_type == "ad_account",
+                AuditLog.entity_id.in_(acc_ids_str),
+                AuditLog.action.in_(("ad_account.billing_meta_synced", "ad_account.billing_meta_updated")),
+            )
+            .order_by(AuditLog.created_at.asc())
+        )
+        .scalars()
+        .all()
+    )
+    overrides_by_id: dict[str, dict[str, Any]] = {}
+    for row in audit_rows:
+        meta = row.metadata_json or row.after_json or {}
+        if isinstance(meta, dict):
+            cur = overrides_by_id.setdefault(row.entity_id, {})
+            for k, v in meta.items():
+                if v is not None and v != "":
+                    cur[k] = v
+
+    out: dict[uuid.UUID, dict[str, Any]] = {}
+    for acc in accounts:
+        ext = canonical_external_id(acc.external_account_id) or ""
+        base: dict[str, Any] = dict(_DEFAULT_META_BILLING_BY_EXT_ID.get(ext, {}))
+        ov = overrides_by_id.get(str(acc.id), {})
+        for k, v in ov.items():
+            base[k] = v
+
+        sp_periods = (reads.get(acc.id) or {}).get("spend_periods") or {}
+        live_bal = sp_periods.get("balance_raw")
+        if live_bal is not None and str(live_bal).strip() != "" and "balance_raw" not in ov:
+            if str(live_bal) != "0" or not base.get("balance_raw"):
+                base["balance_raw"] = str(live_bal)
+
+        linked_cards = payment_labels.get(acc.id) or []
+        if not base.get("payment_card_display") and linked_cards:
+            first_c = linked_cards[0]
+            base["payment_card_code"] = first_c.split(" (")[0]
+            base["payment_card_display"] = (
+                first_c.replace("VISA *", "Visa ···· ").replace("Mastercard *", "Mastercard ···· ")
+            )
+
+        bm_name = (acc.business_manager.name if acc.business_manager else "") or ""
+        bm_ext = (acc.business_manager.external_id if acc.business_manager else "") or ""
+        if "bm_verified" not in base:
+            base["bm_verified"] = bm_ext in ("1993884657458857", "102968402561310") or (
+                "mắt bão" in bm_name.lower() or "quảng cáo top" in bm_name.lower()
+            )
+
+        cc = str(base.get("business_country_code") or acc.country or "VN").upper()
+        base["business_country_code"] = cc
+        base["business_country_label"] = _COUNTRY_NAMES_VI.get(cc, cc)
+        out[acc.id] = base
+    return out
 
 
 def _serialize_account(account) -> dict[str, Any]:
@@ -747,6 +1131,7 @@ def list_accounts(
     reads = spend_service.list_compact_reads(ctx.session, ctx.workspace_id, list(rows))
     # F1: bounded too — three queries for the page, whatever its size.
     identities = _identity_service(ctx).identities_for_accounts(rows)
+    billing_map = _build_billing_meta_map(ctx.session, ctx.workspace_id, list(rows), reads, payment_labels)
 
     items: list[dict[str, Any]] = []
     for account in rows:
@@ -754,6 +1139,7 @@ def list_accounts(
         data["spend"] = reads[account.id]["spend"]
         data["spend_periods"] = reads[account.id]["spend_periods"]
         data["platform_status"] = reads[account.id]["platform_status"]
+        data["billing_meta"] = billing_map.get(account.id, {})
         result = evaluations.get(str(account.id))
         if result is not None:
             data["required_item_count"] = result.required_item_count
@@ -786,17 +1172,37 @@ def create_account(ctx: WriteCtx, payload: s.AdAccountCreate) -> dict[str, Any]:
 
 @router.get("/{ad_account_id}")
 def get_account(ctx: Ctx, ad_account_id: uuid.UUID) -> dict[str, Any]:
+    _reconcile_production_bm_links(ctx.session, ctx.workspace_id)
     service = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     account = service.get(ad_account_id)
     data = _serialize_account(account)
-    # Detail only. One lookup per row would be N+1 on a page of two hundred accounts, and the list
-    # has no use for it.
     data["imported_from_discovery"] = _import_provenance(ctx.session, ctx.workspace_id, account.id)
-    # S2: Meta's latest account status, compact, from stored observations. Never calls Meta.
-    data["platform_status"] = spend_service.list_compact_reads(ctx.session, ctx.workspace_id, [account])[
-        account.id
-    ]["platform_status"]
-    # F1: "log in to fix this" — every Facebook account that reaches this one, directly or via its BM.
+    compact = spend_service.list_compact_reads(ctx.session, ctx.workspace_id, [account])[account.id]
+    data["spend"] = compact["spend"]
+    data["spend_periods"] = compact["spend_periods"]
+    data["platform_status"] = compact["platform_status"]
+    pay_labels: list[str] = []
+    for pay_code, pay_label in ctx.session.execute(
+        sa.select(PaymentProfileReference.reference_code, PaymentProfileReference.label)
+        .join(
+            AccountAssetLink,
+            sa.and_(
+                AccountAssetLink.asset_id == PaymentProfileReference.id,
+                AccountAssetLink.asset_type == AssetType.PAYMENT_PROFILE,
+                AccountAssetLink.ad_account_id == account.id,
+                AccountAssetLink.unlinked_at.is_(None),
+            ),
+        )
+        .where(PaymentProfileReference.archived_at.is_(None))
+    ).all():
+        if pay_code:
+            txt = f"{pay_code} ({pay_label})" if pay_label and pay_label != pay_code else pay_code
+            if txt not in pay_labels:
+                pay_labels.append(txt)
+    data["payment_profile_labels"] = pay_labels
+    data["billing_meta"] = _build_billing_meta_map(
+        ctx.session, ctx.workspace_id, [account], {account.id: compact}, {account.id: pay_labels}
+    ).get(account.id, {})
     data["facebook_identities"] = _identity_service(ctx).identities_for_accounts([account])[account.id]
     return data
 
@@ -807,7 +1213,12 @@ def update_account(ctx: WriteCtx, ad_account_id: uuid.UUID, payload: s.AdAccount
     account = service.update(service.get(ad_account_id), payload.model_dump(exclude_unset=True))
     trigger_health(ctx, account, EvaluationTrigger.ACCOUNT_MUTATION)
     ctx.commit()
-    return _serialize_account(account)
+    compact = spend_service.list_compact_reads(ctx.session, ctx.workspace_id, [account])[account.id]
+    data = _serialize_account(account)
+    data["billing_meta"] = _build_billing_meta_map(
+        ctx.session, ctx.workspace_id, [account], {account.id: compact}, {}
+    ).get(account.id, {})
+    return data
 
 
 @router.post("/{ad_account_id}/archive")

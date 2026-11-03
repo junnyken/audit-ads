@@ -1,7 +1,8 @@
 import { Fragment, useId, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
-import { ChevronRight, Columns3, Download, ListFilter, Pencil, RotateCcw, Search, Trash2, X } from 'lucide-react'
+import { Building2, Calendar, ChevronRight, Columns3, CreditCard, Download, ExternalLink, Gauge, ListFilter, Pencil, RotateCcw, Search, ShieldCheck, Trash2, X } from 'lucide-react'
+import { prettyMoney } from '../lib/spend'
 import { api, query } from '../lib/api'
 import type { AdAccount, Paged, ReferenceRecord } from '../lib/types'
 import AccountFormDrawer from '../components/AccountFormDrawer'
@@ -45,7 +46,7 @@ const SORT_KEYS = ['updated_at', 'last_manual_review_at', 'readiness_status', 'd
  */
 const COLUMN_IDS = ['recorded', 'platform', 'readiness', 'checklist', 'spend', 'facebookIdentity', 'paymentProfile', 'currency', 'updated', 'type', 'browserRef', 'proxyRef', 'review'] as const
 type ColumnId = (typeof COLUMN_IDS)[number]
-const DEFAULT_COLUMNS: ColumnId[] = ['recorded', 'platform', 'spend', 'updated']
+const DEFAULT_COLUMNS: ColumnId[] = ['paymentProfile', 'spend', 'platform']
 
 const COLUMN_LABEL: Record<ColumnId, TranslationKey> = {
   recorded: 'col.recorded',
@@ -107,7 +108,7 @@ export default function Accounts() {
   }
 
   // ---- columns (persisted per viewer; storage may throw, see lib/columnPrefs) -------------------
-  const storageKey = columnsStorageKey('accounts_v2', user?.id)
+  const storageKey = columnsStorageKey('accounts_v3', user?.id)
   const [visible, setVisible] = useState<ColumnId[]>(() => loadColumns(storageKey, COLUMN_IDS, DEFAULT_COLUMNS))
   const shown = COLUMN_IDS.filter((id) => visible.includes(id))
   function chooseColumns(next: ColumnId[]) {
@@ -275,34 +276,149 @@ export default function Accounts() {
             <AccountSpendCell spend={account.spend} periods={account.spend_periods} />
           </TableCell>
         )
-      case 'paymentProfile':
+      case 'paymentProfile': {
+        const bm = account.billing_meta ?? {}
+        const curr = account.currency || account.spend?.observed_currency || 'VND'
+        const rawBal = bm.balance_raw ?? account.spend_periods?.balance_raw ?? '0'
+        const numBal = Number(rawBal) || 0
+        const rawThresh = bm.billing_threshold_raw ?? null
+        const numThresh = rawThresh ? Number(rawThresh) || 0 : 0
+        const pctThresh = numThresh > 0 ? Math.min(100, Math.round((numBal / numThresh) * 100)) : 0
+        const billDate = bm.next_bill_date ?? null
+        const dailyLimit = bm.meta_daily_limit_raw ?? null
+        const cardDisplay =
+          bm.payment_card_display ||
+          (account.payment_profile_labels?.[0]
+            ? account.payment_profile_labels[0].split(' (')[0].replace('VISA *', 'Visa ···· ').replace('Mastercard *', 'Mastercard ···· ')
+            : null)
+        const cardCode = bm.payment_card_code || (account.payment_profile_labels?.[0]?.split(' (')[0] ?? null)
+        const cardExpiry = bm.payment_card_expiry ?? null
+        const sharedCount = cardCode
+          ? rows.filter(
+              (r) =>
+                r.billing_meta?.payment_card_code === cardCode ||
+                r.payment_profile_labels?.some((p) => p.startsWith(cardCode)),
+            ).length
+          : 0
+        const cardTone = sharedCount <= 2 ? 'positive' : sharedCount === 3 ? 'caution' : 'attention'
+        const actRaw = (account.external_account_id || '').replace(/^act[-_]/i, '').trim()
+        const billingUrl = actRaw
+          ? `https://business.facebook.com/billing_hub/accounts/details?act=${encodeURIComponent(actRaw)}`
+          : 'https://business.facebook.com/billing_hub/payment_activity'
+
         return (
-          <TableCell key={id} label={label}>
-            {account.payment_profile_labels?.length ? (
-              <div className="flex flex-wrap gap-1">
-                {account.payment_profile_labels.map((pay) => {
-                  const sharedCount = rows.filter((r) => r.payment_profile_labels?.includes(pay)).length
-                  const tone = sharedCount <= 2 ? 'positive' : sharedCount === 3 ? 'caution' : 'attention'
-                  return (
-                    <Badge
-                      key={pay}
-                      tone={tone}
-                      title={
-                        sharedCount <= 3
-                          ? `Thẻ đang gắn ${sharedCount}/3 TKQC (Trong ngưỡng an toàn chống chết liên đới)`
-                          : `CẢNH BÁO: Thẻ đang gắn ${sharedCount} TKQC (Vượt ngưỡng an toàn 3 TKQC/thẻ, tối đa kỹ thuật Meta là 10 TKQC)`
-                      }
-                    >
-                      {`${pay} · ${sharedCount}/3 TK`}
-                    </Badge>
-                  )
-                })}
+          <TableCell key={id} label="Thanh toán, Dư nợ & Hạn mức" className="min-w-[295px]">
+            <div className="space-y-1.5 rounded-lg border border-line bg-surface-muted/35 p-2.5 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-ink-muted">Dư nợ:</span>
+                  <span
+                    className={`font-mono text-sm font-bold tabular-nums ${
+                      numBal > 0
+                        ? account.status === 'restricted'
+                          ? 'text-rose-600 dark:text-rose-400'
+                          : 'text-amber-600 dark:text-amber-300'
+                        : 'text-ink'
+                    }`}
+                  >
+                    {prettyMoney(String(rawBal), curr)}
+                  </span>
+                </div>
+                {cardDisplay ? (
+                  <div className="flex flex-wrap items-center gap-1">
+                    <span className="inline-flex items-center gap-1 rounded border border-blue-500/40 bg-blue-500/10 px-1.5 py-0.5 font-mono text-[11px] font-bold text-blue-700 dark:text-blue-300">
+                      <CreditCard className="h-3 w-3" aria-hidden="true" />
+                      {cardDisplay}
+                      {cardExpiry ? <span className="font-normal opacity-80">({cardExpiry})</span> : null}
+                    </span>
+                    {sharedCount > 0 && (
+                      <Badge
+                        tone={cardTone}
+                        title={
+                          sharedCount <= 3
+                            ? `Thẻ đang gắn ${sharedCount}/3 TKQC (An toàn chống chết liên đới)`
+                            : `CẢNH BÁO: Thẻ đang gắn ${sharedCount} TKQC (Vượt ngưỡng an toàn 3 TKQC/thẻ)`
+                        }
+                      >
+                        {`${sharedCount}/3 TK`}
+                      </Badge>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-[11px] italic text-ink-faint">Chưa gắn thẻ</span>
+                )}
               </div>
-            ) : (
-              <span className="text-ink-faint">{'—'}</span>
-            )}
+
+              {(rawThresh || billDate) && (
+                <div className="space-y-1 border-t border-line/70 pt-1.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                    <span>
+                      <span className="text-ink-muted">Số dư đạt: </span>
+                      <strong className="font-mono font-semibold tabular-nums text-ink">
+                        {rawThresh ? prettyMoney(rawThresh, curr) : '—'}
+                      </strong>
+                    </span>
+                    {billDate && (
+                      <span className="inline-flex items-center gap-1 text-ink-muted">
+                        <Calendar className="h-3 w-3 text-ink-faint" aria-hidden="true" />
+                        <span>Ngày TT:</span>
+                        <strong className="font-medium text-ink">{billDate}</strong>
+                      </span>
+                    )}
+                  </div>
+                  {numThresh > 0 && (
+                    <div className="flex items-center gap-2">
+                      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-line">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            pctThresh >= 90
+                              ? 'bg-rose-500'
+                              : pctThresh >= 65
+                                ? 'bg-amber-500'
+                                : 'bg-emerald-500'
+                          }`}
+                          style={{ width: `${pctThresh}%` }}
+                        />
+                      </div>
+                      <span className="font-mono text-[10px] font-semibold tabular-nums text-ink-muted">
+                        {pctThresh}% ngưỡng
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line/70 pt-1.5 text-[11px]">
+                <span className="inline-flex items-center gap-1">
+                  <Gauge className="h-3 w-3 text-emerald-500" aria-hidden="true" />
+                  <span className="text-ink-muted">GH ngày (Meta đặt):</span>
+                  <strong className="font-mono font-semibold tabular-nums text-ink">
+                    {dailyLimit ? prettyMoney(dailyLimit, curr) : 'Không giới hạn'}
+                  </strong>
+                </span>
+                {account.facebook_identities?.[0]?.browser_profile_label && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      launchInAssignedChromeProfile(
+                        billingUrl,
+                        account.facebook_identities![0].browser_profile_label,
+                        account.facebook_identities![0].label,
+                        account.facebook_identities![0].network_label,
+                      )
+                    }
+                    className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-brand-text hover:underline"
+                    title="Mở trực tiếp trang Thanh toán & Ngưỡng Bill của TKQC này trên Meta"
+                  >
+                    Billing Meta
+                    <ExternalLink className="h-2.5 w-2.5" aria-hidden="true" />
+                  </button>
+                )}
+              </div>
+            </div>
           </TableCell>
         )
+      }
       case 'currency': {
         const curr = account.currency || account.spend?.observed_currency
         return (
@@ -785,7 +901,7 @@ export default function Accounts() {
                       const currBadge = account.currency || account.spend?.observed_currency
                       return (
                         <TableRow key={`${groupTitle}-${account.id}`}>
-                          <TableCell className="cell-title min-w-[220px]">
+                          <TableCell className="cell-title min-w-[260px]">
                             <div className="flex flex-wrap items-center gap-1.5">
                               <Link to={`/accounts/${account.id}`} className="font-semibold text-brand-text hover:underline">
                                 {account.display_name}
@@ -796,13 +912,33 @@ export default function Accounts() {
                                 </span>
                               )}
                               {account.external_account_id && (
-                                <span className="font-mono text-xs font-medium text-ink-muted">· {account.external_account_id}</span>
+                                <span className="font-mono text-xs font-medium tabular-nums text-ink-muted">· {account.external_account_id}</span>
                               )}
                             </div>
                             <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-ink-muted">
                               <span className="font-medium text-ink">
                                 {account.business_manager_name ?? account.personal_account_reference_label ?? '—'}
                               </span>
+                              {account.account_type === 'personal_reference' ? (
+                                <span className="rounded border border-line bg-surface-muted px-1.5 py-0.5 text-[10px] font-semibold text-ink-muted">
+                                  TK Cá nhân
+                                </span>
+                              ) : account.billing_meta?.bm_verified ? (
+                                <span
+                                  className="inline-flex items-center gap-0.5 rounded border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-300"
+                                  title="Business Manager chủ quản đã Xác minh doanh nghiệp (XMDN) trên Meta"
+                                >
+                                  <ShieldCheck className="h-3 w-3" aria-hidden="true" />
+                                  BM Đã XMDN
+                                </span>
+                              ) : (
+                                <span
+                                  className="inline-flex items-center gap-0.5 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300"
+                                  title="Business Manager chưa hoàn tất Xác minh doanh nghiệp"
+                                >
+                                  Chưa XMDN
+                                </span>
+                              )}
                               {account.facebook_identities && account.facebook_identities.length > 0 && (
                                 <>
                                   <span>·</span>
@@ -824,11 +960,37 @@ export default function Accounts() {
                                     className="inline-flex items-center rounded border border-emerald-600/50 bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800 hover:bg-emerald-500/25 dark:text-emerald-300"
                                     title={`Mở TKQC này bằng đúng cửa sổ Chrome (${account.facebook_identities[0].browser_profile_label})`}
                                   >
-                                    🚀 Mở Chrome
+                                    Mở Chrome
                                   </button>
                                 </>
                               )}
                             </div>
+                            {account.billing_meta && (account.billing_meta.business_legal_name || account.billing_meta.tax_id || account.billing_meta.tax_id_verified) && (
+                              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 rounded border border-line/80 bg-surface-muted/40 px-2 py-1 text-[11px]">
+                                <Building2 className="h-3 w-3 shrink-0 text-ink-muted" aria-hidden="true" />
+                                <span className="font-medium text-ink">
+                                  {account.billing_meta.business_legal_name || `Pháp nhân (${account.billing_meta.business_country_label || account.billing_meta.business_country_code || 'VN'})`}
+                                </span>
+                                {account.billing_meta.business_legal_name && account.billing_meta.business_country_label && (
+                                  <span className="text-ink-muted">
+                                    ({account.billing_meta.business_country_label})
+                                  </span>
+                                )}
+                                {account.billing_meta.tax_id && (
+                                  <span className="font-mono text-ink-muted">
+                                    · MST: <strong className="text-ink">{account.billing_meta.tax_id}</strong>
+                                  </span>
+                                )}
+                                {account.billing_meta.tax_id_verified ? (
+                                  <span className="inline-flex items-center gap-1 font-semibold text-emerald-600 dark:text-emerald-400">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
+                                    Đã xác minh
+                                  </span>
+                                ) : (
+                                  <span className="text-ink-faint">· Chưa xác minh thuế</span>
+                                )}
+                              </div>
+                            )}
                           </TableCell>
                           {shown.map((id) => renderCell(id, account))}
                           <TableCell className="whitespace-nowrap text-right">

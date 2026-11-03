@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import Field, field_validator
 
@@ -455,6 +455,7 @@ class AdAccountCreate(StrictPayload):
     client_name: str = Field(default="", max_length=200)
     planned_daily_budget_raw: str | None = Field(default=None, max_length=32)
     planned_monthly_budget_raw: str | None = Field(default=None, max_length=32)
+    billing_meta: dict[str, Any] | None = Field(default=None)
 
     _no_secret_client = field_validator("client_name")(_refuse_login_secret)
     _budget_fields = field_validator("planned_daily_budget_raw", "planned_monthly_budget_raw")(
@@ -498,6 +499,7 @@ class AdAccountUpdate(StrictPayload):
     client_name: str | None = Field(default=None, max_length=200)
     planned_daily_budget_raw: str | None = Field(default=None, max_length=32)
     planned_monthly_budget_raw: str | None = Field(default=None, max_length=32)
+    billing_meta: dict[str, Any] | None = Field(default=None)
 
     _no_secret_client = field_validator("client_name")(_refuse_login_secret)
     _budget_fields = field_validator("planned_daily_budget_raw", "planned_monthly_budget_raw")(

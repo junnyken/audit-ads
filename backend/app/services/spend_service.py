@@ -529,13 +529,33 @@ def list_compact_reads(
                     ):
                         mtd_dec += d_entry.amount
                         mtd_days += 1
+        latest_bal = facts.latest_success.balance_raw if facts.latest_success else None
+        if latest_bal is None:
+            for v_item in views:
+                if v_item.balance_raw is not None:
+                    latest_bal = v_item.balance_raw
+                    break
+        latest_cap = facts.latest_success.spend_cap_raw if facts.latest_success else None
+        if latest_cap is None:
+            for v_item in views:
+                if v_item.spend_cap_raw is not None:
+                    latest_cap = v_item.spend_cap_raw
+                    break
+        latest_total = facts.latest_success.amount_spent_raw if facts.latest_success else None
+        if latest_total is None:
+            for v_item in views:
+                if v_item.amount_spent_raw is not None:
+                    latest_total = v_item.amount_spent_raw
+                    break
         result[account.id] = {
             "spend": spend,
             "spend_periods": {
                 "today_partial_raw": today_raw,
                 "last_7d_raw": amount_text(last_7d_dec) if last_7d_days > 0 else None,
                 "mtd_raw": amount_text(mtd_dec) if mtd_days > 0 else None,
-                "amount_spent_raw": facts.latest_success.amount_spent_raw if facts.latest_success else None,
+                "amount_spent_raw": latest_total,
+                "balance_raw": latest_bal,
+                "spend_cap_raw": latest_cap,
             },
             "platform_status": compact_platform_status(facts.platform_status),
         }

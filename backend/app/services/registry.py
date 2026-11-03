@@ -270,6 +270,7 @@ class AdAccountRegistryService:
 
     def create(self, payload: dict[str, Any]) -> AdAccount:
         payload = dict(payload)
+        billing_meta = payload.pop("billing_meta", None)
         payload["external_account_id"] = _normalise_external_id(payload.get("external_account_id"))
         self._validate_ownership(payload)
         self._assert_external_id_unique(payload["external_account_id"])
@@ -283,6 +284,14 @@ class AdAccountRegistryService:
             entity_id=account.id,
             after=snapshot(account),
         )
+        if isinstance(billing_meta, dict):
+            self.audit.record(
+                action="ad_account.billing_meta_updated",
+                entity_type="ad_account",
+                entity_id=account.id,
+                after=billing_meta,
+                metadata=billing_meta,
+            )
         self.checklists.initialise(account)
         self.rollup.evaluate(account)
         return account
@@ -290,6 +299,7 @@ class AdAccountRegistryService:
     def update(self, account: AdAccount, payload: dict[str, Any]) -> AdAccount:
         require_active(account, label="Ad account")
         payload = dict(payload)
+        billing_meta = payload.pop("billing_meta", None)
         if "external_account_id" in payload:
             payload["external_account_id"] = _normalise_external_id(payload["external_account_id"])
             self._assert_external_id_unique(payload["external_account_id"], exclude_id=account.id)
@@ -317,6 +327,14 @@ class AdAccountRegistryService:
                 entity_id=account.id,
                 before={k: before.get(k) for k in changed},
                 after=changed,
+            )
+        if isinstance(billing_meta, dict):
+            self.audit.record(
+                action="ad_account.billing_meta_updated",
+                entity_type="ad_account",
+                entity_id=account.id,
+                after=billing_meta,
+                metadata=billing_meta,
             )
         # Conditional requirements can change with the payload, so readiness is always re-run.
         self.checklists.initialise(account)

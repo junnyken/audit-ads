@@ -664,6 +664,38 @@ def run_workspace_quick_sync(
                 if owner_bm_obj is not None:
                     existing_a.business_manager_id = owner_bm_obj.id
                     existing_a.account_type = AccountType.BUSINESS_MANAGER
+            if existing_a is not None:
+                try:
+                    fsd = a_row.get("funding_source_details")
+                    card_str = str(fsd.get("display_string") or "").strip() if isinstance(fsd, dict) else ""
+                    b_info = a_row.get("business") if isinstance(a_row.get("business"), dict) else {}
+                    sync_meta: dict[str, Any] = {}
+                    if a_row.get("balance") is not None:
+                        sync_meta["balance_raw"] = str(a_row["balance"])
+                    if card_str:
+                        sync_meta["payment_card_code"] = card_str
+                        sync_meta["payment_card_display"] = (
+                            card_str.replace("VISA *", "Visa ···· ").replace("Mastercard *", "Mastercard ···· ")
+                        )
+                    if a_row.get("business_name"):
+                        sync_meta["business_legal_name"] = str(a_row["business_name"])[:200]
+                    if a_row.get("business_country_code"):
+                        sync_meta["business_country_code"] = str(a_row["business_country_code"])[:8].upper()
+                    if a_row.get("tax_id"):
+                        sync_meta["tax_id"] = str(a_row["tax_id"])[:80]
+                    if a_row.get("tax_id_status") is not None:
+                        sync_meta["tax_id_verified"] = str(a_row.get("tax_id_status")) == "3"
+                    if b_info.get("verification_status"):
+                        sync_meta["bm_verified"] = str(b_info["verification_status"]) == "verified"
+                    if sync_meta:
+                        audit.record(
+                            action="ad_account.billing_meta_synced",
+                            entity_type="ad_account",
+                            entity_id=existing_a.id,
+                            metadata=sync_meta,
+                        )
+                except Exception:
+                    pass
             return existing_a
 
         if clean_token:
@@ -695,7 +727,7 @@ def run_workspace_quick_sync(
                                 edge_resp = cand_prov.transport.get(
                                     f"{bm_item.external_id}/{edge_n}",
                                     {
-                                        "fields": "id,account_id,name,account_status,currency,timezone_name,business{id,name}",
+                                        "fields": "id,account_id,name,account_status,disable_reason,currency,timezone_name,balance,amount_spent,spend_cap,min_daily_budget,funding_source_details,business_name,business_country_code,tax_id,tax_id_status,business{id,name,verification_status}",
                                         "limit": "200",
                                     },
                                 )
@@ -714,7 +746,7 @@ def run_workspace_quick_sync(
                         a_resp = cand_prov.transport.get(
                             "me/adaccounts",
                             {
-                                "fields": "id,account_id,name,account_status,currency,timezone_name,business{id,name}",
+                                "fields": "id,account_id,name,account_status,disable_reason,currency,timezone_name,balance,amount_spent,spend_cap,min_daily_budget,funding_source_details,business_name,business_country_code,tax_id,tax_id_status,business{id,name,verification_status}",
                                 "limit": "200",
                             },
                         )

@@ -29,6 +29,17 @@ interface FormState {
   client_name: string
   planned_daily_budget_raw: string
   planned_monthly_budget_raw: string
+  balance_raw: string
+  billing_threshold_raw: string
+  next_bill_date: string
+  meta_daily_limit_raw: string
+  payment_card_display: string
+  payment_card_expiry: string
+  business_legal_name: string
+  business_country_code: string
+  tax_id: string
+  tax_id_verified: boolean
+  bm_verified: boolean
 }
 
 const EMPTY: FormState = {
@@ -50,9 +61,21 @@ const EMPTY: FormState = {
   client_name: '',
   planned_daily_budget_raw: '',
   planned_monthly_budget_raw: '',
+  balance_raw: '',
+  billing_threshold_raw: '',
+  next_bill_date: '',
+  meta_daily_limit_raw: '',
+  payment_card_display: '',
+  payment_card_expiry: '',
+  business_legal_name: '',
+  business_country_code: 'VN',
+  tax_id: '',
+  tax_id_verified: true,
+  bm_verified: true,
 }
 
 function fromAccount(account: AdAccount): FormState {
+  const bm = account.billing_meta ?? {}
   return {
     display_name: account.display_name,
     external_account_id: account.external_account_id ?? '',
@@ -72,6 +95,17 @@ function fromAccount(account: AdAccount): FormState {
     client_name: account.client_name ?? '',
     planned_daily_budget_raw: account.planned_daily_budget_raw ?? '',
     planned_monthly_budget_raw: account.planned_monthly_budget_raw ?? '',
+    balance_raw: bm.balance_raw ?? account.spend_periods?.balance_raw ?? '',
+    billing_threshold_raw: bm.billing_threshold_raw ?? '',
+    next_bill_date: bm.next_bill_date ?? '',
+    meta_daily_limit_raw: bm.meta_daily_limit_raw ?? '',
+    payment_card_display: bm.payment_card_display ?? '',
+    payment_card_expiry: bm.payment_card_expiry ?? '',
+    business_legal_name: bm.business_legal_name ?? '',
+    business_country_code: bm.business_country_code ?? account.country ?? 'VN',
+    tax_id: bm.tax_id ?? '',
+    tax_id_verified: bm.tax_id_verified ?? true,
+    bm_verified: bm.bm_verified ?? true,
   }
 }
 
@@ -98,6 +132,19 @@ function toPayload(form: FormState) {
     client_name: form.client_name.trim(),
     planned_daily_budget_raw: form.planned_daily_budget_raw.trim() || null,
     planned_monthly_budget_raw: form.planned_monthly_budget_raw.trim() || null,
+    billing_meta: {
+      balance_raw: form.balance_raw.replace(/[^0-9.]/g, '').trim() || null,
+      billing_threshold_raw: form.billing_threshold_raw.replace(/[^0-9.]/g, '').trim() || null,
+      next_bill_date: form.next_bill_date.trim() || null,
+      meta_daily_limit_raw: form.meta_daily_limit_raw.replace(/[^0-9.]/g, '').trim() || null,
+      payment_card_display: form.payment_card_display.trim() || null,
+      payment_card_expiry: form.payment_card_expiry.trim() || null,
+      business_legal_name: form.business_legal_name.trim() || null,
+      business_country_code: form.business_country_code.trim().toUpperCase() || 'VN',
+      tax_id: form.tax_id.trim() || null,
+      tax_id_verified: form.tax_id_verified,
+      bm_verified: form.bm_verified,
+    },
   }
 }
 
@@ -113,10 +160,7 @@ export default function AccountFormDrawer({
   account?: AdAccount | null
   onClose: () => void
   onSaved?: (account: AdAccount) => void
-  /** S2: a recorded status to pre-select when the sheet was opened from "Record Meta status in
-   * the registry". Only pre-selects — nothing is saved until the person presses Save (rule 11). */
   statusSuggestion?: AccountStatus | null
-  /** S2: what Meta returned, shown above the status field when the sheet was opened that way. */
   statusNote?: string | null
 }) {
   const { t } = useI18n()
@@ -125,8 +169,6 @@ export default function AccountFormDrawer({
   const [form, setForm] = useState<FormState>(EMPTY)
   const [touchedName, setTouchedName] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(Boolean(account))
-  // Radix returns focus only to a <Trigger>; this sheet is opened by state from several buttons,
-  // so remember who had focus when it opened and give it back when it closes.
   const returnFocusTo = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
@@ -175,7 +217,7 @@ export default function AccountFormDrawer({
       <SheetContent
         side="right"
         closeLabel={t('common.close')}
-        className="w-full sm:w-[30rem] sm:max-w-[30rem]"
+        className="w-full sm:w-[32rem] sm:max-w-[32rem]"
         onOpenAutoFocus={() => {
           returnFocusTo.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
         }}
@@ -243,27 +285,118 @@ export default function AccountFormDrawer({
                   placeholder={t('sp.pacing.clientPlaceholder')}
                 />
               </Field>
+            </fieldset>
+
+            <fieldset className="space-y-3 rounded-lg border border-line bg-surface-muted/40 p-3.5">
+              <legend className="px-1 text-xs font-bold uppercase tracking-wide text-brand-text">
+                Thanh toán, Ngưỡng Bill & Thông tin Doanh nghiệp (Meta)
+              </legend>
               <div className="grid grid-cols-2 gap-3">
-                <Field label={t('sp.pacing.dailyBudget')} htmlFor="account-daily-budget">
+                <Field label="Dư nợ hiện tại" hint="Số dư chưa thanh toán trên Meta">
                   <input
-                    id="account-daily-budget"
                     className="input font-mono tabular-nums"
-                    value={form.planned_daily_budget_raw}
-                    onChange={(event) => set('planned_daily_budget_raw', event.target.value)}
-                    maxLength={32}
-                    placeholder={t('sp.pacing.dailyPlaceholder')}
+                    value={form.balance_raw}
+                    onChange={(event) => set('balance_raw', event.target.value)}
+                    placeholder="VD: 880669"
                   />
                 </Field>
-                <Field label={t('sp.pacing.monthlyBudget')} htmlFor="account-monthly-budget">
+                <Field label="Số dư của bạn đạt (Ngưỡng TT)" hint="Ngưỡng lập hóa đơn tự động">
                   <input
-                    id="account-monthly-budget"
                     className="input font-mono tabular-nums"
-                    value={form.planned_monthly_budget_raw}
-                    onChange={(event) => set('planned_monthly_budget_raw', event.target.value)}
-                    maxLength={32}
-                    placeholder={t('sp.pacing.monthlyPlaceholder')}
+                    value={form.billing_threshold_raw}
+                    onChange={(event) => set('billing_threshold_raw', event.target.value)}
+                    placeholder="VD: 1524019"
                   />
                 </Field>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Và vào ngày này (Ngày TT)" hint="Ngày lập hóa đơn định kỳ hàng tháng">
+                  <input
+                    className="input"
+                    value={form.next_bill_date}
+                    onChange={(event) => set('next_bill_date', event.target.value)}
+                    placeholder="VD: 18 Tháng 11, 2026"
+                  />
+                </Field>
+                <Field label="Giới hạn chi tiêu ngày (Meta đặt)" hint="Daily Spend Limit do Meta áp đặt">
+                  <input
+                    className="input font-mono tabular-nums"
+                    value={form.meta_daily_limit_raw}
+                    onChange={(event) => set('meta_daily_limit_raw', event.target.value)}
+                    placeholder="VD: 962367"
+                  />
+                </Field>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2">
+                  <Field label="Phương thức thanh toán (Thẻ)" hint="Tên thẻ hiển thị trên Meta">
+                    <input
+                      className="input font-mono"
+                      value={form.payment_card_display}
+                      onChange={(event) => set('payment_card_display', event.target.value)}
+                      placeholder="VD: Visa ···· 5173"
+                    />
+                  </Field>
+                </div>
+                <Field label="Hết hạn thẻ">
+                  <input
+                    className="input font-mono"
+                    value={form.payment_card_expiry}
+                    onChange={(event) => set('payment_card_expiry', event.target.value)}
+                    placeholder="09/28"
+                  />
+                </Field>
+              </div>
+              <div className="grid grid-cols-3 gap-3 border-t border-line pt-2.5">
+                <div className="col-span-2">
+                  <Field label="Tên doanh nghiệp (Pháp nhân)">
+                    <input
+                      className="input"
+                      value={form.business_legal_name}
+                      onChange={(event) => set('business_legal_name', event.target.value)}
+                      placeholder="VD: Jollibee Foods Corporation"
+                    />
+                  </Field>
+                </div>
+                <Field label="Quốc gia ĐK">
+                  <input
+                    className="input uppercase font-mono"
+                    value={form.business_country_code}
+                    onChange={(event) => set('business_country_code', event.target.value)}
+                    maxLength={2}
+                    placeholder="PH / VN"
+                  />
+                </Field>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Mã số thuế (Tax ID)">
+                  <input
+                    className="input font-mono"
+                    value={form.tax_id}
+                    onChange={(event) => set('tax_id', event.target.value)}
+                    placeholder="VD: 000388771"
+                  />
+                </Field>
+                <div className="flex flex-col justify-end gap-2 pb-1">
+                  <label className="flex items-center gap-2 text-xs font-medium text-ink">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-brand"
+                      checked={form.tax_id_verified}
+                      onChange={(event) => set('tax_id_verified', event.target.checked)}
+                    />
+                    Mã số thuế đã xác minh
+                  </label>
+                  <label className="flex items-center gap-2 text-xs font-medium text-ink">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-brand"
+                      checked={form.bm_verified}
+                      onChange={(event) => set('bm_verified', event.target.checked)}
+                    />
+                    BM chủ quản đã XMDN
+                  </label>
+                </div>
               </div>
             </fieldset>
 
@@ -321,17 +454,28 @@ export default function AccountFormDrawer({
                       ))}
                     </select>
                   </Field>
-                  <Field label={t('form.ownerLabel')}>
-                    <input
-                      className="input"
-                      value={form.owner_label}
-                      onChange={(event) => set('owner_label', event.target.value)}
-                      maxLength={200}
-                    />
-                  </Field>
-                  <Field label={t('form.tags')} hint={t('form.tags.hint')}>
-                    <input className="input" value={form.tags} onChange={(event) => set('tags', event.target.value)} />
-                  </Field>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label={t('sp.pacing.dailyBudget')} htmlFor="account-daily-budget">
+                      <input
+                        id="account-daily-budget"
+                        className="input font-mono tabular-nums"
+                        value={form.planned_daily_budget_raw}
+                        onChange={(event) => set('planned_daily_budget_raw', event.target.value)}
+                        maxLength={32}
+                        placeholder={t('sp.pacing.dailyPlaceholder')}
+                      />
+                    </Field>
+                    <Field label={t('sp.pacing.monthlyBudget')} htmlFor="account-monthly-budget">
+                      <input
+                        id="account-monthly-budget"
+                        className="input font-mono tabular-nums"
+                        value={form.planned_monthly_budget_raw}
+                        onChange={(event) => set('planned_monthly_budget_raw', event.target.value)}
+                        maxLength={32}
+                        placeholder={t('sp.pacing.monthlyPlaceholder')}
+                      />
+                    </Field>
+                  </div>
                 </fieldset>
 
                 <fieldset className="space-y-3">
@@ -388,40 +532,6 @@ export default function AccountFormDrawer({
                   </div>
                 </fieldset>
 
-                <fieldset className="space-y-3">
-                  <legend className={legend}>{t('form.group.assets')}</legend>
-                  <p className="rounded-md border border-line bg-surface-muted px-3 py-2 text-xs text-ink-muted">
-                    {t('form.assets.note')}
-                  </p>
-                  <label className="flex items-start gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5 h-4 w-4 accent-brand"
-                      checked={form.requires_page}
-                      onChange={(event) => set('requires_page', event.target.checked)}
-                    />
-                    {t('form.requiresPage')}
-                  </label>
-                  <label className="flex items-start gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5 h-4 w-4 accent-brand"
-                      checked={form.requires_pixel}
-                      onChange={(event) => set('requires_pixel', event.target.checked)}
-                    />
-                    {t('form.requiresPixel')}
-                  </label>
-                  <Field label={t('form.landing')} hint={t('form.landing.hint')}>
-                    <input
-                      className="input"
-                      type="url"
-                      value={form.landing_page_url}
-                      onChange={(event) => set('landing_page_url', event.target.value)}
-                      placeholder="https://"
-                    />
-                  </Field>
-                </fieldset>
-
                 <fieldset>
                   <legend className={legend}>{t('form.group.notes')}</legend>
                   <Field label={t('form.notes')}>
@@ -435,13 +545,6 @@ export default function AccountFormDrawer({
                 </fieldset>
               </>
             )}
-
-            <fieldset className="space-y-3">
-              <legend className={legend}>{t('form.group.refs')}</legend>
-              <p className="rounded-md border border-line bg-surface-muted px-3 py-2 text-xs text-ink-muted">
-                {t('form.refs.note')}
-              </p>
-            </fieldset>
           </form>
         </div>
 

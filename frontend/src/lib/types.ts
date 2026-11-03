@@ -46,6 +46,23 @@ export interface ImportProvenance {
   owner_business_name?: string | null
 }
 
+export interface AccountBillingMeta {
+  balance_raw?: string | null
+  billing_threshold_raw?: string | null
+  next_bill_date?: string | null
+  meta_daily_limit_raw?: string | null
+  payment_card_code?: string | null
+  payment_card_display?: string | null
+  payment_card_expiry?: string | null
+  prepay_funds_raw?: string | null
+  business_legal_name?: string | null
+  business_country_code?: string | null
+  business_country_label?: string | null
+  tax_id?: string | null
+  tax_id_verified?: boolean
+  bm_verified?: boolean
+}
+
 export interface AdAccount {
   id: string
   display_name: string
@@ -81,6 +98,7 @@ export interface AdAccount {
   has_browser_reference?: boolean
   has_proxy_reference?: boolean
   payment_profile_labels?: string[]
+  billing_meta?: AccountBillingMeta | null
   /** List responses only (S1 follow-up). Compact; the full view is `GET …/spend`. */
   spend?: AccountSpendCompact
   spend_periods?: AccountSpendPeriods | null
@@ -1335,6 +1353,8 @@ export interface AccountSpendPeriods {
   last_7d_raw: string | null
   mtd_raw: string | null
   amount_spent_raw?: string | null
+  balance_raw?: string | null
+  spend_cap_raw?: string | null
 }
 
 export interface SpendDailyRaw {
