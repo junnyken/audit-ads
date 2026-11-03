@@ -509,10 +509,25 @@ function buildStoreZip(files: Array<{ name: string; content: string }>): Blob {
   return new Blob([...localParts, ...centralParts, eocd] as unknown as BlobPart[], { type: 'application/zip' })
 }
 
+export interface ExtensionBundledAccount {
+  name: string
+  external_account_id: string
+  status: string
+  currency: string
+  balance_raw?: string | null
+  billing_threshold_raw?: string | null
+  next_bill_date?: string | null
+  meta_daily_limit_raw?: string | null
+  payment_card_display?: string | null
+  business_legal_name?: string | null
+  bm_name?: string | null
+}
+
 export function downloadChromeExtensionZip(
-  viaName = 'Tài Khoản Chính (Via Tổng)',
+  viaName = 'Tài Khoản Chính',
   profileDir = 'Default',
   rawProxy = '',
+  bundledAccounts: ExtensionBundledAccount[] = [],
 ): void {
   const parsed = parseProxyString(rawProxy)
   const hasProxy = Boolean(parsed?.host)
@@ -523,10 +538,10 @@ export function downloadChromeExtensionZip(
       ? `AdsOps Companion · ${profileDir} · Proxy ${parsed!.host}:${parsed!.port}`
       : `AdsOps Companion · ${profileDir} (${viaName})`,
     short_name: 'AdsOps Companion',
-    version: '2.1.0',
+    version: '2.2.0',
     description:
-      'Tiện ích chính thức của AdsOps Control Center: Định danh Hồ sơ Via, bọc Proxy IPv4 tự động đăng nhập, bắt nhanh ID BM/TKQC từ tab Facebook và mở lối tắt kháng nghị/thanh toán Meta.',
-    permissions: ['proxy', 'storage', 'tabs', 'activeTab', 'webRequest', 'webRequestAuthProvider'],
+      'Tiện ích Quản lý Tài khoản Quảng cáo Meta & Hộ Chiếu Via: Hiển thị Dư nợ, Ngưỡng Bill, GH Ngày, Thẻ Visa, tự đọc Billing Hub và bọc Proxy IPv4 riêng cho từng Hồ sơ Chrome.',
+    permissions: ['proxy', 'storage', 'tabs', 'activeTab', 'scripting', 'webRequest', 'webRequestAuthProvider'],
     host_permissions: ['<all_urls>'],
     background: { service_worker: 'background.js' },
     action: {
@@ -540,6 +555,7 @@ export function downloadChromeExtensionZip(
     profileCode: profileDir,
     proxyRaw: parsed ? `${parsed.host}:${parsed.port}${parsed.user ? `:${parsed.user}:${parsed.pass}` : ''}` : '',
     proxyEnabled: hasProxy,
+    accounts: bundledAccounts,
   })
 
   const backgroundJs = `const DEFAULT_STATE = ${defaultStateJson};
@@ -582,12 +598,13 @@ function applyProxyState(state) {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.local.get(["viaName", "profileCode", "proxyRaw", "proxyEnabled"], (res) => {
+  chrome.storage.local.get(["viaName", "profileCode", "proxyRaw", "proxyEnabled", "accounts"], (res) => {
     const init = {
       viaName: res.viaName || DEFAULT_STATE.viaName,
       profileCode: res.profileCode || DEFAULT_STATE.profileCode,
       proxyRaw: res.proxyRaw !== undefined ? res.proxyRaw : DEFAULT_STATE.proxyRaw,
-      proxyEnabled: res.proxyEnabled !== undefined ? Boolean(res.proxyEnabled) : DEFAULT_STATE.proxyEnabled
+      proxyEnabled: res.proxyEnabled !== undefined ? Boolean(res.proxyEnabled) : DEFAULT_STATE.proxyEnabled,
+      accounts: Array.isArray(res.accounts) && res.accounts.length > 0 ? res.accounts : DEFAULT_STATE.accounts
     };
     chrome.storage.local.set(init, () => applyProxyState(init));
   });
@@ -606,10 +623,315 @@ chrome.webRequest.onAuthRequired.addListener(
 );
 `
 
-  const popupHtml = "<!DOCTYPE html>\n<html lang=\"vi\">\n<head>\n<meta charset=\"utf-8\" />\n<style>\n  * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif; }\n  body { width: 360px; background: #f8fafc; color: #090d16; padding: 14px; font-size: 12px; }\n  .header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid #cbd5e1; }\n  .brand { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 13px; color: #090d16; }\n  .logo { width: 22px; height: 22px; border-radius: 6px; background: #1d4ed8; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; }\n  .status-pill { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px; border: 1px solid #93c5fd; background: #dbeafe; color: #1e40af; }\n  .status-pill.active { border-color: #86efac; background: #dcfce7; color: #166534; }\n  .card { background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; margin-bottom: 10px; }\n  .section-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #475569; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; }\n  .row { display: grid; grid-template-columns: 1fr 110px; gap: 6px; margin-bottom: 6px; }\n  input { width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 8px; font-size: 12px; color: #090d16; background: #fff; }\n  input:focus { outline: 2px solid #2563eb; border-color: transparent; }\n  .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; }\n  .btn-row { display: flex; gap: 6px; margin-top: 6px; }\n  .btn { flex: 1; padding: 7px 10px; border-radius: 6px; border: 1px solid #cbd5e1; background: #fff; color: #090d16; font-weight: 600; font-size: 11px; cursor: pointer; text-align: center; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 4px; }\n  .btn:hover { background: #f1f5f9; }\n  .btn-primary { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }\n  .btn-primary:hover { background: #1e40af; }\n  .btn-success { background: #15803d; border-color: #15803d; color: #fff; }\n  .btn-danger { background: #fef2f2; border-color: #fca5a5; color: #991b1b; }\n  .ip-bar { display: flex; align-items: center; justify-content: space-between; padding-top: 6px; margin-top: 6px; border-top: 1px dashed #e2e8f0; font-size: 11px; }\n  .ip-val { font-family: ui-monospace, Consolas, monospace; font-weight: 700; color: #0f766e; }\n  .detected-box { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 7px 8px; margin-bottom: 10px; font-size: 11px; display: none; }\n  .links { display: grid; grid-template-columns: 1fr; gap: 5px; }\n  .link-item { display: flex; align-items: center; justify-content: space-between; padding: 7px 9px; border-radius: 6px; border: 1px solid #cbd5e1; background: #fff; color: #090d16; font-weight: 600; font-size: 11px; text-decoration: none; }\n  .link-item:hover { background: #f1f5f9; border-color: #94a3b8; }\n  .link-item.alert { background: #fef2f2; border-color: #fecaca; color: #991b1b; }\n  .link-item.bill { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; }\n  .msg { font-size: 11px; color: #15803d; font-weight: 600; margin-top: 4px; display: none; }\n</style>\n</head>\n<body>\n  <div class=\"header\">\n    <div class=\"brand\">\n      <span class=\"logo\">AO</span>\n      <span>AdsOps Hộ Chiếu Via</span>\n    </div>\n    <span id=\"proxy-badge\" class=\"status-pill\">CHROME CỐ ĐỊNH</span>\n  </div>\n\n  <!-- Tự động nhận diện ID BM / TKQC từ tab Facebook đang mở -->\n  <div id=\"fb-detected\" class=\"detected-box\">\n    <div style=\"font-weight:700; color:#1e3a8a; margin-bottom:3px;\">Phát hiện ID Meta trên tab hiện tại:</div>\n    <div id=\"fb-detected-text\" class=\"mono\" style=\"color:#090d16; margin-bottom:5px;\"></div>\n    <div class=\"btn-row\" style=\"margin-top:0;\">\n      <button id=\"btn-copy-id\" class=\"btn btn-primary\" type=\"button\">Sao chép ID</button>\n      <a id=\"btn-open-dashboard\" class=\"btn\" href=\"https://adsops-app.vibe.tinhgon.xyz/business-managers\" target=\"_blank\">Đồng bộ trên Web ↗</a>\n    </div>\n  </div>\n\n  <!-- Khối 1: Định danh Via & Hồ sơ Chrome -->\n  <div class=\"card\">\n    <div class=\"section-title\">\n      <span>1. Định danh Via & Hồ sơ Chrome</span>\n      <span id=\"save-msg\" class=\"msg\">Đã lưu!</span>\n    </div>\n    <div class=\"row\">\n      <input id=\"via-name\" type=\"text\" placeholder=\"Tên Via (VD: Via Dự Phòng BM1)\" />\n      <input id=\"profile-code\" type=\"text\" class=\"mono\" placeholder=\"Profile 10\" />\n    </div>\n    <div class=\"section-title\" style=\"margin-top:8px;\">\n      <span>2. Cấu hình Proxy riêng (IP:Port:User:Pass)</span>\n    </div>\n    <input id=\"proxy-raw\" type=\"text\" class=\"mono\" placeholder=\"103.145.67.89:8080:user:pass (để trống nếu dùng mạng gốc)\" />\n    <div class=\"btn-row\">\n      <button id=\"btn-save-enable\" type=\"button\" class=\"btn btn-primary\">Lưu & Bật Proxy</button>\n      <button id=\"btn-disable-proxy\" type=\"button\" class=\"btn\">Tắt Proxy (Mạng gốc)</button>\n    </div>\n    <div class=\"ip-bar\">\n      <span>IP Public thực tế của Chrome này:</span>\n      <span id=\"live-ip\" class=\"ip-val\">Đang kiểm tra...</span>\n    </div>\n  </div>\n\n  <!-- Khối 2: Lối tắt xử lý sự cố Meta -->\n  <div class=\"section-title\">3. Lối tắt xử lý nhanh trên đúng Via này</div>\n  <div class=\"links\">\n    <a class=\"link-item alert\" href=\"https://business.facebook.com/accountquality\" target=\"_blank\">\n      <span>Chất lượng tài khoản & Kháng nghị Meta</span><span>↗</span>\n    </a>\n    <a class=\"link-item bill\" href=\"https://adsmanager.facebook.com/ads/manager/account_settings/account_billing/\" target=\"_blank\">\n      <span>Thanh toán & Xử lý dư nợ (Billing)</span><span>↗</span>\n    </a>\n    <a class=\"link-item\" href=\"https://business.facebook.com/settings\" target=\"_blank\">\n      <span>Cài đặt Business Manager (BM Settings)</span><span>↗</span>\n    </a>\n    <a class=\"link-item\" href=\"https://adsmanager.facebook.com/adsmanager/manage/campaigns\" target=\"_blank\">\n      <span>Trình quản lý Quảng cáo (Ads Manager)</span><span>↗</span>\n    </a>\n    <a class=\"link-item\" href=\"https://adsops-app.vibe.tinhgon.xyz/\" target=\"_blank\">\n      <span>Mở Bảng điều khiển AdsOps Control Center</span><span>↗</span>\n    </a>\n  </div>\n\n  <script src=\"popup.js\"></script>\n</body>\n</html>"
-  const popupJs = "// AdsOps Companion Extension v2.1 — Popup Controller\nconst viaInput = document.getElementById(\"via-name\");\nconst profileInput = document.getElementById(\"profile-code\");\nconst proxyInput = document.getElementById(\"proxy-raw\");\nconst badge = document.getElementById(\"proxy-badge\");\nconst saveMsg = document.getElementById(\"save-msg\");\nconst liveIp = document.getElementById(\"live-ip\");\n\nfunction refreshIp() {\n  if (!liveIp) return;\n  liveIp.textContent = \"Đang kiểm tra...\";\n  fetch(\"https://api.ipify.org?format=json\")\n    .then((r) => r.json())\n    .then((d) => {\n      if (d && d.ip) liveIp.textContent = d.ip;\n    })\n    .catch(() => {\n      liveIp.textContent = \"Không kết nối được\";\n    });\n}\n\nfunction updateBadge(enabled, raw) {\n  if (!badge) return;\n  if (enabled && raw && raw.trim()) {\n    badge.textContent = \"ĐANG BỌC PROXY\";\n    badge.className = \"status-pill active\";\n  } else {\n    badge.textContent = \"MẠNG TRỰC TIẾP\";\n    badge.className = \"status-pill\";\n  }\n}\n\nfunction flashSaved() {\n  if (!saveMsg) return;\n  saveMsg.style.display = \"inline\";\n  setTimeout(() => {\n    saveMsg.style.display = \"none\";\n  }, 1800);\n}\n\nif (typeof chrome !== \"undefined\" && chrome.storage && chrome.storage.local) {\n  chrome.storage.local.get([\"viaName\", \"profileCode\", \"proxyRaw\", \"proxyEnabled\"], (res) => {\n    if (viaInput) viaInput.value = res.viaName || \"Tài Khoản Chính (Via Tổng)\";\n    if (profileInput) profileInput.value = res.profileCode || \"Default\";\n    if (proxyInput) proxyInput.value = res.proxyRaw || \"\";\n    updateBadge(Boolean(res.proxyEnabled), res.proxyRaw || \"\");\n  });\n}\n\ndocument.getElementById(\"btn-save-enable\")?.addEventListener(\"click\", () => {\n  const raw = (proxyInput?.value || \"\").trim();\n  const state = {\n    viaName: (viaInput?.value || \"\").trim() || \"Via Facebook\",\n    profileCode: (profileInput?.value || \"\").trim() || \"Default\",\n    proxyRaw: raw,\n    proxyEnabled: Boolean(raw)\n  };\n  if (typeof chrome !== \"undefined\" && chrome.storage && chrome.storage.local) {\n    chrome.storage.local.set(state, () => {\n      updateBadge(state.proxyEnabled, state.proxyRaw);\n      flashSaved();\n      setTimeout(refreshIp, 600);\n    });\n  }\n});\n\ndocument.getElementById(\"btn-disable-proxy\")?.addEventListener(\"click\", () => {\n  const state = {\n    viaName: (viaInput?.value || \"\").trim() || \"Via Facebook\",\n    profileCode: (profileInput?.value || \"\").trim() || \"Default\",\n    proxyRaw: (proxyInput?.value || \"\").trim(),\n    proxyEnabled: false\n  };\n  if (typeof chrome !== \"undefined\" && chrome.storage && chrome.storage.local) {\n    chrome.storage.local.set(state, () => {\n      updateBadge(false, \"\");\n      flashSaved();\n      setTimeout(refreshIp, 600);\n    });\n  }\n});\n\n// Detect active Facebook / Meta tab for act_id or business_id\nif (typeof chrome !== \"undefined\" && chrome.tabs && chrome.tabs.query) {\n  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {\n    const url = tabs?.[0]?.url || \"\";\n    const actMatch = url.match(/(?:act=|act_)(\\d{6,25})/i);\n    const bmMatch = url.match(/business_id=(\\d{6,25})/i);\n    if (actMatch || bmMatch) {\n      const box = document.getElementById(\"fb-detected\");\n      const txt = document.getElementById(\"fb-detected-text\");\n      const copyBtn = document.getElementById(\"btn-copy-id\");\n      const parts = [];\n      const primaryId = actMatch ? actMatch[1] : bmMatch[1];\n      if (bmMatch) parts.push(\"BM ID: \" + bmMatch[1]);\n      if (actMatch) parts.push(\"TKQC ID: \" + actMatch[1]);\n      if (box && txt) {\n        txt.textContent = parts.join(\" · \");\n        box.style.display = \"block\";\n      }\n      copyBtn?.addEventListener(\"click\", () => {\n        navigator.clipboard.writeText(primaryId);\n        copyBtn.textContent = \"Đã chép: \" + primaryId;\n      });\n    }\n  });\n}\n\nrefreshIp();"
+  const popupHtml = `<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  body { width: 410px; background: #0f172a; color: #f8fafc; padding: 12px; font-size: 12px; }
+  .header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 9px; margin-bottom: 9px; border-bottom: 1px solid #1e293b; }
+  .brand { display: flex; align-items: center; gap: 7px; font-weight: 800; font-size: 13px; color: #f8fafc; }
+  .logo { width: 22px; height: 22px; border-radius: 6px; background: #2563eb; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; }
+  .status-pill { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px; border: 1px solid #3b82f6; background: rgba(37,99,235,0.18); color: #93c5fd; }
+  .status-pill.active { border-color: #22c55e; background: rgba(34,197,94,0.18); color: #86efac; }
+  .card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 9px 10px; margin-bottom: 8px; }
+  .section-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #94a3b8; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 8px; }
+  .kpi-box { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 6px 8px; }
+  .kpi-lbl { font-size: 10px; color: #94a3b8; }
+  .kpi-val { font-size: 12px; font-weight: 800; color: #f8fafc; margin-top: 2px; font-family: ui-monospace, Consolas, monospace; }
+  .acc-list { max-height: 215px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 2px; }
+  .acc-item { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 7px 8px; }
+  .acc-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 4px; }
+  .acc-name { font-weight: 700; font-size: 11.5px; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 210px; }
+  .badge { font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 999px; }
+  .badge-ok { background: rgba(16,185,129,0.18); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.35); }
+  .badge-warn { background: rgba(245,158,11,0.18); color: #fcd34d; border: 1px solid rgba(245,158,11,0.35); }
+  .badge-err { background: rgba(244,63,94,0.18); color: #fda4af; border: 1px solid rgba(244,63,94,0.35); }
+  .acc-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px; font-size: 10.5px; color: #cbd5e1; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+  .row { display: grid; grid-template-columns: 1fr 95px; gap: 6px; margin-bottom: 6px; }
+  input { width: 100%; border: 1px solid #475569; border-radius: 6px; padding: 5px 7px; font-size: 11.5px; color: #f8fafc; background: #0f172a; }
+  .btn-row { display: flex; gap: 6px; margin-top: 6px; }
+  .btn { flex: 1; padding: 6px 8px; border-radius: 6px; border: 1px solid #475569; background: #1e293b; color: #f8fafc; font-weight: 600; font-size: 11px; cursor: pointer; text-align: center; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+  .btn:hover { background: #334155; }
+  .btn-primary { background: #2563eb; border-color: #2563eb; color: #fff; }
+  .btn-primary:hover { background: #1d4ed8; }
+  .ip-bar { display: flex; align-items: center; justify-content: space-between; padding-top: 6px; margin-top: 6px; border-top: 1px dashed #334155; font-size: 11px; color: #cbd5e1; }
+  .ip-val { font-family: ui-monospace, Consolas, monospace; font-weight: 700; color: #34d399; }
+  .detected-box { background: rgba(37,99,235,0.16); border: 1px solid #3b82f6; border-radius: 6px; padding: 7px 8px; margin-bottom: 8px; font-size: 11px; display: none; }
+  .mini-links { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+  .link-item { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: 6px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0; font-weight: 600; font-size: 10.5px; text-decoration: none; }
+  .link-item:hover { background: #334155; }
+  .link-item.alert { border-color: rgba(244,63,94,0.45); color: #fda4af; }
+  .link-item.bill { border-color: rgba(59,130,246,0.45); color: #93c5fd; }
+  .msg { font-size: 10.5px; color: #4ade80; font-weight: 600; display: none; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">
+      <span class="logo">AO</span>
+      <span>AdsOps Companion · Quản lý TKQC & Via</span>
+    </div>
+    <span id="proxy-badge" class="status-pill">MẠNG GỐC</span>
+  </div>
+
+  <div id="fb-detected" class="detected-box">
+    <div style="font-weight:700; color:#93c5fd; margin-bottom:3px;">⚡ Phát hiện tab Meta đang mở:</div>
+    <div id="fb-detected-text" class="mono" style="color:#f8fafc; margin-bottom:5px;"></div>
+    <div class="btn-row" style="margin-top:0;">
+      <button id="btn-copy-id" class="btn btn-primary" type="button">Sao chép ID</button>
+      <a id="btn-open-dashboard" class="btn" href="https://adsops-app.vibe.tinhgon.xyz/accounts" target="_blank">Mở Web AdsOps ↗</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-title">
+      <span>1. Hồ sơ Via & Mạng kết nối</span>
+      <span id="save-msg" class="msg">Đã lưu!</span>
+    </div>
+    <div class="row">
+      <input id="via-name" type="text" placeholder="Tên Via" />
+      <input id="profile-code" type="text" class="mono" placeholder="Default" />
+    </div>
+    <div class="ip-bar" style="margin-top:2px; padding-top:4px;">
+      <span>IP Public thực tế của Chrome này:</span>
+      <span id="live-ip" class="ip-val">Đang kiểm tra...</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-title">
+      <span>2. Danh sách TKQC thuộc Via này</span>
+      <span id="acc-count-label" class="mono" style="color:#93c5fd;"></span>
+    </div>
+    <div class="kpi-grid">
+      <div class="kpi-box">
+        <div class="kpi-lbl">Hoạt động</div>
+        <div id="kpi-active" class="kpi-val" style="color:#34d399;">0</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-lbl">Nợ / Hạn chế</div>
+        <div id="kpi-restricted" class="kpi-val" style="color:#fbbf24;">0</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-lbl">Tổng dư nợ</div>
+        <div id="kpi-debt" class="kpi-val" style="color:#f87171;">0 ₫</div>
+      </div>
+    </div>
+    <div id="acc-list" class="acc-list"></div>
+  </div>
+
+  <details class="card" style="cursor:pointer;">
+    <summary class="section-title" style="margin-bottom:0;">3. Cấu hình Proxy IPv4 riêng (IP:Port:User:Pass)</summary>
+    <div style="margin-top:8px;">
+      <input id="proxy-raw" type="text" class="mono" placeholder="103.145.67.89:8080:user:pass (để trống = mạng gốc)" />
+      <div class="btn-row">
+        <button id="btn-save-enable" type="button" class="btn btn-primary">Lưu & Bật Proxy</button>
+        <button id="btn-disable-proxy" type="button" class="btn">Tắt Proxy</button>
+      </div>
+    </div>
+  </details>
+
+  <div class="mini-links">
+    <a class="link-item alert" href="https://business.facebook.com/accountquality" target="_blank">
+      <span>🛡️ Kháng nghị Meta</span><span>↗</span>
+    </a>
+    <a class="link-item bill" href="https://business.facebook.com/billing_hub/accounts" target="_blank">
+      <span>💳 Billing Hub Meta</span><span>↗</span>
+    </a>
+    <a class="link-item" href="https://adsmanager.facebook.com/adsmanager/manage/campaigns" target="_blank">
+      <span>📊 Ads Manager</span><span>↗</span>
+    </a>
+    <a class="link-item" href="https://adsops-app.vibe.tinhgon.xyz/accounts" target="_blank">
+      <span>⚡ Web AdsOps</span><span>↗</span>
+    </a>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>`
+
+  const popupJs = `const DEFAULT_ACCOUNTS = ${JSON.stringify(bundledAccounts)};
+const viaInput = document.getElementById("via-name");
+const profileInput = document.getElementById("profile-code");
+const proxyInput = document.getElementById("proxy-raw");
+const badge = document.getElementById("proxy-badge");
+const saveMsg = document.getElementById("save-msg");
+const liveIp = document.getElementById("live-ip");
+
+function fmtMoney(raw, curr) {
+  const n = Number(raw) || 0;
+  if (curr === "USD") return n.toLocaleString("en-US") + " USD";
+  return n.toLocaleString("vi-VN") + " ₫";
+}
+
+function renderAccounts(accs) {
+  const listEl = document.getElementById("acc-list");
+  const countEl = document.getElementById("acc-count-label");
+  const kpiActive = document.getElementById("kpi-active");
+  const kpiRestr = document.getElementById("kpi-restricted");
+  const kpiDebt = document.getElementById("kpi-debt");
+  if (!listEl) return;
+
+  const items = Array.isArray(accs) && accs.length > 0 ? accs : DEFAULT_ACCOUNTS;
+  if (countEl) countEl.textContent = items.length + " TKQC";
+
+  let activeCount = 0;
+  let restrCount = 0;
+  let totalDebt = 0;
+
+  listEl.innerHTML = "";
+  items.forEach((a) => {
+    const st = String(a.status || "");
+    const bal = Number(a.balance_raw || 0) || 0;
+    if (a.currency !== "USD") totalDebt += bal;
+    if (st === "active") activeCount++;
+    else if (st === "restricted") restrCount++;
+
+    const badgeCls = st === "active" ? "badge badge-ok" : st === "restricted" ? "badge badge-warn" : "badge badge-err";
+    const badgeTxt = st === "active" ? "Hoạt động" : st === "restricted" ? "Nợ cước" : "Đã đóng";
+    const actId = String(a.external_account_id || "").replace(/^act_/i, "");
+    const cardTxt = a.payment_card_display || "Chưa gắn thẻ";
+    const threshTxt = a.billing_threshold_raw ? " · Ngưỡng: " + fmtMoney(a.billing_threshold_raw, a.currency) : "";
+    const dslTxt = a.meta_daily_limit_raw ? " · GH ngày: " + fmtMoney(a.meta_daily_limit_raw, a.currency) : "";
+
+    const div = document.createElement("div");
+    div.className = "acc-item";
+    div.innerHTML =
+      '<div class="acc-top">' +
+        '<span class="acc-name" title="' + (a.name || actId) + '">' + (a.name || actId) + ' <span class="mono" style="color:#94a3b8;font-weight:400;">(' + actId + ')</span></span>' +
+        '<span class="' + badgeCls + '">' + badgeTxt + '</span>' +
+      '</div>' +
+      '<div class="acc-meta">' +
+        '<span>Dư nợ: <strong class="mono" style="color:' + (bal > 0 ? '#fbbf24' : '#f8fafc') + ';">' + fmtMoney(bal, a.currency) + '</strong>' + threshTxt + dslTxt + '</span>' +
+        '<span class="mono" style="color:#93c5fd;">💳 ' + cardTxt + '</span>' +
+      '</div>' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;padding-top:4px;border-top:1px dashed #1e293b;font-size:10px;">' +
+        '<span style="color:#94a3b8;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (a.business_legal_name || a.bm_name || "BM Meta") + '</span>' +
+        '<span style="display:flex;gap:6px;">' +
+          '<a href="https://business.facebook.com/billing_hub/accounts/details?act=' + actId + '" target="_blank" style="color:#60a5fa;text-decoration:none;font-weight:700;">Billing ↗</a>' +
+          '<a href="https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=' + actId + '" target="_blank" style="color:#34d399;text-decoration:none;font-weight:700;">Ads ↗</a>' +
+        '</span>' +
+      '</div>';
+    listEl.appendChild(div);
+  });
+
+  if (kpiActive) kpiActive.textContent = String(activeCount);
+  if (kpiRestr) kpiRestr.textContent = String(restrCount);
+  if (kpiDebt) kpiDebt.textContent = totalDebt.toLocaleString("vi-VN") + " ₫";
+}
+
+function refreshIp() {
+  if (!liveIp) return;
+  liveIp.textContent = "Đang kiểm tra...";
+  fetch("https://api.ipify.org?format=json")
+    .then((r) => r.json())
+    .then((d) => {
+      if (d && d.ip) liveIp.textContent = d.ip;
+    })
+    .catch(() => {
+      liveIp.textContent = "Không kết nối được";
+    });
+}
+
+function updateBadge(enabled, raw) {
+  if (!badge) return;
+  if (enabled && raw && raw.trim()) {
+    badge.textContent = "ĐANG BỌC PROXY";
+    badge.className = "status-pill active";
+  } else {
+    badge.textContent = "MẠNG GỐC";
+    badge.className = "status-pill";
+  }
+}
+
+function flashSaved() {
+  if (!saveMsg) return;
+  saveMsg.style.display = "inline";
+  setTimeout(() => {
+    saveMsg.style.display = "none";
+  }, 1800);
+}
+
+renderAccounts(DEFAULT_ACCOUNTS);
+
+if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+  chrome.storage.local.get(["viaName", "profileCode", "proxyRaw", "proxyEnabled", "accounts"], (res) => {
+    if (viaInput) viaInput.value = res.viaName || "${viaName.replace(/"/g, '\"')}";
+    if (profileInput) profileInput.value = res.profileCode || "${profileDir.replace(/"/g, '\"')}";
+    if (proxyInput) proxyInput.value = res.proxyRaw || "";
+    updateBadge(Boolean(res.proxyEnabled), res.proxyRaw || "");
+    if (Array.isArray(res.accounts) && res.accounts.length > 0) {
+      renderAccounts(res.accounts);
+    }
+  });
+}
+
+document.getElementById("btn-save-enable")?.addEventListener("click", () => {
+  const raw = (proxyInput?.value || "").trim();
+  const state = {
+    viaName: (viaInput?.value || "").trim() || "Via Facebook",
+    profileCode: (profileInput?.value || "").trim() || "Default",
+    proxyRaw: raw,
+    proxyEnabled: Boolean(raw)
+  };
+  if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+    chrome.storage.local.set(state, () => {
+      updateBadge(state.proxyEnabled, state.proxyRaw);
+      flashSaved();
+      setTimeout(refreshIp, 600);
+    });
+  }
+});
+
+document.getElementById("btn-disable-proxy")?.addEventListener("click", () => {
+  const state = {
+    viaName: (viaInput?.value || "").trim() || "Via Facebook",
+    profileCode: (profileInput?.value || "").trim() || "Default",
+    proxyRaw: (proxyInput?.value || "").trim(),
+    proxyEnabled: false
+  };
+  if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+    chrome.storage.local.set(state, () => {
+      updateBadge(false, "");
+      flashSaved();
+      setTimeout(refreshIp, 600);
+    });
+  }
+});
+
+if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.query) {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const url = tabs?.[0]?.url || "";
+    const actMatch = url.match(/(?:act=|act_)(\d{6,25})/i);
+    const bmMatch = url.match(/business_id=(\d{6,25})/i);
+    if (actMatch || bmMatch) {
+      const box = document.getElementById("fb-detected");
+      const txt = document.getElementById("fb-detected-text");
+      const copyBtn = document.getElementById("btn-copy-id");
+      const parts = [];
+      const primaryId = actMatch ? actMatch[1] : bmMatch[1];
+      if (bmMatch) parts.push("BM ID: " + bmMatch[1]);
+      if (actMatch) parts.push("TKQC ID: " + actMatch[1]);
+      if (box && txt) {
+        txt.textContent = parts.join(" · ");
+        box.style.display = "block";
+      }
+      copyBtn?.addEventListener("click", () => {
+        navigator.clipboard.writeText(primaryId);
+        copyBtn.textContent = "Đã chép: " + primaryId;
+      });
+    }
+  });
+}
+
+refreshIp();`
+
   const readmeTxt = [
-    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.1)',
+    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.2)',
     '================================================================',
     'Bước 1: Giải nén file .zip này ra một thư mục cố định (ví dụ: Desktop\AdsOps-Chrome-Extension).',
     'Bước 2: Mở trình duyệt Google Chrome của Via -> gõ vào thanh địa chỉ: chrome://extensions',
