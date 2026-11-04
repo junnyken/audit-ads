@@ -886,6 +886,23 @@ export default function Accounts() {
               })}
             </div>
           </div>
+
+          {/* Anti-Die Operational Formula Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-brand/30 bg-brand-light/30 px-3 py-2 text-xs">
+            <div className="leading-relaxed text-ink">
+              <strong className="text-brand-text">⚡ Công Thức Vận Hành Chống Die:</strong>{' '}
+              <span>1 Via Tổng (Chỉ giữ BM/TKQC, không lên camp)</span> ·{' '}
+              <span>Mỗi cụm khách 1 Via Lên Camp riêng (1 Chrome + 1 Proxy tĩnh)</span> ·{' '}
+              <span>Luôn có ≥ 2 Via Dự phòng đã ngâm &gt; 7 ngày</span> ·{' '}
+              <span>Xoá sạch bài Rejected &amp; Canh số dư thẻ trên bảng Tổng hợp Thẻ.</span>
+            </div>
+            <Link
+              to="/facebook-accounts"
+              className="shrink-0 rounded border border-brand/40 bg-surface px-2.5 py-1 text-[11px] font-bold text-brand-text hover:bg-brand-light"
+            >
+              🛡️ Mở Slider Công Thức &amp; Phân Tầng Via →
+            </Link>
+          </div>
         </div>
       )}
 
@@ -1247,6 +1264,21 @@ export default function Accounts() {
                                     title={`Mở TKQC này bằng đúng cửa sổ Chrome (${account.facebook_identities[0].browser_profile_label})`}
                                   >
                                     Mở Chrome
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      launchInAssignedChromeProfile(
+                                        'https://business.facebook.com/accountquality',
+                                        account.facebook_identities![0].browser_profile_label,
+                                        account.facebook_identities![0].label,
+                                        account.facebook_identities![0].network_label,
+                                      )
+                                    }}
+                                    className="inline-flex items-center rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 hover:bg-amber-500/20 dark:text-amber-300"
+                                    title="Mở Chất lượng tài khoản trên đúng Chrome của Via này để kiểm tra và XOÁ hẳn các bài quảng cáo bị Từ chối (Rejected) — chống chết ngược sang Via"
+                                  >
+                                    🧹 Dọn bài Rejected
                                   </button>
                                 </>
                               )}
