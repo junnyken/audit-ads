@@ -17,6 +17,7 @@ const Settings = lazy(() => import('./pages/Settings'))
 const Preflight = lazy(() => import('./pages/Preflight'))
 const PreflightDetail = lazy(() => import('./pages/PreflightDetail'))
 const Operations = lazy(() => import('./pages/Operations'))
+const OperationsGuide = lazy(() => import('./pages/OperationsGuide'))
 const MetaConnections = lazy(() => import('./pages/MetaConnections'))
 const MetaConnectionWorkspace = lazy(() => import('./pages/MetaConnectionWorkspace'))
 const CreateAccountWizard = lazy(() => import('./pages/operations/CreateAccountWizard'))
@@ -61,6 +62,7 @@ export default function App() {
         <Route path="preflight" element={<Preflight />} />
         <Route path="preflight/:draftId" element={<PreflightDetail />} />
         <Route path="operations" element={<Operations />} />
+        <Route path="operations-guide" element={<OperationsGuide />} />
         <Route path="operations/create-accounts" element={<CreateAccountWizard />} />
         <Route path="operations/share-access" element={<ShareAccessWizard />} />
         <Route path="operations/pixel-share" element={<PixelShareWizard />} />

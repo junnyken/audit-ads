@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { Puzzle } from 'lucide-react'
+import { BookOpen, Puzzle } from 'lucide-react'
 import { useI18n } from '../../i18n'
 import { cn } from '../../lib/cn'
 import { NAV_GROUPS } from './nav'
@@ -46,6 +46,25 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
                   </NavLink>
                 </li>
               ))}
+              {group.id === 'monitoring' && (
+                <li>
+                  <NavLink
+                    to="/operations-guide"
+                    onClick={onNavigate}
+                    className={({ isActive }) =>
+                      cn(
+                        'flex items-center gap-2.5 rounded-md px-2 py-2 text-sm font-medium transition-colors',
+                        isActive
+                          ? 'bg-brand-light text-brand-text'
+                          : 'text-ink-muted hover:bg-surface-sunken hover:text-ink',
+                      )
+                    }
+                  >
+                    <BookOpen className="h-5 w-5 shrink-0" aria-hidden="true" />
+                    <span className="min-w-0 truncate">Hướng dẫn &amp; Công thức</span>
+                  </NavLink>
+                </li>
+              )}
             </ul>
           </section>
         )

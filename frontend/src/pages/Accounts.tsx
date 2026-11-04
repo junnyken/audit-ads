@@ -897,10 +897,10 @@ export default function Accounts() {
               <span>Xoá sạch bài Rejected &amp; Canh số dư thẻ trên bảng Tổng hợp Thẻ.</span>
             </div>
             <Link
-              to="/facebook-accounts"
+              to="/operations-guide"
               className="shrink-0 rounded border border-brand/40 bg-surface px-2.5 py-1 text-[11px] font-bold text-brand-text hover:bg-brand-light"
             >
-              🛡️ Mở Slider Công Thức &amp; Phân Tầng Via →
+              📖 Mở Hướng dẫn &amp; Công thức Vận hành →
             </Link>
           </div>
         </div>

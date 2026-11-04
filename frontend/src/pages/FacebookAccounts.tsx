@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronLeft, ChevronRight, Pencil, RefreshCw, ShieldAlert, ShieldCheck, Sparkles, Trash2 } from 'lucide-react'
+import { Pencil, RefreshCw, ShieldAlert, ShieldCheck, Sparkles, Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, query } from '../lib/api'
@@ -317,73 +317,6 @@ function TwoFactorOtpCell({
   )
 }
 
-const ANTI_DIE_SLIDES = [
-  {
-    id: 'formula',
-    shortTab: '⚡ 1. Công Thức Vận Hành',
-    badge: 'CÔNG THỨC VÀNG CHỐNG DIE VIA',
-    title: 'Công thức vận hành bất tử cho Agency chạy Ads khách hàng',
-    summary:
-      '1 Via Tổng (Chỉ giữ BM/TKQC, tuyệt đối không lên camp) + Mỗi cụm khách 1 Via Lên Camp riêng (1 Chrome Profile + 1 Proxy tĩnh) + Luôn có ≥ 2 Via Dự phòng đã ngâm > 7 ngày + Xoá sạch bài Rejected & Canh số dư thẻ.',
-    bullets: [
-      'Không bao giờ dùng chung 1 con Via vừa cầm BM gốc vừa bấm lên chiến dịch nhạy cảm cho khách.',
-      'Khi Via Lên Camp bị hạn chế quảng cáo: chỉ mất 30 giây vào Via Tổng gỡ ra và thay Via Dự phòng vào — BM gốc & TKQC khách hàng an toàn 100%.',
-      'Mỗi dòng Via bên dưới đều đã được tích hợp Bộ chọn Phân tầng 3 lớp, Đồng hồ canh 72h ngâm & Cảnh báo rủi ro liên đới.',
-    ],
-  },
-  {
-    id: 'tiers',
-    shortTab: '🏛️ 2. Phân Tầng 3 Lớp Via',
-    badge: 'NGUYÊN TẮC TÁCH QUYỀN',
-    title: 'Chia 9 Via thành 3 Lớp tách biệt hoàn toàn nhiệm vụ',
-    summary:
-      'Tuyệt đối tách bạch quyền Sở hữu Tài sản (Admin BM) và quyền Lên Chiến dịch (Advertiser TKQC):',
-    bullets: [
-      '🛡️ Lớp 1 — Via Tổng / Giữ Tài Sản (1–2 con, VD: Tài Khoản Chính): Cầm Admin BM gốc, giữ Page/Pixel. CẤM bấm tạo camp, CẤM gắn thẻ lỗi. Chỉ mở 1–2 lần/tuần để phân quyền.',
-      '🚀 Lớp 2 — Via Lên Camp (4–5 con): Chỉ nhận quyền Nhà quảng cáo (Advertiser) trên TKQC của khách để lên bài hàng ngày.',
-      '🌱 Lớp 3 — Via Dự Phòng Ngâm Sẵn (2–3 con): Đã đăng nhập Chrome riêng, ngâm đủ > 7 ngày, nằm im chờ đôn lên thay thế ngay khi Lớp 2 gãy.',
-    ],
-  },
-  {
-    id: 'isolation',
-    shortTab: '🌐 3. Cách Ly Chrome & Proxy',
-    badge: 'CHỐNG CHẾT CHÙM THEO IP / COOKIE',
-    title: 'Cách ly tuyệt đối Hồ sơ Google Chrome thật & Proxy IPv4 Dân cư tĩnh',
-    summary:
-      '1 Hồ sơ Chrome = 1 Via cố định · 1 Proxy IPv4 Dân cư tĩnh VN (Viettel/VNPT/FPT) = Tối đa 1–2 Via cùng cụm BM:',
-    bullets: [
-      'Tuyệt đối không đăng xuất Via này để đăng nhập Via khác trên cùng 1 cửa sổ Chrome. Luôn bấm nút «🚀 Mở Chrome» trên bảng để mở đúng Profile.',
-      'Mạng Wifi/dây gốc văn phòng chỉ dùng cho 2–3 Via Lớp 1. Từ Via thứ 4 trở đi (Lớp 2 & Lớp 3) nên gắn Proxy IPv4 Dân cư tĩnh riêng.',
-      'Không dùng VPN miễn phí, 1.1.1.1 hoặc Proxy Datacenter giá rẻ vì dải IP đó bị Meta đánh dấu spam.',
-    ],
-  },
-  {
-    id: 'warmup',
-    shortTab: '⏳ 4. Quy Trình Ngâm 72h Vàng',
-    badge: 'CHỐNG CHECKPOINT 956 / 282',
-    title: 'Quy tắc "Ngâm 72 Giờ Vàng & 7 Ngày Trust" khi mới đăng nhập Via',
-    summary:
-      '90% Via chết ngay tuần đầu là do vừa đăng nhập vào máy mới đã bấm vào Trình quản lý quảng cáo hoặc đổi mật khẩu ngay:',
-    bullets: [
-      '⏳ Giờ 0 – 72h (Ngày 1–3): Đăng nhập Chrome riêng + lấy mã 2FA 6 số ngay trên bảng. CẤM vào Ads Manager, CẤM đổi mật khẩu, CẤM đá thiết bị cũ. Mở xem Watch/Newsfeed 5–10 phút/ngày.',
-      '🟡 Ngày 4 – Ngày 7: Bắt đầu nhận lời mời vào BM (ưu tiên mời qua Email doanh nghiệp thay vì kết bạn ồ ạt).',
-      '✅ Sau Ngày 7: Thiết bị & IP đã được Meta ghi nhận Trusted Device — mới đá các thiết bị lạ cũ và bắt đầu lên camp.',
-    ],
-  },
-  {
-    id: 'reverse_ban',
-    shortTab: '💳 5. Chặn Chết Ngược Từ TKQC',
-    badge: 'VỆ SINH THẺ & BÀI TỪ CHỐI',
-    title: 'Chặn "Chết ngược" từ Thẻ bị từ chối (Đỏ thẻ) & Bài quảng cáo vi phạm (Rejected)',
-    summary:
-      'Nhiều khi Via không tự chết mà bị khóa khả năng quảng cáo do TKQC bên dưới nợ cước hoặc giữ quá nhiều bài bị từ chối:',
-    bullets: [
-      '💳 Không để "Đỏ thẻ" 3 lần liên tiếp: Kiểm tra bảng «Tổng hợp Dư nợ theo từng Thẻ» ở trang Tài khoản quảng cáo để nạp đủ tiền trước ngày cắn bill (1 Thẻ ≤ 3 TKQC).',
-      '🧹 Xoá ngay các bài quảng cáo bị Từ chối (Rejected Ads): Không để nguyên bài bị từ chối nằm tồn đọng trong TKQC — hãy Xoá (Delete) hẳn bài lỗi đó đi trước khi lên bài mới.',
-      '🛡️ Kiểm tra Chất lượng tài khoản định kỳ bằng nút «Kháng nghị / Chất lượng TK» trên đúng Chrome Profile của Via.',
-    ],
-  },
-] as const
 
 export default function FacebookAccounts() {
   const { t, language } = useI18n()
@@ -398,7 +331,6 @@ export default function FacebookAccounts() {
   const [holder, setHolder] = useState('')
   const [ownershipFilter, setOwnershipFilter] = useState('')
   const [tierFilter, setTierFilter] = useState<'all' | ViaRoleTier | 'risk'>('all')
-  const [slideIdx, setSlideIdx] = useState(0)
   const [creating, setCreating] = useState(false)
   const [editingRecord, setEditingRecord] = useState<ReferenceRecord | null>(null)
   const [syncNotice, setSyncNotice] = useState<string | null>(null)
@@ -575,7 +507,6 @@ export default function FacebookAccounts() {
   }, [enrichedRows, holder, ownershipFilter, tierFilter])
 
   const chromeOptions = localChrome.data ?? WORKSTATION_REAL_CHROME_PROFILES
-  const activeSlide = ANTI_DIE_SLIDES[slideIdx] ?? ANTI_DIE_SLIDES[0]
 
   const columns = [
     'Tài khoản Via & Phân tầng Chống Die',
@@ -633,163 +564,41 @@ export default function FacebookAccounts() {
         </div>
       )}
 
-      {/* SLIDER HƯỚNG DẪN: CÔNG THỨC VẬN HÀNH & CHỐNG DIE VIA */}
-      <div className="rounded-xl border border-line bg-surface p-4 shadow-sm space-y-3" data-testid="anti-die-slider">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-2.5">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="inline-flex items-center gap-1 rounded-md bg-brand px-2 py-0.5 text-[11px] font-extrabold text-brand-fg">
-              <Sparkles className="h-3 w-3" aria-hidden="true" />
-              CÔNG THỨC VẬN HÀNH NÀY
-            </span>
-            <div className="flex flex-wrap items-center gap-1">
-              {ANTI_DIE_SLIDES.map((sl, idx) => (
-                <button
-                  key={sl.id}
-                  type="button"
-                  onClick={() => setSlideIdx(idx)}
-                  className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
-                    slideIdx === idx
-                      ? 'bg-brand-light text-brand-text border border-brand/40'
-                      : 'text-ink-muted hover:bg-surface-muted hover:text-ink'
-                  }`}
-                >
-                  {sl.shortTab}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            <span className="font-mono text-[11px] text-ink-muted">
-              Slide {slideIdx + 1}/{ANTI_DIE_SLIDES.length}
-            </span>
+      {/* THANH LỌC 1 CHẠM THEO LỚP VẬN HÀNH + NÚT MỞ TRANG HƯỚNG DẪN & CÔNG THỨC */}
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-surface px-3.5 py-2.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs font-bold text-ink-muted mr-1">Lọc theo Lớp vận hành:</span>
+          {(
+            [
+              ['all', `Tất cả Via (${tierStats.total})`],
+              ['vault', `🛡️ Lớp 1: Via Tổng Giữ BM (${tierStats.vault})`],
+              ['camp', `🚀 Lớp 2: Via Lên Camp (${tierStats.camp})`],
+              ['standby', `🌱 Lớp 3: Via Dự Phòng Ngâm Sẵn (${tierStats.standby})`],
+              ['risk', `⚠️ Cần tối ưu cách ly (${tierStats.risk})`],
+            ] as const
+          ).map(([key, label]) => (
             <button
+              key={key}
               type="button"
-              onClick={() => setSlideIdx((prev) => (prev - 1 + ANTI_DIE_SLIDES.length) % ANTI_DIE_SLIDES.length)}
-              className=" inline-flex h-7 w-7 items-center justify-center rounded border border-line bg-surface hover:bg-surface-muted text-ink"
-              title="Slide trước"
+              onClick={() => setTierFilter(key)}
+              className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                tierFilter === key
+                  ? 'border-brand bg-brand text-brand-fg'
+                  : 'border-line bg-surface hover:bg-surface-muted text-ink'
+              }`}
             >
-              <ChevronLeft className="h-4 w-4" />
+              {label}
             </button>
-            <button
-              type="button"
-              onClick={() => setSlideIdx((prev) => (prev + 1) % ANTI_DIE_SLIDES.length)}
-              className="inline-flex h-7 w-7 items-center justify-center rounded border border-line bg-surface hover:bg-surface-muted text-ink"
-              title="Slide tiếp theo"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
+          ))}
         </div>
 
-        {/* Active Slide Content */}
-        <div className="grid gap-4 lg:grid-cols-12 items-start">
-          <div className="lg:col-span-8 space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="info">{activeSlide.badge}</Badge>
-              <h2 className="text-sm sm:text-base font-extrabold text-ink">{activeSlide.title}</h2>
-            </div>
-            <p className="rounded-lg border border-brand/30 bg-brand-light/40 px-3 py-2 text-xs font-semibold leading-relaxed text-ink">
-              💡 {activeSlide.summary}
-            </p>
-            <ul className="space-y-1.5 pl-4 list-disc text-xs text-ink-muted">
-              {activeSlide.bullets.map((b, i) => (
-                <li key={i} className="leading-relaxed">
-                  {b}
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Right side of Slider: Live Anti-Die Radar Summary + Proxy Vendors */}
-          <div className="lg:col-span-4 rounded-lg border border-line bg-surface-muted/40 p-3 space-y-2.5 text-xs">
-            <div className="flex items-center justify-between font-bold text-ink">
-              <span>🛡️ Chẩn đoán An toàn Dàn Via hiện tại</span>
-              <Badge tone={tierStats.standby >= 2 ? 'positive' : 'caution'}>
-                {tierStats.standby >= 2 ? 'Đủ Via dự phòng' : 'Cần ≥ 2 Via dự phòng'}
-              </Badge>
-            </div>
-            <div className="grid grid-cols-3 gap-1.5 text-center">
-              <button
-                type="button"
-                onClick={() => setTierFilter(tierFilter === 'vault' ? 'all' : 'vault')}
-                className="rounded border border-line bg-surface p-1.5 hover:border-brand"
-              >
-                <div className="text-[10px] text-ink-muted">🛡️ Via Tổng</div>
-                <div className="font-mono text-sm font-extrabold text-emerald-600 dark:text-emerald-400">
-                  {tierStats.vault}
-                </div>
-              </button>
-              <button
-                type="button"
-                onClick={() => setTierFilter(tierFilter === 'camp' ? 'all' : 'camp')}
-                className="rounded border border-line bg-surface p-1.5 hover:border-brand"
-              >
-                <div className="text-[10px] text-ink-muted">🚀 Via Lên Camp</div>
-                <div className="font-mono text-sm font-extrabold text-brand-text">{tierStats.camp}</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => setTierFilter(tierFilter === 'standby' ? 'all' : 'standby')}
-                className="rounded border border-line bg-surface p-1.5 hover:border-brand"
-              >
-                <div className="text-[10px] text-ink-muted">🌱 Via Dự Phòng</div>
-                <div className="font-mono text-sm font-extrabold text-amber-600 dark:text-amber-400">
-                  {tierStats.standby}
-                </div>
-              </button>
-            </div>
-
-            <div className="border-t border-line pt-2 text-[11px]">
-              <div className="font-semibold text-ink-muted mb-1">
-                Mua & Quản lý Proxy IPv4 Dân cư tĩnh VN (1–2 Via/Proxy):
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                <a href="https://proxyvn.vn/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface px-2 py-0.5 font-semibold text-brand-text hover:border-brand hover:underline">
-                  🛒 ProxyVN.vn ↗
-                </a>
-                <a href="https://zingproxy.com/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface px-2 py-0.5 font-semibold text-brand-text hover:border-brand hover:underline">
-                  🛒 ZingProxy ↗
-                </a>
-                <a href="https://muaproxy.vn/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface px-2 py-0.5 font-semibold text-brand-text hover:border-brand hover:underline">
-                  🛒 MuaProxy.vn ↗
-                </a>
-                <a href="https://vproxy.vn/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface px-2 py-0.5 font-semibold text-brand-text hover:border-brand hover:underline">
-                  🛒 VProxy.vn ↗
-                </a>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* 1-Click Role Tier Filter Pills */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-2.5">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-xs font-bold text-ink-muted mr-1">Lọc theo Lớp vận hành:</span>
-            {(
-              [
-                ['all', `Tất cả Via (${tierStats.total})`],
-                ['vault', `🛡️ Lớp 1: Via Tổng Giữ BM (${tierStats.vault})`],
-                ['camp', `🚀 Lớp 2: Via Lên Camp (${tierStats.camp})`],
-                ['standby', `🌱 Lớp 3: Via Dự Phòng Ngâm Sẵn (${tierStats.standby})`],
-                ['risk', `⚠️ Cần tối ưu cách ly (${tierStats.risk})`],
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setTierFilter(key)}
-                className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
-                  tierFilter === key
-                    ? 'border-brand bg-brand text-brand-fg'
-                    : 'border-line bg-surface hover:bg-surface-muted text-ink'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
+        <Link
+          to="/operations-guide"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-brand/40 bg-brand-light px-3 py-1.5 text-xs font-bold text-brand-text hover:opacity-90"
+        >
+          <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+          <span>📖 Xem Hướng dẫn &amp; Công thức Vận hành →</span>
+        </Link>
       </div>
 
       <div className="flex flex-wrap items-end gap-2">
