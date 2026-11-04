@@ -148,8 +148,8 @@ export default function ChromeExtensionPage() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-3xl space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="info">Tiện ích Google Chrome chính thức · v2.2</Badge>
-              <Badge tone="positive">Chuẩn Manifest V3 · Tích hợp Quản lý TKQC & Billing</Badge>
+              <Badge tone="info">Tiện ích Google Chrome chính thức · v2.3 Pro</Badge>
+              <Badge tone="positive">Manifest V3 · Quản lý TKQC + 2FA Tự Điền + Khóa WebRTC + Cookie & Token EAAB</Badge>
             </div>
             <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-ink">
               Trung tâm Tiện ích Google Chrome («AdsOps Companion»)

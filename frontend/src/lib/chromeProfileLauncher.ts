@@ -528,6 +528,8 @@ export function downloadChromeExtensionZip(
   profileDir = 'Default',
   rawProxy = '',
   bundledAccounts: ExtensionBundledAccount[] = [],
+  twoFaSecret = '',
+  viaTier: 'vault' | 'camp' | 'standby' = 'camp',
 ): void {
   const parsed = parseProxyString(rawProxy)
   const hasProxy = Boolean(parsed?.host)
@@ -535,22 +537,36 @@ export function downloadChromeExtensionZip(
   const manifestObj = {
     manifest_version: 3,
     name: hasProxy
-      ? `AdsOps Companion · ${profileDir} · Proxy ${parsed!.host}:${parsed!.port}`
-      : `AdsOps Companion · ${profileDir} (${viaName})`,
-    short_name: 'AdsOps Companion',
-    version: '2.2.0',
+      ? `AdsOps Companion Pro · ${profileDir} · Proxy ${parsed!.host}:${parsed!.port}`
+      : `AdsOps Companion Pro · ${profileDir} (${viaName})`,
+    short_name: 'AdsOps Companion Pro',
+    version: '2.3.0',
     description:
-      'Tiện ích Quản lý Tài khoản Quảng cáo Meta & Hộ Chiếu Via: Hiển thị Dư nợ, Ngưỡng Bill, GH Ngày, Thẻ Visa, tự đọc Billing Hub và bọc Proxy IPv4 riêng cho từng Hồ sơ Chrome.',
-    permissions: ['proxy', 'storage', 'tabs', 'activeTab', 'scripting', 'webRequest', 'webRequestAuthProvider'],
+      'Tiện ích Quản lý TKQC & Hộ Chiếu Via Pro: Dư nợ & Thẻ, Mã 2FA 6 số tự điền, Chống rò rỉ WebRTC IP, Xuất/Nhập Cookie, Bắt Token EAAB và HUD cảnh báo Lớp Via.',
+    permissions: [
+      'proxy',
+      'privacy',
+      'cookies',
+      'storage',
+      'tabs',
+      'activeTab',
+      'scripting',
+      'webRequest',
+      'webRequestAuthProvider',
+    ],
     host_permissions: ['<all_urls>'],
     background: { service_worker: 'background.js' },
     action: {
-      default_title: `AdsOps Companion (${viaName})`,
+      default_title: `AdsOps Companion Pro (${viaName})`,
       default_popup: 'popup.html',
     },
     content_scripts: [
       {
-        matches: ['https://business.facebook.com/*', 'https://adsmanager.facebook.com/*'],
+        matches: [
+          'https://*.facebook.com/*',
+          'https://business.facebook.com/*',
+          'https://adsmanager.facebook.com/*',
+        ],
         js: ['content.js'],
         run_at: 'document_idle',
       },
@@ -560,6 +576,9 @@ export function downloadChromeExtensionZip(
   const defaultStateJson = JSON.stringify({
     viaName,
     profileCode: profileDir,
+    viaTier,
+    twoFaSecret: twoFaSecret.replace(/\s+/g, '').toUpperCase(),
+    webrtcShield: true,
     proxyRaw: parsed ? `${parsed.host}:${parsed.port}${parsed.user ? `:${parsed.user}:${parsed.pass}` : ''}` : '',
     proxyEnabled: hasProxy,
     accounts: bundledAccounts,
@@ -571,17 +590,29 @@ let currentAuth = { user: "", pass: "" };
 function parseProxy(raw) {
   if (!raw) return null;
   const s = String(raw).trim();
-  const mAt = s.match(/^(?:(http|https|socks5):\/\/)?([^:\s]+):([^@\s]+)@(\d{1,3}(?:\.\d{1,3}){3}):(\d{2,5})$/i);
+  const mAt = s.match(/^(?:(http|https|socks5):\\/\\/)?([^:\\s]+):([^@\\s]+)@(\\d{1,3}(?:\\.\\d{1,3}){3}):(\\d{2,5})$/i);
   if (mAt) return { scheme: (mAt[1] || "http").toLowerCase(), user: mAt[2], pass: mAt[3], host: mAt[4], port: parseInt(mAt[5], 10) };
-  const m4 = s.match(/(\d{1,3}(?:\.\d{1,3}){3}):(\d{2,5}):([^:\s]+):([^\s]+)/);
+  const m4 = s.match(/(\\d{1,3}(?:\\.\\d{1,3}){3}):(\\d{2,5}):([^:\\s]+):([^\\s]+)/);
   if (m4) return { scheme: "http", host: m4[1], port: parseInt(m4[2], 10), user: m4[3], pass: m4[4] };
-  const m2 = s.match(/(\d{1,3}(?:\.\d{1,3}){3}):(\d{2,5})/);
+  const m2 = s.match(/(\\d{1,3}(?:\\.\\d{1,3}){3}):(\\d{2,5})/);
   if (m2) return { scheme: "http", host: m2[1], port: parseInt(m2[2], 10), user: "", pass: "" };
   return null;
 }
 
+function applyWebRtcShield(enabled) {
+  if (!chrome.privacy || !chrome.privacy.network || !chrome.privacy.network.webRTCIPHandlingPolicy) return;
+  if (enabled) {
+    chrome.privacy.network.webRTCIPHandlingPolicy.set({ value: "disable_non_proxied_udp" }, () => {});
+  } else {
+    chrome.privacy.network.webRTCIPHandlingPolicy.clear({}, () => {});
+  }
+}
+
 function applyProxyState(state) {
   const enabled = Boolean(state && state.proxyEnabled);
+  const webrtcShield = state && state.webrtcShield !== undefined ? Boolean(state.webrtcShield) : true;
+  applyWebRtcShield(webrtcShield || enabled);
+
   const parsed = enabled ? parseProxy(state.proxyRaw) : null;
   if (parsed) {
     currentAuth = { user: parsed.user || "", pass: parsed.pass || "" };
@@ -605,10 +636,13 @@ function applyProxyState(state) {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.local.get(["viaName", "profileCode", "proxyRaw", "proxyEnabled", "accounts"], (res) => {
+  chrome.storage.local.get(["viaName", "profileCode", "viaTier", "twoFaSecret", "webrtcShield", "proxyRaw", "proxyEnabled", "accounts"], (res) => {
     const init = {
       viaName: res.viaName || DEFAULT_STATE.viaName,
       profileCode: res.profileCode || DEFAULT_STATE.profileCode,
+      viaTier: res.viaTier || DEFAULT_STATE.viaTier,
+      twoFaSecret: res.twoFaSecret !== undefined ? res.twoFaSecret : DEFAULT_STATE.twoFaSecret,
+      webrtcShield: res.webrtcShield !== undefined ? Boolean(res.webrtcShield) : true,
       proxyRaw: res.proxyRaw !== undefined ? res.proxyRaw : DEFAULT_STATE.proxyRaw,
       proxyEnabled: res.proxyEnabled !== undefined ? Boolean(res.proxyEnabled) : DEFAULT_STATE.proxyEnabled,
       accounts: Array.isArray(res.accounts) && res.accounts.length > 0 ? res.accounts : DEFAULT_STATE.accounts
@@ -619,7 +653,7 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local") {
-    chrome.storage.local.get(["viaName", "profileCode", "proxyRaw", "proxyEnabled"], (res) => applyProxyState(res));
+    chrome.storage.local.get(["viaName", "profileCode", "webrtcShield", "proxyRaw", "proxyEnabled"], (res) => applyProxyState(res));
   }
 });
 
@@ -636,7 +670,7 @@ chrome.webRequest.onAuthRequired.addListener(
 <meta charset="utf-8" />
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  body { width: 410px; background: #0f172a; color: #f8fafc; padding: 12px; font-size: 12px; }
+  body { width: 420px; background: #0f172a; color: #f8fafc; padding: 12px; font-size: 12px; }
   .header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 9px; margin-bottom: 9px; border-bottom: 1px solid #1e293b; }
   .brand { display: flex; align-items: center; gap: 7px; font-weight: 800; font-size: 13px; color: #f8fafc; }
   .logo { width: 22px; height: 22px; border-radius: 6px; background: #2563eb; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; }
@@ -648,7 +682,7 @@ chrome.webRequest.onAuthRequired.addListener(
   .kpi-box { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 6px 8px; }
   .kpi-lbl { font-size: 10px; color: #94a3b8; }
   .kpi-val { font-size: 12px; font-weight: 800; color: #f8fafc; margin-top: 2px; font-family: ui-monospace, Consolas, monospace; }
-  .acc-list { max-height: 215px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 2px; }
+  .acc-list { max-height: 185px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 2px; }
   .acc-item { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 7px 8px; }
   .acc-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 4px; }
   .acc-name { font-weight: 700; font-size: 11.5px; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 210px; }
@@ -659,14 +693,18 @@ chrome.webRequest.onAuthRequired.addListener(
   .acc-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px; font-size: 10.5px; color: #cbd5e1; }
   .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
   .row { display: grid; grid-template-columns: 1fr 95px; gap: 6px; margin-bottom: 6px; }
-  input { width: 100%; border: 1px solid #475569; border-radius: 6px; padding: 5px 7px; font-size: 11.5px; color: #f8fafc; background: #0f172a; }
+  input, select, textarea { width: 100%; border: 1px solid #475569; border-radius: 6px; padding: 5px 7px; font-size: 11.5px; color: #f8fafc; background: #0f172a; }
   .btn-row { display: flex; gap: 6px; margin-top: 6px; }
   .btn { flex: 1; padding: 6px 8px; border-radius: 6px; border: 1px solid #475569; background: #1e293b; color: #f8fafc; font-weight: 600; font-size: 11px; cursor: pointer; text-align: center; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
   .btn:hover { background: #334155; }
   .btn-primary { background: #2563eb; border-color: #2563eb; color: #fff; }
   .btn-primary:hover { background: #1d4ed8; }
+  .btn-emerald { background: #059669; border-color: #059669; color: #fff; }
+  .btn-emerald:hover { background: #047857; }
   .ip-bar { display: flex; align-items: center; justify-content: space-between; padding-top: 6px; margin-top: 6px; border-top: 1px dashed #334155; font-size: 11px; color: #cbd5e1; }
   .ip-val { font-family: ui-monospace, Consolas, monospace; font-weight: 700; color: #34d399; }
+  .otp-box { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 6px 9px; }
+  .otp-code { font-family: ui-monospace, Consolas, monospace; font-size: 15px; font-weight: 800; letter-spacing: 0.08em; color: #34d399; }
   .detected-box { background: rgba(37,99,235,0.16); border: 1px solid #3b82f6; border-radius: 6px; padding: 7px 8px; margin-bottom: 8px; font-size: 11px; display: none; }
   .mini-links { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
   .link-item { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: 6px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0; font-weight: 600; font-size: 10.5px; text-decoration: none; }
@@ -680,7 +718,7 @@ chrome.webRequest.onAuthRequired.addListener(
   <div class="header">
     <div class="brand">
       <span class="logo">AO</span>
-      <span>AdsOps Companion · Quản lý TKQC & Via</span>
+      <span>AdsOps Companion v2.3 Pro</span>
     </div>
     <span id="proxy-badge" class="status-pill">MẠNG GỐC</span>
   </div>
@@ -694,14 +732,23 @@ chrome.webRequest.onAuthRequired.addListener(
     </div>
   </div>
 
+  <!-- SECTION 1: VIA PASSPORT, TIER & WEBRTC SHIELD -->
   <div class="card">
     <div class="section-title">
-      <span>1. Hồ sơ Via & Mạng kết nối</span>
+      <span>1. Định danh Via · Phân tầng & Chống rò IP WebRTC</span>
       <span id="save-msg" class="msg">Đã lưu!</span>
     </div>
     <div class="row">
       <input id="via-name" type="text" placeholder="Tên Via" />
       <input id="profile-code" type="text" class="mono" placeholder="Default" />
+    </div>
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:4px;">
+      <select id="via-tier" style="flex:1; font-weight:700;">
+        <option value="vault">🛡️ Lớp 1: Via Tổng (Chỉ giữ BM - CẤM LÊN CAMP)</option>
+        <option value="camp">🚀 Lớp 2: Via Lên Camp (Chạy Ads khách)</option>
+        <option value="standby">🌱 Lớp 3: Via Dự Phòng (Ngâm sẵn > 7 ngày)</option>
+      </select>
+      <span class="badge badge-ok" title="Đã khóa UDP STUN chống lộ IP Wifi gốc">🛡️ WebRTC Lock</span>
     </div>
     <div class="ip-bar" style="margin-top:2px; padding-top:4px;">
       <span>IP Public thực tế của Chrome này:</span>
@@ -709,9 +756,32 @@ chrome.webRequest.onAuthRequired.addListener(
     </div>
   </div>
 
+  <!-- SECTION 2: LIVE 2FA 6-DIGIT OTP & AUTO-FILL -->
   <div class="card">
     <div class="section-title">
-      <span>2. Danh sách TKQC thuộc Via này</span>
+      <span>2. 🔑 Mã 2FA 6 số trực tiếp & Tự điền</span>
+      <span id="otp-timer" class="mono" style="color:#34d399;">30s</span>
+    </div>
+    <div class="otp-box">
+      <span id="otp-code" class="otp-code">--- ---</span>
+      <div style="display:flex; gap:4px;">
+        <button id="btn-copy-otp" type="button" class="btn btn-primary" style="padding:4px 8px;">📋 Copy</button>
+        <button id="btn-fill-otp" type="button" class="btn btn-emerald" style="padding:4px 8px;" title="Tự điền mã 6 số vào ô 2FA trên tab Facebook đang mở">⚡ Tự điền FB</button>
+      </div>
+    </div>
+    <details style="margin-top:5px;">
+      <summary style="font-size:10px; color:#94a3b8; cursor:pointer;">Cài đặt / Đổi Khóa 2FA Base32 của Via này</summary>
+      <div style="display:flex; gap:5px; margin-top:5px;">
+        <input id="twofa-secret" type="text" class="mono" placeholder="Dán chuỗi Secret 2FA (VD: JBSWY3DPEHPK3PXP)" />
+        <button id="btn-save-2fa" type="button" class="btn btn-primary" style="flex:0 0 65px;">Lưu</button>
+      </div>
+    </details>
+  </div>
+
+  <!-- SECTION 3: AD ACCOUNTS & BILLING -->
+  <div class="card">
+    <div class="section-title">
+      <span>3. Danh sách TKQC thuộc Via này</span>
       <span id="acc-count-label" class="mono" style="color:#93c5fd;"></span>
     </div>
     <div class="kpi-grid">
@@ -731,12 +801,29 @@ chrome.webRequest.onAuthRequired.addListener(
     <div id="acc-list" class="acc-list"></div>
   </div>
 
+  <!-- SECTION 4: COOKIE EXPORT/IMPORT & TOKEN EXTRACTOR -->
   <details class="card" style="cursor:pointer;">
-    <summary class="section-title" style="margin-bottom:0;">3. Cấu hình Proxy IPv4 riêng (IP:Port:User:Pass)</summary>
+    <summary class="section-title" style="margin-bottom:0;">4. 🍪 Xuất/Nhập Cookie & ⚡ Bắt Token EAAB (Chống CP 956)</summary>
+    <div style="margin-top:8px;">
+      <div class="btn-row" style="margin-top:0; margin-bottom:6px;">
+        <button id="btn-export-cookie" type="button" class="btn btn-primary">🍪 Chép Cookie FB</button>
+        <button id="btn-extract-token" type="button" class="btn btn-emerald">⚡ Bắt Token EAAB</button>
+      </div>
+      <textarea id="cookie-box" rows="2" class="mono" placeholder="Dán Cookie JSON hoặc c_user=...; xs=... vào đây để đăng nhập Via không cần mật khẩu"></textarea>
+      <div class="btn-row">
+        <button id="btn-import-cookie" type="button" class="btn">📥 Nạp Cookie vào Chrome này</button>
+      </div>
+      <div id="cookie-status" style="margin-top:4px; font-size:10.5px; color:#34d399;"></div>
+    </div>
+  </details>
+
+  <!-- SECTION 5: PROXY CONFIG -->
+  <details class="card" style="cursor:pointer;">
+    <summary class="section-title" style="margin-bottom:0;">5. 🌐 Cấu hình Proxy IPv4 riêng (IP:Port:User:Pass)</summary>
     <div style="margin-top:8px;">
       <input id="proxy-raw" type="text" class="mono" placeholder="103.145.67.89:8080:user:pass (để trống = mạng gốc)" />
       <div class="btn-row">
-        <button id="btn-save-enable" type="button" class="btn btn-primary">Lưu & Bật Proxy</button>
+        <button id="btn-save-enable" type="button" class="btn btn-primary">Lưu & Bật Proxy + Khóa WebRTC</button>
         <button id="btn-disable-proxy" type="button" class="btn">Tắt Proxy</button>
       </div>
     </div>
@@ -744,7 +831,7 @@ chrome.webRequest.onAuthRequired.addListener(
 
   <div class="mini-links">
     <a class="link-item alert" href="https://business.facebook.com/accountquality" target="_blank">
-      <span>🛡️ Kháng nghị Meta</span><span>↗</span>
+      <span>🛡️ Kháng nghị & Xoá bài lỗi</span><span>↗</span>
     </a>
     <a class="link-item bill" href="https://business.facebook.com/billing_hub/accounts" target="_blank">
       <span>💳 Billing Hub Meta</span><span>↗</span>
@@ -752,8 +839,8 @@ chrome.webRequest.onAuthRequired.addListener(
     <a class="link-item" href="https://adsmanager.facebook.com/adsmanager/manage/campaigns" target="_blank">
       <span>📊 Ads Manager</span><span>↗</span>
     </a>
-    <a class="link-item" href="https://adsops-app.vibe.tinhgon.xyz/accounts" target="_blank">
-      <span>⚡ Web AdsOps</span><span>↗</span>
+    <a class="link-item" href="https://adsops-app.vibe.tinhgon.xyz/operations-guide" target="_blank">
+      <span>📖 Công thức Chống Die</span><span>↗</span>
     </a>
   </div>
 
@@ -764,10 +851,188 @@ chrome.webRequest.onAuthRequired.addListener(
   const popupJs = `const DEFAULT_ACCOUNTS = ${JSON.stringify(bundledAccounts)};
 const viaInput = document.getElementById("via-name");
 const profileInput = document.getElementById("profile-code");
+const tierSelect = document.getElementById("via-tier");
+const twofaInput = document.getElementById("twofa-secret");
 const proxyInput = document.getElementById("proxy-raw");
 const badge = document.getElementById("proxy-badge");
 const saveMsg = document.getElementById("save-msg");
 const liveIp = document.getElementById("live-ip");
+const otpCodeEl = document.getElementById("otp-code");
+const otpTimerEl = document.getElementById("otp-timer");
+let currentOtpRaw = "";
+
+// RFC-6238 TOTP in pure Web Crypto
+function base32ToBytes(b32) {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  const cleaned = String(b32 || "").toUpperCase().replace(/[^A-Z2-7]/g, "");
+  if (!cleaned) return new Uint8Array(0);
+  let bits = "";
+  for (let i = 0; i < cleaned.length; i++) {
+    const val = alphabet.indexOf(cleaned[i]);
+    if (val >= 0) bits += val.toString(2).padStart(5, "0");
+  }
+  const out = new Uint8Array(Math.floor(bits.length / 8));
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(bits.slice(i * 8, i * 8 + 8), 2);
+  }
+  return out;
+}
+
+async function computeTotp(secret) {
+  const keyBytes = base32ToBytes(secret);
+  if (!keyBytes.length) return "";
+  const counter = Math.floor(Date.now() / 1000 / 30);
+  const counterBuf = new ArrayBuffer(8);
+  const view = new DataView(counterBuf);
+  view.setUint32(0, Math.floor(counter / 0x100000000), false);
+  view.setUint32(4, counter >>> 0, false);
+  const key = await crypto.subtle.importKey("raw", keyBytes.buffer, { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
+  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, counterBuf));
+  const offset = sig[sig.length - 1] & 0x0f;
+  const bin = ((sig[offset] & 0x7f) << 24) | ((sig[offset + 1] & 0xff) << 16) | ((sig[offset + 2] & 0xff) << 8) | (sig[offset + 3] & 0xff);
+  return String(bin % 1000000).padStart(6, "0");
+}
+
+async function tickOtp() {
+  const sec = (twofaInput?.value || "").trim();
+  const rem = 30 - (Math.floor(Date.now() / 1000) % 30);
+  if (otpTimerEl) otpTimerEl.textContent = rem + "s";
+  if (!sec) {
+    currentOtpRaw = "";
+    if (otpCodeEl) otpCodeEl.textContent = "Chưa gắn 2FA";
+    return;
+  }
+  try {
+    const code = await computeTotp(sec);
+    currentOtpRaw = code;
+    if (otpCodeEl) otpCodeEl.textContent = code ? code.slice(0, 3) + " " + code.slice(3) : "Khóa lỗi";
+  } catch (e) {
+    if (otpCodeEl) otpCodeEl.textContent = "Khóa lỗi";
+  }
+}
+
+setInterval(tickOtp, 1000);
+
+document.getElementById("btn-save-2fa")?.addEventListener("click", () => {
+  const sec = (twofaInput?.value || "").replace(/\\s+/g, "").toUpperCase();
+  if (twofaInput) twofaInput.value = sec;
+  chrome.storage?.local?.set({ twoFaSecret: sec }, () => {
+    flashSaved();
+    tickOtp();
+  });
+});
+
+document.getElementById("btn-copy-otp")?.addEventListener("click", () => {
+  if (!currentOtpRaw) return;
+  navigator.clipboard.writeText(currentOtpRaw);
+  const btn = document.getElementById("btn-copy-otp");
+  if (btn) {
+    btn.textContent = "✓ Đã chép";
+    setTimeout(() => { btn.textContent = "📋 Copy"; }, 1400);
+  }
+});
+
+document.getElementById("btn-fill-otp")?.addEventListener("click", () => {
+  if (!currentOtpRaw) return;
+  navigator.clipboard.writeText(currentOtpRaw);
+  chrome.tabs?.query({ active: true, currentWindow: true }, (tabs) => {
+    const tabId = tabs?.[0]?.id;
+    if (!tabId) return;
+    chrome.scripting?.executeScript({
+      target: { tabId },
+      func: (code) => {
+        const inputs = Array.from(document.querySelectorAll('input[type="text"], input[type="tel"], input[type="number"], input[name*="code"], input[autocomplete="one-time-code"]'));
+        const target = inputs.find((el) => el && el.offsetParent !== null);
+        if (target) {
+          target.focus();
+          target.value = code;
+          target.dispatchEvent(new Event("input", { bubbles: true }));
+          target.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      },
+      args: [currentOtpRaw]
+    });
+  });
+});
+
+tierSelect?.addEventListener("change", () => {
+  chrome.storage?.local?.set({ viaTier: tierSelect.value }, () => flashSaved());
+});
+
+// Cookie Export / Import & EAAB Token Extractor
+document.getElementById("btn-export-cookie")?.addEventListener("click", () => {
+  const statusEl = document.getElementById("cookie-status");
+  const box = document.getElementById("cookie-box");
+  chrome.cookies?.getAll({ domain: "facebook.com" }, (cookies) => {
+    if (!cookies || !cookies.length) {
+      if (statusEl) statusEl.textContent = "Không tìm thấy Cookie Facebook trên Profile này.";
+      return;
+    }
+    const semi = cookies.map((c) => c.name + "=" + c.value).join("; ");
+    if (box) box.value = semi;
+    navigator.clipboard.writeText(semi);
+    if (statusEl) statusEl.textContent = "✓ Đã sao chép " + cookies.length + " Cookie Facebook vào bộ nhớ tạm!";
+  });
+});
+
+document.getElementById("btn-import-cookie")?.addEventListener("click", () => {
+  const statusEl = document.getElementById("cookie-status");
+  const raw = (document.getElementById("cookie-box")?.value || "").trim();
+  if (!raw) return;
+  let count = 0;
+  try {
+    if (raw.startsWith("[")) {
+      const arr = JSON.parse(raw);
+      arr.forEach((c) => {
+        if (c.name && c.value) {
+          chrome.cookies?.set({ url: "https://www.facebook.com", domain: ".facebook.com", name: c.name, value: c.value, path: "/" });
+          count++;
+        }
+      });
+    } else {
+      raw.split(";").forEach((pair) => {
+        const idx = pair.indexOf("=");
+        if (idx > 0) {
+          const name = pair.slice(0, idx).trim();
+          const value = pair.slice(idx + 1).trim();
+          if (name && value) {
+            chrome.cookies?.set({ url: "https://www.facebook.com", domain: ".facebook.com", name, value, path: "/" });
+            count++;
+          }
+        }
+      });
+    }
+    if (statusEl) statusEl.textContent = "✓ Đã nạp " + count + " Cookie! Hãy tải lại tab Facebook.";
+  } catch (e) {
+    if (statusEl) statusEl.textContent = "Lỗi định dạng Cookie.";
+  }
+});
+
+document.getElementById("btn-extract-token")?.addEventListener("click", () => {
+  const statusEl = document.getElementById("cookie-status");
+  const box = document.getElementById("cookie-box");
+  chrome.tabs?.query({ active: true, currentWindow: true }, (tabs) => {
+    const tabId = tabs?.[0]?.id;
+    if (!tabId) return;
+    chrome.scripting?.executeScript({
+      target: { tabId },
+      func: () => {
+        const html = document.documentElement.innerHTML;
+        const m = html.match(/EAA[A-Za-z0-9]{40,350}/);
+        return m ? m[0] : "";
+      }
+    }, (results) => {
+      const tok = results?.[0]?.result || "";
+      if (tok) {
+        if (box) box.value = tok;
+        navigator.clipboard.writeText(tok);
+        if (statusEl) statusEl.textContent = "✓ Đã bắt & sao chép Token Meta (" + tok.slice(0, 10) + "...)!";
+      } else {
+        if (statusEl) statusEl.textContent = "Hãy mở tab Ads Manager hoặc BM rồi bấm lại để bắt Token.";
+      }
+    });
+  });
+});
 
 function fmtMoney(raw, curr) {
   const n = Number(raw) || 0;
@@ -866,14 +1131,17 @@ function flashSaved() {
 renderAccounts(DEFAULT_ACCOUNTS);
 
 if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
-  chrome.storage.local.get(["viaName", "profileCode", "proxyRaw", "proxyEnabled", "accounts"], (res) => {
-    if (viaInput) viaInput.value = res.viaName || "${viaName.replace(/"/g, '\"')}";
-    if (profileInput) profileInput.value = res.profileCode || "${profileDir.replace(/"/g, '\"')}";
+  chrome.storage.local.get(["viaName", "profileCode", "viaTier", "twoFaSecret", "proxyRaw", "proxyEnabled", "accounts"], (res) => {
+    if (viaInput) viaInput.value = res.viaName || "${viaName.replace(/"/g, '\\"')}";
+    if (profileInput) profileInput.value = res.profileCode || "${profileDir.replace(/"/g, '\\"')}";
+    if (tierSelect) tierSelect.value = res.viaTier || "${viaTier}";
+    if (twofaInput) twofaInput.value = res.twoFaSecret || "${twoFaSecret.replace(/\s+/g, '').toUpperCase()}";
     if (proxyInput) proxyInput.value = res.proxyRaw || "";
     updateBadge(Boolean(res.proxyEnabled), res.proxyRaw || "");
     if (Array.isArray(res.accounts) && res.accounts.length > 0) {
       renderAccounts(res.accounts);
     }
+    tickOtp();
   });
 }
 
@@ -882,8 +1150,10 @@ document.getElementById("btn-save-enable")?.addEventListener("click", () => {
   const state = {
     viaName: (viaInput?.value || "").trim() || "Via Facebook",
     profileCode: (profileInput?.value || "").trim() || "Default",
+    viaTier: tierSelect?.value || "camp",
     proxyRaw: raw,
-    proxyEnabled: Boolean(raw)
+    proxyEnabled: Boolean(raw),
+    webrtcShield: true
   };
   if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
     chrome.storage.local.set(state, () => {
@@ -913,8 +1183,8 @@ document.getElementById("btn-disable-proxy")?.addEventListener("click", () => {
 if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.query) {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const url = tabs?.[0]?.url || "";
-    const actMatch = url.match(/(?:act=|act_)(\d{6,25})/i);
-    const bmMatch = url.match(/business_id=(\d{6,25})/i);
+    const actMatch = url.match(/(?:act=|act_)(\\d{6,25})/i);
+    const bmMatch = url.match(/business_id=(\\d{6,25})/i);
     if (actMatch || bmMatch) {
       const box = document.getElementById("fb-detected");
       const txt = document.getElementById("fb-detected-text");
@@ -935,23 +1205,82 @@ if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.query) {
   });
 }
 
-refreshIp();`
+refreshIp();
+tickOtp();`
 
   const readmeTxt = [
-    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.2)',
-    '================================================================',
-    'Bước 1: Giải nén file .zip này ra một thư mục cố định (ví dụ: Desktop\AdsOps-Chrome-Extension).',
+    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.3 PRO)',
+    '====================================================================',
+    'Bước 1: Giải nén file .zip này ra một thư mục cố định (ví dụ: Desktop\\AdsOps-Chrome-Extension).',
     'Bước 2: Mở trình duyệt Google Chrome của Via -> gõ vào thanh địa chỉ: chrome://extensions',
     'Bước 3: Bật công tắc "Chế độ dành cho nhà phát triển" (Developer mode) ở góc trên bên phải.',
     'Bước 4: Bấm nút "Tải tiện ích đã giải nén" (Load unpacked) ở góc trên bên trái -> Chọn thư mục vừa giải nén.',
-    'Bước 5: Bấm biểu tượng mảnh ghép trên góc phải Chrome -> Bấm nút Ghim (Pin) cạnh "AdsOps Companion".',
+    'Bước 5: Bấm biểu tượng mảnh ghép trên góc phải Chrome -> Bấm nút Ghim (Pin) cạnh "AdsOps Companion Pro".',
   ].join('\r\n')
 
   const slug = profileDir.replace(/[^a-zA-Z0-9_-]/g, '-')
-  const contentJs = `// AdsOps Companion — Auto-Read Meta Billing Hub Content Script
+  const contentJs = `// AdsOps Companion Pro v2.3 — Auto-Read Meta Billing Hub + Floating Anti-Die HUD
 (function() {
   let lastSyncedAct = "";
+
+  function injectFloatingHud() {
+    if (document.getElementById("adsops-floating-hud")) return;
+    if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) return;
+    chrome.storage.local.get(["viaName", "profileCode", "viaTier", "proxyEnabled"], (res) => {
+      if (document.getElementById("adsops-floating-hud")) return;
+      const viaName = res.viaName || "Via Facebook";
+      const profileCode = res.profileCode || "Default";
+      const tier = res.viaTier || "camp";
+      const isVault = tier === "vault";
+      const isStandby = tier === "standby";
+
+      const hud = document.createElement("div");
+      hud.id = "adsops-floating-hud";
+      hud.style.cssText = [
+        "position:fixed",
+        "bottom:14px",
+        "left:14px",
+        "z-index:2147483647",
+        "display:flex",
+        "align-items:center",
+        "gap:8px",
+        "padding:6px 11px",
+        "border-radius:999px",
+        "font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif",
+        "font-size:11.5px",
+        "font-weight:700",
+        "box-shadow:0 8px 24px rgba(0,0,0,0.35)",
+        "backdrop-filter:blur(8px)",
+        isVault
+          ? "background:rgba(127,29,29,0.94);color:#fef2f2;border:1.5px solid #f87171;"
+          : isStandby
+          ? "background:rgba(120,53,15,0.94);color:#fffbeb;border:1.5px solid #fbbf24;"
+          : "background:rgba(15,23,42,0.92);color:#f8fafc;border:1.5px solid #38bdf8;"
+      ].join(";");
+
+      const roleText = isVault
+        ? "🛡️ LỚP 1: VIA TỔNG (CẤM BẤM LÊN CAMP!)"
+        : isStandby
+        ? "🌱 LỚP 3: VIA DỰ PHÒNG (ĐANG NGÂM)"
+        : "🚀 LỚP 2: VIA LÊN CAMP";
+
+      hud.innerHTML =
+        '<span>' + roleText + '</span>' +
+        '<span style="opacity:0.45;">|</span>' +
+        '<span style="font-family:monospace;">' + viaName + ' (' + profileCode + ')</span>' +
+        '<span style="opacity:0.45;">|</span>' +
+        '<span style="color:#6ee7b7;font-size:10.5px;">' + (res.proxyEnabled ? '🌐 Proxy + WebRTC Lock' : '🛡️ WebRTC Lock') + '</span>' +
+        '<button id="adsops-hud-close" title="Ẩn thanh nhắc nhở này" style="margin-left:4px;background:transparent;border:none;color:inherit;cursor:pointer;font-weight:900;font-size:12px;">✕</button>';
+
+      document.body.appendChild(hud);
+      document.getElementById("adsops-hud-close")?.addEventListener("click", () => {
+        hud.remove();
+      });
+    });
+  }
+
   function scanBillingDom() {
+    injectFloatingHud();
     const url = window.location.href;
     if (!url.includes("billing_hub") && !url.includes("account_billing")) return;
     const actMatch = url.match(/(?:act=|asset_id=)(\\d{6,25})/i);
@@ -960,9 +1289,9 @@ refreshIp();`
     const bodyText = document.body ? document.body.innerText : "";
     if (!bodyText || bodyText.length < 100) return;
 
-    const threshMatch = bodyText.match(/(?:Số dư của bạn đạt|Payment threshold)[\\s\\n:]*([0-9.,]+)\\s*(?:₫|VND|USD|\$)/i);
+    const threshMatch = bodyText.match(/(?:Số dư của bạn đạt|Payment threshold)[\\s\\n:]*([0-9.,]+)\\s*(?:₫|VND|USD|\\$)/i);
     const dateMatch = bodyText.match(/(?:Và vào ngày này|And on this date)[\\s\\n:]*([^\\n]{5,30})/i);
-    const dslMatch = bodyText.match(/(?:Giới hạn chi tiêu hàng ngày \\(do Meta đặt\\)|Daily spending limit)[\\s\\n:]*([0-9.,]+)\\s*(?:₫|VND|USD|\$)/i);
+    const dslMatch = bodyText.match(/(?:Giới hạn chi tiêu hàng ngày \\(do Meta đặt\\)|Daily spending limit)[\\s\\n:]*([0-9.,]+)\\s*(?:₫|VND|USD|\\$)/i);
     const cardMatch = bodyText.match(/(Visa|Mastercard)\\s*[·•*\\-.\\s]{2,8}\\s*(\\d{4})/i);
 
     const threshRaw = threshMatch ? threshMatch[1].replace(/[.,\\s]/g, "") : null;
@@ -993,6 +1322,7 @@ refreshIp();`
       });
     }
   }
+  setTimeout(injectFloatingHud, 1200);
   setInterval(scanBillingDom, 3000);
 })();`
 
