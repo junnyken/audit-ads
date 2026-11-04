@@ -414,18 +414,7 @@ export function launchChromeWithExtensionPreview(
   identityLabel?: string | null,
   networkLabel?: string | null,
 ): void {
-  const dir = resolveChromeProfileDirectory(browserProfileLabel, identityLabel)
-  const nameParam = identityLabel ? `&name=${encodeURIComponent(identityLabel)}` : ''
-  const proxyParam = networkLabel ? `&proxy=${encodeURIComponent(networkLabel)}` : ''
-  const localBridgeUrl = `http://127.0.0.1:17890/open?profile=${encodeURIComponent(dir)}${nameParam}${proxyParam}&show_ext=1&url=${encodeURIComponent(targetUrl)}`
-
-  fetch(localBridgeUrl, { method: 'GET', mode: 'cors' })
-    .then((res) => {
-      if (!res.ok) throw new Error('Bridge HTTP error')
-    })
-    .catch(() => {
-      window.open(targetUrl, '_blank', 'noopener,noreferrer')
-    })
+  launchInAssignedChromeProfile(targetUrl, browserProfileLabel, identityLabel, networkLabel)
 }
 
 function crc32(bytes: Uint8Array): number {

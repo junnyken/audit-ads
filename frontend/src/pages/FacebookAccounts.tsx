@@ -47,7 +47,7 @@ function parseViaMetaFromNotes(
   label: string,
   bmCount: number,
   adCount: number,
-  createdAt?: string | null,
+  _createdAt?: string | null,
 ): {
   tier: ViaRoleTier
   warmupStartIso: string
@@ -71,7 +71,7 @@ function parseViaMetaFromNotes(
     }
   }
 
-  const warmupStartIso = warmupMatch?.[1] || createdAt || '2026-10-20T00:00:00Z'
+  const warmupStartIso = warmupMatch?.[1] || ''
   const cleanNotes = notes
     .replace(/\[TIER:(?:vault|camp|standby)\]/gi, '')
     .replace(/\[WARMUP:[0-9T:.-]+Z?\]/gi, '')
@@ -421,7 +421,7 @@ export default function FacebookAccounts() {
       const rawNetwork = String(row.network_label ?? '').trim()
       const networkLabel = isRealNetworkLabel(rawNetwork) ? rawNetwork : ''
       const meta = parseViaMetaFromNotes(String(row.notes ?? ''), String(row.label ?? ''), bmCount, adCount, row.created_at)
-      const warmup = computeWarmupStatus(meta.warmupStartIso)
+      const warmup = meta.warmupStartIso ? computeWarmupStatus(meta.warmupStartIso) : null
 
       const sharedBrowser =
         s?.shared_browser_profile_with ??
@@ -456,9 +456,6 @@ export default function FacebookAccounts() {
       }
       if (meta.tier === 'camp' && bmCount > 2) {
         risks.push(`Via Lên Camp đang nắm ${bmCount} BM (Nên chuyển quyền Admin BM về Via Tổng)`)
-      }
-      if (meta.tier === 'camp' && !networkLabel) {
-        risks.push('Via Lên Camp đang dùng Mạng gốc (Khuyên gắn Proxy IPv4 tĩnh riêng)')
       }
       if (sharedNetwork.length >= 2) {
         risks.push(`1 Proxy đang gắn cho ${sharedNetwork.length + 1} Via (Vượt mức ≤ 2 Via/Proxy)`)
@@ -836,24 +833,42 @@ export default function FacebookAccounts() {
                           )}
                         </div>
 
-                        {/* Dòng 3: Đồng hồ Ngâm 72h Vàng & 7 Ngày Trust */}
+                        {/* Dòng 3: Đồng hồ Ngâm 72h Vàng (Chỉ hiện khi bật cho Via mới đăng nhập) */}
                         <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                          <Badge tone={warmup.tone} title={warmup.hint}>
-                            {warmup.label}
-                          </Badge>
-                          {canWrite && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const nowIso = new Date().toISOString()
-                                const updatedNotes = buildUpdatedNotes(meta.cleanNotes, meta.tier, nowIso)
-                                quickUpdateNotes.mutate({ id: row.id, notes: updatedNotes })
-                              }}
-                              className="text-[10.5px] text-ink-muted hover:text-brand-text hover:underline"
-                              title="Bấm khi bạn vừa đăng nhập Via này vào máy/Chrome mới để bắt đầu đếm ngược 72 giờ ngâm an toàn"
-                            >
-                              🔄 Bắt đầu ngâm 72h mới
-                            </button>
+                          {warmup ? (
+                            <>
+                              <Badge tone={warmup.tone} title={warmup.hint}>
+                                {warmup.label}
+                              </Badge>
+                              {canWrite && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const updatedNotes = `[TIER:${meta.tier}]${meta.cleanNotes ? ` ${meta.cleanNotes}` : ''}`
+                                    quickUpdateNotes.mutate({ id: row.id, notes: updatedNotes })
+                                  }}
+                                  className="text-[10.5px] font-semibold text-emerald-600 hover:underline dark:text-emerald-400"
+                                  title="Tắt đồng hồ ngâm 72h khi Via đã hoạt động ổn định"
+                                >
+                                  ✓ Hoàn tất ngâm
+                                </button>
+                              )}
+                            </>
+                          ) : (
+                            canWrite && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const nowIso = new Date().toISOString()
+                                  const updatedNotes = buildUpdatedNotes(meta.cleanNotes, meta.tier, nowIso)
+                                  quickUpdateNotes.mutate({ id: row.id, notes: updatedNotes })
+                                }}
+                                className="text-[10.5px] text-ink-muted hover:text-brand-text hover:underline"
+                                title="Bấm khi bạn vừa đăng nhập Via mới vào Chrome để bật đồng hồ đếm ngược 72h ngâm an toàn"
+                              >
+                                ⏳ Bật hẹn giờ ngâm 72h (cho Via mới)
+                              </button>
+                            )
                           )}
                         </div>
 

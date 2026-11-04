@@ -67,14 +67,14 @@ export default function Login() {
             </div>
 
             <div className="flex items-center gap-2">
-              <a
-                href="/adsops-chrome-extension.zip"
-                download="AdsOps-Chrome-Extension-v2.1.zip"
+              <button
+                type="button"
+                onClick={() => downloadChromeExtensionZip()}
                 className="inline-flex items-center gap-1.5 rounded-md border border-brand bg-brand px-3 py-1.5 text-xs font-semibold text-brand-fg hover:bg-brand-hover transition-colors"
               >
                 <Download className="h-3.5 w-3.5" aria-hidden="true" />
                 <span>Tải Tiện ích Chrome (.zip)</span>
-              </a>
+              </button>
               <ThemeToggle />
               <LanguageToggle />
             </div>
@@ -127,14 +127,14 @@ export default function Login() {
               </div>
 
               <div className="flex flex-wrap items-center gap-3 pt-1">
-                <a
-                  href="/adsops-chrome-extension.zip"
-                  download="AdsOps-Chrome-Extension-v2.1.zip"
+                <button
+                  type="button"
+                  onClick={() => downloadChromeExtensionZip()}
                   className="inline-flex items-center gap-2 rounded-md bg-brand px-4 py-2.5 text-sm font-semibold text-brand-fg hover:bg-brand-hover transition-colors"
                 >
                   <Download className="h-4 w-4" aria-hidden="true" />
                   <span>Tải Tiện ích Google Chrome (.zip)</span>
-                </a>
+                </button>
                 <a
                   href="#tien-ich-chrome"
                   className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-4 py-2.5 text-sm font-semibold text-ink hover:bg-surface-muted transition-colors"
@@ -284,14 +284,14 @@ export default function Login() {
                     <div className="text-xs font-bold text-ink">
                       Hướng dẫn 4 bước cài gói <code>AdsOps-Chrome-Extension.zip</code> vào Google Chrome:
                     </div>
-                    <a
-                      href="/adsops-chrome-extension.zip"
-                      download="AdsOps-Chrome-Extension-v2.1.zip"
+                    <button
+                      type="button"
+                      onClick={() => downloadChromeExtensionZip()}
                       className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-fg hover:bg-brand-hover"
                     >
                       <Download className="h-3.5 w-3.5" aria-hidden="true" />
-                      <span>Tải gói chuẩn .zip (v2.1)</span>
-                    </a>
+                      <span>Tải gói chuẩn .zip (v2.3 Pro)</span>
+                    </button>
                   </div>
                   <ol className="grid gap-2 sm:grid-cols-2 text-xs text-ink-muted list-decimal pl-4">
                     <li>
@@ -337,7 +337,7 @@ export default function Login() {
 
                     <div className="rounded-md border border-brand/30 bg-brand-light/50 p-2.5 text-xs">
                       <div className="font-semibold text-brand-text">Phát hiện ID Meta trên tab hiện tại:</div>
-                      <div className="mt-0.5 font-mono text-[11px] text-ink">BM ID: 102968402561310 · TKQC: 4166221836835661</div>
+                      <div className="mt-0.5 font-mono text-[11px] text-ink">Tự động đọc act_id & business_id từ tab đang mở</div>
                     </div>
 
                     <div className="rounded-md border border-line bg-surface p-2.5 space-y-2">
@@ -357,13 +357,13 @@ export default function Login() {
                         2. Cấu hình Proxy riêng (IP:Port:User:Pass)
                       </div>
                       <div className="rounded border border-line bg-surface-muted px-2 py-1.5 font-mono text-[11px] text-ink truncate">
-                        103.145.67.89:8080:viettel_isp:••••••
+                        IP:Port:User:Pass (Tự động điền xác thực ngầm)
                       </div>
 
                       <div className="flex items-center justify-between border-t border-dashed border-line pt-2 text-[11px]">
                         <span className="text-ink-muted">IP Public thực tế:</span>
                         <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
-                          103.145.67.89 (VNPT/Viettel)
+                          Tự động kiểm tra IP Public thực tế
                         </span>
                       </div>
                     </div>
