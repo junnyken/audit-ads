@@ -759,21 +759,38 @@ export default function FacebookAccounts() {
                           )}
 
                           {browserLabel && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                launchInAssignedChromeProfile(
-                                  'https://business.facebook.com/overview',
-                                  browserLabel,
-                                  String(row.label),
-                                  networkLabel,
-                                )
-                              }
-                              className="inline-flex items-center gap-1 rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
-                              title={`Mở đúng cửa sổ Chrome (${browserLabel}) của Via ${String(row.label)}`}
-                            >
-                              🚀 Mở Chrome
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  launchInAssignedChromeProfile(
+                                    'https://business.facebook.com/overview',
+                                    browserLabel,
+                                    String(row.label),
+                                    networkLabel,
+                                  )
+                                }
+                                className="inline-flex items-center gap-1 rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+                                title={`Mở đúng cửa sổ Chrome (${browserLabel}) của Via ${String(row.label)}`}
+                              >
+                                🚀 Mở Chrome
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  launchInAssignedChromeProfile(
+                                    'https://accountscenter.facebook.com/password_and_security/passkeys?adsops_auto_delete_passkey=1',
+                                    browserLabel,
+                                    String(row.label),
+                                    networkLabel,
+                                  )
+                                }
+                                className="inline-flex items-center gap-1 rounded border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-500/20 dark:text-rose-300"
+                                title="Mở thẳng trang Khóa truy cập (Passkey) trên Chrome của Via này để Tiện ích tự động phát hiện & xóa sạch Passkey chỉ với 1 chạm"
+                              >
+                                🚫 Quét &amp; Xoá Passkey
+                              </button>
+                            </>
                           )}
                         </div>
 

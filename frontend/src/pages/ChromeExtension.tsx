@@ -286,8 +286,8 @@ export default function ChromeExtension() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-3xl space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="info">Tiện ích Google Chrome chính thức · v2.3 Pro</Badge>
-              <Badge tone="positive">Manifest V3 · Quản lý TKQC + 2FA Tự Điền + Khóa WebRTC + Cookie &amp; Token EAAB</Badge>
+              <Badge tone="info">Tiện ích Google Chrome chính thức · v2.4 Pro (Anti-Passkey)</Badge>
+              <Badge tone="positive">Manifest V3 · Chặn &amp; Tự Xoá Passkey 1 Chạm + 2FA Tự Điền + Khóa WebRTC</Badge>
             </div>
             <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-ink">
               Trung tâm Tiện ích Google Chrome («AdsOps Companion Pro»)
@@ -638,7 +638,7 @@ export default function ChromeExtension() {
                     AO
                   </span>
                   <div>
-                    <div className="text-xs font-extrabold text-ink">AdsOps Companion v2.3 Pro</div>
+                    <div className="text-xs font-extrabold text-ink">AdsOps Companion v2.4 Pro (Anti-Passkey)</div>
                     <div className="text-[10px] text-ink-muted">
                       Hồ sơ: {shortFolder} · Via: {selectedViaLabel} (
                       {viaTier === 'vault' ? '🛡️ Via Tổng' : viaTier === 'standby' ? '🌱 Dự Phòng' : '🚀 Lên Camp'})
@@ -656,13 +656,33 @@ export default function ChromeExtension() {
                 </span>
               </div>
 
-              {/* Section 1: Live 2FA OTP & WebRTC Lock (100% Interactive) */}
+              {/* Section 1: Anti-Passkey Shield, Live 2FA OTP & WebRTC Lock (100% Interactive) */}
               <div className="rounded-md border border-line bg-surface p-2.5 space-y-2">
                 <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-ink-muted">
-                  <span>1. 🔑 Mã 2FA 6 số &amp; Bảo vệ IP WebRTC</span>
+                  <span>1. 🚫 Chặn Passkey · 🔑 2FA &amp; Khóa WebRTC</span>
                   <span className="inline-flex items-center gap-1 font-mono text-emerald-600 dark:text-emerald-400">
-                    <ShieldCheck className="h-3 w-3" /> WebRTC Lock: BẬT
+                    <ShieldCheck className="h-3 w-3" /> Passkey &amp; WebRTC Lock
                   </span>
+                </div>
+                <div className="flex items-center justify-between gap-2 rounded border border-rose-500/30 bg-rose-500/10 px-2.5 py-1.5 text-xs">
+                  <span className="text-[11px] font-bold text-rose-700 dark:text-rose-300">
+                    🚫 Đã chặn bảng Windows Hello / Passkey
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      launchInAssignedChromeProfile(
+                        'https://accountscenter.facebook.com/password_and_security/passkeys?adsops_auto_delete_passkey=1',
+                        selectedProfile,
+                        selectedViaLabel,
+                        proxyInput,
+                      )
+                    }
+                    className="rounded bg-rose-600 px-2 py-0.5 text-[10px] font-bold text-white hover:bg-rose-700"
+                    title="Mở Account Center trên đúng Chrome của Via này và tự động bấm Xoá Passkey"
+                  >
+                    🗑️ 1 Chạm Tự Xoá Passkey
+                  </button>
                 </div>
                 {liveOtp ? (
                   <div className="flex items-center justify-between gap-2 rounded border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5">

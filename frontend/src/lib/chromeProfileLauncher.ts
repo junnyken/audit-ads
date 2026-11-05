@@ -529,9 +529,9 @@ export function downloadChromeExtensionZip(
       ? `AdsOps Companion Pro · ${profileDir} · Proxy ${parsed!.host}:${parsed!.port}`
       : `AdsOps Companion Pro · ${profileDir} (${viaName})`,
     short_name: 'AdsOps Companion Pro',
-    version: '2.3.0',
+    version: '2.4.0',
     description:
-      'Tiện ích Quản lý TKQC & Hộ Chiếu Via Pro: Dư nợ & Thẻ, Mã 2FA 6 số tự điền, Chống rò rỉ WebRTC IP, Xuất/Nhập Cookie, Bắt Token EAAB và HUD cảnh báo Lớp Via.',
+      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.4 Pro: Chặn & Tự Xoá Passkey, Sinh mã 2FA 6 số tự điền, Khóa rò rỉ WebRTC IP, Xuất/Nhập Cookie, Bắt Token EAAB và HUD cảnh báo Lớp Via.',
     permissions: [
       'proxy',
       'privacy',
@@ -553,6 +553,18 @@ export function downloadChromeExtensionZip(
       {
         matches: [
           'https://*.facebook.com/*',
+          'https://accountscenter.facebook.com/*',
+          'https://business.facebook.com/*',
+          'https://adsmanager.facebook.com/*',
+        ],
+        js: ['passkey_shield.js'],
+        run_at: 'document_start',
+        world: 'MAIN',
+      },
+      {
+        matches: [
+          'https://*.facebook.com/*',
+          'https://accountscenter.facebook.com/*',
           'https://business.facebook.com/*',
           'https://adsmanager.facebook.com/*',
         ],
@@ -568,10 +580,46 @@ export function downloadChromeExtensionZip(
     viaTier,
     twoFaSecret: twoFaSecret.replace(/\s+/g, '').toUpperCase(),
     webrtcShield: true,
+    blockPasskey: true,
+    passkeyStatus: 'clean',
     proxyRaw: parsed ? `${parsed.host}:${parsed.port}${parsed.user ? `:${parsed.user}:${parsed.pass}` : ''}` : '',
     proxyEnabled: hasProxy,
     accounts: bundledAccounts,
   })
+
+  // Runs in MAIN world at document_start BEFORE Facebook's scripts load:
+  // Completely blocks Windows Hello / WebAuthn / Passkey popup from ever appearing!
+  const passkeyShieldJs = `// AdsOps Companion Pro v2.4 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
+(function() {
+  try {
+    if (window.PublicKeyCredential) {
+      try {
+        window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable = function() {
+          return Promise.resolve(false);
+        };
+        window.PublicKeyCredential.isConditionalMediationAvailable = function() {
+          return Promise.resolve(false);
+        };
+      } catch (e) {}
+    }
+    if (navigator.credentials) {
+      const origGet = navigator.credentials.get ? navigator.credentials.get.bind(navigator.credentials) : null;
+      navigator.credentials.get = function(options) {
+        if (options && options.publicKey) {
+          return Promise.reject(new DOMException("Passkey prompt blocked by AdsOps Anti-Passkey Shield", "NotAllowedError"));
+        }
+        return origGet ? origGet(options) : Promise.resolve(null);
+      };
+      navigator.credentials.create = function(options) {
+        if (options && options.publicKey) {
+          return Promise.reject(new DOMException("Passkey creation blocked by AdsOps Anti-Passkey Shield", "NotAllowedError"));
+        }
+        return Promise.reject(new DOMException("Blocked by AdsOps", "NotAllowedError"));
+      };
+    }
+  } catch (err) {}
+})();
+`
 
   const backgroundJs = `const DEFAULT_STATE = ${defaultStateJson};
 let currentAuth = { user: "", pass: "" };
@@ -625,13 +673,15 @@ function applyProxyState(state) {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.local.get(["viaName", "profileCode", "viaTier", "twoFaSecret", "webrtcShield", "proxyRaw", "proxyEnabled", "accounts"], (res) => {
+  chrome.storage.local.get(["viaName", "profileCode", "viaTier", "twoFaSecret", "webrtcShield", "blockPasskey", "passkeyStatus", "proxyRaw", "proxyEnabled", "accounts"], (res) => {
     const init = {
       viaName: res.viaName || DEFAULT_STATE.viaName,
       profileCode: res.profileCode || DEFAULT_STATE.profileCode,
       viaTier: res.viaTier || DEFAULT_STATE.viaTier,
       twoFaSecret: res.twoFaSecret !== undefined ? res.twoFaSecret : DEFAULT_STATE.twoFaSecret,
       webrtcShield: res.webrtcShield !== undefined ? Boolean(res.webrtcShield) : true,
+      blockPasskey: res.blockPasskey !== undefined ? Boolean(res.blockPasskey) : true,
+      passkeyStatus: res.passkeyStatus || "clean",
       proxyRaw: res.proxyRaw !== undefined ? res.proxyRaw : DEFAULT_STATE.proxyRaw,
       proxyEnabled: res.proxyEnabled !== undefined ? Boolean(res.proxyEnabled) : DEFAULT_STATE.proxyEnabled,
       accounts: Array.isArray(res.accounts) && res.accounts.length > 0 ? res.accounts : DEFAULT_STATE.accounts
@@ -659,7 +709,7 @@ chrome.webRequest.onAuthRequired.addListener(
 <meta charset="utf-8" />
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  body { width: 420px; background: #0f172a; color: #f8fafc; padding: 12px; font-size: 12px; }
+  body { width: 425px; background: #0f172a; color: #f8fafc; padding: 12px; font-size: 12px; }
   .header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 9px; margin-bottom: 9px; border-bottom: 1px solid #1e293b; }
   .brand { display: flex; align-items: center; gap: 7px; font-weight: 800; font-size: 13px; color: #f8fafc; }
   .logo { width: 22px; height: 22px; border-radius: 6px; background: #2563eb; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; }
@@ -671,7 +721,7 @@ chrome.webRequest.onAuthRequired.addListener(
   .kpi-box { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 6px 8px; }
   .kpi-lbl { font-size: 10px; color: #94a3b8; }
   .kpi-val { font-size: 12px; font-weight: 800; color: #f8fafc; margin-top: 2px; font-family: ui-monospace, Consolas, monospace; }
-  .acc-list { max-height: 185px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 2px; }
+  .acc-list { max-height: 170px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 2px; }
   .acc-item { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 7px 8px; }
   .acc-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 4px; }
   .acc-name { font-weight: 700; font-size: 11.5px; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 210px; }
@@ -690,6 +740,8 @@ chrome.webRequest.onAuthRequired.addListener(
   .btn-primary:hover { background: #1d4ed8; }
   .btn-emerald { background: #059669; border-color: #059669; color: #fff; }
   .btn-emerald:hover { background: #047857; }
+  .btn-danger { background: rgba(225,29,72,0.22); border-color: rgba(244,63,94,0.5); color: #fda4af; }
+  .btn-danger:hover { background: rgba(225,29,72,0.35); }
   .ip-bar { display: flex; align-items: center; justify-content: space-between; padding-top: 6px; margin-top: 6px; border-top: 1px dashed #334155; font-size: 11px; color: #cbd5e1; }
   .ip-val { font-family: ui-monospace, Consolas, monospace; font-weight: 700; color: #34d399; }
   .otp-box { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 6px 9px; }
@@ -707,7 +759,7 @@ chrome.webRequest.onAuthRequired.addListener(
   <div class="header">
     <div class="brand">
       <span class="logo">AO</span>
-      <span>AdsOps Companion v2.3 Pro</span>
+      <span>AdsOps Companion v2.4 Pro</span>
     </div>
     <span id="proxy-badge" class="status-pill">MẠNG GỐC</span>
   </div>
@@ -721,24 +773,41 @@ chrome.webRequest.onAuthRequired.addListener(
     </div>
   </div>
 
-  <!-- SECTION 1: VIA PASSPORT, TIER & WEBRTC SHIELD -->
+  <!-- SECTION 1: VIA PASSPORT, TIER, WEBRTC & ANTI-PASSKEY SHIELD -->
   <div class="card">
     <div class="section-title">
-      <span>1. Định danh Via · Phân tầng & Chống rò IP WebRTC</span>
+      <span>1. Định danh Via · Chặn Passkey &amp; Khóa WebRTC</span>
       <span id="save-msg" class="msg">Đã lưu!</span>
     </div>
     <div class="row">
       <input id="via-name" type="text" placeholder="Tên Via" />
       <input id="profile-code" type="text" class="mono" placeholder="Default" />
     </div>
-    <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:4px;">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:6px;">
       <select id="via-tier" style="flex:1; font-weight:700;">
         <option value="vault">🛡️ Lớp 1: Via Tổng (Chỉ giữ BM - CẤM LÊN CAMP)</option>
         <option value="camp">🚀 Lớp 2: Via Lên Camp (Chạy Ads khách)</option>
-        <option value="standby">🌱 Lớp 3: Via Dự Phòng (Ngâm sẵn > 7 ngày)</option>
+        <option value="standby">🌱 Lớp 3: Via Dự Phòng (Ngâm sẵn &gt; 7 ngày)</option>
       </select>
       <span class="badge badge-ok" title="Đã khóa UDP STUN chống lộ IP Wifi gốc">🛡️ WebRTC Lock</span>
     </div>
+
+    <!-- ANTI-PASSKEY SHIELD & 1-CLICK AUTO DELETE PASSKEY -->
+    <div style="background:#0f172a; border:1px solid #334155; border-radius:6px; padding:6px 8px; margin-bottom:4px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:5px;">
+        <span style="font-size:11px; font-weight:700; color:#e2e8f0;">🚫 Khiên Chặn Passkey (Windows Hello):</span>
+        <span id="passkey-badge" class="badge badge-ok">ĐANG CHẶN 100%</span>
+      </div>
+      <div style="display:flex; gap:5px;">
+        <button id="btn-nuke-passkey" type="button" class="btn btn-danger" title="Mở Account Center và tự động quét + bấm Xoá sạch Passkey của Via này">
+          🗑️ 1 Chạm Quét &amp; Tự Xoá Passkey
+        </button>
+        <button id="btn-bypass-login-passkey" type="button" class="btn" title="Đang bị kẹt ở màn hình đòi Passkey? Bấm để tự chuyển sang nhập 6 số 2FA">
+          ⚡ Bỏ qua Passkey → 2FA
+        </button>
+      </div>
+    </div>
+
     <div class="ip-bar" style="margin-top:2px; padding-top:4px;">
       <span>IP Public thực tế của Chrome này:</span>
       <span id="live-ip" class="ip-val">Đang kiểm tra...</span>
@@ -748,7 +817,7 @@ chrome.webRequest.onAuthRequired.addListener(
   <!-- SECTION 2: LIVE 2FA 6-DIGIT OTP & AUTO-FILL -->
   <div class="card">
     <div class="section-title">
-      <span>2. 🔑 Mã 2FA 6 số trực tiếp & Tự điền</span>
+      <span>2. 🔑 Mã 2FA 6 số trực tiếp &amp; Tự điền</span>
       <span id="otp-timer" class="mono" style="color:#34d399;">30s</span>
     </div>
     <div class="otp-box">
@@ -792,7 +861,7 @@ chrome.webRequest.onAuthRequired.addListener(
 
   <!-- SECTION 4: COOKIE EXPORT/IMPORT & TOKEN EXTRACTOR -->
   <details class="card" style="cursor:pointer;">
-    <summary class="section-title" style="margin-bottom:0;">4. 🍪 Xuất/Nhập Cookie & ⚡ Bắt Token EAAB (Chống CP 956)</summary>
+    <summary class="section-title" style="margin-bottom:0;">4. 🍪 Xuất/Nhập Cookie &amp; ⚡ Bắt Token EAAB (Chống CP 956)</summary>
     <div style="margin-top:8px;">
       <div class="btn-row" style="margin-top:0; margin-bottom:6px;">
         <button id="btn-export-cookie" type="button" class="btn btn-primary">🍪 Chép Cookie FB</button>
@@ -812,7 +881,7 @@ chrome.webRequest.onAuthRequired.addListener(
     <div style="margin-top:8px;">
       <input id="proxy-raw" type="text" class="mono" placeholder="103.145.67.89:8080:user:pass (để trống = mạng gốc)" />
       <div class="btn-row">
-        <button id="btn-save-enable" type="button" class="btn btn-primary">Lưu & Bật Proxy + Khóa WebRTC</button>
+        <button id="btn-save-enable" type="button" class="btn btn-primary">Lưu &amp; Bật Proxy + Khóa WebRTC</button>
         <button id="btn-disable-proxy" type="button" class="btn">Tắt Proxy</button>
       </div>
     </div>
@@ -820,7 +889,7 @@ chrome.webRequest.onAuthRequired.addListener(
 
   <div class="mini-links">
     <a class="link-item alert" href="https://business.facebook.com/accountquality" target="_blank">
-      <span>🛡️ Kháng nghị & Xoá bài lỗi</span><span>↗</span>
+      <span>🛡️ Kháng nghị &amp; Xoá bài lỗi</span><span>↗</span>
     </a>
     <a class="link-item bill" href="https://business.facebook.com/billing_hub/accounts" target="_blank">
       <span>💳 Billing Hub Meta</span><span>↗</span>
@@ -844,11 +913,44 @@ const tierSelect = document.getElementById("via-tier");
 const twofaInput = document.getElementById("twofa-secret");
 const proxyInput = document.getElementById("proxy-raw");
 const badge = document.getElementById("proxy-badge");
+const passkeyBadge = document.getElementById("passkey-badge");
 const saveMsg = document.getElementById("save-msg");
 const liveIp = document.getElementById("live-ip");
 const otpCodeEl = document.getElementById("otp-code");
 const otpTimerEl = document.getElementById("otp-timer");
 let currentOtpRaw = "";
+
+// 1-Click Open Account Center & Auto-Delete Passkey
+document.getElementById("btn-nuke-passkey")?.addEventListener("click", () => {
+  chrome.tabs?.create({
+    url: "https://accountscenter.facebook.com/password_and_security/passkeys?adsops_auto_delete_passkey=1"
+  });
+});
+
+// 1-Click Bypass Passkey Login Screen -> Switch to 2FA 6-digit Authenticator
+document.getElementById("btn-bypass-login-passkey")?.addEventListener("click", () => {
+  chrome.tabs?.query({ active: true, currentWindow: true }, (tabs) => {
+    const tabId = tabs?.[0]?.id;
+    if (!tabId) return;
+    chrome.scripting?.executeScript({
+      target: { tabId },
+      func: () => {
+        const keywords = [
+          "thử cách khác", "try another way", "sử dụng phương thức khác",
+          "use another method", "ứng dụng xác thực", "authentication app",
+          "lúc khác", "not now", "bỏ qua", "skip"
+        ];
+        const els = Array.from(document.querySelectorAll('div[role="button"], button, a, span'));
+        for (const kw of keywords) {
+          const match = els.find((el) => (el.textContent || "").trim().toLowerCase() === kw || (el.textContent || "").trim().toLowerCase().includes(kw));
+          if (match) {
+            match.click();
+          }
+        }
+      }
+    });
+  });
+});
 
 // RFC-6238 TOTP in pure Web Crypto
 function base32ToBytes(b32) {
@@ -1120,12 +1222,21 @@ function flashSaved() {
 renderAccounts(DEFAULT_ACCOUNTS);
 
 if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
-  chrome.storage.local.get(["viaName", "profileCode", "viaTier", "twoFaSecret", "proxyRaw", "proxyEnabled", "accounts"], (res) => {
+  chrome.storage.local.get(["viaName", "profileCode", "viaTier", "twoFaSecret", "passkeyStatus", "proxyRaw", "proxyEnabled", "accounts"], (res) => {
     if (viaInput) viaInput.value = res.viaName || "${viaName.replace(/"/g, '\\"')}";
     if (profileInput) profileInput.value = res.profileCode || "${profileDir.replace(/"/g, '\\"')}";
     if (tierSelect) tierSelect.value = res.viaTier || "${viaTier}";
     if (twofaInput) twofaInput.value = res.twoFaSecret || "${twoFaSecret.replace(/\s+/g, '').toUpperCase()}";
     if (proxyInput) proxyInput.value = res.proxyRaw || "";
+    if (passkeyBadge) {
+      if (res.passkeyStatus === "detected") {
+        passkeyBadge.textContent = "⚠️ CÓ PASSKEY - BẤM XOÁ NGAY";
+        passkeyBadge.className = "badge badge-err";
+      } else if (res.passkeyStatus === "deleted") {
+        passkeyBadge.textContent = "✅ ĐÃ XOÁ SẠCH PASSKEY";
+        passkeyBadge.className = "badge badge-ok";
+      }
+    }
     updateBadge(Boolean(res.proxyEnabled), res.proxyRaw || "");
     if (Array.isArray(res.accounts) && res.accounts.length > 0) {
       renderAccounts(res.accounts);
@@ -1198,8 +1309,8 @@ refreshIp();
 tickOtp();`
 
   const readmeTxt = [
-    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.3 PRO)',
-    '====================================================================',
+    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.4 PRO - ANTI-PASSKEY)',
+    '===================================================================================',
     'Bước 1: Giải nén file .zip này ra một thư mục cố định (ví dụ: Desktop\\AdsOps-Chrome-Extension).',
     'Bước 2: Mở trình duyệt Google Chrome của Via -> gõ vào thanh địa chỉ: chrome://extensions',
     'Bước 3: Bật công tắc "Chế độ dành cho nhà phát triển" (Developer mode) ở góc trên bên phải.',
@@ -1208,14 +1319,111 @@ tickOtp();`
   ].join('\r\n')
 
   const slug = profileDir.replace(/[^a-zA-Z0-9_-]/g, '-')
-  const contentJs = `// AdsOps Companion Pro v2.3 — Auto-Read Meta Billing Hub + Floating Anti-Die HUD
+  const contentJs = `// AdsOps Companion Pro v2.4 — Auto-Detect & 1-Click Auto-Delete Passkey + Billing Scanner + Floating HUD
 (function() {
   let lastSyncedAct = "";
+  let autoDeletePasskeyTriggered = false;
+
+  // 1. Auto-Skip "Create a passkey" upsell modals & Auto-Detect / Auto-Delete Passkeys in Account Center
+  function handlePasskeyDom() {
+    const url = window.location.href;
+    const bodyText = (document.body ? document.body.innerText : "").toLowerCase();
+
+    // A) If Facebook shows a "Create a passkey / Tạo khóa truy cập" upsell popup after login -> auto-dismiss it!
+    if (
+      (bodyText.includes("tạo khóa truy cập") || bodyText.includes("create a passkey") || bodyText.includes("đăng nhập nhanh hơn bằng khóa truy cập")) &&
+      !url.includes("accountscenter.facebook.com")
+    ) {
+      const buttons = Array.from(document.querySelectorAll('div[role="button"], button, span'));
+      const skipBtn = buttons.find((el) => {
+        const t = (el.textContent || "").trim().toLowerCase();
+        return t === "lúc khác" || t === "bỏ qua" || t === "not now" || t === "skip";
+      });
+      if (skipBtn) {
+        skipBtn.click();
+      }
+    }
+
+    // B) If on login screen and stuck on "Sign in with a passkey / Đăng nhập bằng khóa truy cập"
+    if (
+      bodyText.includes("đăng nhập bằng khóa truy cập") ||
+      bodyText.includes("sign in with a passkey") ||
+      bodyText.includes("sử dụng khóa truy cập của bạn")
+    ) {
+      if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.set({ passkeyStatus: "detected" });
+      }
+      const buttons = Array.from(document.querySelectorAll('div[role="button"], button, a, span'));
+      const tryOtherBtn = buttons.find((el) => {
+        const t = (el.textContent || "").trim().toLowerCase();
+        return t === "thử cách khác" || t === "try another way" || t === "sử dụng phương thức khác" || t === "use another method";
+      });
+      if (tryOtherBtn) {
+        tryOtherBtn.click();
+      }
+    }
+
+    // C) If inside Meta Accounts Center Passkeys page (accountscenter.facebook.com/password_and_security/passkeys)
+    if (url.includes("accountscenter.facebook.com") && (url.includes("passkey") || bodyText.includes("khóa truy cập") || bodyText.includes("passkey"))) {
+      const clickable = Array.from(document.querySelectorAll('div[role="button"], button, a, span'));
+      const deleteButtons = clickable.filter((el) => {
+        const t = (el.textContent || "").trim().toLowerCase();
+        const aria = (el.getAttribute && (el.getAttribute("aria-label") || "")).toLowerCase();
+        return (
+          t === "xóa" || t === "gỡ" || t === "delete" || t === "remove" ||
+          aria.includes("xóa khóa truy cập") || aria.includes("delete passkey") || aria.includes("remove passkey")
+        );
+      });
+
+      const hasExistingPasskey =
+        deleteButtons.length > 0 ||
+        bodyText.includes("khóa truy cập của bạn") ||
+        bodyText.includes("your passkeys");
+
+      if (hasExistingPasskey && deleteButtons.length > 0) {
+        if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+          chrome.storage.local.set({ passkeyStatus: "detected" });
+        }
+        const hudStatus = document.getElementById("adsops-hud-passkey-status");
+        if (hudStatus) {
+          hudStatus.textContent = "⚠️ Phát hiện Passkey! Đang tự động xóa...";
+          hudStatus.style.color = "#fda4af";
+        }
+        // If opened via 1-Click Auto-Delete button (?adsops_auto_delete_passkey=1) or user clicked HUD delete
+        if (url.includes("adsops_auto_delete_passkey=1") && !autoDeletePasskeyTriggered) {
+          autoDeletePasskeyTriggered = true;
+          deleteButtons[0].click();
+          setTimeout(() => {
+            const allBtns = Array.from(document.querySelectorAll('div[role="dialog"] div[role="button"], div[role="dialog"] button, button, div[role="button"]'));
+            const confirmBtn = allBtns.find((b) => {
+              const txt = (b.textContent || "").trim().toLowerCase();
+              return txt === "xóa" || txt === "gỡ" || txt === "delete" || txt === "remove" || txt === "xác nhận" || txt === "tiếp tục";
+            });
+            if (confirmBtn) {
+              confirmBtn.click();
+              if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+                chrome.storage.local.set({ passkeyStatus: "deleted" });
+              }
+            }
+          }, 900);
+        }
+      } else if (url.includes("passkey")) {
+        if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+          chrome.storage.local.set({ passkeyStatus: "deleted" });
+        }
+        const hudStatus = document.getElementById("adsops-hud-passkey-status");
+        if (hudStatus) {
+          hudStatus.textContent = "✅ Sạch Passkey";
+          hudStatus.style.color = "#6ee7b7";
+        }
+      }
+    }
+  }
 
   function injectFloatingHud() {
     if (document.getElementById("adsops-floating-hud")) return;
     if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) return;
-    chrome.storage.local.get(["viaName", "profileCode", "viaTier", "proxyEnabled"], (res) => {
+    chrome.storage.local.get(["viaName", "profileCode", "viaTier", "proxyEnabled", "passkeyStatus"], (res) => {
       if (document.getElementById("adsops-floating-hud")) return;
       const viaName = res.viaName || "Via Facebook";
       const profileCode = res.profileCode || "Default";
@@ -1258,8 +1466,9 @@ tickOtp();`
         '<span style="opacity:0.45;">|</span>' +
         '<span style="font-family:monospace;">' + viaName + ' (' + profileCode + ')</span>' +
         '<span style="opacity:0.45;">|</span>' +
-        '<span style="color:#6ee7b7;font-size:10.5px;">' + (res.proxyEnabled ? '🌐 Proxy + WebRTC Lock' : '🛡️ WebRTC Lock') + '</span>' +
-        '<button id="adsops-hud-close" title="Ẩn thanh nhắc nhở này" style="margin-left:4px;background:transparent;border:none;color:inherit;cursor:pointer;font-weight:900;font-size:12px;">✕</button>';
+        '<span id="adsops-hud-passkey-status" style="color:#6ee7b7;font-size:10.5px;">🚫 Đã khóa Passkey</span>' +
+        '<a href="https://accountscenter.facebook.com/password_and_security/passkeys?adsops_auto_delete_passkey=1" style="background:rgba(244,63,94,0.28);border:1px solid #f87171;color:#fecdd3;padding:2px 7px;border-radius:999px;text-decoration:none;font-size:10px;font-weight:800;" title="Mở trang tự động quét & xóa sạch Passkey trong Account Center">🗑️ Tự Xoá Passkey</a>' +
+        '<button id="adsops-hud-close" title="Ẩn thanh nhắc nhở này" style="margin-left:2px;background:transparent;border:none;color:inherit;cursor:pointer;font-weight:900;font-size:12px;">✕</button>';
 
       document.body.appendChild(hud);
       document.getElementById("adsops-hud-close")?.addEventListener("click", () => {
@@ -1270,6 +1479,7 @@ tickOtp();`
 
   function scanBillingDom() {
     injectFloatingHud();
+    handlePasskeyDom();
     const url = window.location.href;
     if (!url.includes("billing_hub") && !url.includes("account_billing")) return;
     const actMatch = url.match(/(?:act=|asset_id=)(\\d{6,25})/i);
@@ -1311,12 +1521,16 @@ tickOtp();`
       });
     }
   }
-  setTimeout(injectFloatingHud, 1200);
-  setInterval(scanBillingDom, 3000);
+  setTimeout(() => {
+    injectFloatingHud();
+    handlePasskeyDom();
+  }, 900);
+  setInterval(scanBillingDom, 2200);
 })();`
 
   const zipBlob = buildStoreZip([
     { name: 'AdsOps-Chrome-Extension/manifest.json', content: JSON.stringify(manifestObj, null, 2) },
+    { name: 'AdsOps-Chrome-Extension/passkey_shield.js', content: passkeyShieldJs },
     { name: 'AdsOps-Chrome-Extension/background.js', content: backgroundJs },
     { name: 'AdsOps-Chrome-Extension/content.js', content: contentJs },
     { name: 'AdsOps-Chrome-Extension/popup.html', content: popupHtml },
