@@ -16,6 +16,8 @@ import { Skeleton } from '../components/primitives/skeleton'
 import { EmptyState, ErrorState, LoadingRegion } from '../components/states'
 import { accountStatusTone } from '../lib/readiness'
 import {
+  downloadChromeExtensionZip,
+  downloadWindowsChromeLauncherBat,
   formatShortProfileBadge,
   launchInAssignedChromeProfile,
 } from '../lib/chromeProfileLauncher'
@@ -80,6 +82,83 @@ export default function Overview() {
             : '—'}
         </p>
       </header>
+
+      {/* THANH BẮT ĐẦU NHANH 3 BƯỚC CHO NGƯỜI DÙNG (MIỄN PHÍ 100%) */}
+      <div className="rounded-xl border border-brand/30 bg-surface p-3.5 shadow-sm">
+        <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone="info">⚡ Quy trình 3 Bước Vận hành Chuẩn Agency</Badge>
+            <span className="text-xs font-semibold text-ink-muted">
+              Biến Google Chrome gốc trên máy thành hệ thống cách ly đa Via, canh dư nợ thẻ &amp; chống chết chùm hoàn toàn miễn phí
+            </span>
+          </div>
+          <Link
+            to="/operations-guide"
+            className="text-xs font-bold text-brand-text hover:underline"
+          >
+            📖 Xem Slider 5 Bước Công Thức Chống Die →
+          </Link>
+        </div>
+
+        <div className="grid gap-2.5 sm:grid-cols-3">
+          <div className="rounded-lg border border-line bg-surface-muted/40 p-2.5 text-xs space-y-1.5">
+            <div className="font-bold text-ink">Bước 1: Kích hoạt Mở Chrome &amp; Tiện ích (.zip)</div>
+            <p className="text-[11px] text-ink-muted">
+              Chạy file <code>.bat</code> (1 lần) để mở đúng Hồ sơ Chrome từ Web &amp; cài gói Tiện ích v2.3 Pro (2FA tự điền, khóa WebRTC).
+            </p>
+            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+              <button
+                type="button"
+                onClick={downloadWindowsChromeLauncherBat}
+                className="rounded border border-brand bg-brand px-2 py-1 text-[11px] font-bold text-brand-fg hover:opacity-90"
+              >
+                ⚡ Tải File .bat (1 lần)
+              </button>
+              <button
+                type="button"
+                onClick={() => downloadChromeExtensionZip()}
+                className="rounded border border-line bg-surface px-2 py-1 text-[11px] font-semibold text-ink hover:bg-surface-muted"
+              >
+                📦 Tải Tiện Ích (.zip)
+              </button>
+              <Link to="/chrome-extension" className="text-[11px] font-bold text-brand-text hover:underline ml-auto">
+                Chi tiết →
+              </Link>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-line bg-surface-muted/40 p-2.5 text-xs space-y-1.5">
+            <div className="font-bold text-ink">Bước 2: Phân tầng 3 Lớp Via &amp; Lấy mã 2FA</div>
+            <p className="text-[11px] text-ink-muted">
+              Tách biệt <strong>🛡️ Via Tổng giữ BM</strong> (cấm lên camp), <strong>🚀 Via Lên Camp</strong> và <strong>🌱 Via Dự Phòng</strong> kèm mã 2FA 6 số trực tiếp.
+            </p>
+            <div className="pt-0.5">
+              <Link
+                to="/facebook-accounts"
+                className="inline-flex items-center rounded border border-brand/40 bg-brand-light px-2.5 py-1 text-[11px] font-bold text-brand-text hover:opacity-90"
+              >
+                🛡️ Mở Bảng Phân Tầng Via &amp; 2FA →
+              </Link>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-line bg-surface-muted/40 p-2.5 text-xs space-y-1.5">
+            <div className="font-bold text-ink">Bước 3: Canh Dư nợ TKQC &amp; Hạn mức Thẻ</div>
+            <p className="text-[11px] text-ink-muted">
+              Kiểm soát 20+ TKQC trên 1 bảng, lọc 1 chạm các TK có dư nợ và giữ quy tắc <strong>1 Thẻ ≤ 3 TKQC</strong> chống đỏ thẻ.
+            </p>
+            <div className="pt-0.5">
+              <Link
+                to="/accounts"
+                className="inline-flex items-center rounded border border-brand/40 bg-brand-light px-2.5 py-1 text-[11px] font-bold text-brand-text hover:opacity-90"
+              >
+                💳 Mở Bảng TKQC &amp; Dư Nợ Thẻ →
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+
 
       {registryEmpty ? (
         <EmptyState

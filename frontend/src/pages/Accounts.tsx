@@ -797,65 +797,82 @@ export default function Accounts() {
             </div>
           </div>
 
-          {/* Card Debt & Limit Matrix */}
+          {/* Collapsible Card Debt & Limit Matrix (1-line summary by default so table stays above the fold) */}
           {summaryStats.cards.length > 0 && (
-            <div className="border-t border-line pt-3">
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <span className="font-bold text-ink">
-                  💳 Tổng hợp Dư nợ chờ trừ theo từng Thẻ thanh toán (Bấm vào thẻ để lọc nhanh TKQC):
+            <details
+              open={Boolean(cardFilter)}
+              className="group rounded-lg border border-line bg-surface-muted/30 px-3 py-2 text-xs"
+            >
+              <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 font-bold text-ink">
+                <span className="inline-flex items-center gap-1.5">
+                  <CreditCard className="h-3.5 w-3.5 text-brand-text" aria-hidden="true" />
+                  <span>
+                    💳 Tổng hợp Dư nợ theo từng Thẻ thanh toán ({summaryStats.cards.length} thẻ đang gắn · Quy tắc an toàn: 1 Thẻ ≤ 3 TKQC)
+                  </span>
                 </span>
+                <span className="text-[11px] font-semibold text-brand-text group-open:hidden">
+                  Bấm để xổ chi tiết &amp; lọc theo thẻ ▾
+                </span>
+                <span className="hidden text-[11px] font-semibold text-ink-muted group-open:inline">
+                  Thu gọn danh sách thẻ ▴
+                </span>
+              </summary>
+
+              <div className="mt-2.5 border-t border-line pt-2.5">
                 {cardFilter && (
-                  <button
-                    type="button"
-                    onClick={() => setCardFilter(null)}
-                    className="font-semibold text-brand-text hover:underline"
-                  >
-                    ✕ Bỏ lọc thẻ ({cardFilter})
-                  </button>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {summaryStats.cards.map((c) => {
-                  const isSelected = cardFilter === c.code
-                  const overLimit = c.count > 3
-                  return (
+                  <div className="mb-2 flex justify-end">
                     <button
-                      key={c.code}
                       type="button"
-                      onClick={() => setCardFilter(isSelected ? null : c.code)}
-                      className={`inline-flex flex-wrap items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs transition ${
-                        isSelected
-                          ? 'border-brand bg-brand-light text-brand-text ring-1 ring-brand/40'
-                          : 'border-line bg-surface-muted/50 hover:bg-surface-muted text-ink'
-                      }`}
+                      onClick={() => setCardFilter(null)}
+                      className="font-semibold text-brand-text hover:underline"
                     >
-                      <span className="inline-flex items-center gap-1 font-mono font-bold">
-                        <CreditCard className="h-3.5 w-3.5 text-brand-text" aria-hidden="true" />
-                        {c.display}
-                        {c.expiry ? <span className="font-normal text-ink-muted">({c.expiry})</span> : null}
-                      </span>
-                      <Badge tone={overLimit ? 'attention' : c.count === 3 ? 'caution' : 'positive'}>
-                        {c.count}/3 TK
-                      </Badge>
-                      <span className="text-[11px] text-ink-muted">
-                        Dư nợ:{' '}
-                        <strong
-                          className={`font-mono ${
-                            c.debtVnd > 0 ? 'text-amber-600 dark:text-amber-300' : 'text-ink'
-                          }`}
-                        >
-                          {prettyMoney(String(c.debtVnd), 'VND')}
-                        </strong>
-                      </span>
+                      ✕ Bỏ lọc thẻ ({cardFilter})
                     </button>
-                  )
-                })}
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  {summaryStats.cards.map((c) => {
+                    const isSelected = cardFilter === c.code
+                    const overLimit = c.count > 3
+                    return (
+                      <button
+                        key={c.code}
+                        type="button"
+                        onClick={() => setCardFilter(isSelected ? null : c.code)}
+                        className={`inline-flex flex-wrap items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs transition ${
+                          isSelected
+                            ? 'border-brand bg-brand-light text-brand-text ring-1 ring-brand/40'
+                            : 'border-line bg-surface hover:bg-surface-muted text-ink'
+                        }`}
+                      >
+                        <span className="inline-flex items-center gap-1 font-mono font-bold">
+                          <CreditCard className="h-3.5 w-3.5 text-brand-text" aria-hidden="true" />
+                          {c.display}
+                          {c.expiry ? <span className="font-normal text-ink-muted">({c.expiry})</span> : null}
+                        </span>
+                        <Badge tone={overLimit ? 'attention' : c.count === 3 ? 'caution' : 'positive'}>
+                          {c.count}/3 TK
+                        </Badge>
+                        <span className="text-[11px] text-ink-muted">
+                          Dư nợ:{' '}
+                          <strong
+                            className={`font-mono ${
+                              c.debtVnd > 0 ? 'text-amber-600 dark:text-amber-300' : 'text-ink'
+                            }`}
+                          >
+                            {prettyMoney(String(c.debtVnd), 'VND')}
+                          </strong>
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
-            </div>
+            </details>
           )}
 
-          {/* 1-Click Quick Status Filter Pills (SMIT / sMeta style) */}
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3">
+          {/* 1-Click Quick Status Filter Pills + Direct Link to Anti-Die Guide */}
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-2.5">
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="mr-1 text-xs font-bold text-ink-muted">Lọc nhanh 1 chạm:</span>
               {(
@@ -885,22 +902,12 @@ export default function Accounts() {
                 )
               })}
             </div>
-          </div>
 
-          {/* Anti-Die Operational Formula Bar */}
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-brand/30 bg-brand-light/30 px-3 py-2 text-xs">
-            <div className="leading-relaxed text-ink">
-              <strong className="text-brand-text">⚡ Công Thức Vận Hành Chống Die:</strong>{' '}
-              <span>1 Via Tổng (Chỉ giữ BM/TKQC, không lên camp)</span> ·{' '}
-              <span>Mỗi cụm khách 1 Via Lên Camp riêng (1 Chrome + 1 Proxy tĩnh)</span> ·{' '}
-              <span>Luôn có ≥ 2 Via Dự phòng đã ngâm &gt; 7 ngày</span> ·{' '}
-              <span>Xoá sạch bài Rejected &amp; Canh số dư thẻ trên bảng Tổng hợp Thẻ.</span>
-            </div>
             <Link
               to="/operations-guide"
-              className="shrink-0 rounded border border-brand/40 bg-surface px-2.5 py-1 text-[11px] font-bold text-brand-text hover:bg-brand-light"
+              className="shrink-0 rounded-lg border border-brand/40 bg-brand-light px-2.5 py-1 text-[11px] font-bold text-brand-text hover:opacity-90"
             >
-              📖 Mở Hướng dẫn &amp; Công thức Vận hành →
+              📖 Công thức Chống Die →
             </Link>
           </div>
         </div>
