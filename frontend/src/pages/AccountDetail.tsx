@@ -28,6 +28,7 @@ import {
 import { ErrorState, LoadingRegion } from '../components/states'
 import { ChecklistProgress } from '../components/dashboard/ChecklistProgress'
 import { READINESS_META, accountStatusTone } from '../lib/readiness'
+import { launchInAssignedChromeProfile } from '../lib/chromeProfileLauncher'
 import { HEALTH_META } from '../lib/health'
 import { formatDateTime } from '../lib/format'
 import { useEnumLabel } from '../i18n/labels'
@@ -273,8 +274,70 @@ export default function AccountDetail() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {(() => {
+            const actDigits = (record.external_account_id || '').replace(/^act[-_]/i, '').trim()
+            const primaryVia = record.facebook_identities?.[0]
+            const adsUrl = actDigits
+              ? `https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${encodeURIComponent(actDigits)}`
+              : 'https://adsmanager.facebook.com'
+            const billUrl = actDigits
+              ? `https://business.facebook.com/billing_hub/accounts/details?act=${encodeURIComponent(actDigits)}`
+              : 'https://business.facebook.com/billing_hub/accounts'
+            const appealUrl = actDigits
+              ? `https://business.facebook.com/accountquality?act=${encodeURIComponent(actDigits)}`
+              : 'https://business.facebook.com/accountquality'
+            return (
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() =>
+                    launchInAssignedChromeProfile(
+                      adsUrl,
+                      primaryVia?.browser_profile_label,
+                      primaryVia?.label,
+                      primaryVia?.network_label,
+                    )
+                  }
+                >
+                  🚀 Mở Ads Manager (Chrome)
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() =>
+                    launchInAssignedChromeProfile(
+                      billUrl,
+                      primaryVia?.browser_profile_label,
+                      primaryVia?.label,
+                      primaryVia?.network_label,
+                    )
+                  }
+                >
+                  💳 Mở Thanh toán (Billing)
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() =>
+                    launchInAssignedChromeProfile(
+                      appealUrl,
+                      primaryVia?.browser_profile_label,
+                      primaryVia?.label,
+                      primaryVia?.network_label,
+                    )
+                  }
+                >
+                  🛡️ Kháng nghị &amp; Chất lượng TK
+                </Button>
+              </>
+            )
+          })()}
           <Button
             variant="secondary"
+            size="sm"
             onClick={() => recalculate.mutate()}
             disabled={recalculate.isPending}
           >

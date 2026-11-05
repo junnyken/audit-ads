@@ -19,6 +19,7 @@ import { formatDateTime } from '../lib/format'
 import { useI18n } from '../i18n'
 import { useEnumLabel } from '../i18n/labels'
 import { EnvironmentBadge } from '../components/meta/EnvironmentBadge'
+import { launchInAssignedChromeProfile } from '../lib/chromeProfileLauncher'
 
 function CapabilityRow({ label, allowed }: { label: string; allowed: boolean | undefined }) {
   const { t } = useI18n()
@@ -74,11 +75,37 @@ function ConnectionCard({ connection }: { connection: MetaConnection }) {
           <ReaderSourceBadge source={connection.reader_source} readerLabel={connection.reader_credential?.label} />
         </div>
         <ConnectionReaderSwitch connection={connection} />
-        <CapabilityRow label={t('mc.cap.list')} allowed={connection.capabilities?.list_business_managers} />
-        <CapabilityRow label={t('mc.cap.create')} allowed={connection.capabilities?.create_ad_account} />
-        <CapabilityRow label={t('mc.cap.share')} allowed={connection.capabilities?.share_ad_account_access} />
-        {connection.capabilities?.reason && (
-          <p className="text-xs text-tone-attention-fg">{t('mc.card.reason', { reason: connection.capabilities.reason })}</p>
+        {connection.capabilities?.list_business_managers && connection.capabilities?.reason === 'not_supported' ? (
+          <div className="space-y-2 rounded-lg border border-line bg-surface-muted/30 p-2.5">
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <span className="font-medium text-ink-muted">Đọc danh sách BM, TKQC, Dư nợ &amp; Pixel:</span>
+              <Badge tone="positive">🟢 Đang hoạt động (Được phép)</Badge>
+            </div>
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <span className="font-medium text-ink-muted">Chế độ Tạo TKQC &amp; Phân quyền BM:</span>
+              <Badge tone="info">🛡️ Khóa Ghi API (Thao tác trên Chrome của Via)</Badge>
+            </div>
+            <p className="text-[11px] leading-relaxed text-ink-muted">
+              💡 <strong>An toàn chống Die BM:</strong> Server chỉ gọi lệnh đọc (<code>GET</code>) để tránh Meta quét lệch IP khi tạo/share tài sản. Khi cần tạo TKQC hoặc phân quyền, hãy bấm <strong>🚀 Mở BM trên Chrome</strong> bên dưới.
+            </p>
+          </div>
+        ) : (
+          <>
+            <CapabilityRow label={t('mc.cap.list')} allowed={connection.capabilities?.list_business_managers} />
+            <CapabilityRow label={t('mc.cap.create')} allowed={connection.capabilities?.create_ad_account} />
+            <CapabilityRow label={t('mc.cap.share')} allowed={connection.capabilities?.share_ad_account_access} />
+            {connection.capabilities?.reason && (
+              <p className="text-xs text-tone-attention-fg">
+                {connection.capabilities.reason === 'token_expired'
+                  ? '⚠️ Token đã hết hạn — Hãy dán lại Token mới ở thanh Đồng bộ phía trên.'
+                  : connection.capabilities.reason === 'permission_missing'
+                    ? '⚠️ Token thiếu quyền đọc BM (ads_read / business_management).'
+                    : connection.capabilities.reason === 'not_configured'
+                      ? '⚠️ Không tìm thấy mã BM này hoặc Via đọc chưa được cấp quyền vào BM.'
+                      : t('mc.card.reason', { reason: connection.capabilities.reason })}
+              </p>
+            )}
+          </>
         )}
         {check.isError && (
           <ErrorState title={t('mc.card.checkFailed')} error={check.error} noPermissionText={t('confirm.noPermission')} compact />
@@ -93,10 +120,26 @@ function ConnectionCard({ connection }: { connection: MetaConnection }) {
         {connection.business_managers && connection.business_managers.length > 0 && (
           <div>
             <p className="mb-1 text-xs font-medium text-ink-muted">{t('mc.card.bms')}</p>
-            <ul className="space-y-0.5 text-xs">
+            <ul className="space-y-1 text-xs">
               {connection.business_managers.map((bm) => (
-                <li key={bm.external_id} className="font-mono text-2xs">
-                  {bm.name} ({bm.external_id})
+                <li key={bm.external_id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-line bg-surface-muted/40 px-2.5 py-1.5">
+                  <span className="font-mono text-xs font-semibold text-ink">
+                    {bm.name} ({bm.external_id})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      launchInAssignedChromeProfile(
+                        `https://business.facebook.com/settings/ad-accounts?business_id=${encodeURIComponent(bm.external_id)}`,
+                        'Chrome — Default · trieu (thientrieu753@gmail.com)',
+                        connection.reader_credential?.label || 'Tài Khoản Chính',
+                      )
+                    }
+                    className="inline-flex items-center gap-1 rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-bold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+                    title="Mở thẳng trang Cài đặt BM này trên đúng cửa sổ Chrome Profile của Via"
+                  >
+                    🚀 Mở Cài đặt BM trên Chrome ↗
+                  </button>
                 </li>
               ))}
             </ul>

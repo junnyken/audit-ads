@@ -15,6 +15,7 @@ import { DL_CLASS, Note, Panel, Row } from './account/parts'
 import { FacebookAccountFormSheet } from '../components/facebook/FacebookAccountFormSheet'
 import { RevealEmailDialog } from '../components/facebook/RevealEmailDialog'
 import { twoFactorTone } from '../lib/readiness'
+import { downloadChromeExtensionZip, launchInAssignedChromeProfile } from '../lib/chromeProfileLauncher'
 
 export function isHttpsLink(value: string): boolean {
   return value.startsWith('https://')
@@ -121,6 +122,37 @@ export default function FacebookAccountDetail() {
         description={t('fb.detail.title')}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() =>
+                launchInAssignedChromeProfile(
+                  'https://business.facebook.com/overview',
+                  String(r.browser_profile_label || ''),
+                  String(r.label || ''),
+                  /^(vnpt static ip|fpt static ip|viettel residential|mobile 4g)/i.test(String(r.network_label || '').trim())
+                    ? ''
+                    : String(r.network_label || ''),
+                )
+              }
+            >
+              🚀 Mở Chrome của Via này
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                const prof = String(r.browser_profile_label || 'Default')
+                const shortDir = prof.includes('Profile ') ? (prof.match(/Profile\s+\d+/i)?.[0] ?? 'Default') : 'Default'
+                const net = /^(vnpt static ip|fpt static ip|viettel residential|mobile 4g)/i.test(String(r.network_label || '').trim())
+                  ? ''
+                  : String(r.network_label || '')
+                downloadChromeExtensionZip(String(r.label || 'Via'), shortDir, net)
+              }}
+            >
+              📦 Tải Tiện Ích (.zip)
+            </Button>
             {canWrite && (
               <>
                 <Button type="button" variant="secondary" size="sm" onClick={() => setEditing(true)}>
@@ -180,7 +212,7 @@ export default function FacebookAccountDetail() {
             </Row>
             <Row label={t('fb.networkLabel')}>
               <div className="flex flex-wrap items-center gap-2">
-                <span>{String(r.network_label || '—')}</span>
+                <span>{/^(vnpt static ip|fpt static ip|viettel residential|mobile 4g)/i.test(String(r.network_label || '').trim()) || !r.network_label ? '🌐 Mạng gốc (Chưa gắn Proxy riêng)' : String(r.network_label)}</span>
                 {(p.shared_network_with?.length ?? 0) > 0 && (
                   <Badge tone="caution" data-testid="detail-collision-network">
                     {t('fb.env.collisionNetwork', { names: (p.shared_network_with ?? []).join(', ') })}

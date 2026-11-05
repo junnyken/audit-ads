@@ -13,6 +13,7 @@ import { Skeleton } from '../primitives/skeleton'
 import { EmptyState, ErrorState, LoadingRegion } from '../states'
 import { Note } from '../../pages/account/parts'
 import { cn } from '../../lib/cn'
+import { launchInAssignedChromeProfile } from '../../lib/chromeProfileLauncher'
 
 /** Breadcrumb + the stepper (an ordered list; the current step is `aria-current="step"`). */
 export function WizardHeader({
@@ -145,15 +146,51 @@ export function ConnectionPicker({
       {connection && <EnvironmentNote environment={connection.environment} />}
       {connection && connection.capabilities === null && <Note tone="caution" role="status">{t('op.conn.unchecked')}</Note>}
       {connection && connection.capabilities !== null && !allowed && (
-        <Note tone="attention" role="alert">
-          {t('op.conn.denied', {
-            capability,
-            reason: connection.capabilities?.reason ? ` (${connection.capabilities.reason})` : '',
-          })}{' '}
-          <Link to="/meta-connections" className="font-medium underline">
-            {t('op.conn.openMeta')}
-          </Link>
-        </Note>
+        connection.capabilities?.reason === 'not_supported' && connection.capabilities?.list_business_managers ? (
+          <div className="rounded-lg border border-brand/40 bg-brand-light/30 p-3.5 text-xs space-y-2">
+            <div className="font-bold text-ink">
+              🛡️ Chế độ Bảo vệ BM Thật ({connection.label}): Thao tác trực tiếp trên Hồ sơ Chrome của Via
+            </div>
+            <p className="leading-relaxed text-ink-muted">
+              Để tránh Meta quét <strong>Bất thường IP quản trị (Checkpoint 956 / Khóa tạo TKQC)</strong> khi máy chủ Cloud gửi lệnh Ghi (<code>POST</code>) khác dải IP với trình duyệt nuôi Via, hệ thống tự động khóa lệnh Ghi từ Server đối với BM Production. Bạn hãy bấm nút bên dưới để mở thẳng trang quản trị của BM <strong>{connection.label}</strong> trên đúng cửa sổ Chrome của Via:
+            </p>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  const bmId = connection.business_manager_reference || connection.business_managers?.[0]?.external_id || ''
+                  const targetUrl = bmId
+                    ? `https://business.facebook.com/settings/ad-accounts?business_id=${encodeURIComponent(bmId)}`
+                    : 'https://business.facebook.com/settings'
+                  launchInAssignedChromeProfile(
+                    targetUrl,
+                    'Chrome — Default · trieu (thientrieu753@gmail.com)',
+                    connection.reader_credential?.label || 'Tài Khoản Chính',
+                  )
+                }}
+                className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-1.5 text-xs font-bold text-brand-fg hover:opacity-90"
+              >
+                🚀 Mở Cài đặt BM ({connection.label}) trên Chrome của Via ↗
+              </button>
+              <Link
+                to="/meta-connections"
+                className="rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-ink hover:bg-surface-muted"
+              >
+                Xem trạng thái Kết nối Meta →
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <Note tone="attention" role="alert">
+            {t('op.conn.denied', {
+              capability,
+              reason: connection.capabilities?.reason ? ` (${connection.capabilities.reason})` : '',
+            })}{' '}
+            <Link to="/meta-connections" className="font-medium underline">
+              {t('op.conn.openMeta')}
+            </Link>
+          </Note>
+        )
       )}
       {children?.(connection, allowed)}
     </div>
