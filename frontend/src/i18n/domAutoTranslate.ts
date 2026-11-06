@@ -1,6 +1,7 @@
 import type { Language } from './types'
 
-const VN_CHAR_RE = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ]/
+const VN_CHAR_RE =
+  /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ]/
 
 const EXACT_TRIMMED: Record<string, string> = {
   "chạy · 🟡": "active · 🟡",
@@ -10,10 +11,12 @@ const EXACT_TRIMMED: Record<string, string> = {
   ", cùng": ", and",
   "và": "and",
   "chạy": "active",
-  "nợ": "past due"
+  "nợ": "past due",
+  "khác": "more",
+  "Bước": "Step"
 }
 
-const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
+const PHRASE_PAIRS: Array<[string, string]> = [
   [
     "🚫 Khiên Chặn Passkey Tự Động (passkey_shield.js): Tiện ích AdsOps Companion v2.4 Pro khóa thẳng hàm WebAuthn (PublicKeyCredential) ngay trước khi trang Facebook tải xong — bảng Windows Hello / QR Passkey sẽ KHÔNG BAO GIỜ nhảy lên nữa, ép Facebook chuyển thẳng về ô nhập mã 2FA 6 số.",
     "🚫 Automatic Passkey Shield (passkey_shield.js): AdsOps Companion v2.4 Pro overrides WebAuthn (PublicKeyCredential) before Facebook finishes loading — Windows Hello / QR Passkey dialogs NEVER appear, forcing Facebook directly to 6-digit 2FA."
@@ -27,8 +30,16 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "1 Master Vault Via (Holds BM/Ad Accounts only, never launches campaigns) + 1 Dedicated Media Buying Via per client cluster (1 Chrome Profile + 1 Static Proxy) + Always keep ≥ 2 Standby Vias aged > 7 days + Delete Rejected ads & monitor card balances."
   ],
   [
+    "Trạng thái là mã Meta trả về cho reader đã nêu, tại thời điểm quan sát. Không phải quyết định của sản phẩm này, không bảo đảm tài khoản sẽ không bị hạn chế, và không thay cho việc kiểm tra trực tiếp trên Meta.",
+    "Status is the raw code returned by Meta for the specified reader at observation time. It is not a decision by this product and does not replace checking Meta directly."
+  ],
+  [
     "⏳ Giờ 0 – 72h (Ngày 1–3): Đăng nhập Chrome riêng + lấy mã 2FA 6 số ngay trên bảng. CẤM vào Ads Manager, CẤM đổi mật khẩu, CẤM đá thiết bị cũ. Mở xem Watch/Newsfeed 5–10 phút/ngày.",
     "⏳ Hours 0 – 72h (Days 1–3): Log into dedicated Chrome + get 6-digit 2FA from the table. DO NOT open Ads Manager, DO NOT change password, DO NOT kick old devices. Watch/Newsfeed 5–10 mins/day."
+  ],
+  [
+    "Chi tiêu là số Meta trả về cho reader đã nêu, tại thời điểm quan sát. Không phải hoá đơn, không phải số đã đối soát, và không nói gì về việc tài khoản có bị hạn chế hay không.",
+    "Spend is the raw amount returned by Meta for the specified reader at observation time. It is not an invoice or reconciled statement."
   ],
   [
     "🧹 Xoá ngay các bài quảng cáo bị Từ chối (Rejected Ads): Không để nguyên bài bị từ chối nằm tồn đọng trong TKQC — hãy Xoá (Delete) hẳn bài lỗi đó đi trước khi lên bài mới.",
@@ -75,6 +86,10 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "Never log out of one Via to log into another inside the same Chrome window. Always click «🚀 Open Chrome» in the table to launch the exact Profile."
   ],
   [
+    "Kiểm tra ngay mục Người trong BM trên hệ thống và Business Settings trên Meta: gỡ tài khoản lạ hoặc bấm Xác nhận nối nếu là nhân sự nội bộ.",
+    "Immediately check BM Users in the system and Business Settings on Meta: remove unknown users or click Confirm Link for internal staff."
+  ],
+  [
     "Dù Meta cho phép gắn tới 5–10 TKQC, nhưng nếu gắn quá 3 TKQC chung 1 thẻ thì khi 1 TKQC bị khóa phương thức thanh toán hoặc đỏ thẻ sẽ làm",
     "Although Meta allows 5–10 accounts, linking more than 3 Ad Accounts to a single card means one payment flag will trigger"
   ],
@@ -119,6 +134,18 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "Often Vias are restricted not from login issues, but because underlying Ad Accounts have unpaid balances or accumulated Rejected ads:"
   ],
   [
+    "Ghi nhận sự kiện tài khoản, gửi kháng nghị trên Meta nếu đủ điều kiện, hoặc chuyển ngân sách sang tài khoản dự phòng.",
+    "Record an account event, submit an appeal on Meta if eligible, or shift budget to a backup ad account."
+  ],
+  [
+    "Nộp kháng nghị trên Meta nếu có cơ sở, đồng thời chuyển ngân sách sang tài khoản quảng cáo khác và ghi nhận sự kiện.",
+    "Submit an appeal on Meta if applicable, reallocate budget to another ad account, and log the event."
+  ],
+  [
+    "Điều chỉnh ngân sách trên Ads Manager hoặc cập nhật lại ngân sách cam kết trên hệ thống nếu đã thống nhất thay đổi.",
+    "Adjust budgets in Ads Manager or update the committed budget in the system if agreed."
+  ],
+  [
     "Biến Google Chrome gốc trên máy thành hệ thống cách ly đa Via, canh dư nợ thẻ & chống chết chùm hoàn toàn miễn phí",
     "Turn native Google Chrome into a multi-Via isolation suite, monitor card balances & prevent chain bans 100% free"
   ],
@@ -129,6 +156,14 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   [
     "✅ Sau Ngày 7: Thiết bị & IP đã được Meta ghi nhận Trusted Device — mới đá các thiết bị lạ cũ và bắt đầu lên camp.",
     "✅ After Day 7: Browser & IP are recognized by Meta as a Trusted Device — safe to remove old sessions and launch campaigns."
+  ],
+  [
+    "Nếu là người lạ: gỡ khỏi BM ngay lập tức, kiểm tra lại Admin và đổi mật khẩu + kiểm tra 2FA cho các hồ sơ giữ BM.",
+    "If unauthorized: remove from BM immediately, audit Admins, and rotate passwords + verify 2FA on all BM-holding Vias."
+  ],
+  [
+    "Nếu là nhân sự nội bộ: vào mục Kết nối Meta → Người trong BM để bấm 'Xác nhận nối' với hồ sơ Facebook tương ứng.",
+    "If internal staff: go to Meta Connections → BM Users and click 'Confirm link' to match their Facebook profile."
   ],
   [
     "Đang trong 72h đầu: CẤM vào Ads Manager, CẤM đổi mật khẩu, CẤM đá thiết bị cũ. Chỉ lướt Newsfeed/Watch 5–10p.",
@@ -147,6 +182,10 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "1 Chrome Profile = 1 Fixed Via · 1 VN Static Residential IPv4 Proxy (Viettel/VNPT/FPT) = Max 1–2 Vias in the same BM cluster:"
   ],
   [
+    "Mở Ads Manager để kiểm tra ngân sách chiến dịch và giới hạn chi tiêu của tài khoản so với ngân sách cam kết.",
+    "Open Ads Manager to review campaign budgets and account spending limits against the committed budget."
+  ],
+  [
     "Chỉ cần chọn Hồ sơ Chrome thật (và Proxy nếu có), hoặc dán Token để tự động điền toàn bộ thông tin từ Meta.",
     "Simply select a real Chrome Profile (and optional Proxy), or paste a Token to auto-fill all details from Meta."
   ],
@@ -163,6 +202,14 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "🟡 Days 4 – 7: Begin accepting BM invitations (prefer corporate email invites over mass friend requests)."
   ],
   [
+    "Mở mục Lập hoá đơn & Thanh toán (Billing) hoặc thông báo xét duyệt trong Ads Manager để xử lý khoản treo.",
+    "Open Billing & Payments or review notices in Ads Manager to resolve pending charges."
+  ],
+  [
+    "Kiểm tra ngân sách chiến dịch/nhóm quảng cáo và giới hạn chi tiêu so với ngân sách ngày/tháng đã cam kết.",
+    "Check campaign/ad set budgets and spending limits against committed daily/monthly budgets."
+  ],
+  [
     "🛡️ Kiểm tra Chất lượng tài khoản định kỳ bằng nút «🧹 Dọn bài Rejected» trên đúng Chrome Profile của Via.",
     "🛡️ Audit Account Quality regularly using the «🧹 Clean Rejected Ads» shortcut in the Via's assigned Chrome Profile."
   ],
@@ -171,12 +218,44 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "New BMs start with 1 Ad Account; after first paid bill 3–5; Business Verification unlocks 10–30+ Ad Accounts."
   ],
   [
+    "Đăng nhập tài khoản Facebook quản lý ở mục 'Đăng nhập để xử lý' và mở Ads Manager của tài khoản này.",
+    "Log in with the managing Facebook account under 'Log in to resolve' and open Ads Manager."
+  ],
+  [
+    "Đăng nhập tài khoản Facebook quản lý và mở Cài đặt thanh toán (Billing Settings) trong Ads Manager.",
+    "Log in with the managing Facebook account and open Billing Settings in Ads Manager."
+  ],
+  [
+    "Đăng nhập tài khoản Facebook quản lý để xử lý nguyên nhân gốc trên Ads Manager / Business Settings.",
+    "Log in with the managing Facebook account to resolve the root cause in Ads Manager / Business Settings."
+  ],
+  [
+    "Đăng nhập bằng hồ sơ Facebook giữ quyền Admin BM được liệt kê ở mục 'Hồ sơ FB đăng nhập để xử lý'.",
+    "Log in using the BM Admin Facebook profile listed under 'FB Profile to Log In'."
+  ],
+  [
     "Không dùng VPN miễn phí, 1.1.1.1 hoặc Proxy Datacenter giá rẻ vì dải IP đó bị Meta đánh dấu spam.",
     "Never use free VPNs, 1.1.1.1, or cheap Datacenter Proxies as those IP ranges are flagged by Meta."
   ],
   [
+    "Mở Chất lượng tài khoản (Account Quality) và Business Settings để đọc thông báo hạn chế của Meta.",
+    "Open Account Quality and Business Settings to read Meta's restriction notice."
+  ],
+  [
     "Từ ngày 4–7: Có thể nhận link mời BM qua email nhưng chưa nên đá thiết bị cũ hoặc lên camp nặng.",
     "Days 4–7: Safe to accept BM invite links via email, but avoid kicking old devices or launching heavy campaigns yet."
+  ],
+  [
+    "Mở Account Quality và Ads Manager để kiểm tra mã trạng thái và lý do vô hiệu hoá do Meta trả về.",
+    "Open Account Quality and Ads Manager to inspect the status code and disable reason returned by Meta."
+  ],
+  [
+    "Kiểm tra giới hạn chi tiêu của tài khoản (Account Spending Limit) so với tổng chi tiêu hiện tại.",
+    "Check the Account Spending Limit against current cumulative spend."
+  ],
+  [
+    "Đăng nhập tài khoản Facebook quản lý và mở Ads Manager để xem trạng thái thực tế của tài khoản.",
+    "Log in with the managing Facebook account and open Ads Manager to inspect live account status."
   ],
   [
     "(1 lần) để mở đúng Hồ sơ Chrome từ Web & cài gói Tiện ích v2.3 Pro (2FA tự điền, khóa WebRTC).",
@@ -185,6 +264,26 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   [
     "Tuyệt đối tách bạch quyền Sở hữu Tài sản (Admin BM) và quyền Lên Chiến dịch (Advertiser TKQC):",
     "Strictly separate Asset Ownership (BM Admin) from Campaign Execution (Ad Account Advertiser):"
+  ],
+  [
+    "Mở tab Tổng quan của tài khoản để so sánh trạng thái Meta trả về với trạng thái đang ghi nhận.",
+    "Open the account Overview tab to compare the observed Meta status against the recorded status."
+  ],
+  [
+    "So sánh chi tiêu của từng chiến dịch/nhóm quảng cáo với trung vị các ngày hoàn chỉnh trước đó.",
+    "Compare campaign/ad set spend against the median of prior complete days."
+  ],
+  [
+    "Mở trang Cài đặt → Quyền đọc Meta để xem trạng thái của kết nối đang báo lỗi hoặc sắp hết hạn.",
+    "Open Settings → Meta Reader Credentials to check connections that are failing or expiring soon."
+  ],
+  [
+    "Kiểm tra trên Ads Manager bằng tài khoản Facebook quản lý nếu sự kiện liên quan đến vận hành.",
+    "Check Ads Manager using the managing Facebook account if the event is operational."
+  ],
+  [
+    "Mở Business Settings → Users → People của BM này để kiểm tra ngay các tài khoản vừa thay đổi.",
+    "Open Business Settings → Users → People for this BM to inspect recently changed users."
   ],
   [
     "Chạy 1 lần trên máy Windows để kích hoạt giao thức mở đúng cửa sổ Chrome Profile từ trên Web",
@@ -199,8 +298,36 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "Never use the same Via to both hold root Business Managers and launch client ad campaigns."
   ],
   [
+    "Điều chỉnh ngân sách trên Ads Manager nếu cần và ghi nhận nguyên nhân vào Sự kiện tài khoản.",
+    "Adjust budgets in Ads Manager if needed and record the cause in Account Events."
+  ],
+  [
     "để tránh Meta quét lệch IP khi tạo/share tài sản. Khi cần tạo TKQC hoặc phân quyền, hãy bấm",
     "to prevent Meta IP mismatch flags when creating/sharing assets. To create Ad Accounts or grant access, click"
+  ],
+  [
+    "Kiểm tra Chất lượng tài khoản (Account Quality) để xác nhận lý do tài khoản bị vô hiệu hoá.",
+    "Check Account Quality to confirm why the ad account was disabled."
+  ],
+  [
+    "Kháng nghị trên Meta hoặc điều phối lại ngân sách, sau đó ghi nhận kết quả vào tab Sự kiện.",
+    "Submit an appeal on Meta or reallocate budget, then log the outcome in the Events tab."
+  ],
+  [
+    "Đăng nhập tài khoản Facebook quản lý và mở Ads Manager tại đúng ngày có biến động chi tiêu.",
+    "Log in with the managing Facebook account and open Ads Manager for the date with abnormal spend."
+  ],
+  [
+    "Mở tab Mức sẵn sàng (Readiness) của tài khoản để xem các mục bắt buộc còn thiếu bằng chứng.",
+    "Open the account's Readiness tab to see mandatory checklist items missing evidence."
+  ],
+  [
+    "Kiểm tra xem tài khoản quảng cáo còn thuộc BM và còn được gán cho người đọc Meta hay không.",
+    "Check whether the ad account still belongs to the BM and is assigned to the Meta reader user."
+  ],
+  [
+    "Bấm cập nhật trạng thái ghi nhận kèm ghi chú nếu thông tin từ Meta là trạng thái mới nhất.",
+    "Update the recorded status with a note if the Meta observation reflects the latest state."
   ],
   [
     "Đã tự động lấy toàn bộ danh sách Via (Business Users), BM và TKQC thật từ Meta Graph API.",
@@ -211,20 +338,80 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "Full legal company name, Tax ID, registered address, and phone number matching the certificate 100%."
   ],
   [
+    "Nếu tài khoản đã chuyển sang BM khác hoặc ngừng dùng, hãy cập nhật BM hoặc lưu trữ hồ sơ.",
+    "If the account moved to another BM or is retired, update its BM or archive the record."
+  ],
+  [
     "Chặn đứng bảng Passkey (Windows Hello) & 1 chạm Tự động Xoá Passkey trong Account Center",
     "Block Passkey (Windows Hello) Prompts & 1-Click Auto-Delete Passkey in Accounts Center"
+  ],
+  [
+    "Mở tab Mức sẵn sàng (Readiness) để xem các mục có bằng chứng đã hết hạn hoặc bị từ chối.",
+    "Open the Readiness tab to inspect items with expired or rejected evidence."
+  ],
+  [
+    "Quản trị viên (ADMIN) có mặt ở lần quét đầy đủ trước nhưng không còn trong lần quét này.",
+    "ADMIN was present in the previous full scan but is missing from this scan."
+  ],
+  [
+    "Xác nhận nhập vào danh mục hoặc cập nhật hồ sơ tài khoản Facebook quản lý BM tương ứng.",
+    "Confirm importing into the registry or update the corresponding BM-managing Facebook profile."
+  ],
+  [
+    "Thực hiện kết nối lại (Reconnect) để khôi phục việc đọc chi tiêu và trạng thái tự động.",
+    "Reconnect the credential to restore automated spend and status syncing."
   ],
   [
     "Bấm khi bạn vừa đăng nhập Via mới vào Chrome để bật đồng hồ đếm ngược 72h ngâm an toàn",
     "Click after logging a new Via into Chrome to start the 72h safe warm-up countdown timer"
   ],
   [
+    "Đăng nhập tài khoản Facebook quản lý và rà soát tình trạng tài khoản trên Ads Manager.",
+    "Log in with the managing Facebook account and review account status in Ads Manager."
+  ],
+  [
+    "Đăng nhập tài khoản Facebook quản lý BM và mở Business Settings → Tài khoản quảng cáo.",
+    "Log in with the BM-managing Facebook account and open Business Settings → Ad Accounts."
+  ],
+  [
+    "Rà soát các tài khoản quảng cáo mới phát hiện hoặc không còn xuất hiện trong lần quét.",
+    "Review newly discovered ad accounts or accounts missing from the latest scan."
+  ],
+  [
+    "Đăng nhập tài khoản Facebook quản lý ở mục 'Đăng nhập để xử lý' để kiểm tra trên Meta.",
+    "Log in with the managing Facebook account under 'Log in to resolve' to check on Meta."
+  ],
+  [
     "Mở trang Chất lượng tài khoản (Account Quality) trên Meta để kiểm tra hoặc kháng nghị",
     "Open Meta Account Quality to inspect or submit appeal"
   ],
   [
+    "Quản trị viên (ADMIN) đã xác nhận nối nhưng không còn trong lần quét đầy đủ mới nhất.",
+    "Confirmed ADMIN is missing from the latest full discovery scan."
+  ],
+  [
     "tích hợp 2FA 6 số tự điền, khóa rò rỉ WebRTC, Cookie/Token và file mở Chrome tự động",
     "with 6-digit 2FA auto-fill, WebRTC leak shield, Cookie/Token tools & 1-click Chrome launcher"
+  ],
+  [
+    "Tăng hoặc đặt lại giới hạn chi tiêu trên Meta nếu chiến dịch cần tiếp tục phân phối.",
+    "Increase or reset the Account Spending Limit on Meta so campaigns can continue delivering."
+  ],
+  [
+    "Mở tab Sự kiện của tài khoản quảng cáo để đọc chi tiết sự kiện nghiêm trọng đang mở.",
+    "Open the ad account's Events tab to review details of the open critical event."
+  ],
+  [
+    "Ghi nhận sự kiện tài khoản và kiểm tra lại ở lần đọc trạng thái tiếp theo từ Meta.",
+    "Log an account event and verify again on the next Meta status sync."
+  ],
+  [
+    "Mở tab Tổng quan của tài khoản trên hệ thống và ghi nhận kết quả rà soát thủ công.",
+    "Open the account Overview tab and log the manual review outcome."
+  ],
+  [
+    "Đăng nhập tài khoản Facebook quản lý nếu cần xác minh trực tiếp trên Ads Manager.",
+    "Log in with the managing Facebook account if direct verification in Ads Manager is needed."
   ],
   [
     "Chặn \"Chết ngược\" từ Thẻ bị từ chối (Đỏ thẻ) & Bài quảng cáo vi phạm (Rejected)",
@@ -235,8 +422,16 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "Business Info in BM Settings must match the registration certificate 100% character-for-character."
   ],
   [
+    "Mở tab Chi tiêu của tài khoản quảng cáo để xem mã lỗi của các lần đọc gần nhất.",
+    "Open the ad account's Spend tab to inspect error codes from recent sync runs."
+  ],
+  [
     "Dán chuỗi khóa 2FA (Secret Key) để tự động lấy mã OTP 6 số trực tiếp trên bảng",
     "Paste 2FA Secret Key (Base32) to generate live 6-digit OTP codes directly in the table"
+  ],
+  [
+    "Cập nhật bằng chứng mới còn hiệu lực hoặc ghi nhận lý do miễn trừ nếu phù hợp.",
+    "Upload valid new evidence or record an exemption reason if applicable."
   ],
   [
     "Trạng thái tài khoản đang bị Hạn chế / Nợ cước trên Meta — cần kiểm tra ngay.",
@@ -247,12 +442,52 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "to prevent chain payment bans when 1 Ad Account is disabled or declined."
   ],
   [
+    "Đăng nhập đúng tài khoản Facebook quản lý Business Manager của tài khoản này.",
+    "Log in with the Facebook account that manages this ad account's Business Manager."
+  ],
+  [
+    "Mở Ads Manager để xác nhận đơn vị tiền tệ chính thức của tài khoản quảng cáo.",
+    "Open Ads Manager to confirm the official currency of the ad account."
+  ],
+  [
+    "Mở tab Mức sẵn sàng của tài khoản để bổ sung các thông tin rà soát còn trống.",
+    "Open the account's Readiness tab to complete any remaining review fields."
+  ],
+  [
+    "Đồng bộ trực tiếp từ phương thức thanh toán Meta Ads (funding_source_details)",
+    "Synced directly from Meta Ads payment methods (funding_source_details)"
+  ],
+  [
+    "Kiểm tra kết nối Meta và quyền đọc của Business Manager trong trang Cài đặt.",
+    "Check the Meta Connection and Business Manager read permissions in Settings."
+  ],
+  [
+    "Mở tab Sự kiện của tài khoản quảng cáo để xem nội dung cảnh báo đã ghi nhận.",
+    "Open the ad account's Events tab to view the recorded warning details."
+  ],
+  [
     "Mở trang Cài đặt thanh toán của tài khoản này trên Meta để thanh toán dư nợ",
     "Open Meta Billing Settings for this account to pay balance"
   ],
   [
+    "Xử lý từng mục checklist hoặc sự kiện đang mở theo hướng dẫn trên màn hình.",
+    "Resolve each checklist item or open event following the on-screen instructions."
+  ],
+  [
     "Bảng Kiểm Soát Hạn Mức BM Thực Tế (BM1 → BM5 → BM10+ XMDN) & Dư Nợ Theo BM",
     "Live BM Quota Matrix (BM1 → BM5 → BM10+ Verified) & Balance by BM"
+  ],
+  [
+    "Chủ không gian làm việc có thể bấm 'Đọc lại từ Meta' để kiểm tra lại ngay.",
+    "A workspace owner can click 'Re-read from Meta' to re-verify immediately."
+  ],
+  [
+    "Bấm tính lại sức khoẻ tài khoản để đóng cảnh báo khi bằng chứng đã hợp lệ.",
+    "Click Recalculate Health to close the alert once evidence is valid."
+  ],
+  [
+    "Mở tab Sức khoẻ (Health) của tài khoản quảng cáo và bấm tính lại sức khoẻ.",
+    "Open the ad account's Health tab and click Recalculate Health."
   ],
   [
     "Kiểm soát 20+ TKQC trên 1 bảng, lọc 1 chạm các TK có dư nợ và giữ quy tắc",
@@ -267,6 +502,10 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "to log into new Vias without password prompts (avoiding CP 956) and extract"
   ],
   [
+    "Đối chiếu mã trạng thái lạ Meta trả về với thông báo trên giao diện Meta.",
+    "Compare the unrecognized Meta status code against the notice shown in Meta's UI."
+  ],
+  [
     "Bảo vệ Via Tổng: Chỉ giữ BM & Share quyền, tuyệt đối không bấm tạo camp.",
     "Master Via Protection: Hold BMs & share access only — never launch ad campaigns from this Via."
   ],
@@ -279,6 +518,14 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "Open the managing Chrome profile to inspect Account Quality or submit an appeal."
   ],
   [
+    "Đăng nhập tài khoản Facebook quản lý Business Manager của tài khoản này.",
+    "Log in with the Facebook account managing this account's Business Manager."
+  ],
+  [
+    "So sánh với đơn vị tiền tệ đang lưu trong hồ sơ tài khoản trên hệ thống.",
+    "Compare it with the currency stored in the internal account profile."
+  ],
+  [
     "Nhập nhanh Ngưỡng thanh toán, Ngày TT hoặc Giới hạn ngày từ Billing Hub",
     "Quickly update Payment Threshold, Bill Date, or Daily Spend Limit from Billing Hub"
   ],
@@ -289,6 +536,22 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   [
     "1. Chọn Tài khoản Facebook (Via) để nạp sẵn cấu hình thật vào Tiện ích:",
     "1. Select Facebook Account (Via) to pre-load live config into the Extension:"
+  ],
+  [
+    "Cập nhật lại đơn vị tiền tệ trong hồ sơ nếu bản ghi nội bộ bị nhập sai.",
+    "Update the profile currency if the internal record was entered incorrectly."
+  ],
+  [
+    "Mở tab Mức sẵn sàng của tài khoản để xem danh sách các lý do đang chặn.",
+    "Open the account's Readiness tab to view the list of blocking reasons."
+  ],
+  [
+    "Chạy lại đánh giá sức khoẻ tài khoản sau khi dữ liệu đầu vào đã đầy đủ.",
+    "Re-run account health evaluation once input data is complete."
+  ],
+  [
+    "Kiểm tra lịch sử các lần chạy đánh giá (Evaluation Runs) để xem mã lỗi.",
+    "Check the Evaluation Runs history to inspect the error code."
   ],
   [
     "Dán IP:Port:User:Pass (VD: 103.145.67.89:8080:user:pass) hoặc để trống",
@@ -311,6 +574,18 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "Manifest V3 · 1-Click Passkey Blocker & Remover + 2FA Auto-Fill + WebRTC Shield"
   ],
   [
+    "Đăng nhập đúng tài khoản Facebook ở mục 'Đăng nhập để xử lý' bên dưới.",
+    "Log in with the assigned Facebook account listed under 'Log in to resolve' below."
+  ],
+  [
+    "Mở chi tiết cảnh báo và kiểm tra bằng chứng đã ghi nhận trên hệ thống.",
+    "Open the alert details and inspect the recorded evidence."
+  ],
+  [
+    "Thực hiện bước xử lý phù hợp và ghi nhận kết quả vào nhật ký cảnh báo.",
+    "Complete the appropriate remediation step and log the result in the alert history."
+  ],
+  [
     "Dán Token EAAB... của Via vào đây để tự động tạo & điền hết thông tin",
     "Paste the Via's EAAB... Token here to auto-create & populate all details"
   ],
@@ -325,6 +600,14 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   [
     "Tùy chọn nâng cao (ID Meta, 2FA, Người giữ, Ghi chú — Không bắt buộc)",
     "Advanced Options (Meta ID, 2FA, Holder, Notes — Optional)"
+  ],
+  [
+    "Đánh dấu hoàn tất (Resolve) sự kiện kèm lý do sau khi đã xử lý xong.",
+    "Mark the event as Resolved with a reason once the issue is fixed."
+  ],
+  [
+    "Mở trang Kết nối Meta để xem kết quả quét khám phá tài sản mới nhất.",
+    "Open Meta Connections to review the latest asset discovery scan."
   ],
   [
     "Token đã hết hạn — Hãy dán lại Token mới ở thanh Đồng bộ phía trên.",
@@ -351,12 +634,24 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "Route dedicated Proxies per Chrome Profile, silently authenticate, and enable"
   ],
   [
+    "Kiểm tra lại trạng thái sẵn sàng sau khi hệ thống tự động tính lại.",
+    "Verify the updated readiness status after automatic recalculation."
+  ],
+  [
+    "Mở trang chi tiết tài khoản quảng cáo và bấm tính lại mức sẵn sàng.",
+    "Open the ad account detail page and click Recalculate Readiness."
+  ],
+  [
     "Hồ sơ trình duyệt (Profile): Chưa gán Profile trình duyệt cố định.",
     "Browser Profile: No fixed browser profile assigned yet."
   ],
   [
     "Thấy rõ Tên pháp nhân, Mã số thuế, Địa chỉ trụ sở, Người đại diện.",
     "Must clearly display Legal Entity Name, Tax ID, Registered Address, and Legal Representative."
+  ],
+  [
+    "Tài khoản từng giữ quyền ADMIN ở lần quét trước nhưng hiện tại là ",
+    "Account held ADMIN role in the previous scan but is now "
   ],
   [
     "Không tìm thấy mã BM này hoặc Via đọc chưa được cấp quyền vào BM.",
@@ -375,8 +670,16 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "Generates live 6-digit 2FA codes inside the Chrome Extension with a"
   ],
   [
+    "Cập nhật trạng thái hoặc thêm sự kiện nếu phát hiện thay đổi mới.",
+    "Update account status or add an event if new changes are observed."
+  ],
+  [
     "Rà soát quyền Quản trị viên (Admin): Mục này chưa được kiểm tra.",
     "Admin access review: This item has not been checked yet."
+  ],
+  [
+    "Đính kèm bằng chứng xác minh hoặc hoàn tất rà soát cho từng mục.",
+    "Attach verification evidence or complete the review for each item."
   ],
   [
     "Quy tắc \"Ngâm 72 Giờ Vàng & 7 Ngày Trust\" khi mới đăng nhập Via",
@@ -393,6 +696,14 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   [
     "4. Hạn mức 1 Proxy IPv4 Dân cư tĩnh → Tài khoản Facebook (Via)",
     "4. 1 Static Residential IPv4 Proxy → Facebook Via Limit"
+  ],
+  [
+    "Tính lại mức sẵn sàng để xác định rõ trạng thái của tài khoản.",
+    "Recalculate readiness to determine the account's current status."
+  ],
+  [
+    "Đăng nhập đúng tài khoản Facebook đã cấp quyền cho kết nối đó.",
+    "Log in with the Facebook account that granted permission for that connection."
   ],
   [
     "Xác nhận Business Manager: BM đang gặp sự cố hoặc bị hạn chế.",
@@ -451,6 +762,10 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "2. 1 Business Manager → Ad Account Limit"
   ],
   [
+    "Hồ sơ nội bộ ghi nhận quyền ADMIN nhưng Meta trả về quyền ",
+    "Internal profile records ADMIN role, but Meta returned "
+  ],
+  [
     "Nhập ID BM hoặc ID TKQC (để trống = đồng bộ toàn bộ 5 BM)",
     "Enter BM ID or Ad Account ID (leave blank = sync all 5 BMs)"
   ],
@@ -493,6 +808,10 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   [
     "Mua & Quản lý Proxy IPv4 Dân cư tĩnh VN (1–2 Via/Proxy):",
     "Buy & Manage VN Static Residential IPv4 Proxies (1–2 Vias/Proxy):"
+  ],
+  [
+    "Ghi nhận kết quả kiểm tra vào tab Sự kiện của tài khoản.",
+    "Record your inspection findings in the account's Events tab."
   ],
   [
     "Cần mở trang Lập hoá đơn trên Meta để thanh toán dư nợ.",
@@ -547,6 +866,10 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "Open Account Quality in the assigned Chrome Profile"
   ],
   [
+    "Nếu lỗi tiếp diễn, kiểm tra trang Trạng thái hệ thống.",
+    "If the error persists, check the System Status page."
+  ],
+  [
     "Phương thức thanh toán (PTTT): Chưa rà soát thẻ/PTTT.",
     "Payment method: Card/payment method has not been reviewed yet."
   ],
@@ -575,6 +898,14 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "2. Local Google Chrome Profile (1-Click Launch)"
   ],
   [
+    "Bản xem trước trực tiếp khi mở Tiện ích trên Chrome (",
+    "Live Extension Preview in Chrome ("
+  ],
+  [
+    "Chi tiêu ngày thấp hơn nhiều so với ngân sách cam kết",
+    "Daily spend significantly below committed budget"
+  ],
+  [
     "Chống Checkpoint 956/282 · Chống Chết Chùm BM & TKQC",
     "Prevent Checkpoint 956/282 · Prevent BM & Ad Account Chain-Bans"
   ],
@@ -585,6 +916,10 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   [
     "ở trên rồi giải nén ra một thư mục cố định trên máy.",
     "above and extract it to a permanent folder on your PC."
+  ],
+  [
+    "Đánh dấu hoàn tất sự kiện kèm ghi chú kết quả xử lý.",
+    "Resolve the event with a note summarizing the outcome."
   ],
   [
     "Hướng dẫn & Công Thức Vận Hành Chống Die Via / TKQC",
@@ -659,6 +994,10 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "in the top-left corner → select the extracted folder."
   ],
   [
+    "Kiểm tra các mục checklist cơ bản của tài khoản.",
+    "Review the core readiness checklist items for the account."
+  ],
+  [
     "Xác nhận chủ sở hữu: Mục này chưa được rà soát.",
     "Ownership confirmation: This item has not been reviewed yet."
   ],
@@ -679,6 +1018,18 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "Developer mode"
   ],
   [
+    "thẻ đang gắn · Quy tắc an toàn: 1 Thẻ ≤ 3 TKQC)",
+    "linked cards · Safe rule: 1 Card ≤ 3 Ad Accounts)"
+  ],
+  [
+    "— Chọn Hồ sơ Google Chrome thật trên máy tính (",
+    "— Select local Google Chrome Profile ("
+  ],
+  [
+    "): Thao tác trực tiếp trên Hồ sơ Chrome của Via",
+    "): Execute directly in the Via's Chrome Profile"
+  ],
+  [
     "Xác nhận chủ sở hữu: Đang có vấn đề cần xử lý.",
     "Ownership confirmation: Action required to resolve issue."
   ],
@@ -693,6 +1044,10 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   [
     "Tải file cài đặt dự phòng cho máy Windows khác",
     "Download setup script for another Windows PC"
+  ],
+  [
+    "Chi tiêu tháng sắp chạm trần ngân sách cam kết",
+    "Monthly spend approaching committed budget cap"
   ],
   [
     "Thanh toán tự động khi đạt ngưỡng lập hóa đơn",
@@ -731,6 +1086,10 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "Execute directly inside the Via's Chrome Profile"
   ],
   [
+    "Chưa xác nhận nối với hồ sơ Facebook nội bộ.",
+    "Not yet linked to an internal Facebook profile."
+  ],
+  [
     "Giấy chứng nhận đăng ký doanh nghiệp (GPKD)",
     "Business Registration Certificate"
   ],
@@ -759,6 +1118,14 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "button directly on the active Facebook login tab."
   ],
   [
+    "💳 Tổng hợp Dư nợ theo từng Thẻ thanh toán (",
+    "💳 Balance Summary by Payment Card ("
+  ],
+  [
+    "Ghi nhận rà soát thủ công sau khi hoàn tất.",
+    "Record a manual review once completed."
+  ],
+  [
     "Hiện chưa có khoản thanh toán nào đến hạn.",
     "No payments are currently due."
   ],
@@ -779,6 +1146,10 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "Click to view details and troubleshooting guide"
   ],
   [
+    "Đã xác nhận nối với hồ sơ Facebook nội bộ.",
+    "Confirmed linked to internal Facebook profile."
+  ],
+  [
     "BM1 — Mới tạo / Chưa bill (Tối đa 1 TKQC)",
     "BM1 — Newly created / Unbilled (Max 1 Ad Account)"
   ],
@@ -793,6 +1164,14 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   [
     "Bộ lấy mã 2FA 6 số & Tự điền vào Facebook",
     "Live 6-Digit 2FA Generator & Facebook Auto-Fill"
+  ],
+  [
+    "3. Mở nhanh trang Meta trên đúng Chrome (",
+    "3. Quick Meta Shortcuts in Chrome ("
+  ],
+  [
+    "Đính kèm bằng chứng cho các mục bắt buộc.",
+    "Attach evidence for mandatory checklist items."
   ],
   [
     "Tên gợi nhớ cho BM / TKQC mới (tuỳ chọn)",
@@ -813,6 +1192,10 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   [
     "Bạn có chắc muốn xóa tài khoản quảng cáo",
     "Are you sure you want to delete ad account"
+  ],
+  [
+    "Kết nối tự động qua Meta Graph API (/me)",
+    "Auto-connected via Meta Graph API (/me)"
   ],
   [
     "Tự động nhận diện theo số TKQC hiện tại",
@@ -979,6 +1362,10 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "Windows Hello / Passkey Prompts Blocked"
   ],
   [
+    "Xác thực trực tiếp từ Meta Graph API",
+    "Authenticated directly via Meta Graph API"
+  ],
+  [
     "Tài khoản đang bị hạn chế quảng cáo",
     "Ad account is restricted from advertising"
   ],
@@ -1015,6 +1402,14 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "WebRTC Real IP Leak Shield"
   ],
   [
+    "Bấm để xổ chi tiết & lọc theo thẻ ▾",
+    "Click to expand & filter by card ▾"
+  ],
+  [
+    "Quản trị viên bị gỡ hoặc hạ quyền (",
+    "Admins removed or demoted ("
+  ],
+  [
     "Tài khoản quảng cáo bị vô hiệu hoá",
     "Ad account disabled on Meta"
   ],
@@ -1037,6 +1432,10 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   [
     "Bấm để đổi Proxy IP:Port:User:Pass",
     "Click to edit Proxy IP:Port:User:Pass"
+  ],
+  [
+    "Trang quản lý tài sản doanh nghiệp",
+    "Business Asset Management Workspace"
   ],
   [
     "Giới hạn chi tiêu ngày (Meta đặt)",
@@ -1111,6 +1510,10 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "Archive (delete) Facebook account"
   ],
   [
+    "Gắn tự động từ hồ sơ vận hành BM",
+    "Auto-linked from BM operational profile"
+  ],
+  [
     "Số dư chưa thanh toán trên Meta",
     "Unpaid balance on Meta"
   ],
@@ -1167,6 +1570,14 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "1. Via Name / Facebook Account"
   ],
   [
+    "Chi tiêu vượt ngân sách cam kết",
+    "Spend exceeding committed budget"
+  ],
+  [
+    "Via xác minh danh tính dự phòng",
+    "Identity-verified backup Via"
+  ],
+  [
     "Dán khóa 2FA (VD: JBSWY3DP...)",
     "Paste 2FA key (e.g. JBSWY3DP...)"
   ],
@@ -1189,6 +1600,10 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   [
     "& kích hoạt mở Chrome tự động:",
     "& 1-Click Chrome Launcher Activation:"
+  ],
+  [
+    "Người chưa xác nhận trong BM (",
+    "Unconfirmed users in BM ("
   ],
   [
     "Số dư của bạn đạt (Ngưỡng TT)",
@@ -1237,6 +1652,14 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   [
     "Khôi phục tài khoản quảng cáo",
     "Restore ad account"
+  ],
+  [
+    "2. Tài khoản quảng cáo thuộc ",
+    "2. Ad Accounts under "
+  ],
+  [
+    "Cảnh báo quyền truy cập BM — ",
+    "BM Access Alert — "
   ],
   [
     "Không thể đồng bộ mã ID này.",
@@ -1295,6 +1718,14 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "Safe rule: Each root Via holds"
   ],
   [
+    "Tải Gói Tiện Ích (.zip) Cho ",
+    "Download Extension (.zip) For "
+  ],
+  [
+    "Đồng bộ tự động từ Token Via",
+    "Auto-synced from Via Token"
+  ],
+  [
     "do các Via khác share sang.",
     "shared from other Vias."
   ],
@@ -1325,6 +1756,14 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   [
     "Danh sách TKQC & Dư nợ thật",
     "Live Ad Accounts & Balances"
+  ],
+  [
+    "Business Manager đang cầm (",
+    "Linked Business Managers ("
+  ],
+  [
+    " Hồ sơ Chrome thật trên máy",
+    " real Chrome Profiles on device"
   ],
   [
     "Ngưỡng lập hóa đơn tự động",
@@ -1409,6 +1848,22 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   [
     "trên góc phải Chrome → bấm",
     "in the top-right of Chrome → click"
+  ],
+  [
+    "Mở Bảng TKQC & Dư Nợ Thẻ (",
+    "Open Ad Accounts & Card Balances ("
+  ],
+  [
+    "🛡️ Chế độ Bảo vệ BM Thật (",
+    "🛡️ Production BM Protection Mode ("
+  ],
+  [
+    "Tổng chi tiêu lịch sử của ",
+    "Total historical spend across "
+  ],
+  [
+    "Đồng bộ tự động từ Meta BM",
+    "Auto-synced from Meta BM"
   ],
   [
     "Mở Cài đặt BM trên Chrome",
@@ -1515,6 +1970,14 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "No spend recorded"
   ],
   [
+    "Mở Bảng TKQC & Dư Nợ Thẻ",
+    "Open Ad Accounts & Card Balances"
+  ],
+  [
+    "Tự động gắn với BM chính",
+    "Auto-linked to primary BM"
+  ],
+  [
     "Server chỉ gọi lệnh đọc",
     "The server only executes read requests"
   ],
@@ -1571,6 +2034,22 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "Pay Balance on Meta ↗"
   ],
   [
+    "Mở Bảng Phân Tầng Via (",
+    "Open Via Tiers Table ("
+  ],
+  [
+    ") trên Chrome của Via ↗",
+    ") in Via's Chrome ↗"
+  ],
+  [
+    "Thu gọn danh sách thẻ ▴",
+    "Collapse card list ▴"
+  ],
+  [
+    "Thiết lập website Pixel",
+    "Website Pixel Setup"
+  ],
+  [
     "Phương thức thanh toán",
     "Payment Method"
   ],
@@ -1609,6 +2088,10 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   [
     "Pháp nhân Doanh nghiệp",
     "Legal Business Entity"
+  ],
+  [
+    "Chưa nạp khóa 2FA cho ",
+    "No 2FA key loaded for "
   ],
   [
     "Bạn sẽ thanh toán khi",
@@ -1703,6 +2186,10 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "Open exact Chrome window"
   ],
   [
+    "Mở Bảng Phân Tầng Via",
+    "Open Via Tiers Table"
+  ],
+  [
     "Cần ≥ 2 Via dự phòng",
     "Need ≥ 2 Standby Vias"
   ],
@@ -1783,6 +2270,14 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "to settle balance"
   ],
   [
+    "tài khoản quảng cáo",
+    "ad accounts"
+  ],
+  [
+    "Tài khoản quảng cáo",
+    "Ad Account"
+  ],
+  [
     "Đạt chuẩn dự phòng",
     "Standby Ready"
   ],
@@ -1831,6 +2326,10 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "You can click the"
   ],
   [
+    "Đồng bộ từ Meta BM",
+    "Synced from Meta BM"
+  ],
+  [
     "Mở BM trên Chrome",
     "Open BM in Chrome"
   ],
@@ -1873,6 +2372,14 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   [
     "Nợ cước / Hạn chế",
     "Past Due / Restricted"
+  ],
+  [
+    "🚀 Mở Cài đặt BM (",
+    "🚀 Open BM Settings ("
+  ],
+  [
+    "Tài khoản cá nhân",
+    "Personal Account"
   ],
   [
     "Tên doanh nghiệp",
@@ -2079,6 +2586,14 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "(Aged Via: 4 BMs)"
   ],
   [
+    "✕ Bỏ lọc thẻ (",
+    "✕ Clear card filter ("
+  ],
+  [
+    "Không thuộc BM",
+    "Not in a BM"
+  ],
+  [
     "chống đỏ thẻ.",
     "to prevent card bans."
   ],
@@ -2129,6 +2644,26 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   [
     "Tự tạo tối đa",
     "Can create max"
+  ],
+  [
+    "🟢 Đã kết nối ",
+    "🟢 Connected "
+  ],
+  [
+    "% ngưỡng bill",
+    "% of billing threshold"
+  ],
+  [
+    "Quản trị viên",
+    "Admin"
+  ],
+  [
+    "Thành viên BM",
+    "BM Member"
+  ],
+  [
+    "Đồng bộ từ BM",
+    "Synced from BM"
   ],
   [
     "Đô la Mỹ USD",
@@ -2267,6 +2802,14 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "of threshold"
   ],
   [
+    "Mở Chrome (",
+    "Open Chrome ("
+  ],
+  [
+    "Sở hữu TKQC",
+    "Owns Ad Account"
+  ],
+  [
     "Giữ BM gốc",
     "Hold Root BM"
   ],
@@ -2359,6 +2902,10 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     "Billed"
   ],
   [
+    "Pixel của ",
+    "Pixel of "
+  ],
+  [
     "Chạy file",
     "Run file"
   ],
@@ -2401,6 +2948,18 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   [
     "Pháp nhân",
     "Legal Entity"
+  ],
+  [
+    "Tháng 10,",
+    "Oct"
+  ],
+  [
+    "Tháng 11,",
+    "Nov"
+  ],
+  [
+    "Tháng 12,",
+    "Dec"
   ],
   [
     "Chưa gắn",
@@ -2479,8 +3038,60 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     " active · "
   ],
   [
+    "hồ sơ) —",
+    "profiles) —"
+  ],
+  [
+    "Đã dùng ",
+    "Used "
+  ],
+  [
+    "% ngưỡng",
+    "% of threshold"
+  ],
+  [
     "chạy · 🟡",
     "active · 🟡"
+  ],
+  [
+    "Hết hạn ",
+    "Expires "
+  ],
+  [
+    "Tháng 1,",
+    "Jan"
+  ],
+  [
+    "Tháng 2,",
+    "Feb"
+  ],
+  [
+    "Tháng 3,",
+    "Mar"
+  ],
+  [
+    "Tháng 4,",
+    "Apr"
+  ],
+  [
+    "Tháng 5,",
+    "May"
+  ],
+  [
+    "Tháng 6,",
+    "Jun"
+  ],
+  [
+    "Tháng 7,",
+    "Jul"
+  ],
+  [
+    "Tháng 8,",
+    "Aug"
+  ],
+  [
+    "Tháng 9,",
+    "Sep"
   ],
   [
     "Đã XMDN",
@@ -2587,12 +3198,20 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
     " and "
   ],
   [
+    ") Ngay",
+    ") Now"
+  ],
+  [
     "nợ · 🔴",
     "past due · 🔴"
   ],
   [
     ", cùng",
     ", and"
+  ],
+  [
+    "Hoa Kỳ",
+    "United States"
   ],
   [
     "Đã mở",
@@ -2609,6 +3228,10 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   [
     " khác",
     " more"
+  ],
+  [
+    "Bước ",
+    "Step "
   ],
   [
     "cạnh",
@@ -2629,6 +3252,10 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   [
     " và ",
     " and "
+  ],
+  [
+    "Cầm ",
+    "Holds "
   ],
   [
     "Nợ:",
@@ -2654,21 +3281,27 @@ const PHRASE_PAIRS: ReadonlyArray<readonly [string, string]> = [
 
 export function translateViStringToEn(input: string): string {
   if (!input || !VN_CHAR_RE.test(input)) return input
-  const trimmed = input.trim()
-  if (EXACT_TRIMMED[trimmed]) {
-    const leadMatch = input.match(/^\s*/)
-    const trailMatch = input.match(/\s*$/)
-    return `${leadMatch ? leadMatch[0] : ''}${EXACT_TRIMMED[trimmed]}${trailMatch ? trailMatch[0] : ''}`
+  const norm = input.replace(/\s+/g, ' ')
+  const trimmed = norm.trim()
+  if (!trimmed) return input
+
+  const exact = EXACT_TRIMMED[trimmed]
+  if (exact !== undefined) {
+    const lead = input.match(/^\s*/)?.[0] ?? ''
+    const trail = input.match(/\s*$/)?.[0] ?? ''
+    return lead + exact + trail
   }
-  let out = input
-  for (let i = 0; i < PHRASE_PAIRS.length; i++) {
-    const [viStr, enStr] = PHRASE_PAIRS[i]
+
+  let out = norm
+  for (const [viStr, enStr] of PHRASE_PAIRS) {
     if (out.includes(viStr)) {
       out = out.split(viStr).join(enStr)
-      if (!VN_CHAR_RE.test(out)) break
     }
   }
-  return out
+
+  const lead = input.match(/^\s*/)?.[0] ?? ''
+  const trail = input.match(/\s*$/)?.[0] ?? ''
+  return lead + out.trim() + trail
 }
 
 const originalTextMap = new WeakMap<Node, string>()
@@ -2698,7 +3331,7 @@ export function applyDomLanguage(language: Language, root: Node = document.body)
       }
       const orig = originalTextMap.get(node)
       const lastTr = lastTranslatedTextMap.get(node)
-      if (orig !== undefined && node.nodeValue === lastTr) {
+      if (orig !== undefined && (node.nodeValue === lastTr || !VN_CHAR_RE.test(node.nodeValue ?? ''))) {
         node.nodeValue = orig
       }
       lastTranslatedTextMap.delete(node)

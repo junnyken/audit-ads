@@ -23,7 +23,7 @@ import { UserMenu } from './shell/UserMenu'
  */
 export default function AppShell() {
   const { user } = useAuth()
-  const { t } = useI18n()
+  const { t, language } = useI18n()
   const [navOpen, setNavOpen] = useState(false)
 
   return (
@@ -80,6 +80,7 @@ export default function AppShell() {
           </header>
 
           <main
+            key={language}
             id="main-content"
             tabIndex={-1}
             className="min-w-0 flex-1 px-4 py-5 outline-none min-[769px]:px-6"

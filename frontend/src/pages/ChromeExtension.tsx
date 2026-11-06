@@ -19,6 +19,7 @@ import {
   UserRoundCog,
 } from 'lucide-react'
 import { api } from '../lib/api'
+import { useI18n } from '../i18n'
 import type { AdAccount, Paged, ReferenceRecord } from '../lib/types'
 import { Badge } from '../components/primitives/badge'
 import { Button } from '../components/primitives/button'
@@ -127,6 +128,8 @@ function fmtMoney(raw: string | number | null | undefined, currency?: string | n
 }
 
 export default function ChromeExtension() {
+  const { language } = useI18n()
+  void language
   const viasQuery = useQuery({
     queryKey: ['personal-account-references', 'ext-page'],
     queryFn: () => api.get<Paged<ReferenceRecord>>('/api/v1/personal-account-references?page_size=100'),

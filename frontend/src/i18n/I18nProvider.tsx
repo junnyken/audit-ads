@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   DEFAULT_LANGUAGE,
@@ -23,7 +23,6 @@ interface I18nState {
 }
 
 function readStoredLanguage(): Language {
-  // Storage can throw (private mode, blocked storage); the default language is the answer then.
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
     if (isLanguage(stored)) return stored
@@ -41,8 +40,6 @@ function writeStoredLanguage(language: Language): void {
   }
 }
 
-// A component rendered outside the provider (a unit test, mostly) gets Vietnamese rather than a
-// crash: the default language is a real answer, not a missing one.
 const FALLBACK: I18nState = {
   language: DEFAULT_LANGUAGE,
   locale: INTL_LOCALE[DEFAULT_LANGUAGE],
@@ -59,9 +56,6 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     return initial
   })
 
-  // The English dictionary is a separate chunk. A stored 'en' waits for it before the first render
-  // of the app, so English users never see a flash of Vietnamese; if it cannot be fetched, the
-  // default language is the answer.
   const [ready, setReady] = useState(() => isDictionaryLoaded(language))
 
   useEffect(() => {
@@ -69,11 +63,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     document.documentElement.lang = language
   }, [language])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!ready || typeof document === 'undefined' || !document.body) return
     let applying = false
     const runApply = () => {
-      if (applying) return
+      if (applying || !document.body) return
       applying = true
       try {
         applyDomLanguage(language, document.body)
@@ -83,9 +77,16 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     }
 
     runApply()
+    const rafId = typeof requestAnimationFrame !== 'undefined' ? requestAnimationFrame(runApply) : 0
+    const t1 = setTimeout(runApply, 60)
+    const t2 = setTimeout(runApply, 250)
 
     if (language !== 'en' || typeof MutationObserver === 'undefined') {
-      return
+      return () => {
+        if (rafId && typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(rafId)
+        clearTimeout(t1)
+        clearTimeout(t2)
+      }
     }
 
     const observer = new MutationObserver(() => {
@@ -100,6 +101,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     })
 
     return () => {
+      if (rafId && typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(rafId)
+      clearTimeout(t1)
+      clearTimeout(t2)
       observer.disconnect()
     }
   }, [language, ready])
@@ -132,7 +136,6 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       apply()
       return
     }
-    // Switch only once the dictionary has arrived; on failure the current language stays.
     loadDictionary(next).then(apply, () => undefined)
   }, [])
 

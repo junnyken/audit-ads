@@ -11,6 +11,8 @@ import {
   UserRoundCog,
 } from 'lucide-react'
 import { api } from '../lib/api'
+import { useI18n } from '../i18n'
+import { translateViStringToEn } from '../i18n/domAutoTranslate'
 import type { AdAccount, FacebookIdentitySummary, Paged, ReferenceRecord } from '../lib/types'
 import { Badge } from '../components/primitives/badge'
 import { Button } from '../components/primitives/button'
@@ -98,6 +100,8 @@ const ANTI_DIE_SLIDES = [
 ] as const
 
 export default function OperationsGuide() {
+  const { language } = useI18n()
+  const isEn = language === 'en'
   const [slideIdx, setSlideIdx] = useState(0)
 
   const viasQuery = useQuery({
@@ -148,7 +152,15 @@ export default function OperationsGuide() {
     }
   }, [viasQuery.data, summaryQuery.data, accountsQuery.data])
 
-  const activeSlide = ANTI_DIE_SLIDES[slideIdx] ?? ANTI_DIE_SLIDES[0]
+  const rawSlide = ANTI_DIE_SLIDES[slideIdx] ?? ANTI_DIE_SLIDES[0]
+  const activeSlide = isEn ? {
+    ...rawSlide,
+    shortTab: translateViStringToEn(rawSlide.shortTab),
+    badge: translateViStringToEn(rawSlide.badge),
+    title: translateViStringToEn(rawSlide.title),
+    summary: translateViStringToEn(rawSlide.summary),
+    bullets: rawSlide.bullets.map((b) => translateViStringToEn(b)),
+  } : rawSlide
 
   return (
     <div className="space-y-6">
