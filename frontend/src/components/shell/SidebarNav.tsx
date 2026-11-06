@@ -5,7 +5,8 @@ import { cn } from '../../lib/cn'
 import { NAV_GROUPS } from './nav'
 
 export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
-  const { t } = useI18n()
+  const { t, language } = useI18n()
+  const isEn = language === 'en'
   return (
     <nav aria-label={t('shell.mainNavLabel')} className="flex flex-col gap-4 px-3 pb-4">
       {NAV_GROUPS.map((group) => {
@@ -61,7 +62,9 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
                     }
                   >
                     <BookOpen className="h-5 w-5 shrink-0" aria-hidden="true" />
-                    <span className="min-w-0 truncate">Hướng dẫn &amp; Công thức</span>
+                    <span className="min-w-0 truncate">
+                      {isEn ? 'Guide & Playbook' : 'Hướng dẫn & Công thức'}
+                    </span>
                   </NavLink>
                 </li>
               )}
@@ -69,9 +72,9 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
           </section>
         )
       })}
-          <section aria-label="Tiện ích Google Chrome">
+      <section aria-label={isEn ? 'Google Chrome Extension' : 'Tiện ích Google Chrome'}>
         <h2 className="px-2 pb-1 text-2xs font-semibold uppercase tracking-[0.04em] text-ink-faint">
-          TIỆN ÍCH TRÌNH DUYỆT
+          {isEn ? 'BROWSER EXTENSION' : 'TIỆN ÍCH TRÌNH DUYỆT'}
         </h2>
         <ul className="flex flex-col gap-0.5">
           <li>
@@ -88,7 +91,9 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
               }
             >
               <Puzzle className="h-5 w-5 shrink-0" aria-hidden="true" />
-              <span className="min-w-0 truncate">Tiện ích Chrome (Via)</span>
+              <span className="min-w-0 truncate">
+                {isEn ? 'Chrome Extension (Via)' : 'Tiện ích Chrome (Via)'}
+              </span>
             </NavLink>
           </li>
         </ul>

@@ -9,6 +9,7 @@ import {
   setActiveLanguage,
   translate,
 } from './translate'
+import { applyDomLanguage } from './domAutoTranslate'
 import type { Language, TranslationKey, TranslationVars } from './types'
 
 const STORAGE_KEY = 'adsops.language'
@@ -69,6 +70,41 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }, [language])
 
   useEffect(() => {
+    if (!ready || typeof document === 'undefined' || !document.body) return
+    let applying = false
+    const runApply = () => {
+      if (applying) return
+      applying = true
+      try {
+        applyDomLanguage(language, document.body)
+      } finally {
+        applying = false
+      }
+    }
+
+    runApply()
+
+    if (language !== 'en' || typeof MutationObserver === 'undefined') {
+      return
+    }
+
+    const observer = new MutationObserver(() => {
+      runApply()
+    })
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ['title', 'placeholder', 'aria-label'],
+    })
+
+    return () => {
+      observer.disconnect()
+    }
+  }, [language, ready])
+
+  useEffect(() => {
     if (ready) return
     let cancelled = false
     loadDictionary(language)
@@ -117,4 +153,3 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 export function useI18n(): I18nState {
   return useContext(I18nContext)
 }
-
