@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { BookOpen, Flag, Puzzle } from 'lucide-react'
+import { BookOpen, Calculator, Flag, Puzzle } from 'lucide-react'
 import { useI18n } from '../../i18n'
 import { cn } from '../../lib/cn'
 import { NAV_GROUPS } from './nav'
@@ -64,6 +64,27 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
                     <Flag className="h-5 w-5 shrink-0" aria-hidden="true" />
                     <span className="min-w-0 truncate">
                       {isEn ? 'Fanpages (Pages)' : 'Trang Fanpage'}
+                    </span>
+                  </NavLink>
+                </li>
+              )}
+              {group.id === 'accounts' && (
+                <li>
+                  <NavLink
+                    to="/retainers"
+                    onClick={onNavigate}
+                    className={({ isActive }) =>
+                      cn(
+                        'flex items-center gap-2.5 rounded-md px-2 py-2 text-sm font-medium transition-colors',
+                        isActive
+                          ? 'bg-brand-light text-brand-text'
+                          : 'text-ink-muted hover:bg-surface-sunken hover:text-ink',
+                      )
+                    }
+                  >
+                    <Calculator className="h-5 w-5 shrink-0" aria-hidden="true" />
+                    <span className="min-w-0 truncate">
+                      {isEn ? 'Client Retainers & Billing' : 'Ngân sách & Quyết toán KH'}
                     </span>
                   </NavLink>
                 </li>

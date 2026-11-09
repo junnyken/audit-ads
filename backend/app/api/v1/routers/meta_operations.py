@@ -4443,11 +4443,453 @@ def assign_card_governance(
     ctx.commit()
     return _build_unified_assets_overview(ctx.session, ctx.workspace_id)
 
+
+
+# ------------------------------------------------------------------------- Client Retainer & Pacing Tracker
+
+retainers_router = APIRouter(prefix="/client-retainers", tags=["client-retainers"])
+
+
+def _raw_to_vnd(raw_val: Any, currency: str, usd_rate: float = 25400.0) -> int:
+    if raw_val is None or str(raw_val).strip() == "":
+        return 0
+    try:
+        val = float(str(raw_val).strip())
+    except Exception:
+        return 0
+    if val <= 0:
+        return 0
+    curr = (currency or "VND").upper()
+    if curr == "USD":
+        # Meta USD raw values in Graph API are in cents (minor units, e.g. 4221902 = $42,219.02)
+        return int(round((val / 100.0) * usd_rate))
+    return int(round(val))
+
+
+def _ensure_initial_retainers_from_real_bms(
+    session,
+    workspace_id: uuid.UUID,
+    audit,
+    actor_id: uuid.UUID | None = None,
+) -> None:
+    from app.models.entities import AdAccount, AuditLog, BusinessManager
+    from app.services.extension_context import canonical_external_id
+
+    existing_rows = (
+        session.execute(
+            sa.select(AuditLog).where(
+                AuditLog.workspace_id == workspace_id,
+                AuditLog.entity_type == "client_retainer",
+                AuditLog.action.in_(("client_retainer.created", "client_retainer.updated", "client_retainer.deleted")),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if existing_rows:
+        return
+
+    accounts_all = (
+        session.execute(
+            sa.select(AdAccount).where(
+                AdAccount.workspace_id == workspace_id,
+                AdAccount.archived_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not accounts_all:
+        return
+
+    acc_by_ext: dict[str, AdAccount] = {}
+    for a in accounts_all:
+        ext = canonical_external_id(a.external_account_id)
+        if ext:
+            acc_by_ext[ext] = a
+
+    now_iso = datetime.now(UTC).isoformat()
+
+    # Build initial real retainers strictly from the workspace's real AdAccounts & BMs
+    mb_exts = ("4109242709312785", "659208850058410", "996876978574999", "487663100420907", "160263643531519", "764307044801093")
+    mb_ids = [str(acc_by_ext[e].id) for e in mb_exts if e in acc_by_ext]
+
+    tbs_exts = ("1167063825546698", "1069545664559001", "790088142598612")
+    tbs_ids = [str(acc_by_ext[e].id) for e in tbs_exts if e in acc_by_ext]
+
+    qct_exts = ("1221209591722645", "338551421414333", "337574751894643", "1594590901195302")
+    qct_ids = [str(acc_by_ext[e].id) for e in qct_exts if e in acc_by_ext]
+
+    xd_exts = ("1730165772447559", "148004397", "349735764764551")
+    xd_ids = [str(acc_by_ext[e].id) for e in xd_exts if e in acc_by_ext]
+
+    real_contracts = [
+        {
+            "id": str(uuid.uuid5(workspace_id, "retainer-matbao-corp")),
+            "contract_code": "HD-MB-2026-01",
+            "client_name": "Công Ty Cổ Phần Mắt Bão (Mắt Bão Group & MIFI)",
+            "project_name": "Ngân sách Quảng cáo Hệ sinh thái Mắt Bão · MBI · MIFI Invoice",
+            "contact_email": "marcommatbao@gmail.com",
+            "tax_id": "0302712571",
+            "committed_budget_vnd": 60000000,
+            "agency_fee_percent": 10.0,
+            "meta_tax_percent": 5.0,
+            "usd_to_vnd_rate": 25400.0,
+            "billing_cycle": "Tháng 11/2026",
+            "ad_account_ids": mb_ids,
+            "notes": "Gom 6 TKQC thật thuộc BM Công Ty Cổ Phần Mắt Bão (102968402561310). Đối soát chi tiêu thực tế + phí quản lý Agency 10% + thuế nhà thầu Meta 5%.",
+            "status": "ACTIVE",
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        },
+        {
+            "id": str(uuid.uuid5(workspace_id, "retainer-tbsupellex")),
+            "contract_code": "HD-TBS-2026-02",
+            "client_name": "Tbsupellex E-Commerce & Retail",
+            "project_name": "Chiến dịch Chuyển đổi Website tbsupellex.com & Pixel Partner",
+            "contact_email": "thientrieuadmin@tbsupellex.com",
+            "tax_id": "000388771",
+            "committed_budget_vnd": 15000000,
+            "agency_fee_percent": 12.0,
+            "meta_tax_percent": 5.0,
+            "usd_to_vnd_rate": 25400.0,
+            "billing_cycle": "Tháng 11/2026",
+            "ad_account_ids": tbs_ids,
+            "notes": "Cụm TKQC Tbsupellex & Q.C-1 thuộc BM Quảng Cáo Top (1993884657458857).",
+            "status": "ACTIVE",
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        },
+        {
+            "id": str(uuid.uuid5(workspace_id, "retainer-qct-clients")),
+            "contract_code": "HD-QCT-2026-03",
+            "client_name": "Cụm Khách Hàng BĐS & F&B (Vũ Hiếu · Quàng Chính · Thanh Công)",
+            "project_name": "Quảng cáo Lead Bất Động Sản & Chuỗi F&B (BM Quảng Cáo Top)",
+            "contact_email": "trieunt@matbao.com",
+            "tax_id": "",
+            "committed_budget_vnd": 30000000,
+            "agency_fee_percent": 10.0,
+            "meta_tax_percent": 8.0,
+            "usd_to_vnd_rate": 25400.0,
+            "billing_cycle": "Tháng 11/2026",
+            "ad_account_ids": qct_ids,
+            "notes": "Gom nhóm các TKQC khách lẻ đang chạy trong BM Quảng Cáo Top.",
+            "status": "ACTIVE",
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        },
+        {
+            "id": str(uuid.uuid5(workspace_id, "retainer-xaydung-tanhoa")),
+            "contract_code": "HD-XDTH-2026-04",
+            "client_name": "Xây Dựng - Tân Hòa & Triều Shop",
+            "project_name": "Chiến dịch Thương hiệu & Tin nhắn Xây Dựng Tân Hòa",
+            "contact_email": "thientrieu2101@gmail.com",
+            "tax_id": "",
+            "committed_budget_vnd": 10000000,
+            "agency_fee_percent": 8.0,
+            "meta_tax_percent": 5.0,
+            "usd_to_vnd_rate": 25400.0,
+            "billing_cycle": "Tháng 11/2026",
+            "ad_account_ids": xd_ids,
+            "notes": "Cụm BM Xây Dựng - Tân Hòa (1435224768712108) & BM Triều Shop (109796697343603).",
+            "status": "ACTIVE",
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        },
+    ]
+
+    for rc in real_contracts:
+        if not rc["ad_account_ids"]:
+            continue
+        with contextlib.suppress(Exception), session.begin_nested():
+            audit.record(
+                action="client_retainer.created",
+                entity_type="client_retainer",
+                entity_id=rc["id"],
+                metadata=rc,
+            )
+    session.flush()
+
+
+def _build_retainers_overview(session, workspace_id: uuid.UUID, audit) -> dict[str, Any]:
+    from app.api.v1.routers.ad_accounts import _build_billing_meta_map, _reconcile_production_bm_links
+    from app.core.enums import AssetType
+    from app.models.entities import AccountAssetLink, AdAccount, AuditLog, PaymentProfileReference
+    from app.services import spend_service
+
+    _reconcile_production_bm_links(session, workspace_id)
+    _ensure_initial_retainers_from_real_bms(session, workspace_id, audit)
+
+    accounts_all = (
+        session.execute(
+            sa.select(AdAccount).where(
+                AdAccount.workspace_id == workspace_id,
+                AdAccount.archived_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    acc_by_id: dict[str, AdAccount] = {str(a.id): a for a in accounts_all}
+
+    reads = spend_service.list_compact_reads(session, workspace_id, list(accounts_all))
+    payment_labels: dict[uuid.UUID, list[str]] = {}
+    for acc_id, pay_code, pay_label in session.execute(
+        sa.select(
+            AccountAssetLink.ad_account_id,
+            PaymentProfileReference.reference_code,
+            PaymentProfileReference.label,
+        )
+        .join(
+            PaymentProfileReference,
+            sa.and_(
+                PaymentProfileReference.id == AccountAssetLink.asset_id,
+                PaymentProfileReference.archived_at.is_(None),
+            ),
+        )
+        .where(
+            AccountAssetLink.workspace_id == workspace_id,
+            AccountAssetLink.asset_type == AssetType.PAYMENT_PROFILE,
+            AccountAssetLink.unlinked_at.is_(None),
+        )
+    ).all():
+        if pay_code:
+            txt = f"{pay_code} ({pay_label})" if pay_label and pay_label != pay_code else pay_code
+            if txt not in payment_labels.setdefault(acc_id, []):
+                payment_labels[acc_id].append(txt)
+
+    billing_map = _build_billing_meta_map(session, workspace_id, list(accounts_all), reads, payment_labels)
+
+    audit_rows = (
+        session.execute(
+            sa.select(AuditLog)
+            .where(
+                AuditLog.workspace_id == workspace_id,
+                AuditLog.entity_type == "client_retainer",
+                AuditLog.action.in_(("client_retainer.created", "client_retainer.updated", "client_retainer.deleted")),
+            )
+            .order_by(AuditLog.created_at.asc())
+        )
+        .scalars()
+        .all()
+    )
+
+    state_by_id: dict[str, dict[str, Any]] = {}
+    for r in audit_rows:
+        eid = str(r.entity_id)
+        if r.action == "client_retainer.deleted":
+            state_by_id.pop(eid, None)
+            continue
+        meta = r.metadata_json or r.after_json or {}
+        if isinstance(meta, dict):
+            cur = state_by_id.setdefault(eid, {"id": eid})
+            for k, v in meta.items():
+                if v is not None:
+                    cur[k] = v
+
+    now_dt = datetime.now(UTC)
+    days_in_month = 30
+    day_of_month = max(1, min(now_dt.day, days_in_month))
+    days_remaining = max(1, days_in_month - day_of_month)
+
+    items_out: list[dict[str, Any]] = []
+    total_committed_vnd = 0
+    total_mtd_spend_vnd = 0
+    total_lifetime_spend_vnd = 0
+    total_unpaid_balance_vnd = 0
+    total_settlement_mtd_vnd = 0
+    total_settlement_lifetime_vnd = 0
+
+    for eid, st in state_by_id.items():
+        if st.get("status") == "ARCHIVED":
+            continue
+        usd_rate = float(st.get("usd_to_vnd_rate") or 25400.0)
+        committed_vnd = int(float(st.get("committed_budget_vnd") or 0))
+        fee_pct = float(st.get("agency_fee_percent") or 0.0)
+        tax_pct = float(st.get("meta_tax_percent") or 0.0)
+        acc_ids = [str(x) for x in (st.get("ad_account_ids") or []) if str(x) in acc_by_id]
+
+        linked_accounts_detail: list[dict[str, Any]] = []
+        c_today_vnd = 0
+        c_7d_vnd = 0
+        c_mtd_vnd = 0
+        c_lifetime_vnd = 0
+        c_balance_vnd = 0
+
+        for aid in acc_ids:
+            acc_obj = acc_by_id[aid]
+            curr = (acc_obj.currency or "VND").upper()
+            sp_p = (reads.get(acc_obj.id) or {}).get("spend_periods") or {}
+            b_m = billing_map.get(acc_obj.id) or {}
+
+            today_v = _raw_to_vnd(sp_p.get("today_partial_raw"), curr, usd_rate)
+            last7d_v = _raw_to_vnd(sp_p.get("last_7d_raw"), curr, usd_rate)
+            mtd_v = _raw_to_vnd(sp_p.get("mtd_raw"), curr, usd_rate)
+            life_v = _raw_to_vnd(sp_p.get("amount_spent_raw"), curr, usd_rate)
+            bal_raw = b_m.get("balance_raw") if b_m.get("balance_raw") not in (None, "") else sp_p.get("balance_raw")
+            bal_v = _raw_to_vnd(bal_raw, curr, usd_rate)
+
+            c_today_vnd += today_v
+            c_7d_vnd += last7d_v
+            c_mtd_vnd += mtd_v
+            c_lifetime_vnd += life_v
+            c_balance_vnd += bal_v
+
+            linked_accounts_detail.append(
+                {
+                    "id": aid,
+                    "display_name": acc_obj.display_name,
+                    "external_account_id": acc_obj.external_account_id,
+                    "bm_name": acc_obj.business_manager.name if acc_obj.business_manager else None,
+                    "status": acc_obj.status.value,
+                    "currency": curr,
+                    "payment_card_display": b_m.get("payment_card_display"),
+                    "today_vnd": today_v,
+                    "last_7d_vnd": last7d_v,
+                    "mtd_vnd": mtd_v,
+                    "lifetime_vnd": life_v,
+                    "balance_vnd": bal_v,
+                }
+            )
+
+        # Effective spend for settlement: if MTD is > 0 use MTD; also expose Lifetime settlement so user can toggle
+        agency_fee_mtd_vnd = int(round(c_mtd_vnd * (fee_pct / 100.0)))
+        meta_tax_mtd_vnd = int(round(c_mtd_vnd * (tax_pct / 100.0)))
+        total_billable_mtd_vnd = c_mtd_vnd + agency_fee_mtd_vnd + meta_tax_mtd_vnd
+
+        agency_fee_lifetime_vnd = int(round(c_lifetime_vnd * (fee_pct / 100.0)))
+        meta_tax_lifetime_vnd = int(round(c_lifetime_vnd * (tax_pct / 100.0)))
+        total_billable_lifetime_vnd = c_lifetime_vnd + agency_fee_lifetime_vnd + meta_tax_lifetime_vnd
+
+        pacing_pct = round((c_mtd_vnd / committed_vnd) * 100.0, 1) if committed_vnd > 0 else 0.0
+        remaining_budget_vnd = max(0, committed_vnd - c_mtd_vnd)
+        recommended_daily_vnd = int(round(remaining_budget_vnd / days_remaining)) if remaining_budget_vnd > 0 else 0
+
+        if committed_vnd <= 0:
+            pacing_status = "NO_CAP"
+        elif c_mtd_vnd > committed_vnd:
+            pacing_status = "OVER_BUDGET"
+        elif pacing_pct >= 85.0:
+            pacing_status = "NEAR_CAP"
+        elif c_mtd_vnd > 0:
+            pacing_status = "ON_TRACK"
+        else:
+            pacing_status = "NO_MTD_SPEND"
+
+        total_committed_vnd += committed_vnd
+        total_mtd_spend_vnd += c_mtd_vnd
+        total_lifetime_spend_vnd += c_lifetime_vnd
+        total_unpaid_balance_vnd += c_balance_vnd
+        total_settlement_mtd_vnd += total_billable_mtd_vnd
+        total_settlement_lifetime_vnd += total_billable_lifetime_vnd
+
+        items_out.append(
+            {
+                "id": eid,
+                "contract_code": str(st.get("contract_code") or "HD-2026"),
+                "client_name": str(st.get("client_name") or "Khách hàng Agency"),
+                "project_name": str(st.get("project_name") or ""),
+                "contact_email": str(st.get("contact_email") or ""),
+                "tax_id": str(st.get("tax_id") or ""),
+                "billing_cycle": str(st.get("billing_cycle") or "Tháng 11/2026"),
+                "committed_budget_vnd": committed_vnd,
+                "agency_fee_percent": fee_pct,
+                "meta_tax_percent": tax_pct,
+                "usd_to_vnd_rate": usd_rate,
+                "notes": str(st.get("notes") or ""),
+                "ad_account_ids": acc_ids,
+                "linked_accounts": linked_accounts_detail,
+                "account_count": len(linked_accounts_detail),
+                "spend_today_vnd": c_today_vnd,
+                "spend_7d_vnd": c_7d_vnd,
+                "spend_mtd_vnd": c_mtd_vnd,
+                "spend_lifetime_vnd": c_lifetime_vnd,
+                "unpaid_balance_vnd": c_balance_vnd,
+                "agency_fee_mtd_vnd": agency_fee_mtd_vnd,
+                "meta_tax_mtd_vnd": meta_tax_mtd_vnd,
+                "total_billable_mtd_vnd": total_billable_mtd_vnd,
+                "agency_fee_lifetime_vnd": agency_fee_lifetime_vnd,
+                "meta_tax_lifetime_vnd": meta_tax_lifetime_vnd,
+                "total_billable_lifetime_vnd": total_billable_lifetime_vnd,
+                "pacing_percent": pacing_pct,
+                "pacing_status": pacing_status,
+                "remaining_budget_vnd": remaining_budget_vnd,
+                "recommended_daily_vnd": recommended_daily_vnd,
+                "updated_at": st.get("updated_at") or st.get("created_at"),
+            }
+        )
+
+    return {
+        "items": items_out,
+        "summary": {
+            "total_contracts": len(items_out),
+            "total_committed_vnd": total_committed_vnd,
+            "total_mtd_spend_vnd": total_mtd_spend_vnd,
+            "total_lifetime_spend_vnd": total_lifetime_spend_vnd,
+            "total_unpaid_balance_vnd": total_unpaid_balance_vnd,
+            "total_settlement_mtd_vnd": total_settlement_mtd_vnd,
+            "total_settlement_lifetime_vnd": total_settlement_lifetime_vnd,
+            "days_remaining_in_month": days_remaining,
+        },
+    }
+
+
+@retainers_router.get("")
+def list_client_retainers(ctx: OwnerCtx) -> dict[str, Any]:
+    data = _build_retainers_overview(ctx.session, ctx.workspace_id, ctx.audit)
+    ctx.commit()
+    return data
+
+
+@retainers_router.post("")
+def upsert_client_retainer(ctx: OwnerCtx, payload: dict[str, Any]) -> dict[str, Any]:
+    rid = str(payload.get("id") or "").strip() or str(uuid.uuid4())
+    now_iso = datetime.now(UTC).isoformat()
+    record_data = {
+        "id": rid,
+        "contract_code": str(payload.get("contract_code") or f"HD-{rid[:6].upper()}").strip()[:60],
+        "client_name": str(payload.get("client_name") or "Khách hàng mới").strip()[:200],
+        "project_name": str(payload.get("project_name") or "").strip()[:250],
+        "contact_email": str(payload.get("contact_email") or "").strip()[:160],
+        "tax_id": str(payload.get("tax_id") or "").strip()[:60],
+        "billing_cycle": str(payload.get("billing_cycle") or "Tháng 11/2026").strip()[:60],
+        "committed_budget_vnd": int(float(payload.get("committed_budget_vnd") or 0)),
+        "agency_fee_percent": float(payload.get("agency_fee_percent") or 10.0),
+        "meta_tax_percent": float(payload.get("meta_tax_percent") or 5.0),
+        "usd_to_vnd_rate": float(payload.get("usd_to_vnd_rate") or 25400.0),
+        "ad_account_ids": [str(x) for x in (payload.get("ad_account_ids") or []) if x],
+        "notes": str(payload.get("notes") or "").strip()[:2000],
+        "status": "ACTIVE",
+        "updated_at": now_iso,
+    }
+    ctx.audit.record(
+        action="client_retainer.updated",
+        entity_type="client_retainer",
+        entity_id=rid,
+        metadata=record_data,
+    )
+    ctx.commit()
+    return _build_retainers_overview(ctx.session, ctx.workspace_id, ctx.audit)
+
+
+@retainers_router.delete("/{retainer_id}")
+def delete_client_retainer(ctx: OwnerCtx, retainer_id: str) -> dict[str, Any]:
+    ctx.audit.record(
+        action="client_retainer.deleted",
+        entity_type="client_retainer",
+        entity_id=str(retainer_id),
+        metadata={"deleted_at": datetime.now(UTC).isoformat()},
+    )
+    ctx.commit()
+    return _build_retainers_overview(ctx.session, ctx.workspace_id, ctx.audit)
+
+
 router.include_router(connections_router)
 router.include_router(creation_router)
 router.include_router(share_router)
 router.include_router(pixel_share_router)
 router.include_router(pages_router)
 router.include_router(assets_control_router)
+router.include_router(retainers_router)
 
 

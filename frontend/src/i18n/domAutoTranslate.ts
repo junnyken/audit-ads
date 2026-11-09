@@ -17,6 +17,15 @@ const EXACT_TRIMMED: Record<string, string> = {
 }
 
 const PHRASE_PAIRS: Array<[string, string]> = [
+  ["Ngân sách Quảng cáo Hệ sinh thái Mắt Bão · MBI · MIFI Invoice", "Mắt Bão Ecosystem · MBI · MIFI Invoice Ad Budget"],
+  ["Chiến dịch Chuyển đổi Website tbsupellex.com & Pixel Partner", "Website Conversion Campaign tbsupellex.com & Partner Pixel"],
+  ["Cụm Khách Hàng BĐS & F&B (Vũ Hiếu · Quàng Chính · Thanh Công)", "Real Estate & F&B Client Cluster (Vu Hieu · Quang Chinh · Thanh Cong)"],
+  ["Quảng cáo Lead Bất Động Sản & Chuỗi F&B (BM Quảng Cáo Top)", "Real Estate Lead Gen & F&B Chain Ads (BM Quang Cao Top)"],
+  ["Chiến dịch Thương hiệu & Tin nhắn Xây Dựng Tân Hòa", "Brand & Messaging Campaign — Xay Dung Tan Hoa"],
+  ["Gom 6 TKQC thật thuộc BM Công Ty Cổ Phần Mắt Bão", "Grouped 6 live Ad Accounts under BM Mat Bao Corp"],
+  ["Đối soát chi tiêu thực tế + phí quản lý Agency 10% + thuế nhà thầu Meta 5%.", "Live spend reconciliation + 10% Agency fee + 5% Meta tax."],
+  ["Gom nhóm các TKQC khách lẻ đang chạy trong BM Quảng Cáo Top.", "Grouped client Ad Accounts running inside BM Quang Cao Top."],
+  ["Tháng 11/2026", "Nov 2026"],
   ["Đồng bộ từ Meta Graph API (/me/accounts)", "Synced from Meta Graph API (/me/accounts)"],
   ["Tự động liên kết theo cụm Via Tổng", "Auto-linked via Primary Master Account cluster"],
   ["Công ty công nghệ thông tin", "Information Technology Company"],
