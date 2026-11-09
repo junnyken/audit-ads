@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { CreditCard, Globe, Layers, Monitor, Sparkles } from 'lucide-react'
+import FanpageControlCenter from '../components/FanpageControlCenter'
 import ReferenceManager from '../components/ReferenceManager'
 import { PageHeader } from '../components/page/PageHeader'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/primitives/tabs'
@@ -148,7 +149,7 @@ export default function Assets() {
         </TabsList>
         {SPECS.map((spec) => (
           <TabsContent key={spec.key} value={spec.key}>
-            <ReferenceManager spec={spec} />
+            {spec.key === 'pages' ? <FanpageControlCenter embedded /> : <ReferenceManager spec={spec} />}
           </TabsContent>
         ))}
       </Tabs>

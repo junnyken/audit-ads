@@ -17,6 +17,15 @@ const EXACT_TRIMMED: Record<string, string> = {
 }
 
 const PHRASE_PAIRS: Array<[string, string]> = [
+  ["Gán quyền chạy Page từ Trung tâm Quản trị Fanpage", "Assigned Page ad access from Fanpage Control Center"],
+  ["Đồng bộ tự động từ promote_pages của TKQC", "Auto-synced from Ad Account promote_pages"],
+  ["Tự động liên kết theo cụm BM", "Auto-linked by BM cluster"],
+  ["Trang Doanh nghiệp / Thương hiệu", "Business / Brand Page"],
+  ["Quầy sinh tố & nước trái cây", "Smoothie & Juice Bar"],
+  ["Trang web thương mại điện tử", "E-commerce Website"],
+  ["Mua sắm & bán lẻ", "Shopping & Retail"],
+  ["Quán ăn", "Restaurant"],
+  ["Đồng bộ từ BM", "Synced from BM"],
   [
     "🚫 Khiên Chặn Passkey Tự Động (passkey_shield.js): Tiện ích AdsOps Companion v2.4 Pro khóa thẳng hàm WebAuthn (PublicKeyCredential) ngay trước khi trang Facebook tải xong — bảng Windows Hello / QR Passkey sẽ KHÔNG BAO GIỜ nhảy lên nữa, ép Facebook chuyển thẳng về ô nhập mã 2FA 6 số.",
     "🚫 Automatic Passkey Shield (passkey_shield.js): AdsOps Companion v2.4 Pro overrides WebAuthn (PublicKeyCredential) before Facebook finishes loading — Windows Hello / QR Passkey dialogs NEVER appear, forcing Facebook directly to 6-digit 2FA."

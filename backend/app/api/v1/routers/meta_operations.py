@@ -2599,7 +2599,924 @@ def run_pixel_share_batch(ctx: OwnerCtx, batch_id: uuid.UUID) -> dict[str, Any]:
     return _serialize_pixel_share_detail(service, batch)
 
 
+
+# ------------------------------------------------------------------------- Fanpage Control Center
+
+pages_router = APIRouter(prefix="/facebook-pages", tags=["facebook-pages"])
+
+
+def _extract_pic_url(pic_field: Any) -> str | None:
+    if isinstance(pic_field, dict):
+        data = pic_field.get("data")
+        if isinstance(data, dict) and data.get("url"):
+            return str(data["url"]).strip()
+        if pic_field.get("url"):
+            return str(pic_field["url"]).strip()
+    return None
+
+
+def _sync_workspace_pages_from_meta(
+    session,
+    workspace_id: uuid.UUID,
+    audit,
+    actor_id: uuid.UUID | None = None,
+    raw_token: str | None = None,
+) -> dict[str, int]:
+    from app.api.deps import Ctx
+    from app.core.enums import AccountStatus, AssetType, IdentityBusinessRole, ReferenceStatus
+    from app.models.entities import (
+        AccountAssetLink,
+        AdAccount,
+        BusinessManager,
+        Page,
+        PersonalAccountBusinessLink,
+        PersonalAccountReference,
+    )
+    from app.services.extension_context import canonical_external_id
+    from app.services.meta_real_provider import HttpGraphTransport, MetaRealProvider
+
+    settings = get_settings()
+    creds_all = list(
+        session.execute(
+            sa.select(MetaReaderCredential)
+            .where(
+                MetaReaderCredential.workspace_id == workspace_id,
+                MetaReaderCredential.archived_at.is_(None),
+            )
+            .order_by(MetaReaderCredential.updated_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+
+    providers: list[tuple[MetaReaderCredential | None, Any]] = []
+    clean_tok = (raw_token or "").strip()
+    if clean_tok:
+        with contextlib.suppress(Exception):
+            direct_prov = MetaRealProvider(
+                transport=HttpGraphTransport(
+                    access_token=clean_tok,
+                    base_url=settings.meta_graph_base_url,
+                    api_version=settings.meta_graph_api_version,
+                    timeout_seconds=settings.meta_timeout_seconds,
+                ),
+                business_id=settings.meta_business_id,
+            )
+            providers.append((creds_all[0] if creds_all else None, direct_prov))
+
+    for c in creds_all:
+        if c.status.value == "active":
+            with contextlib.suppress(Exception):
+                providers.append((c, build_real_provider(settings, business_id=settings.meta_business_id, credential=c)))
+
+    if (settings.meta_access_token or "").strip():
+        with contextlib.suppress(Exception):
+            providers.append((None, build_real_provider(settings, business_id=settings.meta_business_id, credential=None)))
+
+    existing_pages_list = (
+        session.execute(sa.select(Page).where(Page.workspace_id == workspace_id)).scalars().all()
+    )
+    by_ext_page: dict[str, Page] = {
+        str(p.external_page_id).strip(): p for p in existing_pages_list if p.external_page_id
+    }
+
+    bms_all = (
+        session.execute(
+            sa.select(BusinessManager).where(
+                BusinessManager.workspace_id == workspace_id,
+                BusinessManager.archived_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    bm_by_ext: dict[str, BusinessManager] = {
+        str(b.external_id).strip(): b for b in bms_all if b.external_id
+    }
+    bm_by_name: dict[str, BusinessManager] = {
+        b.name.strip().lower(): b for b in bms_all if b.name
+    }
+
+    identities_all = (
+        session.execute(
+            sa.select(PersonalAccountReference).where(
+                PersonalAccountReference.workspace_id == workspace_id,
+                PersonalAccountReference.archived_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    ident_by_ext: dict[str, PersonalAccountReference] = {
+        str(i.external_reference_id).strip(): i for i in identities_all if i.external_reference_id
+    }
+
+    bm_links = (
+        session.execute(
+            sa.select(PersonalAccountBusinessLink).where(
+                PersonalAccountBusinessLink.workspace_id == workspace_id,
+                PersonalAccountBusinessLink.unlinked_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    holder_by_bm_id: dict[uuid.UUID, uuid.UUID] = {}
+    for lnk in bm_links:
+        if lnk.business_manager_id not in holder_by_bm_id or lnk.role == IdentityBusinessRole.ADMIN:
+            holder_by_bm_id[lnk.business_manager_id] = lnk.personal_account_reference_id
+
+    accounts_all = (
+        session.execute(
+            sa.select(AdAccount).where(
+                AdAccount.workspace_id == workspace_id,
+                AdAccount.archived_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    acc_by_ext: dict[str, AdAccount] = {}
+    for a in accounts_all:
+        ext_a = canonical_external_id(a.external_account_id)
+        if ext_a:
+            acc_by_ext[ext_a] = a
+
+    existing_links = (
+        session.execute(
+            sa.select(AccountAssetLink).where(
+                AccountAssetLink.workspace_id == workspace_id,
+                AccountAssetLink.asset_type == AssetType.PAGE,
+                AccountAssetLink.unlinked_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    active_link_pairs: set[tuple[uuid.UUID, uuid.UUID]] = {
+        (lnk.ad_account_id, lnk.asset_id) for lnk in existing_links
+    }
+    pages_with_any_link: set[uuid.UUID] = {lnk.asset_id for lnk in existing_links}
+
+    synced_count = 0
+    new_count = 0
+    linked_account_count = 0
+    refreshed_ext_ids: set[str] = set()
+    now_iso = datetime.now(UTC).isoformat()
+    now_dt = datetime.now(UTC)
+
+    def _upsert_page_from_graph(
+        p_row: dict[str, Any],
+        *,
+        source_edge: str,
+        fallback_bm: BusinessManager | None = None,
+        fallback_holder_id: uuid.UUID | None = None,
+    ) -> Page | None:
+        nonlocal synced_count, new_count
+        pid = str(p_row.get("id") or "").strip()
+        if not pid:
+            return None
+        pname = str(p_row.get("name") or pid).strip()
+        pcat = str(p_row.get("category") or "").strip()[:120] or None
+        plink = str(p_row.get("link") or f"https://www.facebook.com/{pid}").strip()[:2048]
+        is_pub = p_row.get("is_published")
+        st_enum = ReferenceStatus.INACTIVE if is_pub is False else ReferenceStatus.ACTIVE
+
+        biz_obj = fallback_bm
+        raw_biz = p_row.get("business")
+        if isinstance(raw_biz, dict) and raw_biz.get("id"):
+            b_ext = str(raw_biz["id"]).strip()
+            b_name = str(raw_biz.get("name") or b_ext).strip()
+            biz_obj = bm_by_ext.get(b_ext)
+            if biz_obj is None:
+                try:
+                    with session.begin_nested():
+                        biz_obj = BusinessManager(
+                            workspace_id=workspace_id,
+                            external_id=b_ext[:120],
+                            name=b_name[:200],
+                            country="VN",
+                            currency="VND",
+                            status=ReferenceStatus.ACTIVE,
+                        )
+                        session.add(biz_obj)
+                        session.flush()
+                        bm_by_ext[b_ext] = biz_obj
+                except Exception:
+                    biz_obj = fallback_bm
+
+        note_str = (
+            f"Đồng bộ từ BM {biz_obj.name}"
+            if biz_obj is not None
+            else "Đồng bộ từ Meta Graph API (/me/accounts)"
+        )
+
+        pg_entity = by_ext_page.get(pid)
+        if pg_entity is None:
+            try:
+                with session.begin_nested():
+                    pg_entity = Page(
+                        workspace_id=workspace_id,
+                        name=pname[:200],
+                        external_page_id=pid[:120],
+                        url=plink,
+                        category=pcat,
+                        status=st_enum,
+                        notes=note_str,
+                    )
+                    session.add(pg_entity)
+                    session.flush()
+                    by_ext_page[pid] = pg_entity
+                    new_count += 1
+            except Exception:
+                pg_entity = by_ext_page.get(pid)
+        else:
+            pg_entity.archived_at = None
+            pg_entity.status = st_enum
+            if pname and (not pg_entity.name or pg_entity.name == pid):
+                pg_entity.name = pname[:200]
+            if plink:
+                pg_entity.url = plink
+            if pcat:
+                pg_entity.category = pcat
+            if biz_obj is not None and not pg_entity.notes:
+                pg_entity.notes = note_str
+
+        if pg_entity is not None:
+            synced_count += 1
+            refreshed_ext_ids.add(pid)
+            holder_id = fallback_holder_id or (
+                holder_by_bm_id.get(biz_obj.id) if biz_obj is not None else None
+            )
+            meta_payload: dict[str, Any] = {
+                "last_synced_at": now_iso,
+                "source_edge": source_edge,
+                "is_published": True if is_pub is None else bool(is_pub),
+                "health_status": "UNPUBLISHED" if is_pub is False else "LIVE",
+            }
+            if p_row.get("fan_count") is not None:
+                with contextlib.suppress(Exception):
+                    meta_payload["fan_count"] = int(p_row["fan_count"])
+            if p_row.get("followers_count") is not None:
+                with contextlib.suppress(Exception):
+                    meta_payload["followers_count"] = int(p_row["followers_count"])
+            if p_row.get("verification_status"):
+                meta_payload["verification_status"] = str(p_row["verification_status"])
+            pic_u = _extract_pic_url(p_row.get("picture"))
+            if pic_u:
+                meta_payload["picture_url"] = pic_u
+            if isinstance(p_row.get("tasks"), list):
+                meta_payload["tasks"] = [str(t).upper() for t in p_row["tasks"] if t]
+            if biz_obj is not None:
+                meta_payload["owner_bm_id"] = str(biz_obj.id)
+                meta_payload["owner_bm_name"] = biz_obj.name
+                meta_payload["owner_bm_external_id"] = biz_obj.external_id
+            if holder_id is not None:
+                meta_payload["holder_identity_id"] = str(holder_id)
+
+            with contextlib.suppress(Exception), session.begin_nested():
+                audit.record(
+                    action="page.meta_synced",
+                    entity_type="page",
+                    entity_id=pg_entity.id,
+                    metadata=meta_payload,
+                )
+        return pg_entity
+
+    def _link_page_to_account(pg_entity: Page, acc: AdAccount, note: str) -> None:
+        nonlocal linked_account_count
+        pair = (acc.id, pg_entity.id)
+        if pair in active_link_pairs:
+            return
+        try:
+            with session.begin_nested():
+                session.add(
+                    AccountAssetLink(
+                        workspace_id=workspace_id,
+                        ad_account_id=acc.id,
+                        asset_type=AssetType.PAGE,
+                        asset_id=pg_entity.id,
+                        linked_at=now_dt,
+                        linked_by=actor_id,
+                        note=note[:500],
+                    )
+                )
+                session.flush()
+                active_link_pairs.add(pair)
+                pages_with_any_link.add(pg_entity.id)
+                linked_account_count += 1
+        except Exception:
+            pass
+
+    PAGE_FIELDS_FULL = "id,name,category,link,fan_count,followers_count,verification_status,is_published,tasks,business{id,name},picture{url}"
+    PAGE_FIELDS_SAFE = "id,name,category,link,fan_count,is_published,picture{url}"
+
+    for cred, prov in providers:
+        if not hasattr(prov, "transport"):
+            continue
+        tr = prov.transport
+        cred_holder_id: uuid.UUID | None = (
+            cred.personal_account_reference_id if cred and cred.personal_account_reference_id else None
+        )
+        if cred_holder_id is None:
+            with contextlib.suppress(Exception):
+                me_r = tr.get("me", {"fields": "id,name"})
+                if me_r.ok and isinstance(me_r.payload, dict):
+                    me_id = str(me_r.payload.get("id") or "").strip()
+                    if me_id and me_id in ident_by_ext:
+                        cred_holder_id = ident_by_ext[me_id].id
+
+        # 1) /me/accounts (Pages directly administered by the Via token)
+        with contextlib.suppress(Exception):
+            r_me = tr.get("me/accounts", {"fields": PAGE_FIELDS_FULL, "limit": "100"})
+            if not r_me.ok:
+                r_me = tr.get("me/accounts", {"fields": PAGE_FIELDS_SAFE, "limit": "100"})
+            if r_me.ok and isinstance(r_me.payload, dict):
+                for p_row in r_me.payload.get("data", []) or []:
+                    if isinstance(p_row, dict):
+                        _upsert_page_from_graph(
+                            p_row,
+                            source_edge="me_accounts",
+                            fallback_bm=None,
+                            fallback_holder_id=cred_holder_id,
+                        )
+
+        # 2) /{bm_id}/owned_pages & /{bm_id}/client_pages across all active BMs
+        for bm in bms_all:
+            if not bm.external_id:
+                continue
+            for edge_name in ("owned_pages", "client_pages"):
+                with contextlib.suppress(Exception):
+                    r_bm = tr.get(f"{bm.external_id}/{edge_name}", {"fields": PAGE_FIELDS_FULL, "limit": "100"})
+                    if not r_bm.ok:
+                        r_bm = tr.get(f"{bm.external_id}/{edge_name}", {"fields": PAGE_FIELDS_SAFE, "limit": "100"})
+                    if r_bm.ok and isinstance(r_bm.payload, dict):
+                        for p_row in r_bm.payload.get("data", []) or []:
+                            if isinstance(p_row, dict):
+                                _upsert_page_from_graph(
+                                    p_row,
+                                    source_edge=edge_name,
+                                    fallback_bm=bm,
+                                    fallback_holder_id=holder_by_bm_id.get(bm.id) or cred_holder_id,
+                                )
+
+        # 3) /act_{id}/promote_pages on active Ad Accounts (up to 12 accounts)
+        for acc in accounts_all[:12]:
+            ext_a = canonical_external_id(acc.external_account_id)
+            if not ext_a:
+                continue
+            with contextlib.suppress(Exception):
+                r_prom = tr.get(f"act_{ext_a}/promote_pages", {"fields": PAGE_FIELDS_SAFE, "limit": "50"})
+                if r_prom.ok and isinstance(r_prom.payload, dict):
+                    acc_bm = bm_by_ext.get(str(acc.business_manager.external_id)) if acc.business_manager and acc.business_manager.external_id else None
+                    for p_row in r_prom.payload.get("data", []) or []:
+                        if isinstance(p_row, dict):
+                            pg_ent = _upsert_page_from_graph(
+                                p_row,
+                                source_edge="promote_pages",
+                                fallback_bm=acc_bm,
+                                fallback_holder_id=acc.personal_account_reference_id or cred_holder_id,
+                            )
+                            if pg_ent is not None:
+                                _link_page_to_account(pg_ent, acc, "Đồng bộ tự động từ promote_pages của TKQC")
+
+        # 4) Refresh any existing DB page that was not yet refreshed in steps 1-3
+        for ext_pid, pg_existing in list(by_ext_page.items()):
+            if ext_pid in refreshed_ext_ids:
+                continue
+            with contextlib.suppress(Exception):
+                r_node = tr.get(ext_pid, {"fields": "id,name,category,link,fan_count,followers_count,verification_status,is_published,business{id,name},picture{url}"})
+                if not r_node.ok:
+                    r_node = tr.get(ext_pid, {"fields": PAGE_FIELDS_SAFE})
+                if r_node.ok and isinstance(r_node.payload, dict) and r_node.payload.get("id"):
+                    matched_bm = None
+                    if pg_existing.notes and "Đồng bộ từ BM " in pg_existing.notes:
+                        b_label = pg_existing.notes.split("Đồng bộ từ BM ", 1)[1].strip().lower()
+                        matched_bm = bm_by_name.get(b_label)
+                    _upsert_page_from_graph(
+                        r_node.payload,
+                        source_edge="node_refresh",
+                        fallback_bm=matched_bm,
+                        fallback_holder_id=cred_holder_id,
+                    )
+
+    # 5) Auto-link BM Pages to active Ad Accounts of that same BM if the Page has 0 linked accounts yet
+    for pg_ent in by_ext_page.values():
+        if pg_ent.id in pages_with_any_link or pg_ent.archived_at is not None:
+            continue
+        matched_bm = None
+        if pg_ent.notes and "Đồng bộ từ BM " in pg_ent.notes:
+            b_label = pg_ent.notes.split("Đồng bộ từ BM ", 1)[1].strip().lower()
+            matched_bm = bm_by_name.get(b_label)
+        if matched_bm is not None:
+            bm_accs = [
+                a for a in accounts_all
+                if a.business_manager_id == matched_bm.id and a.status == AccountStatus.ACTIVE
+            ] or [a for a in accounts_all if a.business_manager_id == matched_bm.id]
+            for acc_target in bm_accs[:2]:
+                _link_page_to_account(pg_ent, acc_target, f"Tự động liên kết theo cụm BM {matched_bm.name}")
+
+    return {
+        "synced_count": synced_count,
+        "new_count": new_count,
+        "linked_account_count": linked_account_count,
+    }
+
+
+def _build_pages_summary(
+    session,
+    workspace_id: uuid.UUID,
+    *,
+    include_archived: bool = False,
+) -> dict[str, Any]:
+    from app.core.enums import AccountStatus, AssetType, IdentityBusinessRole, ReferenceStatus
+    from app.models.entities import (
+        AccountAssetLink,
+        AdAccount,
+        BusinessManager,
+        Page,
+        PersonalAccountBusinessLink,
+        PersonalAccountReference,
+    )
+
+    stmt = sa.select(Page).where(Page.workspace_id == workspace_id)
+    if not include_archived:
+        stmt = stmt.where(Page.archived_at.is_(None))
+    pages = session.execute(stmt.order_by(Page.updated_at.desc(), Page.name.asc())).scalars().all()
+
+    bms_all = (
+        session.execute(
+            sa.select(BusinessManager).where(
+                BusinessManager.workspace_id == workspace_id,
+                BusinessManager.archived_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    bm_by_id: dict[str, BusinessManager] = {str(b.id): b for b in bms_all}
+    bm_by_name: dict[str, BusinessManager] = {b.name.strip().lower(): b for b in bms_all if b.name}
+
+    identities_all = (
+        session.execute(
+            sa.select(PersonalAccountReference).where(
+                PersonalAccountReference.workspace_id == workspace_id,
+                PersonalAccountReference.archived_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    ident_by_id: dict[str, PersonalAccountReference] = {str(i.id): i for i in identities_all}
+    default_holder: PersonalAccountReference | None = identities_all[0] if identities_all else None
+    for ident_cand in identities_all:
+        if "chính" in (ident_cand.label or "").lower() or "tổng" in (ident_cand.label or "").lower():
+            default_holder = ident_cand
+            break
+
+    bm_links = (
+        session.execute(
+            sa.select(PersonalAccountBusinessLink).where(
+                PersonalAccountBusinessLink.workspace_id == workspace_id,
+                PersonalAccountBusinessLink.unlinked_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    holder_by_bm_id: dict[str, PersonalAccountReference] = {}
+    for lnk in bm_links:
+        ident_obj = ident_by_id.get(str(lnk.personal_account_reference_id))
+        if ident_obj is not None:
+            bm_k = str(lnk.business_manager_id)
+            if bm_k not in holder_by_bm_id or lnk.role == IdentityBusinessRole.ADMIN:
+                holder_by_bm_id[bm_k] = ident_obj
+
+    accounts_all = (
+        session.execute(
+            sa.select(AdAccount).where(
+                AdAccount.workspace_id == workspace_id,
+                AdAccount.archived_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    acc_by_id: dict[uuid.UUID, AdAccount] = {a.id: a for a in accounts_all}
+
+    page_links = (
+        session.execute(
+            sa.select(AccountAssetLink).where(
+                AccountAssetLink.workspace_id == workspace_id,
+                AccountAssetLink.asset_type == AssetType.PAGE,
+                AccountAssetLink.unlinked_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    links_by_page: dict[uuid.UUID, list[AccountAssetLink]] = {}
+    for lnk in page_links:
+        links_by_page.setdefault(lnk.asset_id, []).append(lnk)
+
+    page_ids_str = [str(p.id) for p in pages]
+    overrides_by_page: dict[str, dict[str, Any]] = {}
+    if page_ids_str:
+        audit_rows = (
+            session.execute(
+                sa.select(AuditLog)
+                .where(
+                    AuditLog.workspace_id == workspace_id,
+                    AuditLog.entity_type == "page",
+                    AuditLog.entity_id.in_(page_ids_str),
+                    AuditLog.action.in_(("page.meta_synced", "page.meta_updated")),
+                )
+                .order_by(AuditLog.created_at.asc())
+            )
+            .scalars()
+            .all()
+        )
+        for row in audit_rows:
+            meta = row.metadata_json or row.after_json or {}
+            if isinstance(meta, dict):
+                cur = overrides_by_page.setdefault(row.entity_id, {})
+                for k, v in meta.items():
+                    if v is not None:
+                        cur[k] = v
+
+    items: list[dict[str, Any]] = []
+    live_pages = 0
+    restricted_or_unpub_pages = 0
+    contagion_risk_pages = 0
+    isolated_with_holder_pages = 0
+    total_followers = 0
+
+    for idx, p in enumerate(pages):
+        ov = overrides_by_page.get(str(p.id), {})
+
+        # Resolve BM
+        owner_bm: BusinessManager | None = None
+        if ov.get("owner_bm_id"):
+            owner_bm = bm_by_id.get(str(ov["owner_bm_id"]))
+        if owner_bm is None and p.notes and "Đồng bộ từ BM " in p.notes:
+            b_label = p.notes.split("Đồng bộ từ BM ", 1)[1].strip().lower()
+            owner_bm = bm_by_name.get(b_label)
+
+        # Resolve linked Ad Accounts
+        p_links = links_by_page.get(p.id, [])
+        linked_accs_out: list[dict[str, Any]] = []
+        restricted_acc_count = 0
+        for lnk in p_links:
+            acc_obj = acc_by_id.get(lnk.ad_account_id)
+            if acc_obj is not None:
+                if owner_bm is None and acc_obj.business_manager_id:
+                    owner_bm = bm_by_id.get(str(acc_obj.business_manager_id))
+                st_val = acc_obj.status.value
+                if st_val in ("restricted", "disabled"):
+                    restricted_acc_count += 1
+                linked_accs_out.append(
+                    {
+                        "id": str(acc_obj.id),
+                        "link_id": str(lnk.id),
+                        "display_name": acc_obj.display_name,
+                        "external_account_id": acc_obj.external_account_id,
+                        "status": st_val,
+                        "currency": acc_obj.currency or "VND",
+                    }
+                )
+
+        # If Page belongs to a BM and has 0 explicit links yet, infer BM's active accounts for visibility
+        if not linked_accs_out and owner_bm is not None:
+            bm_accs = [a for a in accounts_all if a.business_manager_id == owner_bm.id]
+            for acc_obj in bm_accs[:2]:
+                st_val = acc_obj.status.value
+                if st_val in ("restricted", "disabled"):
+                    restricted_acc_count += 1
+                linked_accs_out.append(
+                    {
+                        "id": str(acc_obj.id),
+                        "link_id": None,
+                        "display_name": acc_obj.display_name,
+                        "external_account_id": acc_obj.external_account_id,
+                        "status": st_val,
+                        "currency": acc_obj.currency or "VND",
+                    }
+                )
+
+        # Resolve Holder Identity (Tier 1 Via holding Page/BM)
+        holder_ident: PersonalAccountReference | None = None
+        if ov.get("holder_identity_id"):
+            holder_ident = ident_by_id.get(str(ov["holder_identity_id"]))
+        if holder_ident is None and owner_bm is not None:
+            holder_ident = holder_by_bm_id.get(str(owner_bm.id))
+        if holder_ident is None:
+            holder_ident = default_holder
+
+        is_pub = bool(ov.get("is_published", p.status != ReferenceStatus.INACTIVE))
+        health_status = str(ov.get("health_status") or "").upper()
+        if health_status not in ("LIVE", "RESTRICTED", "UNPUBLISHED", "APPEAL"):
+            if not is_pub:
+                health_status = "UNPUBLISHED"
+            elif p.status == ReferenceStatus.INACTIVE:
+                health_status = "RESTRICTED"
+            else:
+                health_status = "LIVE"
+
+        if health_status == "LIVE":
+            live_pages += 1
+        else:
+            restricted_or_unpub_pages += 1
+
+        if restricted_acc_count > 0 or len(linked_accs_out) > 5:
+            contagion_risk = "HIGH"
+            contagion_risk_pages += 1
+        elif len(linked_accs_out) > 3:
+            contagion_risk = "MEDIUM"
+        else:
+            contagion_risk = "SAFE"
+
+        if holder_ident is not None and owner_bm is not None:
+            isolated_with_holder_pages += 1
+
+        fan_count = ov.get("fan_count")
+        followers_count = ov.get("followers_count") or fan_count
+        if isinstance(followers_count, int):
+            total_followers += followers_count
+
+        tasks = ov.get("tasks")
+        if not isinstance(tasks, list) or not tasks:
+            tasks = ["MANAGE", "CREATE_CONTENT", "MODERATE", "ADVERTISE", "ANALYZE"]
+
+        browser_prof = (
+            (holder_ident.browser_profile_label or "").strip()
+            if holder_ident is not None
+            else ""
+        ) or f"Profile {idx + 1}"
+
+        items.append(
+            {
+                "id": str(p.id),
+                "name": p.name,
+                "external_page_id": p.external_page_id,
+                "url": p.url or (f"https://www.facebook.com/{p.external_page_id}" if p.external_page_id else None),
+                "category": p.category or "Trang Doanh nghiệp / Thương hiệu",
+                "status": p.status.value,
+                "notes": p.notes or "",
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+                "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+                "archived_at": p.archived_at.isoformat() if p.archived_at else None,
+                "health_status": health_status,
+                "is_published": is_pub,
+                "verification_status": str(ov.get("verification_status") or "not_verified"),
+                "fan_count": fan_count,
+                "followers_count": followers_count,
+                "picture_url": ov.get("picture_url"),
+                "tasks": tasks,
+                "source_edge": str(ov.get("source_edge") or "owned_pages"),
+                "owner_bm_id": str(owner_bm.id) if owner_bm else None,
+                "owner_bm_name": owner_bm.name if owner_bm else None,
+                "owner_bm_external_id": owner_bm.external_id if owner_bm else None,
+                "holder_identity_id": str(holder_ident.id) if holder_ident else None,
+                "holder_label": holder_ident.label if holder_ident else None,
+                "holder_external_id": holder_ident.external_reference_id if holder_ident else None,
+                "holder_browser_profile": browser_prof,
+                "holder_network_label": (holder_ident.network_label or "") if holder_ident else "",
+                "linked_ad_accounts": linked_accs_out,
+                "linked_ad_account_count": len(linked_accs_out),
+                "restricted_ad_account_count": restricted_acc_count,
+                "contagion_risk": contagion_risk,
+                "last_synced_at": ov.get("last_synced_at") or (p.updated_at.isoformat() if p.updated_at else None),
+            }
+        )
+
+    return {
+        "items": items,
+        "summary": {
+            "total_pages": len(items),
+            "live_pages": live_pages,
+            "restricted_or_unpublished_pages": restricted_or_unpub_pages,
+            "contagion_risk_pages": contagion_risk_pages,
+            "isolated_with_holder_pages": isolated_with_holder_pages,
+            "total_followers": total_followers,
+        },
+    }
+
+
+@pages_router.get("/summary")
+def get_facebook_pages_summary(
+    ctx: OwnerCtx,
+    archived: bool = Query(False),
+) -> dict[str, Any]:
+    return _build_pages_summary(ctx.session, ctx.workspace_id, include_archived=archived)
+
+
+@pages_router.post("/sync-meta")
+def sync_facebook_pages_from_meta(
+    ctx: OwnerCtx,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    raw_token = str((payload or {}).get("access_token") or "").strip() or None
+    stats = _sync_workspace_pages_from_meta(
+        ctx.session,
+        ctx.workspace_id,
+        ctx.audit,
+        actor_id=ctx.user.id,
+        raw_token=raw_token,
+    )
+    ctx.commit()
+    summary_data = _build_pages_summary(ctx.session, ctx.workspace_id, include_archived=False)
+    return {
+        **stats,
+        **summary_data,
+    }
+
+
+@pages_router.post("/{page_id}/check-live")
+def check_single_page_live(
+    ctx: OwnerCtx,
+    page_id: uuid.UUID,
+) -> dict[str, Any]:
+    from app.core.enums import ReferenceStatus
+    from app.models.entities import Page
+
+    pg = get_or_404(ctx.session, Page, page_id, ctx.workspace_id, label="Page")
+    ext_pid = (pg.external_page_id or "").strip()
+    settings = get_settings()
+    creds_all = _workspace_credentials(ctx)
+    providers = []
+    for c in creds_all:
+        if c.status.value == "active":
+            with contextlib.suppress(Exception):
+                providers.append(build_real_provider(settings, business_id=settings.meta_business_id, credential=c))
+    if (settings.meta_access_token or "").strip():
+        with contextlib.suppress(Exception):
+            providers.append(build_real_provider(settings, business_id=settings.meta_business_id, credential=None))
+
+    probed_ok = False
+    meta_update: dict[str, Any] = {"last_synced_at": datetime.now(UTC).isoformat()}
+    if ext_pid:
+        for prov in providers:
+            if not hasattr(prov, "transport"):
+                continue
+            with contextlib.suppress(Exception):
+                r = prov.transport.get(
+                    ext_pid,
+                    {
+                        "fields": "id,name,category,link,fan_count,followers_count,verification_status,is_published,business{id,name},picture{url}"
+                    },
+                )
+                if not r.ok:
+                    r = prov.transport.get(
+                        ext_pid,
+                        {"fields": "id,name,category,link,fan_count,is_published,picture{url}"},
+                    )
+                if r.ok and isinstance(r.payload, dict) and r.payload.get("id"):
+                    probed_ok = True
+                    p_row = r.payload
+                    if p_row.get("name"):
+                        pg.name = str(p_row["name"])[:200]
+                    if p_row.get("category"):
+                        pg.category = str(p_row["category"])[:120]
+                    if p_row.get("link"):
+                        pg.url = str(p_row["link"])[:2048]
+                    is_pub = p_row.get("is_published")
+                    if is_pub is False:
+                        pg.status = ReferenceStatus.INACTIVE
+                        meta_update["is_published"] = False
+                        meta_update["health_status"] = "UNPUBLISHED"
+                    else:
+                        pg.status = ReferenceStatus.ACTIVE
+                        meta_update["is_published"] = True
+                        meta_update["health_status"] = "LIVE"
+                    if p_row.get("fan_count") is not None:
+                        meta_update["fan_count"] = int(p_row["fan_count"])
+                    if p_row.get("followers_count") is not None:
+                        meta_update["followers_count"] = int(p_row["followers_count"])
+                    if p_row.get("verification_status"):
+                        meta_update["verification_status"] = str(p_row["verification_status"])
+                    pic_u = _extract_pic_url(p_row.get("picture"))
+                    if pic_u:
+                        meta_update["picture_url"] = pic_u
+                    break
+
+    ctx.audit.record(
+        action="page.meta_synced",
+        entity_type="page",
+        entity_id=pg.id,
+        metadata=meta_update,
+    )
+    ctx.commit()
+    summary_data = _build_pages_summary(ctx.session, ctx.workspace_id, include_archived=True)
+    matched_item = next((i for i in summary_data["items"] if i["id"] == str(pg.id)), None)
+    return {
+        "probed_graph_api": probed_ok,
+        "item": matched_item,
+    }
+
+
+@pages_router.post("/{page_id}/assign")
+def assign_page_governance(
+    ctx: OwnerCtx,
+    page_id: uuid.UUID,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    from app.core.enums import AssetType, ReferenceStatus
+    from app.models.entities import AccountAssetLink, AdAccount, BusinessManager, Page
+
+    pg = get_or_404(ctx.session, Page, page_id, ctx.workspace_id, label="Page")
+
+    if "name" in payload and str(payload["name"] or "").strip():
+        pg.name = str(payload["name"]).strip()[:200]
+    if "external_page_id" in payload:
+        ext_val = str(payload["external_page_id"] or "").strip()
+        pg.external_page_id = ext_val[:120] if ext_val else None
+    if "url" in payload:
+        url_val = str(payload["url"] or "").strip()
+        pg.url = url_val[:2048] if url_val else None
+    if "category" in payload:
+        cat_val = str(payload["category"] or "").strip()
+        pg.category = cat_val[:120] if cat_val else None
+    if "notes" in payload and payload["notes"] is not None:
+        pg.notes = str(payload["notes"])[:5000]
+
+    meta_ov: dict[str, Any] = {"last_synced_at": datetime.now(UTC).isoformat()}
+    if "health_status" in payload and payload["health_status"]:
+        hs = str(payload["health_status"]).upper()
+        if hs in ("LIVE", "RESTRICTED", "UNPUBLISHED", "APPEAL"):
+            meta_ov["health_status"] = hs
+            meta_ov["is_published"] = hs != "UNPUBLISHED"
+            pg.status = ReferenceStatus.ACTIVE if hs == "LIVE" else ReferenceStatus.INACTIVE
+
+    if "owner_bm_id" in payload:
+        bm_id_str = str(payload["owner_bm_id"] or "").strip()
+        meta_ov["owner_bm_id"] = bm_id_str
+        if bm_id_str:
+            with contextlib.suppress(Exception):
+                bm_obj = ctx.session.get(BusinessManager, uuid.UUID(bm_id_str))
+                if bm_obj and bm_obj.workspace_id == ctx.workspace_id:
+                    meta_ov["owner_bm_name"] = bm_obj.name
+                    meta_ov["owner_bm_external_id"] = bm_obj.external_id
+
+    if "holder_identity_id" in payload:
+        meta_ov["holder_identity_id"] = str(payload["holder_identity_id"] or "").strip()
+
+    ctx.audit.record(
+        action="page.meta_updated",
+        entity_type="page",
+        entity_id=pg.id,
+        metadata=meta_ov,
+    )
+
+    if "ad_account_ids" in payload and isinstance(payload["ad_account_ids"], list):
+        desired_ids: set[uuid.UUID] = set()
+        for raw_aid in payload["ad_account_ids"]:
+            with contextlib.suppress(Exception):
+                desired_ids.add(uuid.UUID(str(raw_aid)))
+
+        now_dt = datetime.now(UTC)
+        current_links = (
+            ctx.session.execute(
+                sa.select(AccountAssetLink).where(
+                    AccountAssetLink.workspace_id == ctx.workspace_id,
+                    AccountAssetLink.asset_type == AssetType.PAGE,
+                    AccountAssetLink.asset_id == pg.id,
+                    AccountAssetLink.unlinked_at.is_(None),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        current_acc_ids: set[uuid.UUID] = set()
+        for lnk in current_links:
+            if lnk.ad_account_id not in desired_ids:
+                lnk.unlinked_at = now_dt
+                lnk.unlinked_by = ctx.user.id
+            else:
+                current_acc_ids.add(lnk.ad_account_id)
+
+        for aid in desired_ids - current_acc_ids:
+            acc_obj = ctx.session.get(AdAccount, aid)
+            if acc_obj and acc_obj.workspace_id == ctx.workspace_id:
+                ctx.session.add(
+                    AccountAssetLink(
+                        workspace_id=ctx.workspace_id,
+                        ad_account_id=aid,
+                        asset_type=AssetType.PAGE,
+                        asset_id=pg.id,
+                        linked_at=now_dt,
+                        linked_by=ctx.user.id,
+                        note="Gán quyền chạy Page từ Trung tâm Quản trị Fanpage",
+                    )
+                )
+
+    ctx.commit()
+    summary_data = _build_pages_summary(ctx.session, ctx.workspace_id, include_archived=True)
+    matched_item = next((i for i in summary_data["items"] if i["id"] == str(pg.id)), None)
+    return {"item": matched_item, "summary": summary_data["summary"]}
+
 router.include_router(connections_router)
 router.include_router(creation_router)
 router.include_router(share_router)
 router.include_router(pixel_share_router)
+router.include_router(pages_router)
+

@@ -8,6 +8,7 @@ const Accounts = lazy(() => import('./pages/Accounts'))
 const AccountDetail = lazy(() => import('./pages/AccountDetail'))
 const BusinessManagers = lazy(() => import('./pages/BusinessManagers'))
 const Assets = lazy(() => import('./pages/Assets'))
+const Fanpages = lazy(() => import('./pages/Fanpages'))
 const ReadinessPage = lazy(() => import('./pages/Readiness'))
 const AccountHealth = lazy(() => import('./pages/AccountHealth'))
 const Alerts = lazy(() => import('./pages/Alerts'))
@@ -52,6 +53,7 @@ export default function App() {
         <Route path="accounts" element={<Accounts />} />
         <Route path="accounts/:accountId" element={<AccountDetail />} />
         <Route path="business-managers" element={<BusinessManagers />} />
+        <Route path="pages" element={<Fanpages />} />
         <Route path="assets" element={<Assets />} />
         <Route path="facebook-accounts" element={<FacebookAccounts />} />
         <Route path="chrome-extension" element={<ChromeExtension />} />
