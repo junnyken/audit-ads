@@ -1,6 +1,7 @@
 import { lazy } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import AppShell from './components/AppShell'
+import { SeoHead } from './components/shell/SeoHead'
 import { useAuth } from './hooks/useAuth'
 import Login from './pages/Login'
 const Overview = lazy(() => import('./pages/Overview'))
@@ -45,10 +46,19 @@ export default function App() {
       </LoadingRegion>
     )
   }
-  if (!user) return <Login />
+  if (!user) {
+    return (
+      <>
+        <SeoHead />
+        <Login />
+      </>
+    )
+  }
 
   return (
-    <Routes>
+    <>
+      <SeoHead />
+      <Routes>
       <Route element={<AppShell />}>
         <Route index element={<Overview />} />
         <Route path="accounts" element={<Accounts />} />
@@ -80,5 +90,6 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
+    </>
   )
 }

@@ -1,0 +1,16 @@
+{
+  "name": "AdsOps Control Center — Quản trị Tài khoản Quảng cáo Meta & Agency",
+  "short_name": "AdsOps Pro",
+  "description": "Hệ thống Quản trị Tài khoản Quảng cáo Meta (Facebook Ads), BM, Via, Fanpage, Cách ly Hồ sơ Chrome & Proxy IPv4 và Quyết toán Ngân sách Khách hàng cho Agency.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b1120",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ]
+}

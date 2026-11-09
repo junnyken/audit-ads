@@ -20,7 +20,7 @@ from typing import Any
 import sqlalchemy as sa
 from fastapi import APIRouter, Query
 
-from app.api.deps import OwnerCtx
+from app.api.deps import Ctx, OwnerCtx, WriteCtx
 from app.core.config import get_settings
 from app.core.enums import DataFreshness, DiscoveryRunStatus, MetaEnvironment
 from app.core.errors import ConflictError, NotFoundError, ValidationError
@@ -3360,7 +3360,7 @@ def _build_pages_summary(
 
 @pages_router.get("/summary")
 def get_facebook_pages_summary(
-    ctx: OwnerCtx,
+    ctx: Ctx,
     archived: bool = Query(False),
 ) -> dict[str, Any]:
     return _build_pages_summary(ctx.session, ctx.workspace_id, include_archived=archived)
@@ -3368,16 +3368,16 @@ def get_facebook_pages_summary(
 
 @pages_router.post("/sync-meta")
 def sync_facebook_pages_from_meta(
-    ctx: OwnerCtx,
+    ctx: WriteCtx,
     payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    raw_token = str((payload or {}).get("access_token") or "").strip() or None
+    # Security hardening: never accept raw token from request body; use encrypted workspace vault/env only
     stats = _sync_workspace_pages_from_meta(
         ctx.session,
         ctx.workspace_id,
         ctx.audit,
         actor_id=ctx.user.id,
-        raw_token=raw_token,
+        raw_token=None,
     )
     ctx.commit()
     summary_data = _build_pages_summary(ctx.session, ctx.workspace_id, include_archived=False)
@@ -3389,7 +3389,7 @@ def sync_facebook_pages_from_meta(
 
 @pages_router.post("/{page_id}/check-live")
 def check_single_page_live(
-    ctx: OwnerCtx,
+    ctx: WriteCtx,
     page_id: uuid.UUID,
 ) -> dict[str, Any]:
     from app.core.enums import ReferenceStatus
@@ -3472,7 +3472,7 @@ def check_single_page_live(
 
 @pages_router.post("/{page_id}/assign")
 def assign_page_governance(
-    ctx: OwnerCtx,
+    ctx: WriteCtx,
     page_id: uuid.UUID,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
@@ -4289,14 +4289,14 @@ def _build_unified_assets_overview(session, workspace_id: uuid.UUID) -> dict[str
 
 
 @assets_control_router.get("/overview")
-def get_facebook_assets_overview(ctx: OwnerCtx) -> dict[str, Any]:
+def get_facebook_assets_overview(ctx: Ctx) -> dict[str, Any]:
     data = _build_unified_assets_overview(ctx.session, ctx.workspace_id)
     ctx.commit()
     return data
 
 
 @assets_control_router.post("/sync")
-def sync_all_facebook_assets(ctx: OwnerCtx) -> dict[str, Any]:
+def sync_all_facebook_assets(ctx: WriteCtx) -> dict[str, Any]:
     page_stats = _sync_workspace_pages_from_meta(
         ctx.session, ctx.workspace_id, ctx.audit, actor_id=ctx.user.id
     )
@@ -4315,7 +4315,7 @@ def sync_all_facebook_assets(ctx: OwnerCtx) -> dict[str, Any]:
 
 @assets_control_router.post("/pixels/{pixel_id}/assign")
 def assign_pixel_governance(
-    ctx: OwnerCtx,
+    ctx: WriteCtx,
     pixel_id: uuid.UUID,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
@@ -4385,7 +4385,7 @@ def assign_pixel_governance(
 
 @assets_control_router.post("/cards/{card_id}/assign")
 def assign_card_governance(
-    ctx: OwnerCtx,
+    ctx: WriteCtx,
     card_id: uuid.UUID,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
@@ -4835,16 +4835,49 @@ def _build_retainers_overview(session, workspace_id: uuid.UUID, audit) -> dict[s
 
 
 @retainers_router.get("")
-def list_client_retainers(ctx: OwnerCtx) -> dict[str, Any]:
+def list_client_retainers(ctx: Ctx) -> dict[str, Any]:
     data = _build_retainers_overview(ctx.session, ctx.workspace_id, ctx.audit)
     ctx.commit()
     return data
 
 
 @retainers_router.post("")
-def upsert_client_retainer(ctx: OwnerCtx, payload: dict[str, Any]) -> dict[str, Any]:
-    rid = str(payload.get("id") or "").strip() or str(uuid.uuid4())
+def upsert_client_retainer(ctx: WriteCtx, payload: dict[str, Any]) -> dict[str, Any]:
+    from app.models.entities import AdAccount
+
+    rid = str(payload.get("id") or "").strip()[:64] or str(uuid.uuid4())
     now_iso = datetime.now(UTC).isoformat()
+
+    raw_budget = int(float(payload.get("committed_budget_vnd") or 0))
+    safe_budget = max(0, min(raw_budget, 1_000_000_000_000))
+
+    raw_fee = float(payload.get("agency_fee_percent") if payload.get("agency_fee_percent") is not None else 10.0)
+    safe_fee = round(max(0.0, min(raw_fee, 100.0)), 2)
+
+    raw_tax = float(payload.get("meta_tax_percent") if payload.get("meta_tax_percent") is not None else 5.0)
+    safe_tax = round(max(0.0, min(raw_tax, 100.0)), 2)
+
+    raw_rate = float(payload.get("usd_to_vnd_rate") or 25400.0)
+    safe_rate = round(max(1000.0, min(raw_rate, 100000.0)), 2)
+
+    # Validate tenant ownership of every linked ad_account_id (anti-IDOR)
+    valid_ws_acc_ids = {
+        str(row_id)
+        for row_id in ctx.session.execute(
+            sa.select(AdAccount.id).where(
+                AdAccount.workspace_id == ctx.workspace_id,
+                AdAccount.archived_at.is_(None),
+            )
+        ).scalars().all()
+    }
+    raw_acc_list = payload.get("ad_account_ids")
+    safe_acc_ids: list[str] = []
+    if isinstance(raw_acc_list, list):
+        for x in raw_acc_list[:500]:
+            sx = str(x or "").strip()
+            if sx in valid_ws_acc_ids and sx not in safe_acc_ids:
+                safe_acc_ids.append(sx)
+
     record_data = {
         "id": rid,
         "contract_code": str(payload.get("contract_code") or f"HD-{rid[:6].upper()}").strip()[:60],
@@ -4853,11 +4886,11 @@ def upsert_client_retainer(ctx: OwnerCtx, payload: dict[str, Any]) -> dict[str, 
         "contact_email": str(payload.get("contact_email") or "").strip()[:160],
         "tax_id": str(payload.get("tax_id") or "").strip()[:60],
         "billing_cycle": str(payload.get("billing_cycle") or "Tháng 11/2026").strip()[:60],
-        "committed_budget_vnd": int(float(payload.get("committed_budget_vnd") or 0)),
-        "agency_fee_percent": float(payload.get("agency_fee_percent") or 10.0),
-        "meta_tax_percent": float(payload.get("meta_tax_percent") or 5.0),
-        "usd_to_vnd_rate": float(payload.get("usd_to_vnd_rate") or 25400.0),
-        "ad_account_ids": [str(x) for x in (payload.get("ad_account_ids") or []) if x],
+        "committed_budget_vnd": safe_budget,
+        "agency_fee_percent": safe_fee,
+        "meta_tax_percent": safe_tax,
+        "usd_to_vnd_rate": safe_rate,
+        "ad_account_ids": safe_acc_ids,
         "notes": str(payload.get("notes") or "").strip()[:2000],
         "status": "ACTIVE",
         "updated_at": now_iso,
@@ -4873,11 +4906,12 @@ def upsert_client_retainer(ctx: OwnerCtx, payload: dict[str, Any]) -> dict[str, 
 
 
 @retainers_router.delete("/{retainer_id}")
-def delete_client_retainer(ctx: OwnerCtx, retainer_id: str) -> dict[str, Any]:
+def delete_client_retainer(ctx: WriteCtx, retainer_id: str) -> dict[str, Any]:
+    safe_rid = str(retainer_id or "").strip()[:64]
     ctx.audit.record(
         action="client_retainer.deleted",
         entity_type="client_retainer",
-        entity_id=str(retainer_id),
+        entity_id=safe_rid,
         metadata={"deleted_at": datetime.now(UTC).isoformat()},
     )
     ctx.commit()

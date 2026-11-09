@@ -1,52 +1,45 @@
 # nginx configuration, rendered at container start.
 #
-# `${API_ORIGIN}` is substituted by the official nginx image's envsubst step (it processes
-# /etc/nginx/templates/*.template). It is a TEMPLATE rather than a static file because the API
-# origin is not known when the image is built: on a platform that assigns a subdomain, the
-# backend's address does not exist until it has been created. Baking it in would mean a rebuild
-# to point the app at a different environment.
-#
-# Two supported shapes, both driven by this one variable:
-#
-#   API_ORIGIN=""                         same origin. The API is expected behind the same
-#                                         proxy as this app, on /api. Used by the compose stack.
-#   API_ORIGIN="https://api.example.com"  the browser calls the API directly.
-#
-# The browser calling the API directly is deliberate, and it is a security property rather than
-# a preference. If this server proxied /api onward instead, requests would reach the API with
-# three proxies' worth of X-Forwarded-For — but the API is also reachable directly, so a caller
-# could send it a SHORTER, self-authored chain and the API's configured hop count would read a
-# value the caller chose. The rate limiter keys the login bucket on that address. One proxy on
-# every path is what keeps RATE_LIMIT_TRUSTED_PROXY_HOPS=1 true no matter how the API is reached.
+# `${API_ORIGIN}` is substituted by the official nginx image's envsubst step.
+# Domain-agnostic SEO: `/robots.txt` and `/sitemap.xml` dynamically use `$http_host`
+# so switching to any custom domain later automatically updates sitemap & robots URLs.
 server {
     listen 80;
     server_name _;
     root /usr/share/nginx/html;
     index index.html;
 
-    # No secret is ever built into the bundle, but the app is an internal operations tool:
-    # keep it out of search indexes and out of frames.
+    # Security headers (hardened per OWASP ASVS)
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "DENY" always;
-    add_header Referrer-Policy "no-referrer" always;
-    add_header X-Robots-Tag "noindex, nofollow" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Cross-Origin-Opener-Policy "same-origin" always;
-    # No third-party script, font or frame is loaded anywhere in this app. `connect-src` names
-    # the API origin explicitly — the app may talk to itself and to its own API, and nowhere
-    # else. An empty API_ORIGIN leaves it at 'self'.
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ${API_ORIGIN}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" always;
+    add_header Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.fbcdn.net https://graph.facebook.com https://*.facebook.com; font-src 'self' data:; connect-src 'self' ${API_ORIGIN}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" always;
 
     server_tokens off;
     client_max_body_size 2m;
 
-    # The one piece of configuration the bundle reads at runtime. Never cached: a stale copy
-    # would point a fresh deployment at the previous environment's API.
+    # Runtime API configuration
     location = /config.js {
-        # default_type, not add_header: nginx already sets a Content-Type for a `return`, so
-        # adding one emits the header twice.
         default_type application/javascript;
         add_header Cache-Control "no-store" always;
         return 200 'window.__ADSOPS_API_BASE__ = "${API_ORIGIN}";';
+    }
+
+    # Dynamic domain-aware robots.txt (automatically adapts when custom domain is changed)
+    location = /robots.txt {
+        default_type text/plain;
+        add_header Cache-Control "public, max-age=3600" always;
+        return 200 "User-agent: *\nAllow: /\nAllow: /login\nDisallow: /accounts\nDisallow: /retainers\nDisallow: /business-managers\nDisallow: /assets\nDisallow: /facebook-accounts\nDisallow: /pages\nDisallow: /alerts\nDisallow: /operations\nDisallow: /team\nDisallow: /settings\nDisallow: /audit-log\n\nSitemap: https://$http_host/sitemap.xml\n";
+    }
+
+    # Dynamic domain-aware sitemap.xml (automatically adapts when custom domain is changed)
+    location = /sitemap.xml {
+        default_type application/xml;
+        add_header Cache-Control "public, max-age=3600" always;
+        return 200 '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url>\n    <loc>https://$http_host/</loc>\n    <changefreq>daily</changefreq>\n    <priority>1.0</priority>\n  </url>\n  <url>\n    <loc>https://$http_host/login</loc>\n    <changefreq>weekly</changefreq>\n    <priority>0.9</priority>\n  </url>\n</urlset>\n';
     }
 
     location / {

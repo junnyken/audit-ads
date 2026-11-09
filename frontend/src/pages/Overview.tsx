@@ -100,11 +100,11 @@ export default function Overview() {
           </Link>
         </div>
 
-        <div className="grid gap-2.5 sm:grid-cols-3">
+        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-lg border border-line bg-surface-muted/40 p-2.5 text-xs space-y-1.5">
             <div className="font-bold text-ink">Bước 1: Kích hoạt Mở Chrome &amp; Tiện ích (.zip)</div>
             <p className="text-[11px] text-ink-muted">
-              Chạy file <code>.bat</code> (1 lần) để mở đúng Hồ sơ Chrome từ Web &amp; cài gói Tiện ích v2.3 Pro (2FA tự điền, khóa WebRTC).
+              Chạy file <code>.bat</code> (1 lần) để mở đúng Hồ sơ Chrome từ Web &amp; cài gói Tiện ích v2.4 Pro (2FA tự điền, khóa WebRTC).
             </p>
             <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
               <button
@@ -112,14 +112,14 @@ export default function Overview() {
                 onClick={downloadWindowsChromeLauncherBat}
                 className="rounded border border-brand bg-brand px-2 py-1 text-[11px] font-bold text-brand-fg hover:opacity-90"
               >
-                ⚡ Tải File .bat (1 lần)
+                ⚡ Tải File .bat
               </button>
               <button
                 type="button"
                 onClick={() => downloadChromeExtensionZip()}
                 className="rounded border border-line bg-surface px-2 py-1 text-[11px] font-semibold text-ink hover:bg-surface-muted"
               >
-                📦 Tải Tiện Ích (.zip)
+                📦 Tải .zip
               </button>
               <Link to="/chrome-extension" className="text-[11px] font-bold text-brand-text hover:underline ml-auto">
                 Chi tiết →
@@ -130,29 +130,56 @@ export default function Overview() {
           <div className="rounded-lg border border-line bg-surface-muted/40 p-2.5 text-xs space-y-1.5">
             <div className="font-bold text-ink">Bước 2: Phân tầng 3 Lớp Via &amp; Lấy mã 2FA</div>
             <p className="text-[11px] text-ink-muted">
-              Tách biệt <strong>🛡️ Via Tổng giữ BM</strong> (cấm lên camp), <strong>🚀 Via Lên Camp</strong> và <strong>🌱 Via Dự Phòng</strong> kèm mã 2FA 6 số trực tiếp.
+              Tách biệt <strong>🛡️ Via Tổng giữ BM</strong>, <strong>🚀 Via Lên Camp</strong> và <strong>🌱 Via Dự Phòng</strong> kèm mã 2FA 6 số trực tiếp.
             </p>
             <div className="pt-0.5">
               <Link
                 to="/facebook-accounts"
                 className="inline-flex items-center rounded border border-brand/40 bg-brand-light px-2.5 py-1 text-[11px] font-bold text-brand-text hover:opacity-90"
               >
-                🛡️ Mở Bảng Phân Tầng Via &amp; 2FA →
+                🛡️ Mở Bảng Via &amp; 2FA →
               </Link>
             </div>
           </div>
 
           <div className="rounded-lg border border-line bg-surface-muted/40 p-2.5 text-xs space-y-1.5">
-            <div className="font-bold text-ink">Bước 3: Canh Dư nợ TKQC &amp; Hạn mức Thẻ</div>
+            <div className="font-bold text-ink">Bước 3: Cô lập Fanpage, Pixel &amp; Thẻ</div>
             <p className="text-[11px] text-ink-muted">
-              Kiểm soát 20+ TKQC trên 1 bảng, lọc 1 chạm các TK có dư nợ và giữ quy tắc <strong>1 Thẻ ≤ 3 TKQC</strong> chống đỏ thẻ.
+              Giữ chuẩn <strong>1 Fanpage ≤ 3 TKQC</strong>, <strong>1 Thẻ ≤ 3 TKQC</strong> và chia sẻ Pixel qua Partner chống khóa ngược tài sản.
             </p>
-            <div className="pt-0.5">
+            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+              <Link
+                to="/pages"
+                className="inline-flex items-center rounded border border-brand/40 bg-brand-light px-2 py-1 text-[11px] font-bold text-brand-text hover:opacity-90"
+              >
+                🚩 Fanpages (11) →
+              </Link>
+              <Link
+                to="/assets"
+                className="inline-flex items-center rounded border border-line bg-surface px-2 py-1 text-[11px] font-semibold text-ink hover:bg-surface-muted"
+              >
+                🧩 Tài sản →
+              </Link>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-2.5 text-xs space-y-1.5">
+            <div className="font-bold text-ink">Bước 4: Ngân sách Cam kết &amp; Quyết Toán KH</div>
+            <p className="text-[11px] text-ink-muted">
+              Gom nhiều TKQC vào 1 Hợp đồng Khách hàng, đo tiến độ Pacing &amp; tự động xuất <strong>Phiếu Quyết Toán (+Phí Agency &amp; Thuế Meta)</strong>.
+            </p>
+            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+              <Link
+                to="/retainers"
+                className="inline-flex items-center rounded border border-emerald-500/40 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-bold text-emerald-400 hover:opacity-90"
+              >
+                📊 Mở Bảng Quyết Toán KH →
+              </Link>
               <Link
                 to="/accounts"
-                className="inline-flex items-center rounded border border-brand/40 bg-brand-light px-2.5 py-1 text-[11px] font-bold text-brand-text hover:opacity-90"
+                className="text-[11px] font-bold text-brand-text hover:underline ml-auto"
               >
-                💳 Mở Bảng TKQC &amp; Dư Nợ Thẻ →
+                17 TKQC →
               </Link>
             </div>
           </div>
