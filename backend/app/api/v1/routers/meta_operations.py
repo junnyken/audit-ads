@@ -3523,9 +3523,837 @@ def assign_page_governance(
     matched_item = next((i for i in summary_data["items"] if i["id"] == str(pg.id)), None)
     return {"item": matched_item, "summary": summary_data["summary"]}
 
+
+# ------------------------------------------------------------------------- Unified Assets Control Center
+
+assets_control_router = APIRouter(prefix="/facebook-assets", tags=["facebook-assets"])
+
+_REAL_CHROME_PROFILES_POOL = [
+    "Chrome — Default · trieu (thientrieu753@gmail.com)",
+    "Chrome — Profile 1 · Thiên Triều (nguyen.thientrieu@gmail.com)",
+    "Chrome — Profile 3 · Thiên Triều (trieunguyen.home9x@gmail.com)",
+    "Chrome — Profile 4 · MATBAO (marcommatbao@gmail.com)",
+    "Chrome — Profile 5 · Matbao-invoice (mifihoadondientuantoan@gmail.com)",
+    "Chrome — Profile 7 · Utra Google (thientrieuadmin@tbsupellex.com)",
+    "Chrome — Profile 8 · Test Utraviw (tranngoc123@tbsupellex.com)",
+    "Chrome — Profile 9 · matbao.com (thinhlq@matbao.com)",
+    "Chrome — Profile 10 · Lâm Quang (lamquangthinh3006@gmail.com)",
+    "Chrome — Profile 11 · thu (thientrieu.gr1@gmail.com)",
+    "Chrome — Profile 12 · Dự phòng (standby@matbao.com)",
+]
+
+_DEFAULT_NETWORK_CLUSTERS = [
+    ("VNPT-OFFICE-LINE-01", "Mạng gốc Văn phòng (Dành riêng Via Tổng Lớp 1)", "VNPT Fiber", "HCM", "HTTP"),
+    ("VIETTEL-RES-QCT-01", "Proxy Dân cư Tĩnh VN #1 — Cụm BM Quảng Cáo Top", "Viettel IDC", "HCM", "HTTP"),
+    ("VNPT-RES-QCT-02", "Proxy Dân cư Tĩnh VN #2 — Cụm BM Quảng Cáo Top", "VNPT Static", "HCM", "HTTP"),
+    ("FPT-RES-MB-01", "Proxy Dân cư Tĩnh VN #3 — Cụm BM Mắt Bão Corp", "FPT Telecom", "HCM", "HTTP"),
+    ("VIETTEL-RES-TH-01", "Proxy Dân cư Tĩnh VN #4 — Cụm BM Xây Dựng Tân Hòa", "Viettel IDC", "HCM", "HTTP"),
+    ("VNPT-RES-BACKUP-01", "Proxy Dân cư Tĩnh VN #5 — Cụm Via Dự Phòng Ngâm 72h", "VNPT Static", "HN", "HTTP"),
+]
+
+
+def _reconcile_workspace_assets(
+    session,
+    workspace_id: uuid.UUID,
+    audit,
+    actor_id: uuid.UUID | None = None,
+) -> dict[str, int]:
+    from app.core.enums import AccountStatus, AssetType, ReferenceStatus
+    from app.models.entities import (
+        AccountAssetLink,
+        AdAccount,
+        BrowserProfileReference,
+        BusinessManager,
+        Page,
+        PaymentProfileReference,
+        PersonalAccountReference,
+        Pixel,
+        ProxyReference,
+    )
+
+    now_dt = datetime.now(UTC)
+    vias = (
+        session.execute(
+            sa.select(PersonalAccountReference)
+            .where(
+                PersonalAccountReference.workspace_id == workspace_id,
+                PersonalAccountReference.archived_at.is_(None),
+            )
+            .order_by(PersonalAccountReference.created_at.asc())
+        )
+        .scalars()
+        .all()
+    )
+
+    # 1) Ensure each active Via has a unique Chrome Profile and sync into BrowserProfileReference
+    existing_browsers = {
+        b.profile_reference.strip(): b
+        for b in session.execute(
+            sa.select(BrowserProfileReference).where(
+                BrowserProfileReference.workspace_id == workspace_id
+            )
+        )
+        .scalars()
+        .all()
+        if b.profile_reference
+    }
+
+    used_profiles: set[str] = set()
+    browsers_synced = 0
+    for idx, v in enumerate(vias):
+        prof = (v.browser_profile_label or "").strip()
+        if not prof or prof in used_profiles:
+            for cand in _REAL_CHROME_PROFILES_POOL:
+                if cand not in used_profiles:
+                    prof = cand
+                    break
+            if not prof or prof in used_profiles:
+                prof = f"Chrome — Profile {idx + 1} · {v.label[:40]}"
+            v.browser_profile_label = prof[:160]
+        used_profiles.add(prof)
+
+        folder_short = prof.split("·")[0].strip() if "·" in prof else prof[:60]
+        b_ref = existing_browsers.get(prof)
+        if b_ref is None:
+            try:
+                with session.begin_nested():
+                    b_ref = BrowserProfileReference(
+                        workspace_id=workspace_id,
+                        provider="chrome",
+                        profile_reference=prof[:200],
+                        label=f"{folder_short} → Via: {v.label}"[:200],
+                        local_or_remote="local",
+                        status=ReferenceStatus.ACTIVE,
+                        last_used_at=now_dt,
+                        notes=f"Cách ly 1:1 cho Via: {v.label} (UID: {v.external_reference_id or 'N/A'})",
+                    )
+                    session.add(b_ref)
+                    session.flush()
+                    existing_browsers[prof] = b_ref
+                    browsers_synced += 1
+            except Exception:
+                pass
+        else:
+            b_ref.archived_at = None
+            b_ref.status = ReferenceStatus.ACTIVE
+            b_ref.label = f"{folder_short} → Via: {v.label}"[:200]
+            b_ref.notes = f"Cách ly 1:1 cho Via: {v.label} (UID: {v.external_reference_id or 'N/A'})"
+
+    # 2) Ensure ProxyReferences exist and map cleanly (<= 2 Vias per Proxy)
+    existing_proxies = {
+        p.proxy_reference.strip(): p
+        for p in session.execute(
+            sa.select(ProxyReference).where(ProxyReference.workspace_id == workspace_id)
+        )
+        .scalars()
+        .all()
+        if p.proxy_reference
+    }
+
+    proxies_synced = 0
+    for idx, v in enumerate(vias):
+        cluster_idx = min(idx // 2, len(_DEFAULT_NETWORK_CLUSTERS) - 1)
+        code, net_label, prov_name, reg, proto = _DEFAULT_NETWORK_CLUSTERS[cluster_idx]
+        cur_net = (v.network_label or "").strip()
+        if not cur_net or any(
+            m in cur_net.lower()
+            for m in ("vnpt static ip — line #", "fpt static ip — line #", "viettel residential — line #")
+        ):
+            v.network_label = net_label[:160]
+            cur_net = net_label
+
+        p_key = cur_net[:200]
+        p_ref = existing_proxies.get(p_key) or existing_proxies.get(code)
+        if p_ref is None:
+            try:
+                with session.begin_nested():
+                    p_ref = ProxyReference(
+                        workspace_id=workspace_id,
+                        provider=prov_name,
+                        proxy_reference=p_key,
+                        label=cur_net[:200],
+                        country="VN",
+                        region=reg,
+                        protocol=proto,
+                        status=ReferenceStatus.ACTIVE,
+                        notes=f"Tuyến mạng cách ly cụm Via ({prov_name} · Tối đa 2 Via/Proxy)",
+                    )
+                    session.add(p_ref)
+                    session.flush()
+                    existing_proxies[p_key] = p_ref
+                    proxies_synced += 1
+            except Exception:
+                pass
+        else:
+            p_ref.archived_at = None
+            p_ref.status = ReferenceStatus.ACTIVE
+
+    # 3) Ensure Pixels are linked to active Ad Accounts of their owning BM if they have 0 links
+    bms_all = (
+        session.execute(
+            sa.select(BusinessManager).where(
+                BusinessManager.workspace_id == workspace_id,
+                BusinessManager.archived_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    bm_by_name = {b.name.strip().lower(): b for b in bms_all if b.name}
+
+    accounts_all = (
+        session.execute(
+            sa.select(AdAccount).where(
+                AdAccount.workspace_id == workspace_id,
+                AdAccount.archived_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    pixels_all = (
+        session.execute(
+            sa.select(Pixel).where(
+                Pixel.workspace_id == workspace_id,
+                Pixel.archived_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    pixel_links = (
+        session.execute(
+            sa.select(AccountAssetLink).where(
+                AccountAssetLink.workspace_id == workspace_id,
+                AccountAssetLink.asset_type == AssetType.PIXEL,
+                AccountAssetLink.unlinked_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    linked_pixel_ids = {lnk.asset_id for lnk in pixel_links}
+    pixels_linked = 0
+    for px in pixels_all:
+        if px.id in linked_pixel_ids:
+            continue
+        matched_bm = None
+        if px.notes and "Đồng bộ từ BM " in px.notes:
+            b_label = px.notes.split("Đồng bộ từ BM ", 1)[1].strip().lower()
+            matched_bm = bm_by_name.get(b_label)
+        if matched_bm is not None:
+            bm_accs = [
+                a for a in accounts_all
+                if a.business_manager_id == matched_bm.id and a.status == AccountStatus.ACTIVE
+            ]
+            px_name_low = px.name.lower()
+            specific = [a for a in bm_accs if a.display_name.lower() in px_name_low or px_name_low in a.display_name.lower()]
+            targets = specific or bm_accs[:2]
+            for acc_t in targets:
+                try:
+                    with session.begin_nested():
+                        session.add(
+                            AccountAssetLink(
+                                workspace_id=workspace_id,
+                                ad_account_id=acc_t.id,
+                                asset_type=AssetType.PIXEL,
+                                asset_id=px.id,
+                                linked_at=now_dt,
+                                linked_by=actor_id,
+                                note=f"Share Dataset/Pixel từ BM {matched_bm.name}",
+                            )
+                        )
+                        session.flush()
+                        pixels_linked += 1
+                except Exception:
+                    pass
+
+    session.flush()
+    return {
+        "browsers_synced": browsers_synced,
+        "proxies_synced": proxies_synced,
+        "pixels_linked": pixels_linked,
+    }
+
+
+def _build_unified_assets_overview(session, workspace_id: uuid.UUID) -> dict[str, Any]:
+    from app.core.enums import AccountStatus, AssetType, IdentityBusinessRole, ReferenceStatus
+    from app.models.entities import (
+        AccountAssetLink,
+        AdAccount,
+        BrowserProfileReference,
+        BusinessManager,
+        Page,
+        PaymentProfileReference,
+        PersonalAccountBusinessLink,
+        PersonalAccountReference,
+        Pixel,
+        ProxyReference,
+    )
+
+    _reconcile_workspace_assets(session, workspace_id, None)
+
+    bms_all = (
+        session.execute(
+            sa.select(BusinessManager).where(
+                BusinessManager.workspace_id == workspace_id,
+                BusinessManager.archived_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    bm_by_id = {str(b.id): b for b in bms_all}
+    bm_by_name = {b.name.strip().lower(): b for b in bms_all if b.name}
+
+    vias_all = (
+        session.execute(
+            sa.select(PersonalAccountReference).where(
+                PersonalAccountReference.workspace_id == workspace_id,
+                PersonalAccountReference.archived_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    via_by_id = {str(v.id): v for v in vias_all}
+    default_holder = vias_all[0] if vias_all else None
+    for vc in vias_all:
+        if "chính" in (vc.label or "").lower():
+            default_holder = vc
+            break
+
+    bm_links = (
+        session.execute(
+            sa.select(PersonalAccountBusinessLink).where(
+                PersonalAccountBusinessLink.workspace_id == workspace_id,
+                PersonalAccountBusinessLink.unlinked_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    holder_by_bm_id: dict[str, PersonalAccountReference] = {}
+    for lnk in bm_links:
+        v_obj = via_by_id.get(str(lnk.personal_account_reference_id))
+        if v_obj is not None:
+            bk = str(lnk.business_manager_id)
+            if bk not in holder_by_bm_id or lnk.role == IdentityBusinessRole.ADMIN:
+                holder_by_bm_id[bk] = v_obj
+
+    accounts_all = (
+        session.execute(
+            sa.select(AdAccount).where(
+                AdAccount.workspace_id == workspace_id,
+                AdAccount.archived_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    acc_by_id = {a.id: a for a in accounts_all}
+
+    # Read billing overrides for AdAccounts to get balance_raw and payment_card_code
+    acc_ids_str = [str(a.id) for a in accounts_all]
+    acc_billing_ov: dict[str, dict[str, Any]] = {}
+    if acc_ids_str:
+        b_rows = (
+            session.execute(
+                sa.select(AuditLog)
+                .where(
+                    AuditLog.workspace_id == workspace_id,
+                    AuditLog.entity_type == "ad_account",
+                    AuditLog.entity_id.in_(acc_ids_str),
+                    AuditLog.action.in_(("ad_account.billing_meta_synced", "ad_account.billing_meta_updated")),
+                )
+                .order_by(AuditLog.created_at.asc())
+            )
+            .scalars()
+            .all()
+        )
+        for r in b_rows:
+            m = r.metadata_json or r.after_json or {}
+            if isinstance(m, dict):
+                cur = acc_billing_ov.setdefault(r.entity_id, {})
+                for k, val in m.items():
+                    if val is not None and val != "":
+                        cur[k] = val
+
+    all_asset_links = (
+        session.execute(
+            sa.select(AccountAssetLink).where(
+                AccountAssetLink.workspace_id == workspace_id,
+                AccountAssetLink.unlinked_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    links_by_type_and_asset: dict[tuple[str, uuid.UUID], list[AccountAssetLink]] = {}
+    for lnk in all_asset_links:
+        links_by_type_and_asset.setdefault((lnk.asset_type.value, lnk.asset_id), []).append(lnk)
+
+    # 1. PIXELS
+    pixels_db = (
+        session.execute(
+            sa.select(Pixel)
+            .where(Pixel.workspace_id == workspace_id, Pixel.archived_at.is_(None))
+            .order_by(Pixel.updated_at.desc(), Pixel.name.asc())
+        )
+        .scalars()
+        .all()
+    )
+    px_ids_str = [str(p.id) for p in pixels_db]
+    px_ov: dict[str, dict[str, Any]] = {}
+    if px_ids_str:
+        for r in (
+            session.execute(
+                sa.select(AuditLog)
+                .where(
+                    AuditLog.workspace_id == workspace_id,
+                    AuditLog.entity_type == "pixel",
+                    AuditLog.entity_id.in_(px_ids_str),
+                    AuditLog.action == "pixel.meta_updated",
+                )
+                .order_by(AuditLog.created_at.asc())
+            )
+            .scalars()
+            .all()
+        ):
+            m = r.metadata_json or {}
+            if isinstance(m, dict):
+                px_ov.setdefault(r.entity_id, {}).update(m)
+
+    pixels_out: list[dict[str, Any]] = []
+    for px in pixels_db:
+        ov = px_ov.get(str(px.id), {})
+        owner_bm = bm_by_id.get(str(ov.get("owner_bm_id") or ""))
+        if owner_bm is None and px.notes and "Đồng bộ từ BM " in px.notes:
+            b_label = px.notes.split("Đồng bộ từ BM ", 1)[1].strip().lower()
+            owner_bm = bm_by_name.get(b_label)
+
+        p_links = links_by_type_and_asset.get((AssetType.PIXEL.value, px.id), [])
+        linked_accs: list[dict[str, Any]] = []
+        restricted_cnt = 0
+        for lnk in p_links:
+            a_obj = acc_by_id.get(lnk.ad_account_id)
+            if a_obj is not None:
+                if owner_bm is None and a_obj.business_manager_id:
+                    owner_bm = bm_by_id.get(str(a_obj.business_manager_id))
+                st = a_obj.status.value
+                if st in ("restricted", "disabled"):
+                    restricted_cnt += 1
+                linked_accs.append(
+                    {
+                        "id": str(a_obj.id),
+                        "display_name": a_obj.display_name,
+                        "external_account_id": a_obj.external_account_id,
+                        "status": st,
+                        "currency": a_obj.currency or "VND",
+                    }
+                )
+
+        holder = holder_by_bm_id.get(str(owner_bm.id)) if owner_bm else default_holder
+        if holder is None:
+            holder = default_holder
+
+        pixels_out.append(
+            {
+                "id": str(px.id),
+                "name": px.name,
+                "external_pixel_id": px.external_pixel_id,
+                "status": px.status.value,
+                "notes": px.notes or "",
+                "updated_at": px.updated_at.isoformat() if px.updated_at else None,
+                "owner_bm_id": str(owner_bm.id) if owner_bm else None,
+                "owner_bm_name": owner_bm.name if owner_bm else None,
+                "owner_bm_external_id": owner_bm.external_id if owner_bm else None,
+                "holder_identity_id": str(holder.id) if holder else None,
+                "holder_label": holder.label if holder else None,
+                "holder_browser_profile": (holder.browser_profile_label if holder else "") or "Profile 1",
+                "holder_network_label": (holder.network_label if holder else "") or "",
+                "linked_ad_accounts": linked_accs,
+                "linked_ad_account_count": len(linked_accs),
+                "restricted_ad_account_count": restricted_cnt,
+            }
+        )
+
+    # 2. PAYMENT CARDS
+    cards_db = (
+        session.execute(
+            sa.select(PaymentProfileReference)
+            .where(
+                PaymentProfileReference.workspace_id == workspace_id,
+                PaymentProfileReference.archived_at.is_(None),
+            )
+            .order_by(PaymentProfileReference.updated_at.desc(), PaymentProfileReference.reference_code.asc())
+        )
+        .scalars()
+        .all()
+    )
+    cards_out: list[dict[str, Any]] = []
+    cards_danger_count = 0
+    for c in cards_db:
+        c_links = links_by_type_and_asset.get((AssetType.PAYMENT_PROFILE.value, c.id), [])
+        linked_accs_map: dict[uuid.UUID, AdAccount] = {}
+        for lnk in c_links:
+            a_obj = acc_by_id.get(lnk.ad_account_id)
+            if a_obj is not None:
+                linked_accs_map[a_obj.id] = a_obj
+
+        # Also match by payment_card_code in ad_account billing metadata
+        ref_digits = "".join(ch for ch in (c.reference_code or "") if ch.isdigit())[-4:]
+        if ref_digits and len(ref_digits) == 4:
+            for a_obj in accounts_all:
+                ov_a = acc_billing_ov.get(str(a_obj.id), {})
+                card_code_str = str(ov_a.get("payment_card_code") or ov_a.get("payment_card_display") or "")
+                if ref_digits in card_code_str:
+                    linked_accs_map[a_obj.id] = a_obj
+
+        linked_accs_list: list[dict[str, Any]] = []
+        active_cnt = 0
+        restricted_cnt = 0
+        total_bal = 0
+        for a_obj in linked_accs_map.values():
+            st = a_obj.status.value
+            if st == "active":
+                active_cnt += 1
+            elif st in ("restricted", "disabled"):
+                restricted_cnt += 1
+            ov_a = acc_billing_ov.get(str(a_obj.id), {})
+            bal_val = 0
+            with contextlib.suppress(Exception):
+                bal_val = int(float(str(ov_a.get("balance_raw") or 0)))
+            total_bal += bal_val
+            linked_accs_list.append(
+                {
+                    "id": str(a_obj.id),
+                    "display_name": a_obj.display_name,
+                    "external_account_id": a_obj.external_account_id,
+                    "status": st,
+                    "currency": a_obj.currency or "VND",
+                    "balance_minor": bal_val,
+                    "bm_name": a_obj.business_manager.name if a_obj.business_manager else None,
+                }
+            )
+
+        if restricted_cnt > 0 or len(linked_accs_list) > 3:
+            safety_status = "DANGER"
+            cards_danger_count += 1
+        elif len(linked_accs_list) == 3:
+            safety_status = "WARNING"
+        else:
+            safety_status = "SAFE"
+
+        cards_out.append(
+            {
+                "id": str(c.id),
+                "reference_code": c.reference_code,
+                "label": c.label or c.reference_code,
+                "provider": (c.provider or "VISA").upper(),
+                "billing_country": c.billing_country or "VN",
+                "currency": c.currency or "VND",
+                "status": c.status.value,
+                "notes": c.notes or "",
+                "linked_ad_accounts": linked_accs_list,
+                "linked_ad_account_count": len(linked_accs_list),
+                "active_ad_account_count": active_cnt,
+                "restricted_ad_account_count": restricted_cnt,
+                "total_balance_minor": total_bal,
+                "safety_status": safety_status,
+            }
+        )
+
+    # 3. BROWSER PROFILES
+    browsers_db = (
+        session.execute(
+            sa.select(BrowserProfileReference)
+            .where(
+                BrowserProfileReference.workspace_id == workspace_id,
+                BrowserProfileReference.archived_at.is_(None),
+            )
+            .order_by(BrowserProfileReference.profile_reference.asc())
+        )
+        .scalars()
+        .all()
+    )
+    browsers_out: list[dict[str, Any]] = []
+    browsers_isolated_count = 0
+    for b in browsers_db:
+        pref = (b.profile_reference or "").strip()
+        assigned_vias = [
+            {
+                "id": str(v.id),
+                "label": v.label,
+                "external_reference_id": v.external_reference_id,
+                "status": v.status.value,
+                "network_label": v.network_label or "",
+            }
+            for v in vias_all
+            if (v.browser_profile_label or "").strip() == pref
+        ]
+        if len(assigned_vias) == 1:
+            iso_st = "ISOLATED"
+            browsers_isolated_count += 1
+        elif len(assigned_vias) > 1:
+            iso_st = "COLLISION"
+        else:
+            iso_st = "STANDBY"
+
+        browsers_out.append(
+            {
+                "id": str(b.id),
+                "profile_reference": b.profile_reference,
+                "label": b.label or b.profile_reference,
+                "provider": b.provider or "chrome",
+                "local_or_remote": b.local_or_remote or "local",
+                "status": b.status.value,
+                "notes": b.notes or "",
+                "assigned_vias": assigned_vias,
+                "via_count": len(assigned_vias),
+                "isolation_status": iso_st,
+            }
+        )
+
+    # 4. PROXIES
+    proxies_db = (
+        session.execute(
+            sa.select(ProxyReference)
+            .where(
+                ProxyReference.workspace_id == workspace_id,
+                ProxyReference.archived_at.is_(None),
+            )
+            .order_by(ProxyReference.proxy_reference.asc())
+        )
+        .scalars()
+        .all()
+    )
+    proxies_out: list[dict[str, Any]] = []
+    proxies_safe_count = 0
+    for pr in proxies_db:
+        p_label = (pr.label or pr.proxy_reference or "").strip()
+        assigned_vias = [
+            {
+                "id": str(v.id),
+                "label": v.label,
+                "external_reference_id": v.external_reference_id,
+                "browser_profile_label": v.browser_profile_label or "",
+            }
+            for v in vias_all
+            if (v.network_label or "").strip() in (p_label, (pr.proxy_reference or "").strip())
+        ]
+        if len(assigned_vias) <= 2:
+            iso_st = "SAFE"
+            proxies_safe_count += 1
+        else:
+            iso_st = "OVERLOADED"
+
+        proxies_out.append(
+            {
+                "id": str(pr.id),
+                "proxy_reference": pr.proxy_reference,
+                "label": pr.label or pr.proxy_reference,
+                "provider": pr.provider or "Residential VN",
+                "country": pr.country or "VN",
+                "region": pr.region or "HCM",
+                "protocol": pr.protocol or "HTTP",
+                "status": pr.status.value,
+                "notes": pr.notes or "",
+                "assigned_vias": assigned_vias,
+                "via_count": len(assigned_vias),
+                "isolation_status": iso_st,
+            }
+        )
+
+    pages_count = (
+        session.execute(
+            sa.select(sa.func.count(Page.id)).where(
+                Page.workspace_id == workspace_id,
+                Page.archived_at.is_(None),
+            )
+        ).scalar()
+        or 0
+    )
+
+    return {
+        "pixels": pixels_out,
+        "payment_cards": cards_out,
+        "browser_profiles": browsers_out,
+        "proxies": proxies_out,
+        "summary": {
+            "pages_total": int(pages_count),
+            "pixels_total": len(pixels_out),
+            "cards_total": len(cards_out),
+            "cards_danger_count": cards_danger_count,
+            "browsers_total": len(browsers_out),
+            "browsers_isolated_count": browsers_isolated_count,
+            "proxies_total": len(proxies_out),
+            "proxies_safe_count": proxies_safe_count,
+        },
+    }
+
+
+@assets_control_router.get("/overview")
+def get_facebook_assets_overview(ctx: OwnerCtx) -> dict[str, Any]:
+    data = _build_unified_assets_overview(ctx.session, ctx.workspace_id)
+    ctx.commit()
+    return data
+
+
+@assets_control_router.post("/sync")
+def sync_all_facebook_assets(ctx: OwnerCtx) -> dict[str, Any]:
+    page_stats = _sync_workspace_pages_from_meta(
+        ctx.session, ctx.workspace_id, ctx.audit, actor_id=ctx.user.id
+    )
+    asset_stats = _reconcile_workspace_assets(
+        ctx.session, ctx.workspace_id, ctx.audit, actor_id=ctx.user.id
+    )
+    ctx.commit()
+    overview = _build_unified_assets_overview(ctx.session, ctx.workspace_id)
+    ctx.commit()
+    return {
+        **page_stats,
+        **asset_stats,
+        **overview,
+    }
+
+
+@assets_control_router.post("/pixels/{pixel_id}/assign")
+def assign_pixel_governance(
+    ctx: OwnerCtx,
+    pixel_id: uuid.UUID,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    from app.core.enums import AssetType
+    from app.models.entities import AccountAssetLink, AdAccount, Pixel
+
+    px = get_or_404(ctx.session, Pixel, pixel_id, ctx.workspace_id, label="Pixel")
+    if "name" in payload and str(payload["name"] or "").strip():
+        px.name = str(payload["name"]).strip()[:200]
+    if "external_pixel_id" in payload:
+        ext_v = str(payload["external_pixel_id"] or "").strip()
+        px.external_pixel_id = ext_v[:120] if ext_v else None
+    if "notes" in payload and payload["notes"] is not None:
+        px.notes = str(payload["notes"])[:5000]
+
+    if "owner_bm_id" in payload:
+        ctx.audit.record(
+            action="pixel.meta_updated",
+            entity_type="pixel",
+            entity_id=px.id,
+            metadata={"owner_bm_id": str(payload["owner_bm_id"] or "").strip()},
+        )
+
+    if "ad_account_ids" in payload and isinstance(payload["ad_account_ids"], list):
+        desired: set[uuid.UUID] = set()
+        for aid_raw in payload["ad_account_ids"]:
+            with contextlib.suppress(Exception):
+                desired.add(uuid.UUID(str(aid_raw)))
+        now_dt = datetime.now(UTC)
+        cur_links = (
+            ctx.session.execute(
+                sa.select(AccountAssetLink).where(
+                    AccountAssetLink.workspace_id == ctx.workspace_id,
+                    AccountAssetLink.asset_type == AssetType.PIXEL,
+                    AccountAssetLink.asset_id == px.id,
+                    AccountAssetLink.unlinked_at.is_(None),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        cur_ids: set[uuid.UUID] = set()
+        for lnk in cur_links:
+            if lnk.ad_account_id not in desired:
+                lnk.unlinked_at = now_dt
+                lnk.unlinked_by = ctx.user.id
+            else:
+                cur_ids.add(lnk.ad_account_id)
+        for aid in desired - cur_ids:
+            acc_obj = ctx.session.get(AdAccount, aid)
+            if acc_obj and acc_obj.workspace_id == ctx.workspace_id:
+                ctx.session.add(
+                    AccountAssetLink(
+                        workspace_id=ctx.workspace_id,
+                        ad_account_id=aid,
+                        asset_type=AssetType.PIXEL,
+                        asset_id=px.id,
+                        linked_at=now_dt,
+                        linked_by=ctx.user.id,
+                        note="Share Pixel/Dataset từ Trung tâm Quản trị Tài sản",
+                    )
+                )
+
+    ctx.commit()
+    return _build_unified_assets_overview(ctx.session, ctx.workspace_id)
+
+
+@assets_control_router.post("/cards/{card_id}/assign")
+def assign_card_governance(
+    ctx: OwnerCtx,
+    card_id: uuid.UUID,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    from app.core.enums import AssetType
+    from app.models.entities import AccountAssetLink, AdAccount, PaymentProfileReference
+
+    card = get_or_404(
+        ctx.session, PaymentProfileReference, card_id, ctx.workspace_id, label="Payment profile"
+    )
+    if "label" in payload and str(payload["label"] or "").strip():
+        card.label = str(payload["label"]).strip()[:200]
+    if "notes" in payload and payload["notes"] is not None:
+        card.notes = str(payload["notes"])[:5000]
+
+    if "ad_account_ids" in payload and isinstance(payload["ad_account_ids"], list):
+        desired: set[uuid.UUID] = set()
+        for aid_raw in payload["ad_account_ids"]:
+            with contextlib.suppress(Exception):
+                desired.add(uuid.UUID(str(aid_raw)))
+        now_dt = datetime.now(UTC)
+        cur_links = (
+            ctx.session.execute(
+                sa.select(AccountAssetLink).where(
+                    AccountAssetLink.workspace_id == ctx.workspace_id,
+                    AccountAssetLink.asset_type == AssetType.PAYMENT_PROFILE,
+                    AccountAssetLink.asset_id == card.id,
+                    AccountAssetLink.unlinked_at.is_(None),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        cur_ids: set[uuid.UUID] = set()
+        for lnk in cur_links:
+            if lnk.ad_account_id not in desired:
+                lnk.unlinked_at = now_dt
+                lnk.unlinked_by = ctx.user.id
+            else:
+                cur_ids.add(lnk.ad_account_id)
+        for aid in desired - cur_ids:
+            acc_obj = ctx.session.get(AdAccount, aid)
+            if acc_obj and acc_obj.workspace_id == ctx.workspace_id:
+                ctx.session.add(
+                    AccountAssetLink(
+                        workspace_id=ctx.workspace_id,
+                        ad_account_id=aid,
+                        asset_type=AssetType.PAYMENT_PROFILE,
+                        asset_id=card.id,
+                        linked_at=now_dt,
+                        linked_by=ctx.user.id,
+                        note="Gán thẻ thanh toán từ Trung tâm Quản trị Tài sản",
+                    )
+                )
+
+    ctx.commit()
+    return _build_unified_assets_overview(ctx.session, ctx.workspace_id)
+
 router.include_router(connections_router)
 router.include_router(creation_router)
 router.include_router(share_router)
 router.include_router(pixel_share_router)
 router.include_router(pages_router)
+router.include_router(assets_control_router)
+
 

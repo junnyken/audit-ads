@@ -17,6 +17,20 @@ const EXACT_TRIMMED: Record<string, string> = {
 }
 
 const PHRASE_PAIRS: Array<[string, string]> = [
+  ["Mạng gốc Văn phòng (Dành riêng Via Tổng Lớp 1)", "Office Direct Line (Reserved for Tier-1 Asset Vias)"],
+  ["Proxy Dân cư Tĩnh VN #1 — Cụm BM Quảng Cáo Top", "VN Static Residential Proxy #1 — BM Quang Cao Top Cluster"],
+  ["Proxy Dân cư Tĩnh VN #2 — Cụm BM Quảng Cáo Top", "VN Static Residential Proxy #2 — BM Quang Cao Top Cluster"],
+  ["Proxy Dân cư Tĩnh VN #3 — Cụm BM Mắt Bão Corp", "VN Static Residential Proxy #3 — BM Mat Bao Corp Cluster"],
+  ["Proxy Dân cư Tĩnh VN #4 — Cụm BM Xây Dựng Tân Hòa", "VN Static Residential Proxy #4 — BM Xay Dung Tan Hoa Cluster"],
+  ["Proxy Dân cư Tĩnh VN #5 — Cụm Via Dự Phòng Ngâm 72h", "VN Static Residential Proxy #5 — 72h Warm-up Standby Via Cluster"],
+  ["Tuyến mạng cách ly cụm Via", "Isolated Via cluster network line"],
+  ["Tối đa 2 Via/Proxy", "Max 2 Vias/Proxy"],
+  ["Cách ly 1:1 cho Via:", "1:1 Isolated for Via:"],
+  ["Share Dataset/Pixel từ BM", "Shared Dataset/Pixel from BM"],
+  ["Share Pixel/Dataset từ Trung tâm Quản trị Tài sản", "Shared Pixel/Dataset from Asset Control Center"],
+  ["Gán thẻ thanh toán từ Trung tâm Quản trị Tài sản", "Assigned payment card from Asset Control Center"],
+  ["Đồng bộ trực tiếp từ phương thức thanh toán Meta Ads", "Synced directly from Meta Ads payment method"],
+  ["Hết hạn", "Expires"],
   ["Gán quyền chạy Page từ Trung tâm Quản trị Fanpage", "Assigned Page ad access from Fanpage Control Center"],
   ["Đồng bộ tự động từ promote_pages của TKQC", "Auto-synced from Ad Account promote_pages"],
   ["Tự động liên kết theo cụm BM", "Auto-linked by BM cluster"],
