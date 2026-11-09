@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ArrowRight,
   Building2,
@@ -29,18 +29,160 @@ import { BrandMark } from '../components/shell/BrandMark'
 import { LanguageToggle } from '../components/shell/LanguageToggle'
 import { ThemeToggle } from '../components/shell/ThemeToggle'
 import { useI18n } from '../i18n'
-import { ApiError } from '../lib/api'
+import { api, ApiError } from '../lib/api'
 import { downloadChromeExtensionZip } from '../lib/chromeProfileLauncher'
 
 export default function Login() {
-  const { signIn } = useAuth()
+  const { signIn, registerAccount } = useAuth()
   const { t, language } = useI18n()
   const isEn = language === 'en'
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [fullName, setFullName] = useState('')
+  const [workspaceName, setWorkspaceName] = useState('')
+  const [captchaCode, setCaptchaCode] = useState('')
+  const [mathAnswer, setMathAnswer] = useState('')
+  const [humanConfirmed, setHumanConfirmed] = useState(false)
+  const [websiteHoneypot, setWebsiteHoneypot] = useState('')
+  const [challenge, setChallenge] = useState<{
+    challenge_token: string
+    captcha_svg: string
+    math_question: string
+  } | null>(null)
+  const [loadingChallenge, setLoadingChallenge] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [openFaq, setOpenFaq] = useState<number | null>(0)
+
+  const loadBotChallenge = useCallback(async () => {
+    setLoadingChallenge(true)
+    try {
+      const res = await api.get<{
+        challenge_token: string
+        captcha_svg: string
+        math_question: string
+      }>('/api/v1/auth/bot-challenge')
+      setChallenge(res)
+      setCaptchaCode('')
+      setMathAnswer('')
+    } catch {
+      /* ignore network hiccup until retry */
+    } finally {
+      setLoadingChallenge(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (authMode === 'register' && !challenge) {
+      void loadBotChallenge()
+    }
+  }, [authMode, challenge, loadBotChallenge])
+
+  const emailCheckStatus = useMemo(() => {
+    const raw = email.trim().toLowerCase()
+    if (!raw || !raw.includes('@')) return null
+    const [localPart, domain] = raw.split('@')
+    if (!localPart || !domain) return null
+    if (localPart.includes('+')) {
+      return {
+        ok: false,
+        msg: isEn
+          ? 'Plus (+) email aliases are blocked to prevent multi-account spam.'
+          : 'Chặn email phụ chứa dấu "+" (alias) để chống tạo tài khoản ảo hàng loạt.',
+      }
+    }
+    if (localPart.length < 3 || /^\d+$/.test(localPart)) {
+      return {
+        ok: false,
+        msg: isEn
+          ? 'Email username must be at least 3 characters and not pure digits.'
+          : 'Tên email trước dấu @ phải từ 3 ký tự và không được chỉ gồm chữ số.',
+      }
+    }
+    const disposableKeywords = [
+      'tempmail',
+      'temp-mail',
+      '10minutemail',
+      'guerrillamail',
+      'mailinator',
+      'yopmail',
+      'trashmail',
+      'throwaway',
+      'fakeinbox',
+      'fakemail',
+      'burnermail',
+      'sharklasers',
+      'getnada',
+      'mohmal',
+      'maildrop',
+      'dispostable',
+      'mailnesia',
+      'qq.com',
+      '163.com',
+      'mail.ru',
+    ]
+    if (disposableKeywords.some((kw) => domain.includes(kw))) {
+      return {
+        ok: false,
+        msg: isEn
+          ? `Blocked disposable/temporary email domain (@${domain}). Use Gmail, Outlook, iCloud, Yahoo, Proton, or a verified .vn corporate email.`
+          : `Chặn tên miền email ảo / tạm thời (@${domain}). Vui lòng dùng Gmail, Outlook, Hotmail, iCloud, Yahoo, Proton hoặc email doanh nghiệp .vn.`,
+      }
+    }
+    const trustedExact = new Set([
+      'gmail.com',
+      'googlemail.com',
+      'outlook.com',
+      'hotmail.com',
+      'live.com',
+      'msn.com',
+      'outlook.com.vn',
+      'hotmail.com.vn',
+      'live.com.vn',
+      'icloud.com',
+      'me.com',
+      'mac.com',
+      'yahoo.com',
+      'yahoo.com.vn',
+      'ymail.com',
+      'proton.me',
+      'protonmail.com',
+      'pm.me',
+      'zoho.com',
+      'zohomail.com',
+      'yandex.com',
+      'gmx.com',
+      'aol.com',
+      'matbao.com',
+      'matbao.net',
+      'tbsupellex.com',
+      'fpt.com',
+      'fpt.com.vn',
+      'viettel.com.vn',
+      'vnpt.vn',
+      'vng.com.vn',
+      'cmc.com.vn',
+    ])
+    const vnSuffixes = ['.com.vn', '.net.vn', '.org.vn', '.edu.vn', '.gov.vn', '.vn']
+    const isTrusted =
+      trustedExact.has(domain) ||
+      vnSuffixes.some((s) => domain.endsWith(s) && domain.length > s.length + 2)
+    if (!isTrusted) {
+      return {
+        ok: false,
+        msg: isEn
+          ? `Untrusted domain (@${domain}). Only reputable providers (Gmail, Outlook, Hotmail, iCloud, Yahoo, Proton, Zoho) or verified .vn corporate domains are allowed.`
+          : `Tên miền (@${domain}) không nằm trong danh sách nhà cung cấp uy tín. Chỉ chấp nhận Gmail, Outlook, Hotmail, iCloud, Yahoo, Proton, Zoho hoặc tên miền doanh nghiệp .vn.`,
+      }
+    }
+    return {
+      ok: true,
+      msg: isEn
+        ? `✓ Verified reputable email provider (@${domain}) — eligible for isolated Workspace registration.`
+        : `✓ Email chính thống uy tín (@${domain}) — đủ điều kiện khởi tạo Không gian làm việc (Workspace) độc lập.`,
+    }
+  }, [email, isEn])
 
   const currentHost =
     typeof window !== 'undefined' && window.location.hostname
@@ -52,9 +194,40 @@ export default function Login() {
     setBusy(true)
     setError(null)
     try {
-      await signIn(email, password)
+      if (authMode === 'login') {
+        await signIn(email, password)
+      } else {
+        if (!challenge?.challenge_token) {
+          await loadBotChallenge()
+          throw new Error(
+            isEn
+              ? 'Please complete the anti-bot security challenge.'
+              : 'Vui lòng nhập mã xác thực chống Bot.',
+          )
+        }
+        await registerAccount({
+          full_name: fullName.trim(),
+          workspace_name: workspaceName.trim(),
+          email: email.trim(),
+          password,
+          challenge_token: challenge.challenge_token,
+          captcha_code: captchaCode.trim(),
+          math_answer: mathAnswer.trim(),
+          human_confirmed: humanConfirmed,
+          website_honeypot: websiteHoneypot,
+        })
+      }
     } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : t('login.failed'))
+      if (authMode === 'register') {
+        void loadBotChallenge()
+      }
+      setError(
+        caught instanceof ApiError
+          ? caught.message
+          : caught instanceof Error
+            ? caught.message
+            : t('login.failed'),
+      )
     } finally {
       setBusy(false)
     }
@@ -323,27 +496,80 @@ export default function Login() {
               </div>
             </div>
 
-            {/* LOGIN CARD */}
-            <aside className="lg:col-span-5" aria-label={isEn ? 'Operator sign in' : 'Đăng nhập quản trị'}>
+            {/* LOGIN & REGISTRATION PORTAL CARD */}
+            <aside className="lg:col-span-5" aria-label={isEn ? 'Operator sign in & registration' : 'Đăng nhập & Đăng ký quản trị'}>
               <div className="rounded-xl border border-line-strong bg-surface p-6 sm:p-7 shadow-md">
-                <div className="mb-5 flex items-center justify-between border-b border-line pb-4">
+                <div className="mb-4 flex items-center justify-between border-b border-line pb-3.5">
                   <BrandMark />
                   <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-400">
                     <Lock className="h-3 w-3" aria-hidden="true" />
-                    {isEn ? 'OWASP Hardened' : 'Bảo mật Đa lớp'}
+                    {isEn ? 'Multi-Tenant Isolated' : 'Tách bạch Dữ liệu 100%'}
                   </span>
                 </div>
 
-                <h2 className="text-base font-bold text-ink">
-                  {isEn ? 'Sign in to Agency Control Center' : 'Đăng nhập Bảng điều khiển Quản trị'}
-                </h2>
-                <p className="mt-1 text-xs text-ink-muted">
-                  {isEn
-                    ? 'Protected by PBKDF2-SHA256, Fernet AES-128 Vault & Device Session Registry.'
-                    : 'Bảo vệ bởi mã hóa Fernet AES-128, PBKDF2-SHA256 & Kiểm soát phiên theo thiết bị.'}
-                </p>
+                {/* DUAL TAB SWITCHER: LOGIN vs REGISTER */}
+                <div className="mb-4 grid grid-cols-2 rounded-lg border border-line bg-canvas p-1 text-xs font-bold">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('login')
+                      setError(null)
+                    }}
+                    className={`rounded-md py-2 transition-colors ${
+                      authMode === 'login'
+                        ? 'bg-brand text-brand-fg shadow-xs'
+                        : 'text-ink-muted hover:text-ink'
+                    }`}
+                  >
+                    {isEn ? '🔑 Sign In' : '🔑 Đăng nhập Quản trị'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('register')
+                      setError(null)
+                      void loadBotChallenge()
+                    }}
+                    className={`rounded-md py-2 transition-colors ${
+                      authMode === 'register'
+                        ? 'bg-brand text-brand-fg shadow-xs'
+                        : 'text-ink-muted hover:text-ink'
+                    }`}
+                  >
+                    {isEn ? '🛡️ Create Agency Account' : '🛡️ Đăng ký Tài khoản'}
+                  </button>
+                </div>
 
-                <form onSubmit={submit} className="mt-5 space-y-4">
+                {authMode === 'login' ? (
+                  <>
+                    <h2 className="text-base font-bold text-ink">
+                      {isEn ? 'Sign in to Agency Control Center' : 'Đăng nhập Bảng điều khiển Quản trị'}
+                    </h2>
+                    <p className="mt-1 text-xs text-ink-muted">
+                      {isEn
+                        ? 'Protected by PBKDF2-SHA256, Fernet AES-128 Vault & Device Session Registry.'
+                        : 'Bảo vệ bởi mã hóa Fernet AES-128, PBKDF2-SHA256 & Kiểm soát phiên theo thiết bị.'}
+                    </p>
+                  </>
+                ) : (
+                  <div className="rounded-lg border border-brand/30 bg-brand-light/20 p-3 space-y-1">
+                    <div className="text-xs font-bold text-ink flex items-center gap-1.5">
+                      <ShieldCheck className="h-4 w-4 text-brand-text shrink-0" />
+                      <span>
+                        {isEn
+                          ? 'Isolated Workspace & Verified Email Policy'
+                          : 'Chính sách Tách bạch Workspace & Chặn Email Ảo'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-ink-muted leading-relaxed">
+                      {isEn
+                        ? 'Only reputable email providers (Gmail, Outlook, Hotmail, iCloud, Yahoo, Proton, Zoho, or verified .vn corporate domains) are accepted. Disposable/temp emails are blocked. Each account gets a 100% isolated Workspace.'
+                        : 'Chỉ chấp nhận email chính thống uy tín (Gmail, Outlook, Hotmail, iCloud, Yahoo, Proton, Zoho hoặc tên miền doanh nghiệp .vn). Chặn 100% mail ảo / temp mail. Mỗi tài khoản được tạo 1 Không gian làm việc (Workspace) riêng biệt tuyệt đối.'}
+                    </p>
+                  </div>
+                )}
+
+                <form onSubmit={submit} className="mt-4 space-y-3.5">
                   {error && (
                     <div
                       role="alert"
@@ -353,7 +579,57 @@ export default function Login() {
                     </div>
                   )}
 
-                  <Field label={t('login.email')} htmlFor="login-email" required>
+                  {authMode === 'register' && (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Field
+                        label={isEn ? 'Full Name' : 'Họ và tên Quản trị viên'}
+                        htmlFor="reg-fullname"
+                        required
+                      >
+                        <input
+                          id="reg-fullname"
+                          type="text"
+                          required
+                          minLength={2}
+                          maxLength={120}
+                          value={fullName}
+                          onChange={(e) => setFullName(e.target.value)}
+                          placeholder={isEn ? 'e.g. Nguyen Van A' : 'VD: Nguyễn Văn A'}
+                          className="w-full rounded-md border border-line-strong bg-canvas px-3 py-2 text-xs sm:text-sm text-ink placeholder:text-ink-subtle focus:border-brand focus:outline-none"
+                        />
+                      </Field>
+
+                      <Field
+                        label={isEn ? 'Agency / Workspace Name' : 'Tên Agency / Workspace riêng'}
+                        htmlFor="reg-workspace"
+                        required
+                      >
+                        <input
+                          id="reg-workspace"
+                          type="text"
+                          required
+                          minLength={2}
+                          maxLength={120}
+                          value={workspaceName}
+                          onChange={(e) => setWorkspaceName(e.target.value)}
+                          placeholder={isEn ? 'e.g. Alpha Media Agency' : 'VD: Alpha Ads Agency'}
+                          className="w-full rounded-md border border-line-strong bg-canvas px-3 py-2 text-xs sm:text-sm text-ink placeholder:text-ink-subtle focus:border-brand focus:outline-none"
+                        />
+                      </Field>
+                    </div>
+                  )}
+
+                  <Field
+                    label={
+                      authMode === 'register'
+                        ? isEn
+                          ? 'Official Email (Gmail, Outlook, iCloud, Yahoo, .vn)'
+                          : 'Email chính thống (Gmail, Outlook, iCloud, Yahoo, .vn)'
+                        : t('login.email')
+                    }
+                    htmlFor="login-email"
+                    required
+                  >
                     <input
                       id="login-email"
                       type="email"
@@ -361,17 +637,43 @@ export default function Login() {
                       required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="name@company.com"
+                      placeholder={
+                        authMode === 'register'
+                          ? 'tenban@gmail.com / outlook.com / icloud.com'
+                          : 'name@company.com'
+                      }
                       className="w-full rounded-md border border-line-strong bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-subtle focus:border-brand focus:outline-none"
                     />
+                    {authMode === 'register' && emailCheckStatus && (
+                      <div
+                        className={`mt-1.5 rounded px-2.5 py-1 text-[11px] font-medium ${
+                          emailCheckStatus.ok
+                            ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                            : 'border border-danger-line bg-danger-soft text-danger-ink'
+                        }`}
+                      >
+                        {emailCheckStatus.msg}
+                      </div>
+                    )}
                   </Field>
 
-                  <Field label={t('login.password')} htmlFor="login-password" required>
+                  <Field
+                    label={
+                      authMode === 'register'
+                        ? isEn
+                          ? 'Strong Password (≥ 8 chars, Uppercase, Lowercase & Number)'
+                          : 'Mật khẩu bảo mật (≥ 8 ký tự, có chữ Hoa, chữ thường & số)'
+                        : t('login.password')
+                    }
+                    htmlFor="login-password"
+                    required
+                  >
                     <input
                       id="login-password"
                       type="password"
-                      autoComplete="current-password"
+                      autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
                       required
+                      minLength={8}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="••••••••"
@@ -379,16 +681,128 @@ export default function Login() {
                     />
                   </Field>
 
+                  {/* 4-LAYER ANTI-BOT VERIFICATION FOR REGISTRATION */}
+                  {authMode === 'register' && (
+                    <div className="rounded-lg border border-line-strong bg-canvas p-3 space-y-2.5">
+                      {/* Honeypot trap field (invisible to humans) */}
+                      <div className="sr-only" aria-hidden="true">
+                        <label htmlFor="website-hp">Website URL</label>
+                        <input
+                          id="website-hp"
+                          type="text"
+                          tabIndex={-1}
+                          autoComplete="off"
+                          value={websiteHoneypot}
+                          onChange={(e) => setWebsiteHoneypot(e.target.value)}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">
+                          {isEn
+                            ? '🛡️ Anti-Bot & Anti-Spam Security Check'
+                            : '🛡️ Xác thực Chống Bot & Chống Spam Tự động'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => void loadBotChallenge()}
+                          disabled={loadingChallenge}
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-text hover:underline"
+                        >
+                          <RefreshCw className={`h-3 w-3 ${loadingChallenge ? 'animate-spin' : ''}`} />
+                          <span>{isEn ? 'Refresh Code' : 'Đổi mã khác'}</span>
+                        </button>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-3">
+                        {challenge?.captcha_svg ? (
+                          <img
+                            src={challenge.captcha_svg}
+                            alt="Anti-bot security captcha"
+                            className="h-12 w-44 rounded border border-line object-cover select-none"
+                          />
+                        ) : (
+                          <div className="h-12 w-44 rounded border border-line bg-surface flex items-center justify-center text-xs text-ink-muted">
+                            {isEn ? 'Loading captcha...' : 'Đang tạo mã...'}
+                          </div>
+                        )}
+                        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-mono font-bold text-amber-400">
+                          {challenge?.math_question ?? '... + ... = ?'}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <div>
+                          <label htmlFor="reg-captcha" className="block text-[11px] font-semibold text-ink-muted mb-1">
+                            {isEn ? '5-Char Image Code *' : 'Nhập 5 ký tự trong ảnh *'}
+                          </label>
+                          <input
+                            id="reg-captcha"
+                            type="text"
+                            required
+                            maxLength={8}
+                            value={captchaCode}
+                            onChange={(e) => setCaptchaCode(e.target.value.toUpperCase())}
+                            placeholder={isEn ? 'e.g. K7M9P' : 'VD: K7M9P'}
+                            className="w-full rounded border border-line-strong bg-surface px-2.5 py-1.5 font-mono text-xs uppercase text-ink focus:border-brand focus:outline-none"
+                          />
+                        </div>
+
+                        <div>
+                          <label htmlFor="reg-math" className="block text-[11px] font-semibold text-ink-muted mb-1">
+                            {isEn ? 'Math Answer *' : 'Kết quả phép tính *'}
+                          </label>
+                          <input
+                            id="reg-math"
+                            type="text"
+                            inputMode="numeric"
+                            required
+                            maxLength={5}
+                            value={mathAnswer}
+                            onChange={(e) => setMathAnswer(e.target.value)}
+                            placeholder={isEn ? 'Sum = ?' : 'Tổng = ?'}
+                            className="w-full rounded border border-line-strong bg-surface px-2.5 py-1.5 font-mono text-xs text-ink focus:border-brand focus:outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      <label className="flex items-center gap-2 pt-1 cursor-pointer select-none text-xs text-ink">
+                        <input
+                          type="checkbox"
+                          required
+                          checked={humanConfirmed}
+                          onChange={(e) => setHumanConfirmed(e.target.checked)}
+                          className="h-4 w-4 rounded border-line-strong text-brand focus:ring-brand"
+                        />
+                        <span>
+                          {isEn
+                            ? 'I confirm I am a real human operator (not an automated bot/script).'
+                            : 'Tôi xác nhận là người dùng thật (không phải Bot / Script spam tự động).'}
+                        </span>
+                      </label>
+                    </div>
+                  )}
+
                   <button
                     type="submit"
-                    disabled={busy}
+                    disabled={busy || (authMode === 'register' && emailCheckStatus?.ok === false)}
                     className="w-full rounded-md bg-brand px-4 py-2.5 text-sm font-semibold text-brand-fg shadow-xs hover:bg-brand-hover disabled:opacity-50 transition-colors"
                   >
-                    {busy ? t('login.submitting') : t('login.submit')}
+                    {busy
+                      ? authMode === 'register'
+                        ? isEn
+                          ? 'Verifying & Creating Isolated Workspace...'
+                          : 'Đang xác thực & Khởi tạo Workspace riêng...'
+                        : t('login.submitting')
+                      : authMode === 'register'
+                        ? isEn
+                          ? '🛡️ Verify & Create Isolated Agency Account'
+                          : '🛡️ Xác thực & Tạo Tài khoản Workspace Riêng'
+                        : t('login.submit')}
                   </button>
                 </form>
 
-                <div className="mt-5 border-t border-line pt-4 flex items-center justify-between text-xs text-ink-muted">
+                <div className="mt-4 border-t border-line pt-3.5 flex items-center justify-between text-xs text-ink-muted">
                   <span>{isEn ? 'Need the Via browser extension?' : 'Cần gói tiện ích cho trình duyệt Via?'}</span>
                   <button
                     type="button"

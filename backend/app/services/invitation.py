@@ -60,7 +60,8 @@ def hash_token(raw_token: str) -> str:
 
 
 def normalize_email(email: str) -> str:
-    return email.strip().lower()
+    from app.core.email_and_bot_guard import validate_reputable_registration_email
+    return validate_reputable_registration_email(email)
 
 
 class InvitationService:

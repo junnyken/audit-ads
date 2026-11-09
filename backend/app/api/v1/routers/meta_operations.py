@@ -22,6 +22,7 @@ from fastapi import APIRouter, Query
 
 from app.api.deps import Ctx, OwnerCtx, WriteCtx
 from app.core.config import get_settings
+from app.core.email_and_bot_guard import is_bootstrap_owner_workspace
 from app.core.enums import DataFreshness, DiscoveryRunStatus, MetaEnvironment
 from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.models.entities import AuditLog
@@ -547,7 +548,7 @@ def run_workspace_quick_sync(
             if c.status.value == "active":
                 with contextlib.suppress(Exception):
                     out.append((c, build_real_provider(settings, business_id=for_bm_id, credential=c)))
-        if (settings.meta_access_token or "").strip():
+        if (settings.meta_access_token or "").strip() and is_bootstrap_owner_workspace(session, workspace_id):
             with contextlib.suppress(Exception):
                 out.append((None, build_real_provider(settings, business_id=for_bm_id, credential=None)))
         return out
@@ -2672,7 +2673,7 @@ def _sync_workspace_pages_from_meta(
             with contextlib.suppress(Exception):
                 providers.append((c, build_real_provider(settings, business_id=settings.meta_business_id, credential=c)))
 
-    if (settings.meta_access_token or "").strip():
+    if (settings.meta_access_token or "").strip() and is_bootstrap_owner_workspace(session, workspace_id):
         with contextlib.suppress(Exception):
             providers.append((None, build_real_provider(settings, business_id=settings.meta_business_id, credential=None)))
 
@@ -3404,7 +3405,7 @@ def check_single_page_live(
         if c.status.value == "active":
             with contextlib.suppress(Exception):
                 providers.append(build_real_provider(settings, business_id=settings.meta_business_id, credential=c))
-    if (settings.meta_access_token or "").strip():
+    if (settings.meta_access_token or "").strip() and is_bootstrap_owner_workspace(ctx.session, ctx.workspace_id):
         with contextlib.suppress(Exception):
             providers.append(build_real_provider(settings, business_id=settings.meta_business_id, credential=None))
 
@@ -3672,19 +3673,20 @@ def _reconcile_workspace_assets(
         "via 3": "Chrome — Profile 12 · Via 3",
     }
 
+    is_owner_ws = is_bootstrap_owner_workspace(session, workspace_id)
     used_profiles: set[str] = set()
     used_folders: set[str] = set()
     browsers_synced = 0
     for idx, v in enumerate(vias):
         v_lbl_low = (v.label or "").strip().lower()
-        pref_cand = preferred_by_label.get(v_lbl_low)
+        pref_cand = preferred_by_label.get(v_lbl_low) if is_owner_ws else None
         prof = (v.browser_profile_label or "").strip()
         if pref_cand and _chrome_folder_key(pref_cand) not in used_folders:
             prof = pref_cand
             v.browser_profile_label = prof[:160]
         f_key = _chrome_folder_key(prof)
         if not prof or prof in used_profiles or (f_key and f_key in used_folders):
-            for cand in _REAL_CHROME_PROFILES_POOL:
+            for cand in (_REAL_CHROME_PROFILES_POOL if is_owner_ws else ()):
                 cf = _chrome_folder_key(cand)
                 if cand not in used_profiles and cf not in used_folders:
                     prof = cand

@@ -31,6 +31,8 @@ logger = logging.getLogger("app.rate_limit")
 #: same way, by address.
 AUTH_PATH_SUFFIXES = (
     "/auth/login",
+    "/auth/register",
+    "/auth/bot-challenge",
     "/extension/connect",
     "/meta-reader-credentials/callback",
     # F1: a PIN guess is a credential guess; the per-user lockout is the main guard, this is the second.

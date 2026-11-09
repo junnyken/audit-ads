@@ -3,10 +3,23 @@ import type { ReactNode } from 'react'
 import { api, getToken, setToken } from '../lib/api'
 import type { CurrentUser } from '../lib/types'
 
+export interface RegisterPayload {
+  full_name: string
+  workspace_name: string
+  email: string
+  password: string
+  challenge_token: string
+  captcha_code: string
+  math_answer: string
+  human_confirmed: boolean
+  website_honeypot?: string
+}
+
 interface AuthState {
   user: CurrentUser | null
   loading: boolean
   signIn: (email: string, password: string) => Promise<void>
+  registerAccount: (payload: RegisterPayload) => Promise<void>
   signOut: () => void
 }
 
@@ -49,14 +62,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [load],
   )
 
+  const registerAccount = useCallback(
+    async (payload: RegisterPayload) => {
+      const response = await api.post<{ access_token: string }>('/api/v1/auth/register', payload)
+      setToken(response.access_token)
+      setLoading(true)
+      await load()
+    },
+    [load],
+  )
+
   const signOut = useCallback(() => {
     setToken(null)
     setUser(null)
   }, [])
 
   const value = useMemo(
-    () => ({ user, loading, signIn, signOut }),
-    [user, loading, signIn, signOut],
+    () => ({ user, loading, signIn, registerAccount, signOut }),
+    [user, loading, signIn, registerAccount, signOut],
   )
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import OwnerCtx
 from app.core.config import get_settings
+from app.core.email_and_bot_guard import is_bootstrap_owner_workspace
 from app.core.enums import ReaderCredentialStatus
 from app.core.errors import ConflictError
 from app.db.session import get_db
@@ -64,6 +65,8 @@ def _ensure_server_token_credential(
     from app.models.meta_operations import MetaConnection
     from app.models.meta_reader_credential import MetaReaderCredential
 
+    if not is_bootstrap_owner_workspace(ctx.session, ctx.workspace_id):
+        return None
     token = (settings.meta_access_token or "").strip()
     if not token:
         return None
@@ -180,6 +183,7 @@ def list_credentials(ctx: OwnerCtx) -> dict[str, Any]:
         not configured
         and settings.environment.lower() in ("production", "prod", "staging")
         and (settings.meta_access_token or "").strip()
+        and is_bootstrap_owner_workspace(ctx.session, ctx.workspace_id)
     ):
         configured = True
         reason = None
@@ -205,6 +209,7 @@ def connect_start(ctx: OwnerCtx, payload: s.ReaderConnectStart) -> dict[str, str
         not settings.meta_login_configured
         and settings.environment.lower() in ("production", "prod", "staging")
         and (settings.meta_access_token or "").strip()
+        and is_bootstrap_owner_workspace(ctx.session, ctx.workspace_id)
     ):
         from app.api.v1.routers.meta_operations import run_workspace_quick_sync
 
@@ -307,6 +312,7 @@ def verify(ctx: OwnerCtx, credential_id: uuid.UUID) -> dict[str, Any]:
         not configured
         and settings.environment.lower() in ("production", "prod", "staging")
         and (settings.meta_access_token or "").strip()
+        and is_bootstrap_owner_workspace(ctx.session, ctx.workspace_id)
     ):
         from datetime import UTC, datetime
         credential.status = ReaderCredentialStatus.ACTIVE
