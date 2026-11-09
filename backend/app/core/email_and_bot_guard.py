@@ -503,7 +503,7 @@ def validate_reputable_registration_email(raw_email: str) -> str:
     if not email or "@" not in email:
         raise ValidationError(
             "Vui lòng nhập địa chỉ email hợp lệ.",
-            {"field": "email", "reason": "invalid_format"},
+            details={"field": "email", "reason": "invalid_format"},
         )
 
     local_part, domain = email.rsplit("@", 1)
@@ -511,19 +511,19 @@ def validate_reputable_registration_email(raw_email: str) -> str:
     if "+" in local_part:
         raise ValidationError(
             "Không chấp nhận email phụ chứa ký tự '+' (alias). Vui lòng dùng địa chỉ email chính thức.",
-            {"field": "email", "reason": "alias_not_allowed"},
+            details={"field": "email", "reason": "alias_not_allowed"},
         )
 
     if ".." in email or not _EMAIL_REGEX.match(email):
         raise ValidationError(
             "Định dạng địa chỉ email không hợp lệ.",
-            {"field": "email", "reason": "invalid_format"},
+            details={"field": "email", "reason": "invalid_format"},
         )
 
     if len(local_part) < 3 or local_part.isdigit():
         raise ValidationError(
             "Tên tài khoản email trước dấu '@' phải có ít nhất 3 ký tự và không được chỉ gồm chữ số.",
-            {"field": "email", "reason": "suspicious_local_part"},
+            details={"field": "email", "reason": "suspicious_local_part"},
         )
 
     # 1. Check disposable / fake email blocklist
@@ -531,7 +531,7 @@ def validate_reputable_registration_email(raw_email: str) -> str:
         raise ValidationError(
             f"Tên miền email '@{domain}' thuộc danh sách email ảo / tạm thời bị chặn. "
             "Hệ thống chỉ chấp nhận đăng ký bằng email chính thống (Gmail, Outlook, Hotmail, iCloud, Yahoo, Proton, Zoho hoặc tên miền doanh nghiệp .vn).",
-            {"field": "email", "reason": "disposable_email_blocked", "domain": domain},
+            details={"field": "email", "reason": "disposable_email_blocked", "domain": domain},
         )
 
     # 2. Check reputable provider allowlist or verified VN corporate domain
@@ -549,7 +549,7 @@ def validate_reputable_registration_email(raw_email: str) -> str:
         raise ValidationError(
             f"Tên miền email '@{domain}' chưa được xác thực nguồn gốc. "
             "Chỉ cho phép đăng ký bằng các nhà cung cấp email uy tín (gmail.com, outlook.com, hotmail.com, live.com, icloud.com, yahoo.com, proton.me, zoho.com) hoặc email doanh nghiệp Việt Nam (.vn, .com.vn).",
-            {"field": "email", "reason": "untrusted_email_domain", "domain": domain},
+            details={"field": "email", "reason": "untrusted_email_domain", "domain": domain},
         )
 
     return email
@@ -559,7 +559,7 @@ def validate_strong_password(password: str) -> None:
     if len(password or "") < 8:
         raise ValidationError(
             "Mật khẩu phải có tối thiểu 8 ký tự.",
-            {"field": "password", "reason": "password_too_short"},
+            details={"field": "password", "reason": "password_too_short"},
         )
     has_upper = any(c.isupper() for c in password)
     has_lower = any(c.islower() for c in password)
@@ -567,7 +567,7 @@ def validate_strong_password(password: str) -> None:
     if not (has_upper and has_lower and has_digit_or_sym):
         raise ValidationError(
             "Mật khẩu phải bao gồm chữ hoa (A-Z), chữ thường (a-z) và ít nhất 1 chữ số hoặc ký tự đặc biệt.",
-            {"field": "password", "reason": "password_weak"},
+            details={"field": "password", "reason": "password_weak"},
         )
 
 
@@ -677,21 +677,21 @@ def verify_bot_challenge(
     if (honeypot or "").strip():
         raise ValidationError(
             "Yêu cầu đăng ký bị từ chối bởi hệ thống chống Bot tự động.",
-            {"field": "captcha_code", "reason": "bot_honeypot_triggered"},
+            details={"field": "captcha_code", "reason": "bot_honeypot_triggered"},
         )
 
     # Layer 2: Human confirmation checkbox
     if not human_confirmed:
         raise ValidationError(
             "Vui lòng tích chọn xác nhận 'Tôi là người thật (Không phải Robot)'.",
-            {"field": "human_confirmed", "reason": "human_checkbox_required"},
+            details={"field": "human_confirmed", "reason": "human_checkbox_required"},
         )
 
     token = (challenge_token or "").strip()
     if "." not in token:
         raise ValidationError(
             "Mã phiên xác thực chống Bot không hợp lệ. Vui lòng tải lại mã xác nhận.",
-            {"field": "captcha_code", "reason": "invalid_challenge_token"},
+            details={"field": "captcha_code", "reason": "invalid_challenge_token"},
         )
 
     settings = get_settings()
@@ -702,7 +702,7 @@ def verify_bot_challenge(
     if not hmac.compare_digest(sig, expected_sig):
         raise ValidationError(
             "Chữ ký bảo mật chống Bot không khớp. Vui lòng bấm đổi mã mới.",
-            {"field": "captcha_code", "reason": "invalid_challenge_signature"},
+            details={"field": "captcha_code", "reason": "invalid_challenge_signature"},
         )
 
     try:
@@ -715,21 +715,21 @@ def verify_bot_challenge(
     except Exception as exc:
         raise ValidationError(
             "Dữ liệu xác thực chống Bot bị lỗi. Vui lòng thử lại.",
-            {"field": "captcha_code", "reason": "malformed_challenge"},
+            details={"field": "captcha_code", "reason": "malformed_challenge"},
         ) from exc
 
     now = time.time()
     if now > exp:
         raise ValidationError(
             "Mã xác thực chống Bot đã hết hạn (5 phút). Hệ thống đã tạo mã mới, vui lòng nhập lại.",
-            {"field": "captcha_code", "reason": "challenge_expired"},
+            details={"field": "captcha_code", "reason": "challenge_expired"},
         )
 
     # Layer 3: Minimum human interaction time (>= 2.0s)
     if (now - iat) < _MIN_HUMAN_SOLVE_SECONDS:
         raise ValidationError(
             "Thao tác gửi biểu mẫu quá nhanh (nghi vấn Bot tự động). Vui lòng kiểm tra lại thông tin và thử lại.",
-            {"field": "captcha_code", "reason": "submission_too_fast"},
+            details={"field": "captcha_code", "reason": "submission_too_fast"},
         )
 
     # Layer 4: Single-use nonce enforcement + answer verification
@@ -738,7 +738,7 @@ def verify_bot_challenge(
         if nonce in _USED_NONCES:
             raise ValidationError(
                 "Mã xác thực chống Bot này đã được sử dụng. Vui lòng đổi mã mới.",
-                {"field": "captcha_code", "reason": "challenge_replayed"},
+                details={"field": "captcha_code", "reason": "challenge_replayed"},
             )
         _USED_NONCES[nonce] = float(exp + 60)
 
@@ -748,7 +748,7 @@ def verify_bot_challenge(
     if not hmac.compare_digest(actual_hash, expected_hash):
         raise ValidationError(
             "Mã xác thực hình ảnh (5 ký tự) hoặc kết quả phép tính chưa chính xác. Vui lòng nhập lại mã mới.",
-            {"field": "captcha_code", "reason": "captcha_mismatch"},
+            details={"field": "captcha_code", "reason": "captcha_mismatch"},
         )
 
 
