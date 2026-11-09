@@ -523,11 +523,21 @@ export default function Assets() {
 
       <Tabs value={tab} onValueChange={handleTabChange}>
         <TabsList aria-label={t('assets.title')}>
-          {SPECS.map((spec) => (
-            <TabsTrigger key={spec.key} value={spec.key}>
-              {t(spec.plural)}
-            </TabsTrigger>
-          ))}
+          <TabsTrigger value={PAGES.key}>
+            {isEn ? `🚩 Fanpages (${summary.pages_total})` : `🚩 Trang Fanpage (${summary.pages_total})`}
+          </TabsTrigger>
+          <TabsTrigger value={PIXELS.key}>
+            {isEn ? `🎯 Datasets / Pixels (${summary.pixels_total})` : `🎯 Datasets / Pixel (${summary.pixels_total})`}
+          </TabsTrigger>
+          <TabsTrigger value={PAYMENT_REFERENCES.key}>
+            {isEn ? `💳 Payment Cards (${summary.cards_total})` : `💳 Thẻ Thanh Toán (${summary.cards_total})`}
+          </TabsTrigger>
+          <TabsTrigger value={BROWSER_REFERENCES.key}>
+            {isEn ? `💻 Chrome Profiles (${summary.browsers_total})` : `💻 Hồ Sơ Chrome (${summary.browsers_total})`}
+          </TabsTrigger>
+          <TabsTrigger value={PROXY_REFERENCES.key}>
+            {isEn ? `🌐 Static IPv4 Proxies (${summary.proxies_total})` : `🌐 Proxy IPv4 Tĩnh (${summary.proxies_total})`}
+          </TabsTrigger>
         </TabsList>
 
         {/* TAB 1: FANPAGES */}

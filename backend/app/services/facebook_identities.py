@@ -482,6 +482,27 @@ class FacebookIdentityService:
                 by_network.setdefault(n_key, []).append(identity)
 
         result = []
+        # Map Mắt Bão sibling BMs (816138097891502, 1626505854317076) to Mắt Bão Corp Ad Accounts if 0 direct
+        mb_bms = set(
+            self.session.execute(
+                sa.select(BusinessManager.id).where(
+                    BusinessManager.workspace_id == self.workspace_id,
+                    BusinessManager.archived_at.is_(None),
+                    BusinessManager.external_id.in_(("102968402561310", "816138097891502", "1626505854317076")),
+                )
+            ).scalars()
+        )
+        mb_accounts_set = {
+            a.id
+            for a in self.session.execute(
+                sa.select(AdAccount).where(
+                    AdAccount.workspace_id == self.workspace_id,
+                    AdAccount.archived_at.is_(None),
+                    AdAccount.business_manager_id.in_(mb_bms) if mb_bms else sa.false(),
+                )
+            ).scalars()
+            if visible_ids is None or a.id in visible_ids
+        }
         for identity in identities:
             bms = bms_by_identity.get(identity.id, set())
             reached = {
@@ -490,6 +511,8 @@ class FacebookIdentityService:
                 if (bm_id in bms or direct_id == identity.id)
                 and (visible_ids is None or account_id in visible_ids)
             }
+            if not reached and (bms & mb_bms):
+                reached = set(mb_accounts_set)
             b_key = (identity.browser_profile_label or "").strip().lower()
             n_key = (identity.network_label or "").strip().lower()
             shared_browser = [

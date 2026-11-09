@@ -17,6 +17,21 @@ const EXACT_TRIMMED: Record<string, string> = {
 }
 
 const PHRASE_PAIRS: Array<[string, string]> = [
+  ["Đồng bộ từ Meta Graph API (/me/accounts)", "Synced from Meta Graph API (/me/accounts)"],
+  ["Tự động liên kết theo cụm Via Tổng", "Auto-linked via Primary Master Account cluster"],
+  ["Công ty công nghệ thông tin", "Information Technology Company"],
+  ["Người sáng tạo nội dung số", "Digital Creator"],
+  ["Công ty cung cấp Internet", "Internet Service Provider"],
+  ["Sản phẩm/Dịch vụ", "Product / Service"],
+  ["Nhà bếp/Nấu ăn", "Kitchen / Cooking"],
+  ["Công ty phần mềm", "Software Company"],
+  ["Công nghệ", "Technology"],
+  ["6 TKQC Mắt Bão", "6 Mắt Bão Ad Accounts"],
+  ["5 TKQC Mắt Bão", "5 Mắt Bão Ad Accounts"],
+  ["6 TKQC", "6 Ad Accounts"],
+  ["5 TKQC", "5 Ad Accounts"],
+  ["3 TKQC", "3 Ad Accounts"],
+  ["TKQC", "Ad Accounts"],
   ["Mạng gốc Văn phòng (Dành riêng Via Tổng Lớp 1)", "Office Direct Line (Reserved for Tier-1 Asset Vias)"],
   ["Proxy Dân cư Tĩnh VN #1 — Cụm BM Quảng Cáo Top", "VN Static Residential Proxy #1 — BM Quang Cao Top Cluster"],
   ["Proxy Dân cư Tĩnh VN #2 — Cụm BM Quảng Cáo Top", "VN Static Residential Proxy #2 — BM Quang Cao Top Cluster"],

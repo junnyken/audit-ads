@@ -96,6 +96,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [bannerMsg, setBannerMsg] = useState<string | null>(null)
   const [checkingPageId, setCheckingPageId] = useState<string | null>(null)
+  const [brokenImages, setBrokenImages] = useState<Record<string, boolean>>({})
 
   // Modal state for Edit / Governance / Link Ad Accounts
   const [editingPage, setEditingPage] = useState<FanpageSummaryItem | null>(null)
@@ -410,7 +411,8 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
         </div>
       )}
 
-      {/* 5 KPI CARDS */}
+      {/* 5 KPI CARDS (Hidden when embedded inside /assets to prevent duplicate KPI rows) */}
+      {!embedded && (
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <button
           type="button"
@@ -511,6 +513,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
           </div>
         </div>
       </div>
+      )}
 
       {/* FILTER & SEARCH BAR */}
       <Card>
@@ -671,15 +674,23 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                         {/* COL 1: FANPAGE IDENTITY */}
                         <td className="px-3.5 py-3">
                           <div className="flex items-start gap-2.5">
-                            {item.picture_url ? (
+                            {item.picture_url && !brokenImages[item.id] ? (
                               <img
                                 src={item.picture_url}
                                 alt={item.name}
+                                referrerPolicy="no-referrer"
+                                onError={() => setBrokenImages((prev) => ({ ...prev, [item.id]: true }))}
                                 className="h-9 w-9 shrink-0 rounded-lg border border-line object-cover"
                               />
                             ) : (
-                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-brand/30 bg-brand-light font-bold text-brand-text">
-                                {item.name.slice(0, 2).toUpperCase()}
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-brand/40 bg-brand-light text-xs font-extrabold text-brand-text shadow-xs">
+                                {item.name
+                                  .split(/\s+/)
+                                  .filter(Boolean)
+                                  .slice(0, 2)
+                                  .map((w) => w[0])
+                                  .join('')
+                                  .toUpperCase() || item.name.slice(0, 2).toUpperCase()}
                               </div>
                             )}
                             <div className="min-w-0 space-y-1">

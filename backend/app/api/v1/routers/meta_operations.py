@@ -3003,7 +3003,10 @@ def _sync_workspace_pages_from_meta(
                         fallback_holder_id=cred_holder_id,
                     )
 
-    # 5) Auto-link BM Pages to active Ad Accounts of that same BM if the Page has 0 linked accounts yet
+    # 5) Auto-link BM Pages & Personal Pages to active Ad Accounts of their BM / cluster if 0 linked accounts
+    mb_corp_bm = bm_by_ext.get("102968402561310") or bm_by_name.get("công ty cổ phần mắt bão")
+    qct_bm = bm_by_ext.get("1993884657458857") or bm_by_name.get("quảng cáo top")
+    trieu_shop_bm = bm_by_ext.get("109796697343603") or bm_by_name.get("triều shop")
     for pg_ent in by_ext_page.values():
         if pg_ent.id in pages_with_any_link or pg_ent.archived_at is not None:
             continue
@@ -3011,13 +3014,38 @@ def _sync_workspace_pages_from_meta(
         if pg_ent.notes and "Đồng bộ từ BM " in pg_ent.notes:
             b_label = pg_ent.notes.split("Đồng bộ từ BM ", 1)[1].strip().lower()
             matched_bm = bm_by_name.get(b_label)
+        p_name_low = (pg_ent.name or "").lower()
+        target_accs = []
         if matched_bm is not None:
             bm_accs = [
                 a for a in accounts_all
                 if a.business_manager_id == matched_bm.id and a.status == AccountStatus.ACTIVE
             ] or [a for a in accounts_all if a.business_manager_id == matched_bm.id]
-            for acc_target in bm_accs[:2]:
-                _link_page_to_account(pg_ent, acc_target, f"Tự động liên kết theo cụm BM {matched_bm.name}")
+            if not bm_accs and any(k in matched_bm.name.lower() for k in ("mắt bão", "mat bao")) and mb_corp_bm is not None:
+                mb_pool = [
+                    a for a in accounts_all
+                    if a.business_manager_id == mb_corp_bm.id and a.status == AccountStatus.ACTIVE
+                ]
+                if "invoice" in p_name_low:
+                    target_accs = [a for a in mb_pool if "invoice" in a.display_name.lower() or "mifi" in a.display_name.lower()][:2] or mb_pool[:2]
+                elif "sale ai" in p_name_low:
+                    target_accs = [a for a in mb_pool if "mbi" in a.display_name.lower() or "cty" in a.display_name.lower()][:2] or mb_pool[:2]
+                else:
+                    target_accs = [a for a in mb_pool if "branding" in a.display_name.lower() or "công ty cp mắt bão" in a.display_name.lower()][:2] or mb_pool[:2]
+            else:
+                target_accs = bm_accs[:2]
+        else:
+            # Personal page administered by Master Via (/me/accounts)
+            pers_accs = [
+                a for a in accounts_all
+                if (a.business_manager_id is None or (trieu_shop_bm and a.business_manager_id == trieu_shop_bm.id))
+                and a.status == AccountStatus.ACTIVE
+            ]
+            if not pers_accs and qct_bm is not None:
+                pers_accs = [a for a in accounts_all if a.business_manager_id == qct_bm.id and a.status == AccountStatus.ACTIVE][:1]
+            target_accs = pers_accs[:2]
+        for acc_target in target_accs:
+            _link_page_to_account(pg_ent, acc_target, f"Tự động liên kết theo cụm {matched_bm.name if matched_bm else 'Via Tổng'}")
 
     return {
         "synced_count": synced_count,
@@ -3188,13 +3216,35 @@ def _build_pages_summary(
                     }
                 )
 
-        # If Page belongs to a BM and has 0 explicit links yet, infer BM's active accounts for visibility
-        if not linked_accs_out and owner_bm is not None and not ov.get("explicit_links_configured"):
-            bm_accs = [
-                a for a in accounts_all
-                if a.business_manager_id == owner_bm.id and a.status == AccountStatus.ACTIVE
-            ] or [a for a in accounts_all if a.business_manager_id == owner_bm.id]
-            for acc_obj in bm_accs[:2]:
+        # If Page has 0 explicit links yet, infer BM's / Cluster's / Holder Via's active accounts for visibility
+        if not linked_accs_out and not ov.get("explicit_links_configured"):
+            mb_corp_bm = bm_by_name.get("công ty cổ phần mắt bão")
+            trieu_shop_bm = bm_by_name.get("triều shop")
+            p_name_low = (p.name or "").lower()
+            inferred_accs = []
+            if owner_bm is not None:
+                inferred_accs = [
+                    a for a in accounts_all
+                    if a.business_manager_id == owner_bm.id and a.status == AccountStatus.ACTIVE
+                ] or [a for a in accounts_all if a.business_manager_id == owner_bm.id]
+                if not inferred_accs and any(k in owner_bm.name.lower() for k in ("mắt bão", "mat bao")) and mb_corp_bm is not None:
+                    mb_pool = [
+                        a for a in accounts_all
+                        if a.business_manager_id == mb_corp_bm.id and a.status == AccountStatus.ACTIVE
+                    ]
+                    if "invoice" in p_name_low:
+                        inferred_accs = [a for a in mb_pool if "invoice" in a.display_name.lower() or "mifi" in a.display_name.lower()][:2] or mb_pool[:2]
+                    elif "sale ai" in p_name_low:
+                        inferred_accs = [a for a in mb_pool if "mbi" in a.display_name.lower() or "cty" in a.display_name.lower()][:2] or mb_pool[:2]
+                    else:
+                        inferred_accs = [a for a in mb_pool if "branding" in a.display_name.lower() or "công ty cp mắt bão" in a.display_name.lower()][:2] or mb_pool[:2]
+            else:
+                inferred_accs = [
+                    a for a in accounts_all
+                    if (a.business_manager_id is None or (trieu_shop_bm and a.business_manager_id == trieu_shop_bm.id))
+                    and a.status == AccountStatus.ACTIVE
+                ][:2]
+            for acc_obj in inferred_accs[:2]:
                 st_val = acc_obj.status.value
                 if st_val in ("restricted", "disabled"):
                     restricted_acc_count += 1
@@ -3241,7 +3291,7 @@ def _build_pages_summary(
         else:
             contagion_risk = "SAFE"
 
-        if holder_ident is not None and owner_bm is not None:
+        if holder_ident is not None:
             isolated_with_holder_pages += 1
 
         fan_count = ov.get("fan_count")
@@ -3598,19 +3648,51 @@ def _reconcile_workspace_assets(
         if b.profile_reference
     }
 
+    def _chrome_folder_key(label_str: str) -> str:
+        s = (label_str or "").strip()
+        if not s:
+            return ""
+        left = s.split("·")[0].strip().lower()
+        return left
+
+    # Preferred 1:1 Chrome Profile per Via label so no two Vias ever share the same Chrome folder
+    preferred_by_label = {
+        "tài khoản chính": "Chrome — Default · trieu (thientrieu753@gmail.com)",
+        "thiên triều nguyễn": "Chrome — Profile 1 · Thiên Triều (nguyen.thientrieu@gmail.com)",
+        "thiên triều mới": "Chrome — Profile 3 · Thiên Triều (trieunguyen.home9x@gmail.com)",
+        "thiên triều mkmb": "Chrome — Profile 4 · Triều Nguyễn (trieunguyen.xx@gmail.com)",
+        "triều nguyễn thiên": "Chrome — Profile 5 · Thiên Triều (thientrieu2101@gmail.com)",
+        "via xmdt 2": "Chrome — Profile 6 · Via XMDT 2",
+        "lâm quang thịnh": "Chrome — Profile 10 · Lâm Quang (lamquangthinh3006@gmail.com)",
+        "via 2": "Chrome — Profile 11 · Via 2",
+        "via 3": "Chrome — Profile 12 · Via 3",
+    }
+
     used_profiles: set[str] = set()
+    used_folders: set[str] = set()
     browsers_synced = 0
     for idx, v in enumerate(vias):
+        v_lbl_low = (v.label or "").strip().lower()
+        pref_cand = preferred_by_label.get(v_lbl_low)
         prof = (v.browser_profile_label or "").strip()
-        if not prof or prof in used_profiles:
+        if pref_cand and _chrome_folder_key(pref_cand) not in used_folders:
+            prof = pref_cand
+            v.browser_profile_label = prof[:160]
+        f_key = _chrome_folder_key(prof)
+        if not prof or prof in used_profiles or (f_key and f_key in used_folders):
             for cand in _REAL_CHROME_PROFILES_POOL:
-                if cand not in used_profiles:
+                cf = _chrome_folder_key(cand)
+                if cand not in used_profiles and cf not in used_folders:
                     prof = cand
+                    f_key = cf
                     break
-            if not prof or prof in used_profiles:
-                prof = f"Chrome — Profile {idx + 1} · {v.label[:40]}"
+            if not prof or prof in used_profiles or (f_key and f_key in used_folders):
+                prof = f"Chrome — Profile {idx + 20} · {v.label[:40]}"
+                f_key = _chrome_folder_key(prof)
             v.browser_profile_label = prof[:160]
         used_profiles.add(prof)
+        if f_key:
+            used_folders.add(f_key)
 
         folder_short = prof.split("·")[0].strip() if "·" in prof else prof[:60]
         b_ref = existing_browsers.get(prof)
@@ -3638,6 +3720,10 @@ def _reconcile_workspace_assets(
             b_ref.status = ReferenceStatus.ACTIVE
             b_ref.label = f"{folder_short} → Via: {v.label}"[:200]
             b_ref.notes = f"Cách ly 1:1 cho Via: {v.label} (UID: {v.external_reference_id or 'N/A'})"
+
+    for pref_str, b_obj in existing_browsers.items():
+        if pref_str not in used_profiles and b_obj.archived_at is None:
+            b_obj.archived_at = now_dt
 
     # 2) Ensure ProxyReferences exist and map cleanly (<= 2 Vias per Proxy)
     existing_proxies = {
