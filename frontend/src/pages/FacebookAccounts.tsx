@@ -31,6 +31,10 @@ const LEGACY_MOCK_NETWORKS = [
   'fpt static ip — line #',
   'viettel residential — line #',
   'mobile 4g/5g vn — line #',
+  'mạng gốc văn phòng',
+  'proxy dân cư tĩnh vn #',
+  'vn static residential proxy #',
+  'office direct line',
 ]
 
 function isRealNetworkLabel(val: string): boolean {

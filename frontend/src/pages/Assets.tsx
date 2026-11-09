@@ -359,14 +359,14 @@ export default function Assets() {
   }
 
   const summary = overviewQ.data?.summary ?? {
-    pages_total: 11,
-    pixels_total: 7,
-    cards_total: 7,
+    pages_total: 0,
+    pixels_total: 0,
+    cards_total: 0,
     cards_danger_count: 0,
-    browsers_total: 9,
-    browsers_isolated_count: 9,
-    proxies_total: 5,
-    proxies_safe_count: 5,
+    browsers_total: 0,
+    browsers_isolated_count: 0,
+    proxies_total: 0,
+    proxies_safe_count: 0,
   }
   const pixels = overviewQ.data?.pixels ?? []
   const cards = overviewQ.data?.payment_cards ?? []
@@ -1063,7 +1063,25 @@ export default function Assets() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-line">
-                    {proxies.map((pr) => (
+                    {proxies.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-ink-muted">
+                          <div className="mx-auto max-w-lg space-y-2">
+                            <div className="font-bold text-ink">
+                              {isEn
+                                ? '🌐 Direct Network Mode (0 Custom Proxies Configured)'
+                                : '🌐 Đang chạy chế độ Mạng gốc trực tiếp (Chưa gắn Proxy IPv4 riêng)'}
+                            </div>
+                            <p className="text-xs">
+                              {isEn
+                                ? 'No fake or preset proxies are generated. Click "+ Add Static Proxy" above when you purchase a real IP:Port:User:Pass static residential proxy to bind to your Vias.'
+                                : 'Hệ thống tuyệt đối không tự sinh Proxy ảo. Hiện tại các Via đang dùng Mạng gốc trực tiếp; khi bạn có Proxy thật (IP:Port:User:Pass), hãy bấm nút «+ Thêm Tuyến Proxy» ở góc phải để gắn.'}
+                            </p>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                    proxies.map((pr) => (
                       <tr key={pr.id} className="align-top hover:bg-surface-muted/30 transition">
                         <td className="px-3.5 py-3">
                           <div className="font-bold text-ink">{pr.label}</div>
@@ -1119,7 +1137,7 @@ export default function Assets() {
                           </Link>
                         </td>
                       </tr>
-                    ))}
+                    )))}
                   </tbody>
                 </table>
               </div>

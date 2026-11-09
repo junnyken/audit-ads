@@ -3592,14 +3592,18 @@ _REAL_CHROME_PROFILES_POOL = [
     "Chrome — Profile 12 · Dự phòng (standby@matbao.com)",
 ]
 
-_DEFAULT_NETWORK_CLUSTERS = [
-    ("VNPT-OFFICE-LINE-01", "Mạng gốc Văn phòng (Dành riêng Via Tổng Lớp 1)", "VNPT Fiber", "HCM", "HTTP"),
-    ("VIETTEL-RES-QCT-01", "Proxy Dân cư Tĩnh VN #1 — Cụm BM Quảng Cáo Top", "Viettel IDC", "HCM", "HTTP"),
-    ("VNPT-RES-QCT-02", "Proxy Dân cư Tĩnh VN #2 — Cụm BM Quảng Cáo Top", "VNPT Static", "HCM", "HTTP"),
-    ("FPT-RES-MB-01", "Proxy Dân cư Tĩnh VN #3 — Cụm BM Mắt Bão Corp", "FPT Telecom", "HCM", "HTTP"),
-    ("VIETTEL-RES-TH-01", "Proxy Dân cư Tĩnh VN #4 — Cụm BM Xây Dựng Tân Hòa", "Viettel IDC", "HCM", "HTTP"),
-    ("VNPT-RES-BACKUP-01", "Proxy Dân cư Tĩnh VN #5 — Cụm Via Dự Phòng Ngâm 72h", "VNPT Static", "HN", "HTTP"),
-]
+_LEGACY_PRESET_NETWORK_LABELS = (
+    "vnpt static ip — line #",
+    "fpt static ip — line #",
+    "viettel residential — line #",
+    "mobile 4g/5g vn — line #",
+    "mạng gốc văn phòng",
+    "proxy dân cư tĩnh vn #",
+    "vnpt-office-line-",
+    "viettel-res-",
+    "vnpt-res-",
+    "fpt-res-",
+)
 
 
 def _reconcile_workspace_assets(
@@ -3725,7 +3729,7 @@ def _reconcile_workspace_assets(
         if pref_str not in used_profiles and b_obj.archived_at is None:
             b_obj.archived_at = now_dt
 
-    # 2) Ensure ProxyReferences exist and map cleanly (<= 2 Vias per Proxy)
+    # 2) Clean up any legacy/preset proxy strings on Vias & ProxyReference; ONLY keep real user-entered Proxies
     existing_proxies = {
         p.proxy_reference.strip(): p
         for p in session.execute(
@@ -3736,33 +3740,37 @@ def _reconcile_workspace_assets(
         if p.proxy_reference
     }
 
+    for p_key_str, p_obj in existing_proxies.items():
+        p_lbl_low = (p_obj.label or p_key_str).strip().lower()
+        if any(m in p_key_str.lower() or m in p_lbl_low for m in _LEGACY_PRESET_NETWORK_LABELS):
+            if p_obj.archived_at is None:
+                p_obj.archived_at = now_dt
+
     proxies_synced = 0
     for idx, v in enumerate(vias):
-        cluster_idx = min(idx // 2, len(_DEFAULT_NETWORK_CLUSTERS) - 1)
-        code, net_label, prov_name, reg, proto = _DEFAULT_NETWORK_CLUSTERS[cluster_idx]
         cur_net = (v.network_label or "").strip()
-        if not cur_net or any(
-            m in cur_net.lower()
-            for m in ("vnpt static ip — line #", "fpt static ip — line #", "viettel residential — line #")
-        ):
-            v.network_label = net_label[:160]
-            cur_net = net_label
+        if cur_net and any(m in cur_net.lower() for m in _LEGACY_PRESET_NETWORK_LABELS):
+            v.network_label = ""
+            cur_net = ""
+
+        if not cur_net:
+            continue
 
         p_key = cur_net[:200]
-        p_ref = existing_proxies.get(p_key) or existing_proxies.get(code)
+        p_ref = existing_proxies.get(p_key)
         if p_ref is None:
             try:
                 with session.begin_nested():
                     p_ref = ProxyReference(
                         workspace_id=workspace_id,
-                        provider=prov_name,
+                        provider="Custom Proxy",
                         proxy_reference=p_key,
                         label=cur_net[:200],
                         country="VN",
-                        region=reg,
-                        protocol=proto,
+                        region="VN",
+                        protocol="HTTP",
                         status=ReferenceStatus.ACTIVE,
-                        notes=f"Tuyến mạng cách ly cụm Via ({prov_name} · Tối đa 2 Via/Proxy)",
+                        notes=f"Proxy thực tế gắn cho Via: {v.label}",
                     )
                     session.add(p_ref)
                     session.flush()
