@@ -2600,6 +2600,8 @@ def run_pixel_share_batch(ctx: OwnerCtx, batch_id: uuid.UUID) -> dict[str, Any]:
 
 
 
+
+
 # ------------------------------------------------------------------------- Fanpage Control Center
 
 pages_router = APIRouter(prefix="/facebook-pages", tags=["facebook-pages"])
@@ -2633,7 +2635,6 @@ def _sync_workspace_pages_from_meta(
         PersonalAccountReference,
     )
     from app.services.extension_context import canonical_external_id
-    from app.services.meta_real_provider import HttpGraphTransport, MetaRealProvider
 
     settings = get_settings()
     creds_all = list(
@@ -2643,7 +2644,7 @@ def _sync_workspace_pages_from_meta(
                 MetaReaderCredential.workspace_id == workspace_id,
                 MetaReaderCredential.archived_at.is_(None),
             )
-            .order_by(MetaReaderCredential.updated_at.desc())
+            .order_by(MetaReaderCredential.connected_at.desc(), MetaReaderCredential.id.desc())
         )
         .scalars()
         .all()
@@ -2653,10 +2654,12 @@ def _sync_workspace_pages_from_meta(
     clean_tok = (raw_token or "").strip()
     if clean_tok:
         with contextlib.suppress(Exception):
-            direct_prov = MetaRealProvider(
-                transport=HttpGraphTransport(
+            from app.services.meta_graph_transport import MetaGraphTransport
+            from app.services.meta_real_provider import RealMetaBusinessProvider
+            direct_prov = RealMetaBusinessProvider(
+                transport=MetaGraphTransport(
                     access_token=clean_tok,
-                    base_url=settings.meta_graph_base_url,
+                    api_base_url=settings.meta_graph_api_base_url,
                     api_version=settings.meta_graph_api_version,
                     timeout_seconds=settings.meta_timeout_seconds,
                 ),
@@ -3186,8 +3189,11 @@ def _build_pages_summary(
                 )
 
         # If Page belongs to a BM and has 0 explicit links yet, infer BM's active accounts for visibility
-        if not linked_accs_out and owner_bm is not None:
-            bm_accs = [a for a in accounts_all if a.business_manager_id == owner_bm.id]
+        if not linked_accs_out and owner_bm is not None and not ov.get("explicit_links_configured"):
+            bm_accs = [
+                a for a in accounts_all
+                if a.business_manager_id == owner_bm.id and a.status == AccountStatus.ACTIVE
+            ] or [a for a in accounts_all if a.business_manager_id == owner_bm.id]
             for acc_obj in bm_accs[:2]:
                 st_val = acc_obj.status.value
                 if st_val in ("restricted", "disabled"):
@@ -3459,6 +3465,9 @@ def assign_page_governance(
 
     if "holder_identity_id" in payload:
         meta_ov["holder_identity_id"] = str(payload["holder_identity_id"] or "").strip()
+
+    if "ad_account_ids" in payload and isinstance(payload["ad_account_ids"], list):
+        meta_ov["explicit_links_configured"] = True
 
     ctx.audit.record(
         action="page.meta_updated",
