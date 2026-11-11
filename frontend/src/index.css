@@ -75,3 +75,13 @@
   .tone-dot-neutral { @apply bg-tone-neutral-fg; }
   .tone-dot-muted { @apply bg-tone-muted-fg; }
 }
+
+
+/* ADSOPS COMPACT VIEW DENSITY */
+html[data-density="compact"] [data-detail-only="true"] {
+  display: none !important;
+}
+html[data-density="compact"] table td {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}

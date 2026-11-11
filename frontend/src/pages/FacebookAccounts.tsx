@@ -717,13 +717,13 @@ export default function FacebookAccounts() {
                         </div>
 
                         {meta.tier === 'vault' && (
-                          <div className="rounded border border-emerald-500/30 bg-emerald-500/5 px-2 py-1 text-[10.5px] font-medium text-emerald-700 dark:text-emerald-300">
+                          <div data-detail-only="true" className="rounded border border-emerald-500/30 bg-emerald-500/5 px-2 py-1 text-[10.5px] font-medium text-emerald-700 dark:text-emerald-300">
                             🔒 Bảo vệ Via Tổng: Chỉ giữ BM & Share quyền, tuyệt đối không bấm tạo camp.
                           </div>
                         )}
 
                         {meta.cleanNotes && (
-                          <p className="text-[11px] text-ink-muted line-clamp-1" title={meta.cleanNotes}>
+                          <p data-detail-only="true" className="text-[11px] text-ink-muted line-clamp-1" title={meta.cleanNotes}>
                             {meta.cleanNotes}
                           </p>
                         )}
@@ -790,6 +790,7 @@ export default function FacebookAccounts() {
                                   )
                                 }
                                 className="inline-flex items-center gap-1 rounded border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-500/20 dark:text-rose-300"
+                                data-detail-only="true"
                                 title="Mở thẳng trang Khóa truy cập (Passkey) trên Chrome của Via này để Tiện ích tự động phát hiện & xóa sạch Passkey chỉ với 1 chạm"
                               >
                                 🚫 Quét &amp; Xoá Passkey
@@ -885,6 +886,7 @@ export default function FacebookAccounts() {
                                   quickUpdateNotes.mutate({ id: row.id, notes: updatedNotes })
                                 }}
                                 className="text-[10.5px] text-ink-muted hover:text-brand-text hover:underline"
+                                data-detail-only="true"
                                 title="Bấm khi bạn vừa đăng nhập Via mới vào Chrome để bật đồng hồ đếm ngược 72h ngâm an toàn"
                               >
                                 ⏳ Bật hẹn giờ ngâm 72h (cho Via mới)
@@ -907,7 +909,7 @@ export default function FacebookAccounts() {
                             ))}
                           </div>
                         ) : (
-                          <div className="inline-flex items-center gap-1 text-[10.5px] font-medium text-emerald-600 dark:text-emerald-400">
+                          <div data-detail-only="true" className="inline-flex items-center gap-1 text-[10.5px] font-medium text-emerald-600 dark:text-emerald-400">
                             <ShieldCheck className="h-3 w-3" aria-hidden="true" />
                             <span>Cách ly chuẩn (1 Chrome riêng · Không xung đột)</span>
                           </div>
@@ -930,7 +932,7 @@ export default function FacebookAccounts() {
                           <Badge tone={s.business_manager_count <= 2 ? 'positive' : s.business_manager_count <= 4 ? 'info' : 'caution'}>
                             {`${s.business_manager_count} BM`}
                           </Badge>
-                          <div className="text-[10px] text-ink-muted">
+                          <div data-detail-only="true" className="text-[10px] text-ink-muted">
                             {s.business_manager_count <= 2
                               ? 'An toàn (≤ 2 BM gốc/Via)'
                               : s.business_manager_count <= 4

@@ -83,24 +83,32 @@ export default function Overview() {
         </p>
       </header>
 
-      {/* THANH BẮT ĐẦU NHANH 3 BƯỚC CHO NGƯỜI DÙNG (MIỄN PHÍ 100%) */}
-      <div className="rounded-xl border border-brand/30 bg-surface p-3.5 shadow-sm">
-        <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
+      {/* THANH BẮT ĐẦU NHANH 4 BƯỚC (THU GỌN MẶC ĐỊNH ĐỂ MÀN HÌNH TỔNG QUAN THOÁNG ĐÃNG) */}
+      <details open={registryEmpty} className="group rounded-xl border border-brand/30 bg-surface px-3.5 py-2.5 shadow-xs">
+        <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge tone="info">⚡ Quy trình 3 Bước Vận hành Chuẩn Agency</Badge>
-            <span className="text-xs font-semibold text-ink-muted">
-              Biến Google Chrome gốc trên máy thành hệ thống cách ly đa Via, canh dư nợ thẻ &amp; chống chết chùm hoàn toàn miễn phí
+            <Badge tone="info">⚡ Sơ đồ 4 Bước Vận hành &amp; Công cụ Chrome</Badge>
+            <span className="text-xs font-medium text-ink-muted">
+              Tải tiện ích Chrome (.bat/.zip), phân tầng Via 3 lớp, cô lập Fanpage/Thẻ &amp; Quyết toán khách hàng
             </span>
           </div>
-          <Link
-            to="/operations-guide"
-            className="text-xs font-bold text-brand-text hover:underline"
-          >
-            📖 Xem Slider 5 Bước Công Thức Chống Die →
-          </Link>
-        </div>
+          <div className="flex items-center gap-3">
+            <Link
+              to="/operations-guide"
+              className="text-xs font-bold text-brand-text hover:underline"
+            >
+              📖 Cẩm nang Chống Die →
+            </Link>
+            <span className="rounded bg-surface-muted px-2 py-0.5 text-[11px] font-semibold text-ink-muted group-open:hidden">
+              Mở hướng dẫn ▾
+            </span>
+            <span className="hidden rounded bg-surface-muted px-2 py-0.5 text-[11px] font-semibold text-ink-muted group-open:inline">
+              Thu gọn ▴
+            </span>
+          </div>
+        </summary>
 
-        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-3 grid gap-2.5 border-t border-line pt-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-lg border border-line bg-surface-muted/40 p-2.5 text-xs space-y-1.5">
             <div className="font-bold text-ink">Bước 1: Kích hoạt Mở Chrome &amp; Tiện ích (.zip)</div>
             <p className="text-[11px] text-ink-muted">
@@ -184,7 +192,7 @@ export default function Overview() {
             </div>
           </div>
         </div>
-      </div>
+      </details>
 
 
       {registryEmpty ? (

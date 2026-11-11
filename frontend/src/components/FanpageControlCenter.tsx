@@ -364,7 +364,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                   : 'NGUYÊN TẮC VÀNG: TÁCH BẠCH QUYỀN SỞ HỮU FANPAGE KHỎI VIA LÊN CAMP'}
               </span>
             </div>
-            <p className="text-xs text-ink-muted">
+            <p data-detail-only="true" className="text-xs text-ink-muted">
               {isEn
                 ? '1. Hold Fanpage Admin inside Central BM + Tier-1 Asset Via (never launch risky ads directly from the Via holding Page Admin) · 2. Share Page access to maximum 1–3 clean Ad Accounts · 3. Immediately unlink any Restricted/Disabled Ad Account to prevent reverse Page bans.'
                 : '1. Giữ quyền Admin gốc của Fanpage tại BM Trung tâm + Via Tổng Lớp 1 (tuyệt đối không lấy Via cầm Page gốc đi bấm lên chiến dịch nhạy cảm) · 2. Mỗi Page chỉ nên gắn chạy cho 1–3 TKQC sạch cùng ngành · 3. Gỡ ngay các TKQC bị Vô hiệu hóa/Đỏ thẻ khỏi Page để tránh chết ngược Fanpage.'}
@@ -797,7 +797,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                               </button>
                             </div>
 
-                            <div className="text-[10px] text-ink-faint">
+                            <div data-detail-only="true" className="text-[10px] text-ink-faint">
                               {item.tasks.includes('MANAGE')
                                 ? isEn
                                   ? '🔑 Full Admin (MANAGE + ADVERTISE)'
@@ -840,7 +840,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                             )}
 
                             {item.notes && (
-                              <div className="text-[11px] text-ink-muted line-clamp-1" title={item.notes}>
+                              <div data-detail-only="true" className="text-[11px] text-ink-muted line-clamp-1" title={item.notes}>
                                 📝 {item.notes}
                               </div>
                             )}
@@ -886,7 +886,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                             </div>
 
                             {item.linked_ad_accounts.length === 0 ? (
-                              <div className="text-[11px] text-ink-faint">
+                              <div data-detail-only="true" className="text-[11px] text-ink-faint">
                                 {isEn
                                   ? 'No Ad Account linked yet — click "Link Accounts" to assign'
                                   : 'Chưa gắn TKQC nào — bấm «Gán TKQC» để phân quyền chạy'}

@@ -10,6 +10,7 @@ import { TooltipProvider } from './primitives/tooltip'
 import { BrandMark } from './shell/BrandMark'
 import { LanguageToggle } from './shell/LanguageToggle'
 import { SidebarNav } from './shell/SidebarNav'
+import { DensityToggle } from './shell/DensityToggle'
 import { ThemeToggle } from './shell/ThemeToggle'
 import { UserMenu } from './shell/UserMenu'
 
@@ -72,7 +73,8 @@ export default function AppShell() {
               {user?.workspace.name}
             </div>
 
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
+              <DensityToggle />
               <ThemeToggle />
               <LanguageToggle />
               <UserMenu />
