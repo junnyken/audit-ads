@@ -434,7 +434,7 @@ export default function ClientRetainers() {
             <Layers className="h-4 w-4 text-brand-text" />
           </div>
           <div className="mt-1.5 font-mono text-2xl font-extrabold text-ink">{summary.total_contracts}</div>
-          <div className="mt-0.5 text-[11px] text-ink-muted">
+          <div data-detail-only="true" className="mt-0.5 text-[11px] text-ink-muted">
             {isEn
               ? `${summary.days_remaining_in_month} days left in billing cycle`
               : `Còn ${summary.days_remaining_in_month} ngày trong chu kỳ tháng`}
@@ -449,7 +449,7 @@ export default function ClientRetainers() {
           <div className="mt-1.5 font-mono text-lg font-extrabold text-ink">
             {fmtVnd(summary.total_committed_vnd)}
           </div>
-          <div className="mt-0.5 text-[11px] text-ink-muted">
+          <div data-detail-only="true" className="mt-0.5 text-[11px] text-ink-muted">
             {isEn ? 'Monthly target across all clients' : 'Tổng hạn mức cam kết tháng của các HĐ'}
           </div>
         </div>
@@ -470,7 +470,7 @@ export default function ClientRetainers() {
           <div className="mt-1.5 font-mono text-lg font-extrabold text-emerald-600 dark:text-emerald-400">
             {fmtVnd(periodMode === 'MTD' ? summary.total_mtd_spend_vnd : summary.total_lifetime_spend_vnd)}
           </div>
-          <div className="mt-0.5 text-[11px] text-ink-muted">
+          <div data-detail-only="true" className="mt-0.5 text-[11px] text-ink-muted">
             {isEn
               ? '100% live from Meta Insights API (USD converted)'
               : '100% từ Meta API (đã quy đổi TKQC tiền USD)'}
@@ -497,7 +497,7 @@ export default function ClientRetainers() {
                 : summary.total_settlement_lifetime_vnd,
             )}
           </div>
-          <div className="mt-0.5 text-[11px] text-ink-muted">
+          <div data-detail-only="true" className="mt-0.5 text-[11px] text-ink-muted">
             {isEn
               ? 'Includes Agency Fee (8%–12%) + Meta Tax (5%–8%)'
               : 'Đã cộng Phí quản lý Agency + Thuế nhà thầu Meta'}
@@ -512,7 +512,7 @@ export default function ClientRetainers() {
           <div className="mt-1.5 font-mono text-lg font-extrabold text-amber-600 dark:text-amber-400">
             {fmtVnd(summary.total_unpaid_balance_vnd)}
           </div>
-          <div className="mt-0.5 text-[11px] text-ink-muted">
+          <div data-detail-only="true" className="mt-0.5 text-[11px] text-ink-muted">
             {isEn ? 'Live balance across grouped Ad Accounts' : 'Dư nợ thực tế đang chờ cắn thẻ trên Meta'}
           </div>
         </div>

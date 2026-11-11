@@ -1930,15 +1930,19 @@ def run_workspace_quick_sync(
 
 
 @connections_router.post("/quick-sync")
+@router.post("/meta/quick-sync")
+@router.post("/meta-operations/quick-sync")
 def quick_sync_connection(ctx: OwnerCtx, payload: s.QuickSyncRequest) -> dict[str, Any]:
     """1-step connection + discovery + auto-import for an operator."""
+    resolved_bm_ref = (payload.business_manager_reference or payload.business_manager_id or "").strip()
+    resolved_label = (payload.label or payload.account_label or "").strip()
     try:
         result = run_workspace_quick_sync(
             ctx.session,
             ctx.workspace_id,
             ctx.user.id,
-            bm_ref=payload.business_manager_reference,
-            label_clean=payload.label,
+            bm_ref=resolved_bm_ref,
+            label_clean=resolved_label,
             access_token=payload.access_token,
             target_bm_external_id=payload.target_bm_external_id,
         )

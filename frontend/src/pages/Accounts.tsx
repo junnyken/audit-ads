@@ -481,7 +481,7 @@ export default function Accounts() {
                 </div>
               )}
 
-              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line/70 pt-1.5 text-[11px]">
+              <div data-detail-only="true" className="flex flex-wrap items-center justify-between gap-2 border-t border-line/70 pt-1.5 text-[11px]">
                 {dailyLimit ? (
                   <span className="inline-flex items-center gap-1">
                     <Gauge className="h-3 w-3 text-emerald-500" aria-hidden="true" />
@@ -740,7 +740,7 @@ export default function Accounts() {
               <div className="mt-1 font-mono text-lg font-extrabold tabular-nums text-amber-600 dark:text-amber-400">
                 {prettyMoney(String(summaryStats.totalDebtVnd), 'VND')}
               </div>
-              <div className="mt-0.5 text-[11px] text-ink-muted">
+              <div data-detail-only="true" className="mt-0.5 text-[11px] text-ink-muted">
                 Cộng tự động từ số dư nợ thực tế trên Meta
               </div>
             </div>
@@ -758,7 +758,7 @@ export default function Accounts() {
                   (7N: {prettyMoney(String(summaryStats.total7dVnd), 'VND')})
                 </span>
               </div>
-              <div className="mt-0.5 text-[11px] text-ink-muted">
+              <div data-detail-only="true" className="mt-0.5 text-[11px] text-ink-muted">
                 Cập nhật trực tiếp từ Meta Insights API
               </div>
             </div>
@@ -771,7 +771,7 @@ export default function Accounts() {
               <div className="mt-1 font-mono text-lg font-extrabold tabular-nums text-brand-text">
                 {prettyMoney(String(summaryStats.totalMtdVnd), 'VND')}
               </div>
-              <div className="mt-0.5 text-[11px] text-ink-muted">
+              <div data-detail-only="true" className="mt-0.5 text-[11px] text-ink-muted">
                 Tổng chi tiêu từ đầu tháng đến hôm nay
               </div>
             </div>
@@ -791,7 +791,7 @@ export default function Accounts() {
               <div className="mt-1 font-mono text-lg font-extrabold tabular-nums text-ink">
                 {prettyMoney(String(summaryStats.totalLifetimeVnd), 'VND')}
               </div>
-              <div className="mt-0.5 text-[11px] text-ink-muted">
+              <div data-detail-only="true" className="mt-0.5 text-[11px] text-ink-muted">
                 Tổng chi tiêu lịch sử của {summaryStats.totalCount} TKQC
               </div>
             </div>
