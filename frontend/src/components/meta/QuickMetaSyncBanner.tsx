@@ -181,7 +181,7 @@ export function QuickMetaSyncBanner() {
     return null
   }
 
-  const isSuccess = result?.status === 'completed' || result?.status === 'partial'
+  const isSuccess = result?.status === 'succeeded' || result?.status === 'succeeded_with_warnings' || result?.status === 'completed' || result?.status === 'partial'
   const knownBms = (bmsQuery.data?.items ?? []).filter((b: ClassifierBM) => Boolean(b.external_id))
   const allAccounts = (accountsQuery.data?.items ?? []).filter((a: ClassifierAccount) => Boolean(a.external_account_id))
 

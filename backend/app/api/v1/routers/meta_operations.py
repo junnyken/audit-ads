@@ -699,7 +699,7 @@ def run_workspace_quick_sync(
                     pass
             return existing_a
 
-        if clean_token:
+        if clean_token or not clean_input:
             for cand_cred, cand_prov in _candidate_providers(clean_input or "")[:1]:
                 if hasattr(cand_prov, "transport"):
                     discovered_bms: list[BusinessManager] = []
@@ -786,7 +786,7 @@ def run_workspace_quick_sync(
         )
 
         if existing_ws_accounts and latest_ws_run is not None:
-            if clean_token and not clean_input:
+            if not clean_input:
                 from app.models.spend import AdAccountSpendObservation
                 observed_acc_ids = set(
                     session.execute(
