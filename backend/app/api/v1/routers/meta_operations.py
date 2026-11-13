@@ -4188,7 +4188,8 @@ def batch_create_pages_auto_rotate_vias(
     from app.models.entities import BusinessManager, Page, PersonalAccountReference
 
     try:
-        requested_count = int(payload.get("count") or 5)
+        raw_cnt = payload.get("count")
+        requested_count = int(raw_cnt) if raw_cnt is not None else 5
     except Exception:
         requested_count = 5
     if requested_count < 1:
@@ -4476,6 +4477,41 @@ def batch_warmup_under_nurtured_pages(
         "nurtured_count": nurtured_count,
         "graph_published_count": graph_published_count,
         "assist_items": assist_items,
+        **summary_data,
+    }
+
+
+@pages_router.delete("/{page_id}/draft")
+def discard_unsynced_page_draft(
+    ctx: WriteCtx,
+    page_id: uuid.UUID,
+) -> dict[str, Any]:
+    from app.core.errors import ValidationError
+    from app.models.entities import AccountAssetLink, Page
+
+    pg = get_or_404(ctx.session, Page, page_id, ctx.workspace_id, label="Page")
+    if pg.external_page_id:
+        raise ValidationError("Chỉ có thể xóa bỏ bản nháp Page chưa gắn Page ID thật từ Meta.")
+
+    ctx.session.execute(
+        sa.delete(AccountAssetLink).where(
+            AccountAssetLink.workspace_id == ctx.workspace_id,
+            AccountAssetLink.asset_id == pg.id,
+        )
+    )
+    ctx.session.execute(
+        sa.delete(AuditLog).where(
+            AuditLog.workspace_id == ctx.workspace_id,
+            AuditLog.entity_type == "page",
+            AuditLog.entity_id == str(pg.id),
+        )
+    )
+    ctx.session.delete(pg)
+    ctx.commit()
+    summary_data = _build_pages_summary(ctx.session, ctx.workspace_id, include_archived=False)
+    return {
+        "discarded": True,
+        "discarded_page_id": str(page_id),
         **summary_data,
     }
 
