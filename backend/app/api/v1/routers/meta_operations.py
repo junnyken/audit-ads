@@ -2687,6 +2687,11 @@ def _sync_workspace_pages_from_meta(
     by_ext_page: dict[str, Page] = {
         str(p.external_page_id).strip(): p for p in existing_pages_list if p.external_page_id
     }
+    by_pending_name: dict[str, Page] = {
+        p.name.strip().lower(): p
+        for p in existing_pages_list
+        if not p.external_page_id and p.name and p.archived_at is None
+    }
 
     bms_all = (
         session.execute(
@@ -2820,6 +2825,12 @@ def _sync_workspace_pages_from_meta(
         )
 
         pg_entity = by_ext_page.get(pid)
+        if pg_entity is None and pname:
+            pending_pg = by_pending_name.pop(pname.strip().lower(), None)
+            if pending_pg is not None:
+                pending_pg.external_page_id = pid[:120]
+                by_ext_page[pid] = pending_pg
+                pg_entity = pending_pg
         if pg_entity is None:
             try:
                 with session.begin_nested():
@@ -3391,6 +3402,7 @@ def _build_pages_summary(
 
     created_24h_by_via: dict[str, int] = {}
     created_7d_by_via: dict[str, int] = {}
+    last_created_dt_by_via: dict[str, datetime] = {}
     warmup_by_via: dict[str, int] = {}
     last_act_by_via: dict[str, str] = {}
     via_activity_logs: list[dict[str, Any]] = []
@@ -3446,6 +3458,8 @@ def _build_pages_summary(
                 last_act_by_via[via_id_str] = iso_dt
 
         if row.action == "page.via_created" and via_id_str and row_dt:
+            if via_id_str not in last_created_dt_by_via or row_dt > last_created_dt_by_via[via_id_str]:
+                last_created_dt_by_via[via_id_str] = row_dt
             if row_dt >= day_ago:
                 created_24h_by_via[via_id_str] = created_24h_by_via.get(via_id_str, 0) + 1
             if row_dt >= week_ago:
@@ -3455,7 +3469,12 @@ def _build_pages_summary(
 
         if len(via_activity_logs) < 60:
             if row.action == "page.via_created":
-                action_label = "🌱 Tạo Fanpage mới qua Via"
+                if meta.get("quota_override"):
+                    action_label = "⚠️ Tạo Page vượt ngưỡng cảnh báo Via"
+                elif meta.get("batch_mode"):
+                    action_label = f"⚡ Tạo Page theo Lô #{meta.get('batch_index', 1)}/{meta.get('batch_size', 1)}"
+                else:
+                    action_label = "🌱 Tạo Fanpage mới qua Via"
                 detail_txt = f"Khởi tạo Page «{page_name_str}» ({cat_str}) trên {browser_prof_str}"
             elif row.action == "page.warmup_posted":
                 msg_preview = str(meta.get("message") or "Đăng bài tương tác nuôi Page chuẩn chính sách")[:110]
@@ -3519,10 +3538,33 @@ def _build_pages_summary(
         weekly_lim = 4 if is_veteran else 2
         hold_lim = 8 if is_veteran else 5
 
+        cooldown_hrs = 6 if is_veteran else 12
+        last_created_dt = last_created_dt_by_via.get(vid_s)
+        cooldown_rem_min = 0
+        if last_created_dt is not None:
+            elapsed_min = max(0.0, (now_utc - last_created_dt).total_seconds() / 60.0)
+            cooldown_window_min = cooldown_hrs * 60.0
+            if elapsed_min < cooldown_window_min:
+                cooldown_rem_min = max(1, int(cooldown_window_min - elapsed_min))
+
+        warning_reasons: list[str] = []
+        if c24 >= daily_lim:
+            warning_reasons.append(f"Chạm trần ngày ({c24}/{daily_lim} Page trong 24h) — Tạo tiếp dễ bị khóa tính năng Tạo Trang")
+        if c7d >= weekly_lim:
+            warning_reasons.append(f"Chạm trần tuần ({c7d}/{weekly_lim} Page trong 7 ngày)")
+        if held_cnt >= hold_lim:
+            warning_reasons.append(f"Chạm trần nắm giữ ({held_cnt}/{hold_lim} Page/Via) — Rủi ro chết liên đới nếu dồn thêm")
+        if cooldown_rem_min > 0:
+            warning_reasons.append(f"Đang nghỉ Cooldown sau lần tạo trước (còn {cooldown_rem_min // 60}h{cooldown_rem_min % 60:02d}p)")
+        if not warning_reasons and (held_cnt >= hold_lim - 1 or c7d >= weekly_lim - 1):
+            warning_reasons.append(f"Sắp chạm trần an toàn (Đang giữ {held_cnt}/{hold_lim} Page, tuần này {c7d}/{weekly_lim})")
+
         if c24 >= daily_lim or c7d >= weekly_lim or held_cnt >= hold_lim:
             q_status = "LIMIT_REACHED"
-        elif c24 >= 1:
+        elif cooldown_rem_min > 0:
             q_status = "COOLDOWN"
+        elif held_cnt >= hold_lim - 1 or c7d >= weekly_lim - 1:
+            q_status = "NEAR_LIMIT"
         else:
             q_status = "SAFE"
 
@@ -3542,11 +3584,35 @@ def _build_pages_summary(
                 "daily_limit": daily_lim,
                 "weekly_limit": weekly_lim,
                 "holding_limit": hold_lim,
-                "cooldown_hours": 6 if is_veteran else 12,
+                "cooldown_hours": cooldown_hrs,
+                "cooldown_remaining_minutes": cooldown_rem_min,
+                "last_via_created_at": last_created_dt.isoformat() if last_created_dt else None,
+                "warning_reasons": warning_reasons,
                 "quota_status": q_status,
                 "last_activity_at": last_act_by_via.get(vid_s) or (v_ident.updated_at.isoformat() if v_ident.updated_at else None),
             }
         )
+
+    quota_alerts_summary = {
+        "total_vias": len(via_quotas),
+        "safe_vias_count": sum(1 for v in via_quotas if v["quota_status"] in ("SAFE", "NEAR_LIMIT")),
+        "near_limit_vias_count": sum(1 for v in via_quotas if v["quota_status"] == "NEAR_LIMIT"),
+        "cooldown_vias_count": sum(1 for v in via_quotas if v["quota_status"] == "COOLDOWN"),
+        "limit_reached_vias_count": sum(1 for v in via_quotas if v["quota_status"] == "LIMIT_REACHED"),
+        "max_safe_batch_now": sum(1 for v in via_quotas if v["quota_status"] in ("SAFE", "NEAR_LIMIT")),
+        "flagged_vias": [
+            {
+                "via_id": v["via_id"],
+                "label": v["label"],
+                "browser_profile": v["browser_profile"],
+                "quota_status": v["quota_status"],
+                "cooldown_remaining_minutes": v["cooldown_remaining_minutes"],
+                "warning_reasons": v["warning_reasons"],
+            }
+            for v in via_quotas
+            if v["quota_status"] in ("LIMIT_REACHED", "COOLDOWN", "NEAR_LIMIT")
+        ],
+    }
 
     return {
         "items": items,
@@ -3560,6 +3626,7 @@ def _build_pages_summary(
         },
         "via_quotas": via_quotas,
         "via_activity_logs": via_activity_logs,
+        "quota_alerts_summary": quota_alerts_summary,
     }
 
 
@@ -3779,6 +3846,130 @@ def assign_page_governance(
     return {"item": matched_item, "summary": summary_data["summary"]}
 
 
+_VIA_PAGE_NICHE_CATALOG: dict[str, dict[str, Any]] = {
+    "beauty_spa": {
+        "category": "Sức khỏe / Sắc đẹp (Health & Beauty)",
+        "descriptors": ["Viện Da Liễu & Chăm Sóc Sắc Đẹp", "Studio Dưỡng Da Chuẩn Y Khoa", "Trung Tâm Làm Đẹp Tự Nhiên", "Học Viện Chăm Sóc Da", "Spa Phục Hồi & Trẻ Hóa", "Cửa Hàng Mỹ Phẩm Chính Hãng"],
+        "bios": [
+            "Chuyên gia giải pháp chăm sóc da chuyên sâu, phục hồi hàng rào bảo vệ da tự nhiên và mỹ phẩm chính hãng an toàn.",
+            "Đồng hành cùng làn da khỏe mạnh rạng rỡ mỗi ngày với liệu trình chuẩn y khoa, tư vấn tận tâm 1:1.",
+            "Hệ thống chăm sóc sắc đẹp hiện đại, sản phẩm nguồn gốc rõ ràng, nâng niu vẻ đẹp tự nhiên bền vững.",
+        ],
+        "posts": [
+            "✨ Bí quyết giữ làn da căng bóng, khỏe mạnh tự nhiên mỗi ngày chỉ với 3 bước làm sạch và cấp ẩm chuẩn khoa học tại nhà! 🌿💧 #ChamSocDa #LamDepAnToan",
+            "💧 Đừng quên bổ sung độ ẩm và chống nắng đều đặn kể cả những ngày râm mát để bảo vệ làn da khỏi lão hóa sớm chị em nhé! 🌸 #SkinCareRoutine",
+            "🌿 Làn da đẹp bắt đầu từ sự kiên trì và thói quen sinh hoạt điều độ. Chúc cả nhà một tuần mới thật nhiều năng lượng và rạng rỡ! ✨ #SongKhoaDep",
+        ],
+    },
+    "fashion_store": {
+        "category": "Thương hiệu Quần áo / Thời trang (Clothing Brand)",
+        "descriptors": ["Thời Trang Thiết Kế Thanh Lịch", "Tủ Đồ Công Sở Tối Giản", "Atelier Thời Trang Hiện Đại", "Boutique Phong Cách Trẻ", "Xưởng May Thiết Kế Riêng", "Thời Trang Ứng Dụng Cao Cấp"],
+        "bios": [
+            "Bộ sưu tập thời trang công sở và dạo phố thiết kế tinh tế, chất liệu thoáng mát, chuẩn phom dáng và bảo hành đường may.",
+            "Tôn vinh phong cách tối giản thanh lịch cho phụ nữ hiện đại với những đường cắt may chuẩn xác và chất vải tuyển chọn.",
+            "Cập nhật xu hướng thời trang ứng dụng mới nhất mỗi tuần, giao hàng toàn quốc và hỗ trợ đổi size linh hoạt.",
+        ],
+        "posts": [
+            "👗 Gợi ý phối đồ thanh lịch cho tuần làm việc mới tràn đầy năng lượng! Gam màu trung tính kết hợp phom dáng chuẩn giúp bạn tự tin hơn. ✨ #ThoiTrangThietKe",
+            "🧥 Chất liệu tự nhiên thoáng nhẹ luôn là ưu tiên hàng đầu giúp bạn thoải mái suốt ngày dài năng động. Cùng khám phá phong cách tối giản ngay hôm nay! 👜 #MinimalStyle",
+            "✨ Đôi khi chỉ cần một chiếc áo sơ mi cắt may khéo léo cũng đủ nâng tầm diện mạo trong mọi cuộc hẹn quan trọng. Chúc bạn ngày mới nhiều niềm vui! #OutfitOfTheDay",
+        ],
+    },
+    "home_decor": {
+        "category": "Cửa hàng Nội thất & Gia dụng (Home & Living)",
+        "descriptors": ["Không Gian Sống Tinh Tế", "Nội Thất Gỗ & Decor Tối Giản", "Xưởng Decor Tổ Ấm Hiện Đại", "Gia Dụng Thông Minh Tiện Ích", "Studio Thiết Kế Căn Hộ", "Trang Trí Nhà Cửa Ấm Áp"],
+        "bios": [
+            "Giải pháp thiết kế nội thất thông minh và phụ kiện trang trí tổ ấm hiện đại, tối ưu diện tích và nâng tầm chất lượng sống.",
+            "Mang hơi thở thiên nhiên và sự ngăn nắp vào từng góc nhỏ căn hộ với đồ gia dụng bền đẹp, thân thiện môi trường.",
+            "Chuyên đồ decor nhà cửa phong cách Bắc Âu & Japandi, hoàn thiện tỉ mỉ, phù hợp căn hộ chung cư và nhà phố.",
+        ],
+        "posts": [
+            "🏡 Một góc nhỏ bình yên trong ngôi nhà được bài trí gọn gàng với ánh sáng ấm áp sẽ giúp bạn tái tạo năng lượng sau ngày dài làm việc! 🌿🛋️ #KhongGianSong #NoiThat",
+            "🪴 Chỉ cần thêm một chậu cây xanh và sắp xếp lại bàn làm việc, không gian sống sẽ trở nên thoáng đãng và truyền cảm hứng hơn rất nhiều. ✨ #DecorNhaCua",
+            "🛋️ Tối ưu diện tích căn hộ nhỏ không khó nếu biết cách chọn nội thất đa năng và phối màu sáng hài hòa. Bạn thích phong cách Japandi hay Hiện đại? #ThietKeNoiThat",
+        ],
+    },
+    "fnb_cuisine": {
+        "category": "Nhà hàng / Dịch vụ Ẩm thực (Restaurant & Cafe)",
+        "descriptors": ["Bếp Ngon Bản Địa", "Tiệm Trà & Bánh Thủ Công", "Quán Ngon Gia Đình Truyền Thống", "Hương Vị Quê Nhà Tươi Ngon", "Góc Cà Phê Rang Xay Nguyên Chất", "Ẩm Thực Sạch Mỗi Ngày"],
+        "bios": [
+            "Thưởng thức hương vị ẩm thực tươi ngon mỗi ngày từ nguyên liệu tuyển chọn kỹ lưỡng, không gian ấm cúng cho gia đình.",
+            "Cà phê rang mộc nguyên chất và món ngon chế biến trong ngày, giữ trọn hương vị tự nhiên và an toàn vệ sinh.",
+            "Điểm hẹn ẩm thực thân quen dành cho buổi gặp gỡ bạn bè, đồng nghiệp và bữa cơm sum vầy cuối tuần.",
+        ],
+        "posts": [
+            "🍲 Không gì tuyệt vời hơn bữa cơm sum vầy cùng gia đình với những món ăn nóng hổi, đậm đà hương vị truyền thống! 🥢🍃 #AmThucViet #MonNgonMoiNgay",
+            "☕ Bắt đầu buổi sáng tỉnh táo với một ly cà phê pha phin thơm lừng và chút bánh nướng giòn rụm mới ra lò. Chúc bạn ngày mới hiệu quả! 🥐 #CoffeeTime",
+            "🥗 Nguyên liệu tươi sạch chọn lọc từ sáng sớm chính là bí quyết giữ trọn vị ngọt tự nhiên cho từng món ăn phục vụ thực khách. 🌿 #AmThucSach",
+        ],
+    },
+    "tech_saas": {
+        "category": "Công ty Công nghệ / Phần mềm (Information Technology)",
+        "descriptors": ["Giải Pháp Chuyển Đổi Số SME", "Hệ Thống Vận Hành Tự Động", "Nền Tảng Quản Trị Doanh Nghiệp", "Trung Tâm Công Nghệ & Dữ Liệu", "Tư Vấn Hạ Tầng Số An Toàn", "Phần Mềm Tối Ưu Quy Trình"],
+        "bios": [
+            "Cung cấp nền tảng quản trị tự động hóa, tối ưu hiệu suất vận hành và bảo mật dữ liệu toàn diện cho doanh nghiệp SME.",
+            "Đồng hành cùng doanh nghiệp chuẩn hóa quy trình làm việc, tiết kiệm thời gian quản lý và nâng cao trải nghiệm khách hàng.",
+            "Giải pháp công nghệ thực tiễn, dễ triển khai cho đội ngũ kinh doanh, marketing và chăm sóc khách hàng hiện đại.",
+        ],
+        "posts": [
+            "🚀 Chuyển đổi số bắt đầu từ việc chuẩn hóa quy trình làm việc hàng ngày. Tối ưu 30% thời gian vận hành giúp đội ngũ tập trung sáng tạo hơn! 💡📊 #ChuyenDoiSo",
+            "🔐 Bảo mật thông tin và phân quyền rõ ràng theo từng bộ phận là nền tảng giúp doanh nghiệp mở rộng quy mô bền vững trong kỷ nguyên số. 💻 #QuanTriDoanhNghiep",
+            "📈 Tự động hóa báo cáo định kỳ giúp nhà quản lý nắm bắt tình hình kinh doanh theo thời gian thực mà không cần tổng hợp thủ công. ⚡ #CongNgheSo",
+        ],
+    },
+    "real_estate": {
+        "category": "Dịch vụ Bất động sản (Real Estate Service)",
+        "descriptors": ["Tư Vấn An Cư & Đầu Tư Bền Vững", "Cổng Thông Tin Nhà Đất Minh Bạch", "Giải Pháp An Cư Gia Đình Trẻ", "Tư Vấn Quy Hoạch & Pháp Lý Nhà Đất", "Không Gian Sống Xanh Đô Thị", "Kênh Review Dự Án Thực Tế"],
+        "bios": [
+            "Cập nhật thông tin quy hoạch minh bạch, phân tích pháp lý chuẩn xác và đồng hành cùng nhà đầu tư lựa chọn giá trị thực.",
+            "Kết nối các dự án căn hộ, nhà phố có hạ tầng hoàn thiện, tiện ích xanh và phù hợp nhu cầu ở thực của gia đình trẻ.",
+            "Chia sẻ kiến thức kiểm tra pháp lý, quy trình giao dịch an toàn và đánh giá khách quan từng khu vực đô thị.",
+        ],
+        "posts": [
+            "🏙️ 3 tiêu chí cốt lõi khi lựa chọn không gian an cư lâu dài cho gia đình trẻ: Pháp lý minh bạch, kết nối hạ tầng và tiện ích xanh nội khu. 🌳🏡 #AnCuLacNghiep",
+            "📑 Trước khi quyết định đầu tư hoặc mua nhà ở thực, việc rà soát kỹ thông tin quy hoạch và tiến độ hạ tầng khu vực luôn là bước quan trọng nhất. 🗺️ #BatDongSan",
+            "🌳 Xu hướng sống xanh gần công viên và trường học đang trở thành ưu tiên hàng đầu của các gia đình tại các đô thị lớn. 🏡✨ #KhongGianSongXanh",
+        ],
+    },
+}
+
+
+def _spin_via_page_copy(niche_key: str, idx: int, brand_prefix: str = "", custom_name: str = "") -> tuple[str, str, str, str]:
+    import random
+
+    tpl = _VIA_PAGE_NICHE_CATALOG.get(niche_key) or _VIA_PAGE_NICHE_CATALOG["beauty_spa"]
+    descs = tpl["descriptors"]
+    bios = tpl["bios"]
+    posts = tpl["posts"]
+    desc = descs[idx % len(descs)]
+    code = random.randint(102, 987)
+    if custom_name.strip():
+        page_name = custom_name.strip()[:200]
+    elif brand_prefix.strip():
+        page_name = f"{brand_prefix.strip()} — {desc} #{code}"[:200]
+    else:
+        page_name = f"{desc} · Cơ sở {code}"[:200]
+    category = str(tpl["category"])
+    bio = str(bios[idx % len(bios)])
+    warmup_post = str(posts[idx % len(posts)])
+    return page_name, category, bio, warmup_post
+
+
+def _infer_niche_key_from_category(category_str: str) -> str:
+    low = (category_str or "").lower()
+    if any(k in low for k in ("thời trang", "quần áo", "clothing", "fashion")):
+        return "fashion_store"
+    if any(k in low for k in ("nội thất", "gia dụng", "home", "living", "decor")):
+        return "home_decor"
+    if any(k in low for k in ("nhà hàng", "ẩm thực", "cafe", "f&b", "restaurant", "quán")):
+        return "fnb_cuisine"
+    if any(k in low for k in ("công nghệ", "phần mềm", "saas", "it", "technology")):
+        return "tech_saas"
+    if any(k in low for k in ("bất động sản", "real estate", "nhà đất")):
+        return "real_estate"
+    return "beauty_spa"
+
+
 @pages_router.post("/via-create-launch")
 def create_page_via_profile_and_log(
     ctx: WriteCtx,
@@ -3786,11 +3977,11 @@ def create_page_via_profile_and_log(
 ) -> dict[str, Any]:
     from urllib.parse import quote
     from app.core.enums import ReferenceStatus
+    from app.core.errors import ValidationError
     from app.models.entities import BusinessManager, Page, PersonalAccountReference
 
     page_name = str(payload.get("page_name") or payload.get("name") or "").strip()[:200]
     if not page_name:
-        from app.core.errors import ValidationError
         raise ValidationError("Vui lòng nhập tên Fanpage cần khởi tạo qua Via.")
 
     category = str(payload.get("category") or "Thương mại điện tử / Cửa hàng").strip()[:120]
@@ -3798,6 +3989,7 @@ def create_page_via_profile_and_log(
     warmup_post_text = str(payload.get("warmup_post_text") or "").strip()[:2000]
     via_id_raw = str(payload.get("via_id") or payload.get("holder_identity_id") or "").strip()
     bm_id_raw = str(payload.get("owner_bm_id") or "").strip()
+    force_override = bool(payload.get("force_override"))
 
     via_obj: PersonalAccountReference | None = None
     if via_id_raw:
@@ -3815,6 +4007,18 @@ def create_page_via_profile_and_log(
 
     via_label = via_obj.label if via_obj else "Via Quản trị"
     browser_prof = (via_obj.browser_profile_label if via_obj and via_obj.browser_profile_label else "Chrome — Default")
+
+    # Server-side Via Quota Warning Guardrail
+    if via_obj is not None:
+        pre_summary = _build_pages_summary(ctx.session, ctx.workspace_id, include_archived=False)
+        vq = next((v for v in pre_summary.get("via_quotas", []) if v["via_id"] == str(via_obj.id)), None)
+        if vq and vq.get("quota_status") in ("LIMIT_REACHED", "COOLDOWN") and not force_override:
+            reasons_txt = "; ".join(vq.get("warning_reasons") or ["Đã chạm ngưỡng an toàn"])
+            raise ValidationError(
+                f"⚠️ Cảnh báo định mức Via «{via_label}»: {reasons_txt}. "
+                "Vui lòng đổi sang Via đang An toàn hoặc xác nhận ghi đè rủi ro."
+            )
+
     notes_combined = bio_description or f"Khởi tạo qua Via {via_label} ({browser_prof})"
 
     pg = Page(
@@ -3843,6 +4047,7 @@ def create_page_via_profile_and_log(
         "owner_bm_id": str(bm_obj.id) if bm_obj else "",
         "owner_bm_name": bm_obj.name if bm_obj else "",
         "owner_bm_external_id": bm_obj.external_id if bm_obj else "",
+        "quota_override": force_override,
         "last_synced_at": now_iso,
     }
     ctx.audit.record(
@@ -3968,6 +4173,309 @@ def publish_or_log_page_warmup_post(
         "delivery_mode": delivery_mode,
         "external_post_id": external_post_id,
         "item": matched_item,
+        **summary_data,
+    }
+
+
+@pages_router.post("/via-batch-create")
+def batch_create_pages_auto_rotate_vias(
+    ctx: WriteCtx,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    from urllib.parse import quote
+    from app.core.enums import ReferenceStatus
+    from app.core.errors import ValidationError
+    from app.models.entities import BusinessManager, Page, PersonalAccountReference
+
+    try:
+        requested_count = int(payload.get("count") or 5)
+    except Exception:
+        requested_count = 5
+    if requested_count < 1:
+        raise ValidationError("Số lượng Page trong lô tạo phải từ 1 trở lên.")
+    requested_count = min(20, requested_count)
+
+    try:
+        stagger_seconds = int(payload.get("stagger_seconds") or 18)
+    except Exception:
+        stagger_seconds = 18
+    stagger_seconds = max(10, min(60, stagger_seconds))
+
+    niche_key = str(payload.get("niche_key") or "beauty_spa").strip()
+    brand_prefix = str(payload.get("brand_prefix") or "").strip()[:80]
+    custom_cat = str(payload.get("category") or "").strip()[:120]
+    bm_id_raw = str(payload.get("owner_bm_id") or "").strip()
+    force_override = bool(payload.get("force_override"))
+
+    raw_custom_names = payload.get("custom_names")
+    custom_names_list: list[str] = []
+    if isinstance(raw_custom_names, list):
+        custom_names_list = [str(x).strip() for x in raw_custom_names if str(x).strip()]
+    elif isinstance(raw_custom_names, str) and raw_custom_names.strip():
+        custom_names_list = [line.strip() for line in raw_custom_names.splitlines() if line.strip()]
+
+    selected_via_ids: set[str] | None = None
+    if isinstance(payload.get("selected_via_ids"), list) and payload["selected_via_ids"]:
+        selected_via_ids = {str(x).strip() for x in payload["selected_via_ids"] if str(x).strip()}
+
+    bm_obj: BusinessManager | None = None
+    if bm_id_raw:
+        with contextlib.suppress(Exception):
+            cand_bm = ctx.session.get(BusinessManager, uuid.UUID(bm_id_raw))
+            if cand_bm and cand_bm.workspace_id == ctx.workspace_id:
+                bm_obj = cand_bm
+
+    pre_summary = _build_pages_summary(ctx.session, ctx.workspace_id, include_archived=False)
+    all_quotas = pre_summary.get("via_quotas", [])
+
+    eligible: list[dict[str, Any]] = []
+    for vq in all_quotas:
+        if selected_via_ids is not None and vq["via_id"] not in selected_via_ids:
+            continue
+        if vq.get("quota_status") in ("SAFE", "NEAR_LIMIT") or force_override:
+            eligible.append(vq)
+
+    eligible.sort(
+        key=lambda v: (
+            0 if v.get("quota_status") == "SAFE" else 1 if v.get("quota_status") == "NEAR_LIMIT" else 2,
+            int(v.get("holding_pages_count") or 0),
+            int(v.get("created_7d_count") or 0),
+            str(v.get("last_activity_at") or ""),
+        )
+    )
+
+    if not eligible:
+        raise ValidationError(
+            "⚠️ Hiện tại tất cả Via đều đang trong thời gian nghỉ Cooldown hoặc đã chạm trần định mức ngày/tuần. "
+            "Vui lòng đợi hết Cooldown hoặc thêm Via mới trước khi chạy lô tạo Page tiếp theo."
+        )
+
+    allocated_vias = eligible[:requested_count]
+    skipped_due_to_quota = max(0, requested_count - len(allocated_vias))
+
+    now_iso = datetime.now(UTC).isoformat()
+    batch_items: list[dict[str, Any]] = []
+    total_in_batch = len(allocated_vias)
+
+    for idx, vq in enumerate(allocated_vias):
+        custom_nm = custom_names_list[idx] if idx < len(custom_names_list) else ""
+        p_name, p_cat, p_bio, p_post = _spin_via_page_copy(
+            niche_key,
+            idx,
+            brand_prefix=brand_prefix,
+            custom_name=custom_nm,
+        )
+        if custom_cat:
+            p_cat = custom_cat
+
+        via_label = str(vq.get("label") or "Via Quản trị")
+        browser_prof = str(vq.get("browser_profile") or "Chrome — Default")
+        net_lbl = str(vq.get("network_label") or "")
+
+        pg = Page(
+            workspace_id=ctx.workspace_id,
+            name=p_name,
+            external_page_id=None,
+            url=None,
+            category=p_cat,
+            status=ReferenceStatus.ACTIVE,
+            notes=p_bio[:5000],
+        )
+        ctx.session.add(pg)
+        ctx.session.flush()
+
+        ctx.audit.record(
+            action="page.via_created",
+            entity_type="page",
+            entity_id=pg.id,
+            metadata={
+                "page_name": p_name,
+                "category": p_cat,
+                "bio_description": p_bio,
+                "health_status": "LIVE",
+                "is_published": True,
+                "via_id": vq["via_id"],
+                "holder_identity_id": vq["via_id"],
+                "via_label": via_label,
+                "browser_profile": browser_prof,
+                "owner_bm_id": str(bm_obj.id) if bm_obj else "",
+                "owner_bm_name": bm_obj.name if bm_obj else "",
+                "owner_bm_external_id": bm_obj.external_id if bm_obj else "",
+                "batch_mode": True,
+                "batch_index": idx + 1,
+                "batch_size": total_in_batch,
+                "quota_override": force_override and vq.get("quota_status") not in ("SAFE", "NEAR_LIMIT"),
+                "last_synced_at": now_iso,
+            },
+        )
+        ctx.audit.record(
+            action="page.warmup_posted",
+            entity_type="page",
+            entity_id=pg.id,
+            metadata={
+                "page_name": p_name,
+                "category": p_cat,
+                "via_id": vq["via_id"],
+                "via_label": via_label,
+                "browser_profile": browser_prof,
+                "message": p_post,
+                "delivery_mode": "CHROME_ASSIST_LOGGED",
+                "last_warmup_at": now_iso,
+            },
+        )
+
+        launch_url = (
+            f"https://www.facebook.com/pages/creation/"
+            f"?adsops_page_name={quote(p_name)}"
+            f"&adsops_page_cat={quote(p_cat)}"
+            f"&adsops_page_bio={quote(p_bio[:250])}"
+            f"&adsops_batch_step={idx + 1}of{total_in_batch}"
+        )
+        batch_items.append(
+            {
+                "page_id": str(pg.id),
+                "page_name": p_name,
+                "category": p_cat,
+                "bio_description": p_bio,
+                "warmup_post_text": p_post,
+                "via_id": vq["via_id"],
+                "via_label": via_label,
+                "browser_profile": browser_prof,
+                "network_label": net_lbl,
+                "launch_url": launch_url,
+                "batch_index": idx + 1,
+                "batch_size": total_in_batch,
+            }
+        )
+
+    ctx.commit()
+    summary_data = _build_pages_summary(ctx.session, ctx.workspace_id, include_archived=False)
+    quota_warning_msg = (
+        f"⚠️ Đã tự động giới hạn lô tạo ở mức {total_in_batch}/{requested_count} Page "
+        f"(mỗi Via an toàn chỉ tạo tối đa 1 Page/đợt; đã bỏ qua {skipped_due_to_quota} yêu cầu vượt quá số Via đang xanh để chống Checkpoint)."
+        if skipped_due_to_quota > 0
+        else None
+    )
+    return {
+        "created_count": len(batch_items),
+        "requested_count": requested_count,
+        "skipped_due_to_quota": skipped_due_to_quota,
+        "stagger_seconds": stagger_seconds,
+        "quota_warning_message": quota_warning_msg,
+        "batch_items": batch_items,
+        **summary_data,
+    }
+
+
+@pages_router.post("/batch-warmup")
+def batch_warmup_under_nurtured_pages(
+    ctx: WriteCtx,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    from app.models.entities import Page
+
+    body = payload or {}
+    try:
+        max_pages = int(body.get("max_pages") or 10)
+    except Exception:
+        max_pages = 10
+    max_pages = max(1, min(30, max_pages))
+
+    raw_page_ids = body.get("page_ids")
+    requested_ids: set[str] | None = None
+    if isinstance(raw_page_ids, list) and raw_page_ids:
+        requested_ids = {str(x).strip() for x in raw_page_ids if str(x).strip()}
+
+    pre_summary = _build_pages_summary(ctx.session, ctx.workspace_id, include_archived=False)
+    candidates: list[dict[str, Any]] = []
+    for it in pre_summary.get("items", []):
+        if requested_ids is not None:
+            if it["id"] in requested_ids:
+                candidates.append(it)
+        elif it.get("health_status") == "LIVE" and int(it.get("warmup_posts_count") or 0) < 3:
+            candidates.append(it)
+
+    candidates = candidates[:max_pages]
+    tokens = _collect_workspace_meta_tokens(ctx.session, ctx.workspace_id, None)
+    now_dt = datetime.now(UTC)
+    now_iso = now_dt.isoformat()
+
+    nurtured_count = 0
+    graph_published_count = 0
+    assist_items: list[dict[str, Any]] = []
+
+    for idx, pg_item in enumerate(candidates):
+        pg_obj = ctx.session.get(Page, uuid.UUID(pg_item["id"]))
+        if pg_obj is None or pg_obj.workspace_id != ctx.workspace_id:
+            continue
+
+        niche_k = _infer_niche_key_from_category(str(pg_item.get("category") or ""))
+        _, _, _, post_msg = _spin_via_page_copy(niche_k, idx + int(pg_item.get("warmup_posts_count") or 0))
+        delivery_mode = "CHROME_ASSIST_LOGGED"
+        external_post_id: str | None = None
+
+        if pg_obj.external_page_id:
+            for tok in tokens:
+                token_resp = _meta_graph_get_json(f"{pg_obj.external_page_id}?fields=access_token,name", tok)
+                page_access_token = (token_resp or {}).get("access_token") if isinstance(token_resp, dict) else None
+                if page_access_token:
+                    try:
+                        import urllib.parse
+                        import urllib.request
+                        import json as _json
+
+                        feed_url = f"https://graph.facebook.com/v21.0/{pg_obj.external_page_id}/feed"
+                        form_bytes = urllib.parse.urlencode(
+                            {"message": post_msg, "access_token": str(page_access_token)}
+                        ).encode("utf-8")
+                        req = urllib.request.Request(feed_url, data=form_bytes, method="POST")
+                        with urllib.request.urlopen(req, timeout=10) as resp:
+                            resp_data = _json.loads(resp.read().decode("utf-8"))
+                            if isinstance(resp_data, dict) and resp_data.get("id"):
+                                external_post_id = str(resp_data["id"])
+                                delivery_mode = "GRAPH_API_PUBLISHED"
+                                graph_published_count += 1
+                                break
+                    except Exception:
+                        pass
+
+        pg_obj.updated_at = now_dt
+        ctx.audit.record(
+            action="page.warmup_posted",
+            entity_type="page",
+            entity_id=pg_obj.id,
+            metadata={
+                "page_name": pg_obj.name,
+                "category": pg_obj.category or "Trang Thương hiệu",
+                "via_id": pg_item.get("holder_identity_id") or "",
+                "via_label": pg_item.get("holder_label") or "Via Giữ Page",
+                "browser_profile": pg_item.get("holder_browser_profile") or "Chrome Profile",
+                "message": post_msg,
+                "delivery_mode": delivery_mode,
+                "external_post_id": external_post_id,
+                "last_warmup_at": now_iso,
+            },
+        )
+        nurtured_count += 1
+        if delivery_mode != "GRAPH_API_PUBLISHED":
+            assist_items.append(
+                {
+                    "page_id": str(pg_obj.id),
+                    "page_name": pg_obj.name,
+                    "page_url": pg_obj.url or (f"https://www.facebook.com/{pg_obj.external_page_id}" if pg_obj.external_page_id else "https://www.facebook.com/pages/?category=your_pages"),
+                    "via_label": pg_item.get("holder_label") or "Via Giữ Page",
+                    "browser_profile": pg_item.get("holder_browser_profile") or "Chrome Profile",
+                    "network_label": pg_item.get("holder_network_label") or "",
+                    "message": post_msg,
+                }
+            )
+
+    ctx.commit()
+    summary_data = _build_pages_summary(ctx.session, ctx.workspace_id, include_archived=False)
+    return {
+        "nurtured_count": nurtured_count,
+        "graph_published_count": graph_published_count,
+        "assist_items": assist_items,
         **summary_data,
     }
 

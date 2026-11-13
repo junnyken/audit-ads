@@ -498,6 +498,67 @@ function buildStoreZip(files: Array<{ name: string; content: string }>): Blob {
   return new Blob([...localParts, ...centralParts, eocd] as unknown as BlobPart[], { type: 'application/zip' })
 }
 
+export interface BatchChromePageTask {
+  page_name: string
+  via_label: string
+  browser_profile: string
+  launch_url: string
+}
+
+export function downloadBatchPageCreationBat(tasks: BatchChromePageTask[], staggerSeconds = 18): void {
+  if (!Array.isArray(tasks) || tasks.length === 0) return
+  const safeStagger = Math.max(10, Math.min(60, Math.round(staggerSeconds)))
+  const lines: string[] = [
+    '@echo off',
+    'chcp 65001 >nul',
+    'title AdsOps Batch Via Page Creator (An Toan Chong Checkpoint)',
+    'set "CHROME_EXE="',
+    'if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" set "CHROME_EXE=%ProgramFiles%\Google\Chrome\Application\chrome.exe"',
+    'if "%CHROME_EXE%"=="" if exist "%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe" set "CHROME_EXE=%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"',
+    'if "%CHROME_EXE%"=="" if exist "%LocalAppData%\Google\Chrome\Application\chrome.exe" set "CHROME_EXE=%LocalAppData%\Google\Chrome\Application\chrome.exe"',
+    'if "%CHROME_EXE%"=="" (',
+    '  echo [LOI] Khong tim thay Google Chrome tren may tinh nay.',
+    '  pause',
+    '  exit /b 1',
+    ')',
+    `echo ========================================================================`,
+    `echo   ADSOPS BATCH PAGE CREATOR - TONG ${tasks.length} VIA (CACH NHAU ${safeStagger} GIAY/VIA)`,
+    `echo ========================================================================`,
+    '',
+  ]
+
+  tasks.forEach((task, idx) => {
+    const profileDir = resolveChromeProfileDirectory(task.browser_profile, task.via_label)
+    const safeVia = String(task.via_label || 'Via').replace(/["%^&|<>]/g, '')
+    const safePage = String(task.page_name || 'Fanpage').replace(/["%^&|<>]/g, '')
+    const safeProf = String(profileDir || 'Default').replace(/"/g, '')
+    const safeUrl = String(task.launch_url || 'https://www.facebook.com/pages/creation/').replace(/%/g, '%%')
+
+    lines.push(`echo [${idx + 1}/${tasks.length}] Mo Via: ${safeVia} (${safeProf}) -^> Page: ${safePage}`)
+    lines.push(`start "" "%CHROME_EXE%" --profile-directory="${safeProf}" "${safeUrl}"`)
+    if (idx < tasks.length - 1) {
+      lines.push(`echo   ^> Dang cho ${safeStagger} giay chong mo dong loat...`)
+      lines.push(`timeout /t ${safeStagger} /nobreak >nul`)
+    }
+    lines.push('')
+  })
+
+  lines.push('echo.')
+  lines.push('echo [HOAN TAT] Da mo toan bo Ho so Chrome Via. Kiem tra thong tin da tu dien va bam "Tao Trang" tren tung tab!')
+  lines.push('pause')
+
+  const batContent = lines.join('\r\n')
+  const blob = new Blob([batContent], { type: 'application/octet-stream' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `AdsOps-Tao-Page-Hang-Loat-${tasks.length}Via.bat`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
 export interface ExtensionBundledAccount {
   name: string
   external_account_id: string
@@ -529,7 +590,7 @@ export function downloadChromeExtensionZip(
       ? `AdsOps Companion Pro · ${profileDir} · Proxy ${parsed!.host}:${parsed!.port}`
       : `AdsOps Companion Pro · ${profileDir} (${viaName})`,
     short_name: 'AdsOps Companion Pro',
-    version: '2.4.0',
+    version: '2.5.0',
     description:
       'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.4 Pro: Chặn & Tự Xoá Passkey, Sinh mã 2FA 6 số tự điền, Khóa rò rỉ WebRTC IP, Xuất/Nhập Cookie, Bắt Token EAAB và HUD cảnh báo Lớp Via.',
     permissions: [
@@ -759,7 +820,7 @@ chrome.webRequest.onAuthRequired.addListener(
   <div class="header">
     <div class="brand">
       <span class="logo">AO</span>
-      <span>AdsOps Companion v2.4 Pro</span>
+      <span>AdsOps Companion v2.5 Pro</span>
     </div>
     <span id="proxy-badge" class="status-pill">MẠNG GỐC</span>
   </div>
@@ -1531,10 +1592,12 @@ tickOtp();`
       const pName = u.searchParams.get("adsops_page_name") || "";
       const pCat = u.searchParams.get("adsops_page_cat") || "";
       const pBio = u.searchParams.get("adsops_page_bio") || "";
+      const batchStep = u.searchParams.get("adsops_batch_step") || "";
       if (!pName && !pCat && !pBio) return;
 
       const setNativeValue = (el, val) => {
         if (!el || !val) return false;
+        el.focus();
         const proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
         const desc = Object.getOwnPropertyDescriptor(proto, "value");
         if (desc && desc.set) {
@@ -1550,25 +1613,56 @@ tickOtp();`
       const inputs = Array.from(document.querySelectorAll('input[type="text"], input:not([type]), textarea'));
       if (inputs.length === 0) return;
 
-      let filledCount = 0;
+      let nameEl = null;
+      let catEl = null;
+      let bioEl = null;
       for (const el of inputs) {
         const label = ((el.getAttribute("aria-label") || "") + " " + (el.getAttribute("placeholder") || "")).toLowerCase();
-        if (pName && (label.includes("tên trang") || label.includes("page name") || inputs.indexOf(el) === 0) && !el.value) {
-          if (setNativeValue(el, pName)) filledCount++;
-        } else if (pCat && (label.includes("hạng mục") || label.includes("category") || inputs.indexOf(el) === 1) && !el.value) {
-          if (setNativeValue(el, pCat)) filledCount++;
-        } else if (pBio && (el.tagName === "TEXTAREA" || label.includes("tiểu sử") || label.includes("mô tả") || label.includes("bio")) && !el.value) {
-          if (setNativeValue(el, pBio)) filledCount++;
+        if (!nameEl && (label.includes("tên trang") || label.includes("page name") || inputs.indexOf(el) === 0)) {
+          nameEl = el;
+        } else if (!catEl && (label.includes("hạng mục") || label.includes("category") || inputs.indexOf(el) === 1)) {
+          catEl = el;
+        } else if (!bioEl && (el.tagName === "TEXTAREA" || label.includes("tiểu sử") || label.includes("mô tả") || label.includes("bio"))) {
+          bioEl = el;
         }
       }
-      if (filledCount > 0) {
-        pageCreateAutoFilled = true;
+
+      if (!nameEl && !catEl && !bioEl) return;
+      pageCreateAutoFilled = true;
+
+      if (pName && nameEl && !nameEl.value) {
+        setTimeout(() => setNativeValue(nameEl, pName), 350);
+      }
+      if (pCat && catEl && !catEl.value) {
+        const cleanCat = pCat.split("(")[0].trim();
+        setTimeout(() => {
+          setNativeValue(catEl, cleanCat);
+          setTimeout(() => {
+            const opt = document.querySelector('ul[role="listbox"] li, div[role="listbox"] div[role="option"], li[role="option"]');
+            if (opt) opt.click();
+          }, 550);
+        }, 850);
+      }
+      if (pBio && bioEl && !bioEl.value) {
+        setTimeout(() => setNativeValue(bioEl, pBio), 1400);
+      }
+
+      setTimeout(() => {
+        const submitBtns = Array.from(document.querySelectorAll('div[role="button"], button'));
+        const createBtn = submitBtns.find((b) => {
+          const txt = ((b.getAttribute("aria-label") || "") + " " + (b.textContent || "")).trim().toLowerCase();
+          return txt === "tạo trang" || txt === "create page";
+        });
+        if (createBtn) {
+          createBtn.style.outline = "3px solid #10b981";
+          createBtn.style.boxShadow = "0 0 18px rgba(16,185,129,0.75)";
+        }
         const hudStatus = document.getElementById("adsops-hud-passkey-status");
         if (hudStatus) {
-          hudStatus.textContent = "🌱 Đã tự điền Tạo Page (" + pName.slice(0, 22) + ")";
+          hudStatus.textContent = (batchStep ? "[Lô " + batchStep + "] " : "") + "🌱 Đã tự điền chuẩn kỹ thuật! Kiểm tra 1s rồi bấm Tạo Trang";
           hudStatus.style.color = "#34d399";
         }
-      }
+      }, 1750);
     } catch (e) {}
   }
 

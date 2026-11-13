@@ -25,7 +25,11 @@ import {
 import { useI18n } from '../i18n'
 import { api } from '../lib/api'
 import type { AdAccount, Paged, ReferenceRecord } from '../lib/types'
-import { launchInAssignedChromeProfile } from '../lib/chromeProfileLauncher'
+import {
+  downloadBatchPageCreationBat,
+  launchInAssignedChromeProfile,
+  type BatchChromePageTask,
+} from '../lib/chromeProfileLauncher'
 import { Badge } from './primitives/badge'
 import { Button } from './primitives/button'
 import { Card, CardContent, CardHeader, CardTitle } from './primitives/card'
@@ -94,8 +98,39 @@ export interface ViaQuotaItem {
   weekly_limit: number
   holding_limit: number
   cooldown_hours: number
-  quota_status: 'SAFE' | 'COOLDOWN' | 'LIMIT_REACHED'
+  cooldown_remaining_minutes?: number
+  last_via_created_at?: string | null
+  warning_reasons?: string[]
+  quota_status: 'SAFE' | 'NEAR_LIMIT' | 'COOLDOWN' | 'LIMIT_REACHED'
   last_activity_at: string | null
+}
+
+export interface QuotaAlertsSummary {
+  total_vias: number
+  safe_vias_count: number
+  near_limit_vias_count: number
+  cooldown_vias_count: number
+  limit_reached_vias_count: number
+  max_safe_batch_now: number
+  flagged_vias: Array<{
+    via_id: string
+    label: string
+    browser_profile: string
+    quota_status: 'NEAR_LIMIT' | 'COOLDOWN' | 'LIMIT_REACHED'
+    cooldown_remaining_minutes: number
+    warning_reasons: string[]
+  }>
+}
+
+export interface BatchCreatedPageTask extends BatchChromePageTask {
+  page_id: string
+  category: string
+  bio_description: string
+  warmup_post_text: string
+  via_id: string
+  network_label: string
+  batch_index: number
+  batch_size: number
 }
 
 export interface ViaActivityLogItem {
@@ -124,6 +159,7 @@ export interface FanpageSummaryResponse {
   }
   via_quotas?: ViaQuotaItem[]
   via_activity_logs?: ViaActivityLogItem[]
+  quota_alerts_summary?: QuotaAlertsSummary
 }
 
 const VIA_PAGE_TEMPLATES = [
@@ -194,15 +230,23 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
   const [editingPage, setEditingPage] = useState<FanpageSummaryItem | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
 
-  // Via Page Creator & Auto-Warmup Studio state
+  // Via Page Creator, Quota Guardrails & Auto-Rotation Batch Studio state
   const [studioOpen, setStudioOpen] = useState(false)
-  const [studioTab, setStudioTab] = useState<'create' | 'warmup' | 'logs'>('create')
+  const [studioTab, setStudioTab] = useState<'batch' | 'create' | 'warmup' | 'logs'>('batch')
   const [studioViaId, setStudioViaId] = useState('')
   const [studioBmId, setStudioBmId] = useState('')
   const [studioPageName, setStudioPageName] = useState('')
   const [studioCategory, setStudioCategory] = useState('Thương mại điện tử / Cửa hàng')
   const [studioBio, setStudioBio] = useState(VIA_PAGE_TEMPLATES[0].bio)
   const [studioWarmupPost, setStudioWarmupPost] = useState(VIA_PAGE_TEMPLATES[0].warmupPost)
+  const [forceOverrideQuota, setForceOverrideQuota] = useState(false)
+  const [batchNicheKey, setBatchNicheKey] = useState('beauty_spa')
+  const [batchBrandPrefix, setBatchBrandPrefix] = useState('')
+  const [batchCustomNames, setBatchCustomNames] = useState('')
+  const [batchCount, setBatchCount] = useState(3)
+  const [batchStaggerSeconds, setBatchStaggerSeconds] = useState(18)
+  const [batchQueue, setBatchQueue] = useState<BatchCreatedPageTask[]>([])
+  const [batchQueueIdx, setBatchQueueIdx] = useState(0)
   const [warmupTargetPageId, setWarmupTargetPageId] = useState('')
   const [warmupMessage, setWarmupMessage] = useState(VIA_PAGE_TEMPLATES[0].warmupPost)
   const [logViaFilter, setLogViaFilter] = useState('ALL')
@@ -353,6 +397,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
       browser_profile: string
       via_label: string
       network_label: string
+      force_override?: boolean
     }) =>
       api.post<FanpageSummaryResponse & { item: FanpageSummaryItem; launch_url: string }>(
         '/api/v1/facebook-pages/via-create-launch',
@@ -370,10 +415,60 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
         vars.network_label || '',
       )
       setStudioPageName('')
+      setForceOverrideQuota(false)
       setBannerMsg(
         isEn
           ? `🌱 Created & logged Page "${vars.page_name}" under Via "${vars.via_label}" and launched Chrome (${vars.browser_profile}) to auto-fill!`
           : `🌱 Đã lưu Fanpage «${vars.page_name}» + ghi nhận định mức & lịch sử cho Via «${vars.via_label}», đồng thời mở đúng Hồ sơ Chrome (${vars.browser_profile}) tự điền tạo Page!`,
+      )
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : 'Via đã chạm định mức cảnh báo an toàn.'
+      setBannerMsg(msg)
+    },
+  })
+
+  const viaBatchCreateMut = useMutation({
+    mutationFn: (payload: {
+      count: number
+      niche_key: string
+      brand_prefix: string
+      custom_names: string
+      owner_bm_id: string
+      stagger_seconds: number
+    }) =>
+      api.post<
+        FanpageSummaryResponse & {
+          created_count: number
+          requested_count: number
+          skipped_due_to_quota: number
+          stagger_seconds: number
+          quota_warning_message: string | null
+          batch_items: BatchCreatedPageTask[]
+        }
+      >('/api/v1/facebook-pages/via-batch-create', payload),
+    onSuccess: (res) => {
+      void qc.invalidateQueries({ queryKey: ['facebook-pages-summary'] })
+      void qc.invalidateQueries({ queryKey: ['pages'] })
+      setBatchQueue(res.batch_items ?? [])
+      setBatchQueueIdx(0)
+      const warnSuffix = res.quota_warning_message ? ` ${res.quota_warning_message}` : ''
+      setBannerMsg(
+        `⚡ Đã khởi tạo lô ${res.created_count} Fanpage và tự xoay vòng đều ${res.created_count} Via khỏe (1 Via = tối đa 1 Page/đợt). Hãy tải file .bat mở cách quãng ${res.stagger_seconds}s hoặc bấm Mở Tuần Tự từng Via ngay bên dưới!${warnSuffix}`,
+      )
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : 'Không đủ Via sạch để tạo lô mới.'
+      setBannerMsg(msg)
+    },
+  })
+
+  const batchWarmupMut = useMutation({
+    mutationFn: () => api.post<FanpageSummaryResponse & { nurtured_count: number; graph_published_count: number }>('/api/v1/facebook-pages/batch-warmup', { max_pages: 10 }),
+    onSuccess: (res) => {
+      void qc.invalidateQueries({ queryKey: ['facebook-pages-summary'] })
+      setBannerMsg(
+        `✍️ Đã nuôi hàng loạt ${res.nurtured_count} Fanpage thiếu bài mồi (${res.graph_published_count} Page tự đăng ngầm qua Meta Graph API, còn lại đã lưu nhật ký & kịch bản chuẩn)!`,
       )
     },
   })
@@ -426,6 +521,31 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
   const items = pagesSummaryQ.data?.items ?? []
   const viaQuotas = pagesSummaryQ.data?.via_quotas ?? []
   const viaActivityLogs = pagesSummaryQ.data?.via_activity_logs ?? []
+  const quotaAlerts: QuotaAlertsSummary = pagesSummaryQ.data?.quota_alerts_summary ?? {
+    total_vias: viaQuotas.length,
+    safe_vias_count: viaQuotas.filter((v) => v.quota_status === 'SAFE' || v.quota_status === 'NEAR_LIMIT').length,
+    near_limit_vias_count: viaQuotas.filter((v) => v.quota_status === 'NEAR_LIMIT').length,
+    cooldown_vias_count: viaQuotas.filter((v) => v.quota_status === 'COOLDOWN').length,
+    limit_reached_vias_count: viaQuotas.filter((v) => v.quota_status === 'LIMIT_REACHED').length,
+    max_safe_batch_now: viaQuotas.filter((v) => v.quota_status === 'SAFE' || v.quota_status === 'NEAR_LIMIT').length,
+    flagged_vias: [],
+  }
+  const eligibleBatchVias = useMemo(
+    () =>
+      [...viaQuotas]
+        .filter((v) => v.quota_status === 'SAFE' || v.quota_status === 'NEAR_LIMIT')
+        .sort((a, b) => {
+          const rankA = a.quota_status === 'SAFE' ? 0 : 1
+          const rankB = b.quota_status === 'SAFE' ? 0 : 1
+          if (rankA !== rankB) return rankA - rankB
+          return a.holding_pages_count - b.holding_pages_count || a.created_7d_count - b.created_7d_count
+        }),
+    [viaQuotas],
+  )
+  const underNurturedCount = useMemo(
+    () => items.filter((it) => it.health_status === 'LIVE' && (it.warmup_posts_count ?? 1) < 3).length,
+    [items],
+  )
   const summary = pagesSummaryQ.data?.summary ?? {
     total_pages: 0,
     live_pages: 0,
@@ -1100,6 +1220,62 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
         </Card>
       )}
 
+      {/* GLOBAL VIA PAGE QUOTA ALERT BAR (Always warns when any Via hits Limit / Cooldown / Near Limit) */}
+      {(quotaAlerts.limit_reached_vias_count > 0 || quotaAlerts.cooldown_vias_count > 0 || quotaAlerts.near_limit_vias_count > 0) && (
+        <div
+          className={`flex flex-wrap items-center justify-between gap-2.5 rounded-xl border px-3.5 py-2.5 text-xs ${
+            quotaAlerts.limit_reached_vias_count > 0
+              ? 'border-rose-500/40 bg-rose-500/10 text-rose-800 dark:text-rose-200'
+              : 'border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200'
+          }`}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span className="font-bold">
+              ⚠️ Cảnh báo Định mức Tạo Page của Via:
+            </span>
+            <span>
+              {quotaAlerts.limit_reached_vias_count > 0 && (
+                <strong className="mr-2">🔴 {quotaAlerts.limit_reached_vias_count} Via chạm trần định mức</strong>
+              )}
+              {quotaAlerts.cooldown_vias_count > 0 && (
+                <strong className="mr-2">⏳ {quotaAlerts.cooldown_vias_count} Via đang nghỉ Cooldown</strong>
+              )}
+              {quotaAlerts.near_limit_vias_count > 0 && (
+                <strong className="mr-2">🟡 {quotaAlerts.near_limit_vias_count} Via sắp chạm trần</strong>
+              )}
+              <span>
+                — Hiện còn <strong>🟢 {quotaAlerts.max_safe_batch_now} Via sạch</strong> sẵn sàng xoay vòng tạo Page an toàn ngay.
+              </span>
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {quotaAlerts.flagged_vias.slice(0, 2).map((fv) => (
+              <span
+                key={fv.via_id}
+                className="rounded border border-current/25 bg-surface/60 px-2 py-0.5 text-[10.5px] font-semibold"
+                title={fv.warning_reasons.join(' · ')}
+              >
+                {fv.quota_status === 'LIMIT_REACHED' ? '🔴' : fv.quota_status === 'COOLDOWN' ? '⏳' : '🟡'} {fv.label}
+                {fv.cooldown_remaining_minutes > 0
+                  ? ` (${Math.floor(fv.cooldown_remaining_minutes / 60)}h${String(fv.cooldown_remaining_minutes % 60).padStart(2, '0')}p)`
+                  : ''}
+              </span>
+            ))}
+            <button
+              type="button"
+              onClick={() => {
+                setStudioTab('batch')
+                setStudioOpen(true)
+              }}
+              className="rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-700"
+            >
+              ⚡ Xoay vòng {quotaAlerts.max_safe_batch_now} Via sạch
+            </button>
+          </div>
+        </div>
+      )}
+
       {bannerMsg && (
         <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3.5 py-2.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
           <span>{bannerMsg}</span>
@@ -1112,6 +1288,860 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
+      )}
+
+      {/* VIA PAGE CREATOR, QUOTA GUARDRAIL & MULTI-VIA BATCH STUDIO */}
+      {studioOpen && (
+        <Card className="border-emerald-500/40 bg-surface shadow-md">
+          <CardHeader className="border-b border-line pb-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300">
+                  <Sparkles className="h-4 w-4" />
+                  <span>
+                    {isEn
+                      ? 'Multi-Via Auto-Rotation Batch Page Creator, Quota Guardrails & Activity History'
+                      : 'Studio Tạo Page Hàng Loạt Đa Via (Auto Xoay Vòng), Chốt Chặn Cảnh Báo & Nhật Ký Vĩnh Viễn'}
+                  </span>
+                </CardTitle>
+                <p className="mt-0.5 text-xs text-ink-muted">
+                  Tự động xoay vòng 1 Page = 1 Via sạch, chống trùng nội dung (Auto Spin Tên + Tiểu sử + Bài mồi), mở Chrome cách quãng 18s chống Checkpoint và tự cảnh báo nếu Via sắp hoặc đã chạm trần.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setStudioTab('batch')}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                    studioTab === 'batch'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'border border-line bg-surface-muted text-ink hover:border-emerald-500/50'
+                  }`}
+                >
+                  ⚡ 1. Tạo Hàng Loạt Đa Via ({quotaAlerts.max_safe_batch_now} Via sẵn)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStudioTab('create')}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                    studioTab === 'create'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'border border-line bg-surface-muted text-ink hover:border-emerald-500/50'
+                  }`}
+                >
+                  🌱 2. Tạo Lẻ & Cảnh Báo Via ({viaQuotas.length} Via)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!warmupTargetPageId && items[0]?.id) setWarmupTargetPageId(items[0].id)
+                    setStudioTab('warmup')
+                  }}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                    studioTab === 'warmup'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'border border-line bg-surface-muted text-ink hover:border-emerald-500/50'
+                  }`}
+                >
+                  ✍️ 3. Auto Nuôi Page ({underNurturedCount} cần nuôi)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStudioTab('logs')}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                    studioTab === 'logs'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'border border-line bg-surface-muted text-ink hover:border-emerald-500/50'
+                  }`}
+                >
+                  📜 4. Nhật Ký Lưu Vĩnh Viễn ({viaActivityLogs.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStudioOpen(false)}
+                  className="rounded-lg border border-line px-2 py-1.5 text-xs font-semibold text-ink-muted hover:text-ink"
+                >
+                  ✕ Đóng
+                </button>
+              </div>
+            </div>
+          </CardHeader>
+
+          <CardContent className="space-y-4 p-4">
+            {/* TAB 1: AUTO-ROTATING MULTI-VIA BATCH PAGE CREATOR */}
+            {studioTab === 'batch' && (
+              <div className="space-y-4">
+                <div className="grid gap-4 lg:grid-cols-12">
+                  {/* Left Config */}
+                  <div className="space-y-3 rounded-xl border border-line bg-surface-muted/30 p-3.5 lg:col-span-7">
+                    <div>
+                      <div className="text-xs font-bold text-ink">
+                        1. Chọn Ngành hàng — Hệ thống tự Spin Tên, Tiểu sử & Bài mồi khác nhau cho từng Page (Chống quét trùng lặp)
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {VIA_PAGE_TEMPLATES.map((tpl) => (
+                          <button
+                            key={tpl.key}
+                            type="button"
+                            onClick={() => setBatchNicheKey(tpl.key)}
+                            className={`rounded-lg border px-2.5 py-1 text-[11px] font-bold transition ${
+                              batchNicheKey === tpl.key
+                                ? 'border-emerald-500 bg-emerald-600 text-white'
+                                : 'border-line bg-surface text-ink hover:border-emerald-500/50'
+                            }`}
+                          >
+                            {tpl.badge}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="grid gap-2.5 sm:grid-cols-3">
+                      <div>
+                        <label className="label text-xs">Số Page cần tạo đợt này</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={20}
+                          value={batchCount}
+                          onChange={(e) => setBatchCount(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
+                          className="input text-xs font-bold"
+                        />
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {[3, 5, Math.max(1, quotaAlerts.max_safe_batch_now)].map((preset, i) => (
+                            <button
+                              key={`${preset}-${i}`}
+                              type="button"
+                              onClick={() => setBatchCount(preset)}
+                              className="rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-ink hover:border-emerald-500"
+                            >
+                              {i === 2 ? `Tối đa sạch (${preset})` : `${preset} Page`}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="label text-xs">Giãn cách mở Chrome (giây/Via)</label>
+                        <select
+                          value={batchStaggerSeconds}
+                          onChange={(e) => setBatchStaggerSeconds(Number(e.target.value))}
+                          className="input text-xs font-semibold"
+                        >
+                          <option value={15}>15 giây / Via (Nhanh)</option>
+                          <option value={18}>18 giây / Via (Khuyến nghị)</option>
+                          <option value={25}>25 giây / Via (Siêu an toàn)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="label text-xs">Gắn vào BM Trung tâm</label>
+                        <select
+                          value={studioBmId || (allBms[0]?.id ?? '')}
+                          onChange={(e) => setStudioBmId(e.target.value)}
+                          className="input text-xs"
+                        >
+                          <option value="">— Giữ tại Via trước —</option>
+                          {allBms.map((b) => (
+                            <option key={b.id} value={b.id}>
+                              🏛️ {String(b.name ?? b.id)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-2.5 sm:grid-cols-2">
+                      <div>
+                        <label className="label text-xs">Tiền tố Thương hiệu (Tuỳ chọn — VD: Mắt Bão / Aura)</label>
+                        <input
+                          type="text"
+                          value={batchBrandPrefix}
+                          onChange={(e) => setBatchBrandPrefix(e.target.value)}
+                          placeholder="Để trống để hệ thống tự sinh tên chuẩn ngành..."
+                          className="input text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="label text-xs">Hoặc dán danh sách Tên Page riêng (Mỗi dòng 1 tên)</label>
+                        <textarea
+                          rows={2}
+                          value={batchCustomNames}
+                          onChange={(e) => setBatchCustomNames(e.target.value)}
+                          placeholder="Để trống để hệ thống tự Spin không trùng..."
+                          className="input text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    {batchCount > eligibleBatchVias.length && (
+                      <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] font-semibold text-amber-800 dark:text-amber-200">
+                        ⚠️ Bạn đang yêu cầu tạo <strong>{batchCount} Page</strong>, nhưng hiện chỉ có{' '}
+                        <strong>{eligibleBatchVias.length} Via sạch</strong> (nguyên tắc an toàn: 1 Via chỉ tạo tối đa 1 Page/đợt). Hệ thống sẽ tự động giới hạn tạo đúng <strong>{eligibleBatchVias.length} Page</strong> trên các Via sạch để chống Checkpoint!
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                      <span className="text-[11px] text-ink-muted">
+                        💡 Khi chạy xong nhớ vào bấm <strong>🔄 Đồng bộ Fanpage từ Meta</strong> để hệ thống tự ghép <code>Page ID</code> thật vào từng Page vừa tạo.
+                      </span>
+                      <Button
+                        size="sm"
+                        disabled={eligibleBatchVias.length === 0 || viaBatchCreateMut.isPending}
+                        onClick={() =>
+                          viaBatchCreateMut.mutate({
+                            count: batchCount,
+                            niche_key: batchNicheKey,
+                            brand_prefix: batchBrandPrefix,
+                            custom_names: batchCustomNames,
+                            owner_bm_id: studioBmId || String(allBms[0]?.id || ''),
+                            stagger_seconds: batchStaggerSeconds,
+                          })
+                        }
+                        className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 font-bold"
+                      >
+                        <Sparkles className="h-3.5 w-3.5" />
+                        <span>
+                          {viaBatchCreateMut.isPending
+                            ? 'Đang xoay vòng Via & tạo lô...'
+                            : `🚀 Khởi Tạo Lô ${Math.min(batchCount, eligibleBatchVias.length)} Page & Xoay Vòng ${Math.min(batchCount, eligibleBatchVias.length)} Via Sạch`}
+                        </span>
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Right Preview: Eligible & Flagged Vias */}
+                  <div className="space-y-2 lg:col-span-5">
+                    <div className="flex items-center justify-between text-xs font-bold text-ink">
+                      <span>2. Phân bổ tự động (1 Page = 1 Via sạch)</span>
+                      <span className="text-emerald-600 dark:text-emerald-400">
+                        {eligibleBatchVias.length}/{viaQuotas.length} Via sẵn sàng
+                      </span>
+                    </div>
+                    <div className="max-h-[300px] space-y-1.5 overflow-y-auto pr-1">
+                      {viaQuotas.map((vq) => {
+                        const willRunIdx = eligibleBatchVias.findIndex((e) => e.via_id === vq.via_id)
+                        const isPicked = willRunIdx >= 0 && willRunIdx < batchCount
+                        return (
+                          <div
+                            key={vq.via_id}
+                            className={`rounded-lg border px-2.5 py-2 text-[11px] ${
+                              isPicked
+                                ? 'border-emerald-500/50 bg-emerald-500/10'
+                                : vq.quota_status === 'LIMIT_REACHED' || vq.quota_status === 'COOLDOWN'
+                                  ? 'border-rose-500/30 bg-rose-500/5 opacity-80'
+                                  : 'border-line bg-surface'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-bold text-ink">
+                                {isPicked ? `✅ #${willRunIdx + 1} · ` : ''}🛡️ {vq.label}
+                              </span>
+                              {vq.quota_status === 'SAFE' && (
+                                <span className="font-bold text-emerald-700 dark:text-emerald-300">
+                                  🟢 An toàn ({vq.holding_pages_count}/{vq.holding_limit})
+                                </span>
+                              )}
+                              {vq.quota_status === 'NEAR_LIMIT' && (
+                                <span className="font-bold text-amber-700 dark:text-amber-300">
+                                  🟡 Sắp chạm trần ({vq.holding_pages_count}/{vq.holding_limit})
+                                </span>
+                              )}
+                              {vq.quota_status === 'COOLDOWN' && (
+                                <span className="font-bold text-amber-700 dark:text-amber-300">
+                                  ⏳ Nghỉ Cooldown ({Math.floor((vq.cooldown_remaining_minutes ?? 0) / 60)}h{String((vq.cooldown_remaining_minutes ?? 0) % 60).padStart(2, '0')}p)
+                                </span>
+                              )}
+                              {vq.quota_status === 'LIMIT_REACHED' && (
+                                <span className="font-bold text-rose-700 dark:text-rose-300">
+                                  🔴 Bỏ qua (Chạm trần)
+                                </span>
+                              )}
+                            </div>
+                            <div className="mt-0.5 font-mono text-[10px] text-ink-muted">
+                              💻 {vq.browser_profile} · Hôm nay {vq.created_today_count}/{vq.daily_limit} · Tuần {vq.created_7d_count}/{vq.weekly_limit}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* POST-CREATION BATCH EXECUTION QUEUE */}
+                {batchQueue.length > 0 && (
+                  <div className="space-y-3 rounded-xl border-2 border-emerald-500/50 bg-emerald-500/5 p-3.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="text-xs font-extrabold text-emerald-800 dark:text-emerald-200">
+                          🎯 Hàng đợi Khởi chạy Lô {batchQueue.length} Page đã lưu vĩnh viễn vào Hệ thống
+                        </div>
+                        <p className="text-[11px] text-ink-muted">
+                          Cách 1 (Nhanh nhất): Tải file <code>.bat</code> để Windows tự mở từng Chrome Via cách nhau {batchStaggerSeconds} giây · Cách 2: Bấm nút Mở Tuần Tự từng Via bên phải.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => downloadBatchPageCreationBat(batchQueue, batchStaggerSeconds)}
+                          className="gap-1.5 border-emerald-500/40 bg-surface font-bold text-emerald-700 dark:text-emerald-300"
+                        >
+                          <span>📥 Tải File Mở Tự Động Cách {batchStaggerSeconds}s ({batchQueue.length} Via .bat)</span>
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            const task = batchQueue[batchQueueIdx % batchQueue.length]
+                            if (!task) return
+                            void navigator.clipboard.writeText(
+                              `${task.page_name}\n\nTiểu sử: ${task.bio_description}\n\nBài mồi:\n${task.warmup_post_text}`,
+                            )
+                            launchInAssignedChromeProfile(
+                              task.launch_url,
+                              task.browser_profile,
+                              task.via_label,
+                              task.network_label,
+                            )
+                            setBatchQueueIdx((prev) => (prev + 1 < batchQueue.length ? prev + 1 : 0))
+                            setBannerMsg(
+                              `🚀 Đã mở [${task.batch_index}/${task.batch_size}] Via «${task.via_label}» (${task.browser_profile}) với Tên & Tiểu sử tự điền cho Page «${task.page_name}»!`,
+                            )
+                          }}
+                          className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 font-bold"
+                        >
+                          <Globe className="h-3.5 w-3.5" />
+                          <span>
+                            ▶️ Mở Via Tiếp Theo ({(batchQueueIdx % batchQueue.length) + 1}/{batchQueue.length}:{' '}
+                            {batchQueue[batchQueueIdx % batchQueue.length]?.via_label})
+                          </span>
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {batchQueue.map((task, idx) => (
+                        <div
+                          key={task.page_id}
+                          className={`rounded-lg border p-2.5 text-xs ${
+                            idx === batchQueueIdx % batchQueue.length
+                              ? 'border-emerald-500 bg-surface shadow-xs'
+                              : 'border-line bg-surface/70'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="font-bold text-ink truncate">
+                              #{task.batch_index}. {task.page_name}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void navigator.clipboard.writeText(`${task.page_name}\n${task.bio_description}`)
+                                launchInAssignedChromeProfile(
+                                  task.launch_url,
+                                  task.browser_profile,
+                                  task.via_label,
+                                  task.network_label,
+                                )
+                              }}
+                              className="shrink-0 rounded bg-brand px-2 py-0.5 text-[10px] font-bold text-white hover:opacity-90"
+                            >
+                              Mở Chrome ↗
+                            </button>
+                          </div>
+                          <div className="mt-1 text-[10.5px] text-ink-muted">
+                            🛡️ {task.via_label} · <span className="font-mono">{task.browser_profile}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB 2: CREATE SINGLE PAGE VIA CHROME PROFILE + QUOTA MATRIX */}
+            {studioTab === 'create' && (() => {
+              const activeViaId = studioViaId || viaQuotas[0]?.via_id || ''
+              const selectedQuota = viaQuotas.find((v) => v.via_id === activeViaId)
+              const isBlockedQuota =
+                selectedQuota?.quota_status === 'LIMIT_REACHED' || selectedQuota?.quota_status === 'COOLDOWN'
+              const nextSafeVia = viaQuotas.find(
+                (v) => v.via_id !== activeViaId && (v.quota_status === 'SAFE' || v.quota_status === 'NEAR_LIMIT'),
+              )
+              return (
+              <div className="grid gap-4 lg:grid-cols-12">
+                {/* Left: Via Quota Selector */}
+                <div className="space-y-2.5 lg:col-span-5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-ink">
+                      1. Chọn Tài khoản Via (Lớp 1 / Dự phòng) để Tạo & Giữ Page
+                    </span>
+                    <span className="text-[11px] text-ink-muted">Bấm chọn Via bên dưới</span>
+                  </div>
+                  <div className="max-h-[340px] space-y-2 overflow-y-auto pr-1">
+                    {viaQuotas.map((vq) => {
+                      const isSelected = vq.via_id === activeViaId
+                      return (
+                        <button
+                          key={vq.via_id}
+                          type="button"
+                          onClick={() => {
+                            setStudioViaId(vq.via_id)
+                            setForceOverrideQuota(false)
+                          }}
+                          className={`w-full rounded-xl border p-2.5 text-left transition ${
+                            isSelected
+                              ? 'border-emerald-500 bg-emerald-500/10 shadow-xs'
+                              : 'border-line bg-surface hover:border-emerald-500/40'
+                          }`}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-1.5">
+                            <span className="text-xs font-bold text-ink">
+                              🛡️ {vq.label}{' '}
+                              <span className="font-mono text-[10px] font-normal text-ink-muted">
+                                ({vq.browser_profile})
+                              </span>
+                            </span>
+                            {vq.quota_status === 'SAFE' && (
+                              <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
+                                🟢 An toàn tạo tiếp
+                              </span>
+                            )}
+                            {vq.quota_status === 'NEAR_LIMIT' && (
+                              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                                🟡 Sắp chạm trần ({vq.holding_pages_count}/{vq.holding_limit})
+                              </span>
+                            )}
+                            {vq.quota_status === 'COOLDOWN' && (
+                              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                                ⏳ Nghỉ Cooldown ({Math.floor((vq.cooldown_remaining_minutes ?? 0) / 60)}h{String((vq.cooldown_remaining_minutes ?? 0) % 60).padStart(2, '0')}p)
+                              </span>
+                            )}
+                            {vq.quota_status === 'LIMIT_REACHED' && (
+                              <span className="rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-bold text-rose-700 dark:text-rose-300">
+                                🔴 Chạm trần cảnh báo ({vq.holding_pages_count}/{vq.holding_limit} Page)
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-ink-muted">
+                            <span className="rounded bg-surface-muted px-1.5 py-0.5 font-mono">
+                              Hôm nay: <strong>{vq.created_today_count}/{vq.daily_limit}</strong>
+                            </span>
+                            <span className="rounded bg-surface-muted px-1.5 py-0.5 font-mono">
+                              7 ngày: <strong>{vq.created_7d_count}/{vq.weekly_limit}</strong>
+                            </span>
+                            <span className="rounded bg-surface-muted px-1.5 py-0.5 font-mono">
+                              Đang giữ: <strong>{vq.holding_pages_count}/{vq.holding_limit} Page</strong>
+                            </span>
+                            <span className="rounded bg-surface-muted px-1.5 py-0.5 font-mono">
+                              Bài mồi: <strong>{vq.warmup_posts_count}</strong>
+                            </span>
+                          </div>
+                          {vq.warning_reasons && vq.warning_reasons.length > 0 && (
+                            <div className="mt-1 text-[10.5px] font-medium text-rose-700 dark:text-rose-300">
+                              ⚠️ {vq.warning_reasons[0]}
+                            </div>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Right: Smart Page Template & 1-Click Chrome Auto-Create with Inline Quota Guardrail */}
+                <div className="space-y-3 rounded-xl border border-line bg-surface-muted/30 p-3.5 lg:col-span-7">
+                  {selectedQuota && selectedQuota.warning_reasons && selectedQuota.warning_reasons.length > 0 && (
+                    <div
+                      className={`space-y-2 rounded-lg border p-3 text-xs ${
+                        isBlockedQuota
+                          ? 'border-rose-500/40 bg-rose-500/10 text-rose-800 dark:text-rose-200'
+                          : 'border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200'
+                      }`}
+                    >
+                      <div className="font-bold">
+                        {isBlockedQuota
+                          ? `🛑 Cảnh báo Chặn An Toàn cho Via «${selectedQuota.label}»:`
+                          : `⚠️ Via «${selectedQuota.label}» sắp chạm ngưỡng an toàn:`}
+                      </div>
+                      <ul className="list-disc pl-4 text-[11px] space-y-0.5">
+                        {selectedQuota.warning_reasons.map((r, i) => (
+                          <li key={i}>{r}</li>
+                        ))}
+                      </ul>
+                      {isBlockedQuota && (
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                          {nextSafeVia && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setStudioViaId(nextSafeVia.via_id)
+                                setForceOverrideQuota(false)
+                              }}
+                              className="rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-700"
+                            >
+                              🔀 Đổi ngay sang Via An Toàn ({nextSafeVia.label})
+                            </button>
+                          )}
+                          <label className="flex items-center gap-1.5 text-[11px] font-semibold cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={forceOverrideQuota}
+                              onChange={(e) => setForceOverrideQuota(e.target.checked)}
+                            />
+                            <span>Tôi hiểu rủi ro Checkpoint &amp; vẫn muốn ép tạo trên Via này</span>
+                          </label>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div>
+                    <div className="text-xs font-bold text-ink">
+                      2. Chọn Mẫu Ngành Hàng Chuẩn Chính Sách (Tự điền Tên Page + Hạng mục + Tiểu sử + Bài mồi)
+                    </div>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {VIA_PAGE_TEMPLATES.map((tpl) => (
+                        <button
+                          key={tpl.key}
+                          type="button"
+                          onClick={() => {
+                            const suffix = Math.floor(100 + Math.random() * 899)
+                            setStudioPageName(`${tpl.namePrefix} #${suffix}`)
+                            setStudioCategory(tpl.category)
+                            setStudioBio(tpl.bio)
+                            setStudioWarmupPost(tpl.warmupPost)
+                          }}
+                          className="rounded-lg border border-line bg-surface px-2.5 py-1 text-[11px] font-semibold text-ink hover:border-emerald-500 hover:text-emerald-700 dark:hover:text-emerald-300"
+                        >
+                          {tpl.badge}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-2.5 sm:grid-cols-2">
+                    <div>
+                      <label className="label text-xs">Tên Fanpage cần tạo *</label>
+                      <input
+                        type="text"
+                        value={studioPageName}
+                        onChange={(e) => setStudioPageName(e.target.value)}
+                        placeholder="VD: Viện Chăm Sóc Sắc Đẹp & Da Liễu #208"
+                        className="input text-xs font-semibold"
+                      />
+                    </div>
+                    <div>
+                      <label className="label text-xs">Hạng mục (Category)</label>
+                      <input
+                        type="text"
+                        value={studioCategory}
+                        onChange={(e) => setStudioCategory(e.target.value)}
+                        className="input text-xs"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="label text-xs">Đưa vào BM Trung tâm quản lý</label>
+                      <select
+                        value={studioBmId || (allBms[0]?.id ?? '')}
+                        onChange={(e) => setStudioBmId(e.target.value)}
+                        className="input text-xs"
+                      >
+                        <option value="">— Giữ ở Via cá nhân trước, đưa vào BM sau —</option>
+                        {allBms.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            🏛️ {String(b.name ?? b.id)} {b.external_id ? `(${String(b.external_id)})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="label text-xs">Tiểu sử chuẩn SEO (Tự điền vào ô Bio của Facebook)</label>
+                      <textarea
+                        rows={2}
+                        value={studioBio}
+                        onChange={(e) => setStudioBio(e.target.value)}
+                        className="input text-xs"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="label text-xs">Bài đăng mồi đầu tiên (Kèm lưu nhật ký nuôi Page)</label>
+                      <textarea
+                        rows={2}
+                        value={studioWarmupPost}
+                        onChange={(e) => setStudioWarmupPost(e.target.value)}
+                        className="input text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                    <span className="text-[11px] text-ink-muted">
+                      💡 Hệ thống sẽ: (1) Lưu Page &amp; Nhật ký Via vào PostgreSQL, (2) Mở đúng Chrome của Via đã chọn tại trang Tạo Page và (3) Extension v2.5 tự điền Tên + Hạng mục + Tiểu sử.
+                    </span>
+                    <Button
+                      size="sm"
+                      disabled={
+                        !studioPageName.trim() ||
+                        viaCreateLaunchMut.isPending ||
+                        (isBlockedQuota && !forceOverrideQuota)
+                      }
+                      onClick={() => {
+                        const chosenVia = viaQuotas.find((v) => v.via_id === activeViaId)
+                        viaCreateLaunchMut.mutate({
+                          via_id: activeViaId || String(allVias[0]?.id || ''),
+                          owner_bm_id: studioBmId || String(allBms[0]?.id || ''),
+                          page_name: studioPageName.trim(),
+                          category: studioCategory.trim(),
+                          bio_description: studioBio.trim(),
+                          warmup_post_text: studioWarmupPost.trim(),
+                          browser_profile: chosenVia?.browser_profile || 'Chrome — Default',
+                          via_label: chosenVia?.label || 'Tài Khoản Chính',
+                          network_label: chosenVia?.network_label || '',
+                          force_override: forceOverrideQuota,
+                        })
+                      }}
+                      className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 font-bold"
+                    >
+                      <Globe className="h-3.5 w-3.5" />
+                      <span>
+                        {viaCreateLaunchMut.isPending
+                          ? 'Đang lưu & khởi chạy...'
+                          : isBlockedQuota && !forceOverrideQuota
+                            ? '🔒 Đang khóa an toàn (Hãy đổi Via sạch hoặc tick xác nhận)'
+                            : '🚀 Lưu Hệ Thống & Mở Chrome Via Tự Điền Tạo Page'}
+                      </span>
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              )
+            })()}
+
+            {/* TAB 3: AUTO BATCH WARM-UP + SINGLE WARM-UP */}
+            {studioTab === 'warmup' && (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs">
+                  <div>
+                    <div className="font-bold text-emerald-800 dark:text-emerald-200">
+                      ⚡ Nuôi Page Hàng Loạt Tự Động ({underNurturedCount} Fanpage đang có &lt; 3 bài mồi)
+                    </div>
+                    <div className="text-[11px] text-ink-muted">
+                      Tự động sinh bài mồi khác nhau theo ngành hàng, ưu tiên đăng ngầm qua Meta Graph API (nếu đã đồng bộ Token Page) và ghi nhận điểm Trust vào Database.
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    disabled={underNurturedCount === 0 || batchWarmupMut.isPending}
+                    onClick={() => batchWarmupMut.mutate()}
+                    className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 font-bold"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    <span>
+                      {batchWarmupMut.isPending
+                        ? 'Đang nuôi hàng loạt...'
+                        : `⚡ 1 Chạm Nuôi Hàng Loạt ${underNurturedCount} Page Yếu Trust`}
+                    </span>
+                  </Button>
+                </div>
+
+                <div className="grid gap-4 lg:grid-cols-12">
+                  <div className="space-y-2.5 lg:col-span-5">
+                    <div className="text-xs font-bold text-ink">
+                      Hoặc chọn riêng 1 Fanpage cần Đăng Bài Mồi Nuôi Độ Trust
+                    </div>
+                    <div className="max-h-[300px] space-y-2 overflow-y-auto pr-1">
+                      {items.map((pg) => {
+                        const activePid = warmupTargetPageId || items[0]?.id || ''
+                        const isSel = pg.id === activePid
+                        const wScore = pg.warmup_score ?? 65
+                        const wPosts = pg.warmup_posts_count ?? 1
+                        return (
+                          <button
+                            key={pg.id}
+                            type="button"
+                            onClick={() => setWarmupTargetPageId(pg.id)}
+                            className={`w-full rounded-xl border p-2.5 text-left transition ${
+                              isSel
+                                ? 'border-emerald-500 bg-emerald-500/10 shadow-xs'
+                                : 'border-line bg-surface hover:border-emerald-500/40'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="truncate text-xs font-bold text-ink">{pg.name}</span>
+                              <span
+                                className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                                  wScore >= 75
+                                    ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                    : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                                }`}
+                              >
+                                🌱 Trust {wScore}% · {wPosts} bài mồi
+                              </span>
+                            </div>
+                            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-ink-muted">
+                              <span>🛡️ Via: {pg.holder_label || 'Via Tổng'}</span>
+                              <span className="font-mono text-[10px]">({pg.holder_browser_profile})</span>
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 rounded-xl border border-line bg-surface-muted/30 p-3.5 lg:col-span-7">
+                    <div>
+                      <div className="text-xs font-bold text-ink">
+                        Chọn kịch bản bài mồi tự nhiên (Tương tác sạch, không từ khóa vi phạm chính sách)
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {VIA_PAGE_TEMPLATES.map((tpl) => (
+                          <button
+                            key={tpl.key}
+                            type="button"
+                            onClick={() => setWarmupMessage(tpl.warmupPost)}
+                            className="rounded-lg border border-line bg-surface px-2.5 py-1 text-[11px] font-semibold text-ink hover:border-emerald-500"
+                          >
+                            {tpl.badge}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="label text-xs">Nội dung bài đăng nuôi Page *</label>
+                      <textarea
+                        rows={4}
+                        value={warmupMessage}
+                        onChange={(e) => setWarmupMessage(e.target.value)}
+                        className="input text-xs"
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={!warmupMessage.trim() || warmupPostMut.isPending}
+                        onClick={() => {
+                          const targetPg = items.find((x) => x.id === (warmupTargetPageId || items[0]?.id))
+                          if (!targetPg) return
+                          warmupPostMut.mutate({
+                            pageId: targetPg.id,
+                            pageName: targetPg.name,
+                            externalPageId: targetPg.external_page_id,
+                            pageUrl: targetPg.url,
+                            viaId: targetPg.holder_identity_id || '',
+                            viaLabel: targetPg.holder_label || 'Via Tổng',
+                            browserProfile: targetPg.holder_browser_profile || 'Profile 1',
+                            networkLabel: targetPg.holder_network_label || '',
+                            message: warmupMessage.trim(),
+                            postMode: 'chrome_assist',
+                          })
+                        }}
+                        className="gap-1.5 font-semibold"
+                      >
+                        <Globe className="h-3.5 w-3.5" />
+                        <span>🌐 Copy Bài + Mở Chrome Via Đăng &amp; Lưu Nhật Ký</span>
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={!warmupMessage.trim() || warmupPostMut.isPending}
+                        onClick={() => {
+                          const targetPg = items.find((x) => x.id === (warmupTargetPageId || items[0]?.id))
+                          if (!targetPg) return
+                          warmupPostMut.mutate({
+                            pageId: targetPg.id,
+                            pageName: targetPg.name,
+                            externalPageId: targetPg.external_page_id,
+                            pageUrl: targetPg.url,
+                            viaId: targetPg.holder_identity_id || '',
+                            viaLabel: targetPg.holder_label || 'Via Tổng',
+                            browserProfile: targetPg.holder_browser_profile || 'Profile 1',
+                            networkLabel: targetPg.holder_network_label || '',
+                            message: warmupMessage.trim(),
+                            postMode: 'graph_api_or_assist',
+                          })
+                        }}
+                        className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 font-bold"
+                      >
+                        <Sparkles className="h-3.5 w-3.5" />
+                        <span>⚡ Đăng Bài Mồi (Graph API / Ghi Nhật Ký Nuôi Page)</span>
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 4: PERSISTENT VIA ACTIVITY LOGS (STORED IN POSTGRESQL AUDIT_LOGS) */}
+            {studioTab === 'logs' && (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs font-bold text-ink">
+                    📜 Lịch sử hoạt động của từng Via (Lưu vĩnh viễn trong PostgreSQL — mở lại trình duyệt bất cứ lúc nào đều xem lại được)
+                  </div>
+                  <select
+                    value={logViaFilter}
+                    onChange={(e) => setLogViaFilter(e.target.value)}
+                    className="input h-8 w-auto text-xs font-semibold"
+                  >
+                    <option value="ALL">🛡️ Tất cả Via ({viaActivityLogs.length} hoạt động)</option>
+                    {viaQuotas.map((vq) => (
+                      <option key={vq.via_id} value={vq.via_id}>
+                        {vq.label} ({vq.browser_profile})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="max-h-[320px] overflow-y-auto rounded-xl border border-line">
+                  <table className="w-full border-collapse text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-line bg-surface-muted/70 text-[11px] font-bold text-ink-muted">
+                        <th className="px-3 py-2">Thời gian</th>
+                        <th className="px-3 py-2">Tài khoản Via &amp; Hồ sơ Chrome</th>
+                        <th className="px-3 py-2">Hoạt động</th>
+                        <th className="px-3 py-2">Fanpage mục tiêu</th>
+                        <th className="px-3 py-2">Chi tiết lưu trữ</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-line">
+                      {viaActivityLogs
+                        .filter((lg) => logViaFilter === 'ALL' || lg.via_id === logViaFilter)
+                        .map((lg) => (
+                          <tr key={lg.id} className="hover:bg-surface-muted/30">
+                            <td className="whitespace-nowrap px-3 py-2 font-mono text-[11px] text-ink-muted">
+                              {new Date(lg.created_at).toLocaleString('vi-VN')}
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="font-bold text-ink">🛡️ {lg.via_label}</div>
+                              <div className="font-mono text-[10px] text-ink-muted">💻 {lg.browser_profile}</div>
+                            </td>
+                            <td className="px-3 py-2">
+                              <span
+                                className={`inline-block rounded px-2 py-0.5 text-[11px] font-bold ${
+                                  lg.action === 'page.via_created'
+                                    ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                  : lg.action === 'page.warmup_posted'
+                                    ? 'bg-brand-light text-brand-text'
+                                    : 'bg-surface-muted text-ink'
+                                }`}
+                              >
+                                {lg.action_label}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 font-semibold text-ink">{lg.page_name}</td>
+                            <td className="px-3 py-2 text-[11px] text-ink-muted">{lg.detail}</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {/* 5 KPI CARDS (Hidden when embedded inside /assets to prevent duplicate KPI rows) */}
