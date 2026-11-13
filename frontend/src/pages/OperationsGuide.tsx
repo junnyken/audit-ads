@@ -92,7 +92,7 @@ const ANTI_DIE_SLIDES = [
     summary:
       'Từ 2025–2026, Facebook liên tục bật bảng Windows Security đòi Khóa truy cập (Passkey) hoặc gạ tạo Passkey khi đăng nhập Via, làm kẹt cứng Via vào 1 máy tính:',
     bullets: [
-      '🚫 Khiên Chặn Passkey Tự Động (passkey_shield.js): Tiện ích AdsOps Companion v2.4 Pro khóa thẳng hàm WebAuthn (PublicKeyCredential) ngay trước khi trang Facebook tải xong — bảng Windows Hello / QR Passkey sẽ KHÔNG BAO GIỜ nhảy lên nữa, ép Facebook chuyển thẳng về ô nhập mã 2FA 6 số.',
+      '🚫 Khiên Chặn Passkey Tự Động (passkey_shield.js): Tiện ích AdsOps Companion v2.5 Pro khóa thẳng hàm WebAuthn (PublicKeyCredential) ngay trước khi trang Facebook tải xong — bảng Windows Hello / QR Passkey sẽ KHÔNG BAO GIỜ nhảy lên nữa, ép Facebook chuyển thẳng về ô nhập mã 2FA 6 số.',
       '🗑️ Nút 1 Chạm «🚫 Quét & Xoá Passkey» trên bảng Via: Bấm 1 nút trên bảng Tài khoản Facebook (hoặc trong Popup tiện ích), trình duyệt sẽ mở thẳng trang Quản lý Passkey của Meta và tự động phát hiện + bấm Xoá sạch Passkey đang lưu.',
       '⚡ Tự động đóng bảng gạ Tạo Passkey & Tự bấm «Thử cách khác → Ứng dụng xác thực» nếu gặp Via cũ bị chủ trước cài Passkey.',
     ],

@@ -27,7 +27,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/primitiv
 import {
   type ExtensionBundledAccount,
   WORKSTATION_REAL_CHROME_PROFILES,
+  downloadAllViasExtensionsBundleZip,
   downloadChromeExtensionZip,
+  resolveChromeProfileDirectory,
   downloadSwitchyOmegaConfig,
   downloadWindowsChromeLauncherBat,
   fetchRealLocalChromeProfiles,
@@ -289,14 +291,14 @@ export default function ChromeExtension() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-3xl space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="info">Tiện ích Google Chrome chính thức · v2.4 Pro (Anti-Passkey)</Badge>
+              <Badge tone="info">Tiện ích Google Chrome chính thức · v2.5 Pro (Anti-Passkey + Auto Tạo Page)</Badge>
               <Badge tone="positive">Manifest V3 · Chặn &amp; Tự Xoá Passkey 1 Chạm + 2FA Tự Điền + Khóa WebRTC</Badge>
             </div>
             <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-ink">
               Trung tâm Tiện ích Google Chrome («AdsOps Companion Pro»)
             </h1>
             <p className="text-sm leading-relaxed text-ink-muted">
-              Đóng gói riêng file <code>.zip</code> cho từng Hồ sơ Chrome của Via: tích hợp sẵn <strong>Danh sách TKQC &amp; Dư nợ thật</strong>, <strong>Bộ lấy mã 2FA 6 số &amp; Tự điền vào Facebook</strong>, <strong>Khóa chống rò rỉ IP thật qua WebRTC</strong>, <strong>Xuất/Nạp Cookie &amp; Bắt Token EAAB</strong> cùng <strong>Thanh HUD cảnh báo Lớp Via</strong>.
+              Đóng gói riêng file <code>.zip</code> cho từng Hồ sơ Chrome của Via: tích hợp sẵn <strong>Danh sách TKQC &amp; Dư nợ thật</strong>, <strong>Bộ lấy mã 2FA 6 số &amp; Tự điền vào Facebook</strong>, <strong>Khóa chống rò rỉ IP thật qua WebRTC</strong>, <strong>Xuất/Nạp Cookie &amp; Bắt Token EAAB</strong> <strong>Tự điền Tạo Fanpage giãn nhịp chống Checkpoint</strong> cùng <strong>Thanh HUD cảnh báo Lớp Via</strong>.
             </p>
           </div>
 
@@ -315,8 +317,65 @@ export default function ChromeExtension() {
               }
             >
               <Download className="mr-1.5 h-4 w-4" aria-hidden="true" />
-              <span>Tải Gói Tiện Ích (.zip) Cho {selectedViaLabel}</span>
+              <span>Tải Gói Tiện Ích v2.5 (.zip) Cho {selectedViaLabel}</span>
             </Button>
+            {vias.length > 0 && (
+              <Button
+                type="button"
+                variant="secondary"
+                className="border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300 font-bold"
+                onClick={() => {
+                  const specs = vias.map((v) => {
+                    const vLbl = String(v.label ?? 'Via')
+                    const vLblLow = vLbl.toLowerCase()
+                    const vSum = summaryById.get(v.id)
+                    const folder = resolveChromeProfileDirectory(
+                      String(v.browser_profile_label ?? ''),
+                      vLbl,
+                    )
+                    const matchedAccs = allAccounts.filter(
+                      (acc) =>
+                        Array.isArray(acc?.facebook_identities) &&
+                        acc.facebook_identities.some(
+                          (fid) => fid?.id === v.id || String(fid?.label || '').toLowerCase() === vLblLow,
+                        ),
+                    )
+                    const accPool = matchedAccs.length > 0 ? matchedAccs : allAccounts
+                    const bundled: ExtensionBundledAccount[] = accPool.map((a) => ({
+                      name: a.display_name || a.external_account_id || 'TKQC',
+                      external_account_id: a.external_account_id || '',
+                      status: a.status,
+                      currency: a.currency || 'VND',
+                      balance_raw: a.billing_meta?.balance_raw ?? a.spend_periods?.balance_raw ?? null,
+                      billing_threshold_raw: a.billing_meta?.billing_threshold_raw ?? null,
+                      next_bill_date: a.billing_meta?.next_bill_date ?? null,
+                      meta_daily_limit_raw: a.billing_meta?.meta_daily_limit_raw ?? null,
+                      payment_card_display: a.billing_meta?.payment_card_display ?? null,
+                      business_legal_name: a.billing_meta?.business_legal_name ?? null,
+                      bm_name: a.business_manager_name ?? null,
+                    }))
+                    return {
+                      viaName: vLbl,
+                      profileDir: folder,
+                      rawProxy: cleanRealProxy(v.network_label),
+                      bundledAccounts: bundled,
+                      twoFaSecret: extractBase32Secret(v.vault_reference),
+                      viaTier: inferTierFromVia(
+                        v.notes,
+                        v.label,
+                        vSum?.business_manager_count ?? 0,
+                        vSum?.ad_account_count ?? 0,
+                      ),
+                    }
+                  })
+                  downloadAllViasExtensionsBundleZip(specs)
+                }}
+                title="Đóng gói sẵn thư mục AdsOps Companion v2.5 riêng cho từng Via vào chung 1 file .zip để cài nhanh hàng loạt"
+              >
+                <Layers className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                <span>📦 Tải Trọn Bộ v2.5 Cho Tất Cả {vias.length} Via (.zip)</span>
+              </Button>
+            )}
             <Button
               type="button"
               variant="secondary"
@@ -641,7 +700,7 @@ export default function ChromeExtension() {
                     AO
                   </span>
                   <div>
-                    <div className="text-xs font-extrabold text-ink">AdsOps Companion v2.4 Pro (Anti-Passkey)</div>
+                    <div className="text-xs font-extrabold text-ink">AdsOps Companion v2.5 Pro (Anti-Passkey + Auto Tạo Page)</div>
                     <div className="text-[10px] text-ink-muted">
                       Hồ sơ: {shortFolder} · Via: {selectedViaLabel} (
                       {viaTier === 'vault' ? '🛡️ Via Tổng' : viaTier === 'standby' ? '🌱 Dự Phòng' : '🚀 Lên Camp'})

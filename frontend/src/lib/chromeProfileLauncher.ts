@@ -428,11 +428,11 @@ function crc32(bytes: Uint8Array): number {
   return (c ^ 0xffffffff) >>> 0
 }
 
-function buildStoreZip(files: Array<{ name: string; content: string }>): Blob {
+export function buildStoreZip(files: Array<{ name: string; content: string | Uint8Array }>): Blob {
   const encoder = new TextEncoder()
   const entries = files.map((f) => {
     const nameBytes = encoder.encode(f.name)
-    const dataBytes = encoder.encode(f.content)
+    const dataBytes = typeof f.content === 'string' ? encoder.encode(f.content) : f.content
     const crc = crc32(dataBytes)
     return { nameBytes, dataBytes, crc }
   })
@@ -573,14 +573,15 @@ export interface ExtensionBundledAccount {
   bm_name?: string | null
 }
 
-export function downloadChromeExtensionZip(
+export function buildExtensionFilesForVia(
+  folderRoot = 'AdsOps-Chrome-Extension',
   viaName = 'Tài Khoản Chính',
   profileDir = 'Default',
   rawProxy = '',
   bundledAccounts: ExtensionBundledAccount[] = [],
   twoFaSecret = '',
   viaTier: 'vault' | 'camp' | 'standby' = 'camp',
-): void {
+): Array<{ name: string; content: string }> {
   const parsed = parseProxyString(rawProxy)
   const hasProxy = Boolean(parsed?.host)
 
@@ -592,7 +593,7 @@ export function downloadChromeExtensionZip(
     short_name: 'AdsOps Companion Pro',
     version: '2.5.0',
     description:
-      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.4 Pro: Chặn & Tự Xoá Passkey, Sinh mã 2FA 6 số tự điền, Khóa rò rỉ WebRTC IP, Xuất/Nhập Cookie, Bắt Token EAAB và HUD cảnh báo Lớp Via.',
+      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.5 Pro: Chặn & Tự Xoá Passkey, Sinh mã 2FA 6 số tự điền, Khóa rò rỉ WebRTC IP, Xuất/Nhập Cookie, Bắt Token EAAB Tự điền Tạo Fanpage giãn nhịp và HUD cảnh báo Lớp Via.',
     permissions: [
       'proxy',
       'privacy',
@@ -650,7 +651,7 @@ export function downloadChromeExtensionZip(
 
   // Runs in MAIN world at document_start BEFORE Facebook's scripts load:
   // Completely blocks Windows Hello / WebAuthn / Passkey popup from ever appearing!
-  const passkeyShieldJs = `// AdsOps Companion Pro v2.4 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
+  const passkeyShieldJs = `// AdsOps Companion Pro v2.5 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
 (function() {
   try {
     if (window.PublicKeyCredential) {
@@ -1370,7 +1371,7 @@ refreshIp();
 tickOtp();`
 
   const readmeTxt = [
-    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.4 PRO - ANTI-PASSKEY)',
+    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.5 PRO - ANTI-PASSKEY + AUTO PAGE)',
     '===================================================================================',
     'Bước 1: Giải nén file .zip này ra một thư mục cố định (ví dụ: Desktop\\AdsOps-Chrome-Extension).',
     'Bước 2: Mở trình duyệt Google Chrome của Via -> gõ vào thanh địa chỉ: chrome://extensions',
@@ -1379,8 +1380,7 @@ tickOtp();`
     'Bước 5: Bấm biểu tượng mảnh ghép trên góc phải Chrome -> Bấm nút Ghim (Pin) cạnh "AdsOps Companion Pro".',
   ].join('\r\n')
 
-  const slug = profileDir.replace(/[^a-zA-Z0-9_-]/g, '-')
-  const contentJs = `// AdsOps Companion Pro v2.4 — Auto-Detect & 1-Click Auto-Delete Passkey + Billing Scanner + Floating HUD
+  const contentJs = `// AdsOps Companion Pro v2.5 — Auto-Detect & 1-Click Auto-Delete Passkey + Billing Scanner + Floating HUD
 (function() {
   let lastSyncedAct = "";
   let autoDeletePasskeyTriggered = false;
@@ -1677,20 +1677,251 @@ tickOtp();`
   }, 2200);
 })();`
 
-  const zipBlob = buildStoreZip([
-    { name: 'AdsOps-Chrome-Extension/manifest.json', content: JSON.stringify(manifestObj, null, 2) },
-    { name: 'AdsOps-Chrome-Extension/passkey_shield.js', content: passkeyShieldJs },
-    { name: 'AdsOps-Chrome-Extension/background.js', content: backgroundJs },
-    { name: 'AdsOps-Chrome-Extension/content.js', content: contentJs },
-    { name: 'AdsOps-Chrome-Extension/popup.html', content: popupHtml },
-    { name: 'AdsOps-Chrome-Extension/popup.js', content: popupJs },
-    { name: 'AdsOps-Chrome-Extension/HUONG-DAN-CAI-DAT.txt', content: readmeTxt },
-  ])
+  return [
+    { name: `${folderRoot}/manifest.json`, content: JSON.stringify(manifestObj, null, 2) },
+    { name: `${folderRoot}/passkey_shield.js`, content: passkeyShieldJs },
+    { name: `${folderRoot}/background.js`, content: backgroundJs },
+    { name: `${folderRoot}/content.js`, content: contentJs },
+    { name: `${folderRoot}/popup.html`, content: popupHtml },
+    { name: `${folderRoot}/popup.js`, content: popupJs },
+    { name: `${folderRoot}/HUONG-DAN-CAI-DAT.txt`, content: readmeTxt },
+  ]
+}
 
+export function downloadChromeExtensionZip(
+  viaName = 'Tài Khoản Chính',
+  profileDir = 'Default',
+  rawProxy = '',
+  bundledAccounts: ExtensionBundledAccount[] = [],
+  twoFaSecret = '',
+  viaTier: 'vault' | 'camp' | 'standby' = 'camp',
+): void {
+  const slug = profileDir.replace(/[^a-zA-Z0-9_-]/g, '-')
+  const zipBlob = buildStoreZip(
+    buildExtensionFilesForVia(
+      'AdsOps-Chrome-Extension',
+      viaName,
+      profileDir,
+      rawProxy,
+      bundledAccounts,
+      twoFaSecret,
+      viaTier,
+    ),
+  )
   const url = URL.createObjectURL(zipBlob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `AdsOps-Chrome-Extension-${slug}.zip`
+  a.download = `AdsOps-Chrome-Extension-v2.5-${slug}.zip`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+export interface ViaExtensionBundleSpec {
+  viaName: string
+  profileDir: string
+  rawProxy: string
+  bundledAccounts: ExtensionBundledAccount[]
+  twoFaSecret: string
+  viaTier: 'vault' | 'camp' | 'standby'
+}
+
+export function downloadAllViasExtensionsBundleZip(items: ViaExtensionBundleSpec[]): void {
+  if (!Array.isArray(items) || items.length === 0) return
+  const allFiles: Array<{ name: string; content: string | Uint8Array }> = []
+  const guideLines: string[] = [
+    'TRON BO TIEN ICH ADSOPS COMPANION v2.5 PRO CHO TOAN BO DAN VIA',
+    '================================================================',
+    `Tong so thu muc Extension da dong goi: ${items.length} Via`,
+    '',
+    'Cach cai nhanh:',
+    '1. Giai nen file .zip nay ra mot thu muc co dinh (VD: Desktop\AdsOps-Extensions-v2.5).',
+    '2. Mo Chrome cua tung Via -> chrome://extensions -> Bat Developer mode -> Load unpacked -> chon dung thu muc ten cua Via do ben duoi:',
+    '',
+  ]
+
+  items.forEach((spec, idx) => {
+    const slug = spec.profileDir.replace(/[^a-zA-Z0-9_-]/g, '-')
+    const folderName = `${String(idx + 1).padStart(2, '0')}-${slug}-${spec.viaName.replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 28)}`
+    guideLines.push(`  - [${idx + 1}] Via "${spec.viaName}" (${spec.profileDir}) -> Thu muc: ${folderName}`)
+    allFiles.push(
+      ...buildExtensionFilesForVia(
+        folderName,
+        spec.viaName,
+        spec.profileDir,
+        spec.rawProxy,
+        spec.bundledAccounts,
+        spec.twoFaSecret,
+        spec.viaTier,
+      ),
+    )
+  })
+
+  allFiles.unshift({
+    name: 'HUONG-DAN-CAI-NHANH-DAN-VIA.txt',
+    content: guideLines.join('\r\n'),
+  })
+
+  const zipBlob = buildStoreZip(allFiles)
+  const url = URL.createObjectURL(zipBlob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `AdsOps-Tron-Bo-Extension-v2.5-${items.length}Via.zip`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+const ANTI_HASH_PALETTES = [
+  ['#0f172a', '#059669', '#ecfdf5'],
+  ['#1e1b4b', '#4f46e5', '#eef2ff'],
+  ['#4c0519', '#e11d48', '#fff1f2'],
+  ['#082f49', '#0284c7', '#f0f9ff'],
+  ['#14532d', '#16a34a', '#f0fdf4'],
+  ['#451a03', '#d97706', '#fffbeb'],
+]
+
+async function renderUniquePngBytes(
+  width: number,
+  height: number,
+  pageName: string,
+  category: string,
+  palette: string[],
+  isCover: boolean,
+  seedOffset: number,
+): Promise<Uint8Array> {
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return new Uint8Array(0)
+
+  const [bgDark, accent, lightText] = palette
+  const grad = ctx.createLinearGradient(0, 0, width, height)
+  grad.addColorStop(0, bgDark)
+  grad.addColorStop(1, accent)
+  ctx.fillStyle = grad
+  ctx.fillRect(0, 0, width, height)
+
+  // Subtle decorative geometry shifted uniquely per Page
+  ctx.save()
+  ctx.globalAlpha = 0.14
+  ctx.fillStyle = '#ffffff'
+  ctx.beginPath()
+  ctx.arc(width * (isCover ? 0.85 : 0.78) + (seedOffset % 37), height * 0.28 + (seedOffset % 23), width * 0.24, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.beginPath()
+  ctx.arc(width * 0.16, height * 0.82 - (seedOffset % 19), width * 0.18, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.restore()
+
+  const cleanTitle = (pageName || 'Brand Page').trim()
+  const initials =
+    cleanTitle
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0]?.toUpperCase() || '')
+      .join('') || 'FB'
+
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+
+  if (!isCover) {
+    // 800x800 crisp monogram Avatar + short label
+    ctx.strokeStyle = lightText
+    ctx.lineWidth = 10
+    ctx.beginPath()
+    ctx.arc(width / 2, height * 0.44, 170, 0, Math.PI * 2)
+    ctx.stroke()
+
+    ctx.fillStyle = lightText
+    ctx.font = '800 150px system-ui, -apple-system, Segoe UI, sans-serif'
+    ctx.fillText(initials, width / 2, height * 0.45)
+
+    ctx.font = '700 34px system-ui, -apple-system, Segoe UI, sans-serif'
+    const shortLine = cleanTitle.length > 28 ? `${cleanTitle.slice(0, 26)}…` : cleanTitle
+    ctx.fillText(shortLine, width / 2, height * 0.78)
+  } else {
+    // 1640x624 Cover banner with title & category subtitle
+    ctx.fillStyle = lightText
+    ctx.font = '800 66px system-ui, -apple-system, Segoe UI, sans-serif'
+    const mainTitle = cleanTitle.length > 42 ? `${cleanTitle.slice(0, 40)}…` : cleanTitle
+    ctx.fillText(mainTitle, width / 2, height * 0.44)
+
+    ctx.globalAlpha = 0.88
+    ctx.font = '600 34px system-ui, -apple-system, Segoe UI, sans-serif'
+    const subCat = (category || 'Thương hiệu chính hãng · Tư vấn tận tâm').split('(')[0].trim()
+    ctx.fillText(subCat, width / 2, height * 0.62)
+  }
+
+  // Anti-Hash micro-pixel jitter (16 randomized corner pixels with +-1 RGB delta so MD5/SHA256 is 100% unique)
+  const imgData = ctx.getImageData(0, 0, Math.min(32, width), Math.min(32, height))
+  for (let i = 0; i < 16; i++) {
+    const pxIdx = (Math.floor(Math.random() * 256) % (imgData.data.length / 4)) * 4
+    imgData.data[pxIdx] = (imgData.data[pxIdx] + ((i % 3) + 1)) % 255
+    imgData.data[pxIdx + 1] = (imgData.data[pxIdx + 1] + ((seedOffset + i) % 5)) % 255
+  }
+  ctx.putImageData(imgData, 0, 0)
+
+  return new Promise<Uint8Array>((resolve) => {
+    canvas.toBlob(
+      async (blob) => {
+        if (!blob) {
+          resolve(new Uint8Array(0))
+          return
+        }
+        const buf = await blob.arrayBuffer()
+        resolve(new Uint8Array(buf))
+      },
+      'image/png',
+      0.95,
+    )
+  })
+}
+
+export async function downloadUniquePageMediaZip(
+  pages: Array<{ page_name: string; category?: string }>,
+): Promise<void> {
+  if (!Array.isArray(pages) || pages.length === 0) return
+  const zipEntries: Array<{ name: string; content: string | Uint8Array }> = [
+    {
+      name: 'HUONG-DAN-SU-DUNG-ANH-CHONG-TRUNG-HASH.txt',
+      content: [
+        'BO ANH AVATAR (800x800) & ANH BIA COVER (1640x624) DOC BAN CHONG QUET TRUNG LAP',
+        '===============================================================================',
+        'Moi bo anh trong file .zip nay duoc ve lai va bien doi ma hash (pixel jitter) rieng biet cho tung Fanpage.',
+        'Ban chi can tai len Facebook tuong ung voi tung Page sau khi tao xong de tang do Trust tu nhien.',
+      ].join('\r\n'),
+    },
+  ]
+
+  for (let i = 0; i < pages.length; i++) {
+    const pg = pages[i]
+    const palette = ANTI_HASH_PALETTES[(i + Math.floor(Math.random() * ANTI_HASH_PALETTES.length)) % ANTI_HASH_PALETTES.length]
+    const slug = (pg.page_name || `page-${i + 1}`)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 36) || `page-${i + 1}`
+
+    const seed = Math.floor(Math.random() * 1000) + i * 31
+    const avatarBytes = await renderUniquePngBytes(800, 800, pg.page_name, pg.category || '', palette, false, seed)
+    const coverBytes = await renderUniquePngBytes(1640, 624, pg.page_name, pg.category || '', palette, true, seed + 17)
+
+    const prefix = String(i + 1).padStart(2, '0')
+    zipEntries.push({ name: `${prefix}-${slug}/${prefix}-${slug}-Avatar-800x800.png`, content: avatarBytes })
+    zipEntries.push({ name: `${prefix}-${slug}/${prefix}-${slug}-Cover-1640x624.png`, content: coverBytes })
+  }
+
+  const zipBlob = buildStoreZip(zipEntries)
+  const url = URL.createObjectURL(zipBlob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `AdsOps-Bo-Anh-Avatar-Cover-DocBan-${pages.length}Page.zip`
   document.body.appendChild(a)
   a.click()
   a.remove()

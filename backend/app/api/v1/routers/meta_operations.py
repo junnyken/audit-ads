@@ -3171,6 +3171,7 @@ def _build_pages_summary(
     overrides_by_page: dict[str, dict[str, Any]] = {}
     warmup_count_by_page: dict[str, int] = {}
     last_warmup_by_page: dict[str, str] = {}
+    via_created_dt_by_page: dict[str, datetime] = {}
     all_page_audit_rows = (
         session.execute(
             sa.select(AuditLog)
@@ -3197,6 +3198,9 @@ def _build_pages_summary(
                 warmup_count_by_page[row.entity_id] = warmup_count_by_page.get(row.entity_id, 0) + 1
                 if row.created_at:
                     last_warmup_by_page[row.entity_id] = row.created_at.isoformat()
+            elif row.action == "page.via_created" and row.created_at:
+                dt_c = row.created_at if row.created_at.tzinfo else row.created_at.replace(tzinfo=UTC)
+                via_created_dt_by_page[row.entity_id] = dt_c
 
     items: list[dict[str, Any]] = []
     live_pages = 0
@@ -3386,6 +3390,23 @@ def _build_pages_summary(
                 ),
                 "last_warmup_at": last_warmup_by_page.get(str(p.id)) or ov.get("last_warmup_at") or (p.updated_at.isoformat() if p.updated_at else None),
                 "bio_description": str(ov.get("bio_description") or p.notes or ""),
+                "is_unsynced_draft": not bool(p.external_page_id),
+                "via_created_at": via_created_dt_by_page[str(p.id)].isoformat() if str(p.id) in via_created_dt_by_page else None,
+                "soak_remaining_hours": (
+                    round(max(0.0, 48.0 - max(0.0, (datetime.now(UTC) - via_created_dt_by_page[str(p.id)]).total_seconds() / 3600.0)), 1)
+                    if str(p.id) in via_created_dt_by_page
+                    and (datetime.now(UTC) - via_created_dt_by_page[str(p.id)]).total_seconds() < 48.0 * 3600.0
+                    else 0.0
+                ),
+                "ads_ready": bool(
+                    health_status == "LIVE"
+                    and bool(p.external_page_id)
+                    and (
+                        str(p.id) not in via_created_dt_by_page
+                        or (datetime.now(UTC) - via_created_dt_by_page[str(p.id)]).total_seconds() >= 48.0 * 3600.0
+                    )
+                    and int(warmup_count_by_page.get(str(p.id), 0) or ov.get("warmup_posts_count") or (3 if (followers_count or 0) >= 50 else 1 if health_status == "LIVE" else 0)) >= 3
+                ),
             }
         )
 
@@ -3593,6 +3614,30 @@ def _build_pages_summary(
             }
         )
 
+    unproxied_vias_count = sum(1 for v in via_quotas if not (v.get("network_label") or "").strip())
+    proxy_groups: dict[str, list[str]] = {}
+    for v in via_quotas:
+        net_s = (v.get("network_label") or "").strip()
+        if net_s:
+            proxy_groups.setdefault(net_s, []).append(str(v.get("label") or ""))
+    overloaded_proxy_clusters = [
+        {"proxy": prx, "via_count": len(lbls), "via_labels": lbls}
+        for prx, lbls in proxy_groups.items()
+        if len(lbls) > 3
+    ]
+    ip_cluster_advisory: str | None = None
+    if overloaded_proxy_clusters:
+        top_c = overloaded_proxy_clusters[0]
+        ip_cluster_advisory = (
+            f"🌐 Cảnh báo cụm IP/Proxy: Proxy «{top_c['proxy']}» đang gánh {top_c['via_count']} Via "
+            "(khuyến nghị tối đa 2–3 Via / 1 Proxy tĩnh để chống liên đới IP)."
+        )
+    elif len(via_quotas) >= 8 and unproxied_vias_count > 5:
+        ip_cluster_advisory = (
+            f"🌐 Khuyến nghị hạ tầng IP: Đang có {unproxied_vias_count}/{len(via_quotas)} Via dùng chung Mạng gốc "
+            "(chưa gắn Proxy tĩnh riêng). Chạy giãn cách 18s trên dưới 8 Via vẫn ổn, nhưng khi mở rộng >10 Via nên tách 2–3 Via / 1 Proxy dân cư tĩnh."
+        )
+
     quota_alerts_summary = {
         "total_vias": len(via_quotas),
         "safe_vias_count": sum(1 for v in via_quotas if v["quota_status"] in ("SAFE", "NEAR_LIMIT")),
@@ -3600,6 +3645,9 @@ def _build_pages_summary(
         "cooldown_vias_count": sum(1 for v in via_quotas if v["quota_status"] == "COOLDOWN"),
         "limit_reached_vias_count": sum(1 for v in via_quotas if v["quota_status"] == "LIMIT_REACHED"),
         "max_safe_batch_now": sum(1 for v in via_quotas if v["quota_status"] in ("SAFE", "NEAR_LIMIT")),
+        "unproxied_vias_count": unproxied_vias_count,
+        "overloaded_proxy_clusters": overloaded_proxy_clusters,
+        "ip_cluster_advisory": ip_cluster_advisory,
         "flagged_vias": [
             {
                 "via_id": v["via_id"],
