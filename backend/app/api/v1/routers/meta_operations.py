@@ -3156,29 +3156,36 @@ def _build_pages_summary(
         links_by_page.setdefault(lnk.asset_id, []).append(lnk)
 
     page_ids_str = [str(p.id) for p in pages]
+    page_by_id_str: dict[str, Page] = {str(p.id): p for p in pages}
     overrides_by_page: dict[str, dict[str, Any]] = {}
-    if page_ids_str:
-        audit_rows = (
-            session.execute(
-                sa.select(AuditLog)
-                .where(
-                    AuditLog.workspace_id == workspace_id,
-                    AuditLog.entity_type == "page",
-                    AuditLog.entity_id.in_(page_ids_str),
-                    AuditLog.action.in_(("page.meta_synced", "page.meta_updated")),
-                )
-                .order_by(AuditLog.created_at.asc())
+    warmup_count_by_page: dict[str, int] = {}
+    last_warmup_by_page: dict[str, str] = {}
+    all_page_audit_rows = (
+        session.execute(
+            sa.select(AuditLog)
+            .where(
+                AuditLog.workspace_id == workspace_id,
+                AuditLog.entity_type == "page",
+                AuditLog.action.in_(
+                    ("page.meta_synced", "page.meta_updated", "page.via_created", "page.warmup_posted")
+                ),
             )
-            .scalars()
-            .all()
+            .order_by(AuditLog.created_at.asc())
         )
-        for row in audit_rows:
-            meta = row.metadata_json or row.after_json or {}
-            if isinstance(meta, dict):
-                cur = overrides_by_page.setdefault(row.entity_id, {})
-                for k, v in meta.items():
-                    if v is not None:
-                        cur[k] = v
+        .scalars()
+        .all()
+    )
+    for row in all_page_audit_rows:
+        meta = row.metadata_json or row.after_json or {}
+        if isinstance(meta, dict) and row.entity_id:
+            cur = overrides_by_page.setdefault(row.entity_id, {})
+            for k, v in meta.items():
+                if v is not None:
+                    cur[k] = v
+            if row.action == "page.warmup_posted":
+                warmup_count_by_page[row.entity_id] = warmup_count_by_page.get(row.entity_id, 0) + 1
+                if row.created_at:
+                    last_warmup_by_page[row.entity_id] = row.created_at.isoformat()
 
     items: list[dict[str, Any]] = []
     live_pages = 0
@@ -3347,6 +3354,197 @@ def _build_pages_summary(
                 "restricted_ad_account_count": restricted_acc_count,
                 "contagion_risk": contagion_risk,
                 "last_synced_at": ov.get("last_synced_at") or (p.updated_at.isoformat() if p.updated_at else None),
+                "warmup_posts_count": int(warmup_count_by_page.get(str(p.id), 0) or ov.get("warmup_posts_count") or (3 if (followers_count or 0) >= 50 else 1 if health_status == "LIVE" else 0)),
+                "warmup_score": min(
+                    100,
+                    (35 if health_status == "LIVE" else 10)
+                    + min(40, int(warmup_count_by_page.get(str(p.id), 0) or (3 if (followers_count or 0) >= 50 else 1 if health_status == "LIVE" else 0)) * 15)
+                    + (15 if (followers_count or 0) >= 20 else 5 if (followers_count or 0) > 0 else 0)
+                    + (10 if owner_bm is not None else 0),
+                ),
+                "warmup_stage": (
+                    "READY"
+                    if (
+                        health_status == "LIVE"
+                        and (
+                            int(warmup_count_by_page.get(str(p.id), 0)) >= 3
+                            or (followers_count or 0) >= 50
+                        )
+                    )
+                    else ("NURTURING" if health_status == "LIVE" else "NEW_RAW")
+                ),
+                "last_warmup_at": last_warmup_by_page.get(str(p.id)) or ov.get("last_warmup_at") or (p.updated_at.isoformat() if p.updated_at else None),
+                "bio_description": str(ov.get("bio_description") or p.notes or ""),
+            }
+        )
+
+    # Compute per-Via Page Creation Quotas & Persistent Via Activity Logs
+    now_utc = datetime.now(UTC)
+    day_ago = now_utc - timedelta(hours=24)
+    week_ago = now_utc - timedelta(days=7)
+
+    holding_by_via: dict[str, list[str]] = {}
+    for it in items:
+        hid = it.get("holder_identity_id")
+        if hid:
+            holding_by_via.setdefault(str(hid), []).append(str(it.get("name") or ""))
+
+    created_24h_by_via: dict[str, int] = {}
+    created_7d_by_via: dict[str, int] = {}
+    warmup_by_via: dict[str, int] = {}
+    last_act_by_via: dict[str, str] = {}
+    via_activity_logs: list[dict[str, Any]] = []
+
+    for row in reversed(all_page_audit_rows):
+        meta = row.metadata_json or row.after_json or {}
+        if not isinstance(meta, dict):
+            continue
+        row_dt = row.created_at
+        if row_dt is not None and row_dt.tzinfo is None:
+            row_dt = row_dt.replace(tzinfo=UTC)
+        pg_obj = page_by_id_str.get(str(row.entity_id or ""))
+        pg_item = next((x for x in items if x["id"] == str(row.entity_id or "")), None)
+
+        via_id_str = str(
+            meta.get("via_id")
+            or meta.get("holder_identity_id")
+            or (pg_item.get("holder_identity_id") if pg_item else "")
+            or ""
+        )
+        via_obj = ident_by_id.get(via_id_str) if via_id_str else default_holder
+        if via_obj and not via_id_str:
+            via_id_str = str(via_obj.id)
+
+        via_label_str = str(
+            meta.get("via_label")
+            or (via_obj.label if via_obj else "")
+            or (pg_item.get("holder_label") if pg_item else "")
+            or "Via Quản trị"
+        )
+        browser_prof_str = str(
+            meta.get("browser_profile")
+            or (via_obj.browser_profile_label if via_obj else "")
+            or (pg_item.get("holder_browser_profile") if pg_item else "")
+            or "Chrome Profile"
+        )
+        page_name_str = str(
+            meta.get("page_name")
+            or (pg_obj.name if pg_obj else "")
+            or (pg_item.get("name") if pg_item else "")
+            or "Fanpage"
+        )
+        cat_str = str(
+            meta.get("category")
+            or (pg_obj.category if pg_obj else "")
+            or (pg_item.get("category") if pg_item else "")
+            or "Trang Thương hiệu"
+        )
+
+        if via_id_str and row_dt:
+            iso_dt = row_dt.isoformat()
+            if via_id_str not in last_act_by_via or iso_dt > last_act_by_via[via_id_str]:
+                last_act_by_via[via_id_str] = iso_dt
+
+        if row.action == "page.via_created" and via_id_str and row_dt:
+            if row_dt >= day_ago:
+                created_24h_by_via[via_id_str] = created_24h_by_via.get(via_id_str, 0) + 1
+            if row_dt >= week_ago:
+                created_7d_by_via[via_id_str] = created_7d_by_via.get(via_id_str, 0) + 1
+        elif row.action == "page.warmup_posted" and via_id_str:
+            warmup_by_via[via_id_str] = warmup_by_via.get(via_id_str, 0) + 1
+
+        if len(via_activity_logs) < 60:
+            if row.action == "page.via_created":
+                action_label = "🌱 Tạo Fanpage mới qua Via"
+                detail_txt = f"Khởi tạo Page «{page_name_str}» ({cat_str}) trên {browser_prof_str}"
+            elif row.action == "page.warmup_posted":
+                msg_preview = str(meta.get("message") or "Đăng bài tương tác nuôi Page chuẩn chính sách")[:110]
+                mode_lbl = "Meta Graph API" if meta.get("delivery_mode") == "GRAPH_API_PUBLISHED" else "Chrome Via"
+                action_label = f"✍️ Đăng bài mồi nuôi Page ({mode_lbl})"
+                detail_txt = f"Page «{page_name_str}»: {msg_preview}"
+            elif row.action == "page.meta_updated":
+                action_label = "🛡️ Phân quyền BM & Via giữ Page"
+                detail_txt = f"Cập nhật cấu hình cách ly Page «{page_name_str}» cho {via_label_str}"
+            else:
+                action_label = "🔄 Đồng bộ & Quét sức khỏe Page"
+                detail_txt = f"Kiểm tra trạng thái Live Page «{page_name_str}» ({meta.get('health_status') or 'LIVE'})"
+
+            via_activity_logs.append(
+                {
+                    "id": str(row.id),
+                    "created_at": row_dt.isoformat() if row_dt else now_utc.isoformat(),
+                    "action": row.action,
+                    "action_label": action_label,
+                    "via_id": via_id_str,
+                    "via_label": via_label_str,
+                    "browser_profile": browser_prof_str,
+                    "page_id": str(row.entity_id or ""),
+                    "page_name": page_name_str,
+                    "category": cat_str,
+                    "detail": detail_txt,
+                }
+            )
+
+    # Ensure baseline activity logs exist for existing Pages so the user always sees current Via holdings
+    logged_page_ids = {lg["page_id"] for lg in via_activity_logs if lg.get("page_id")}
+    for it in items:
+        if it["id"] not in logged_page_ids and len(via_activity_logs) < 60:
+            via_activity_logs.append(
+                {
+                    "id": f"baseline-{it['id']}",
+                    "created_at": it.get("updated_at") or it.get("created_at") or now_utc.isoformat(),
+                    "action": "page.meta_synced",
+                    "action_label": "🛡️ Via đang nắm giữ & bảo vệ Page",
+                    "via_id": it.get("holder_identity_id") or "",
+                    "via_label": it.get("holder_label") or "Via Tổng",
+                    "browser_profile": it.get("holder_browser_profile") or "Chrome Profile",
+                    "page_id": it["id"],
+                    "page_name": it["name"],
+                    "category": it.get("category") or "Trang Thương hiệu",
+                    "detail": f"Via «{it.get('holder_label') or 'Via Tổng'}» giữ quyền quản trị Page «{it['name']}» ({it.get('owner_bm_name') or 'Page Cá nhân'})",
+                }
+            )
+
+    via_quotas: list[dict[str, Any]] = []
+    for idx_v, v_ident in enumerate(identities_all):
+        vid_s = str(v_ident.id)
+        held_names = holding_by_via.get(vid_s, [])
+        held_cnt = len(held_names)
+        c24 = created_24h_by_via.get(vid_s, 0)
+        c7d = created_7d_by_via.get(vid_s, 0)
+        w_cnt = warmup_by_via.get(vid_s, 0)
+        v_lbl_low = (v_ident.label or "").lower()
+        is_veteran = any(k in v_lbl_low for k in ("chính", "xmdt", "tổng", "thiên triều", "lâm quang"))
+        daily_lim = 2 if is_veteran else 1
+        weekly_lim = 4 if is_veteran else 2
+        hold_lim = 8 if is_veteran else 5
+
+        if c24 >= daily_lim or c7d >= weekly_lim or held_cnt >= hold_lim:
+            q_status = "LIMIT_REACHED"
+        elif c24 >= 1:
+            q_status = "COOLDOWN"
+        else:
+            q_status = "SAFE"
+
+        via_quotas.append(
+            {
+                "via_id": vid_s,
+                "label": v_ident.label,
+                "external_reference_id": v_ident.external_reference_id,
+                "browser_profile": (v_ident.browser_profile_label or "").strip() or f"Profile {idx_v + 1}",
+                "network_label": (v_ident.network_label or "").strip(),
+                "via_tier": "veteran_xmdt" if is_veteran else "standard_via",
+                "holding_pages_count": held_cnt,
+                "holding_page_names": held_names[:6],
+                "created_today_count": c24,
+                "created_7d_count": c7d,
+                "warmup_posts_count": w_cnt,
+                "daily_limit": daily_lim,
+                "weekly_limit": weekly_lim,
+                "holding_limit": hold_lim,
+                "cooldown_hours": 6 if is_veteran else 12,
+                "quota_status": q_status,
+                "last_activity_at": last_act_by_via.get(vid_s) or (v_ident.updated_at.isoformat() if v_ident.updated_at else None),
             }
         )
 
@@ -3360,6 +3558,8 @@ def _build_pages_summary(
             "isolated_with_holder_pages": isolated_with_holder_pages,
             "total_followers": total_followers,
         },
+        "via_quotas": via_quotas,
+        "via_activity_logs": via_activity_logs,
     }
 
 
@@ -3577,6 +3777,199 @@ def assign_page_governance(
     summary_data = _build_pages_summary(ctx.session, ctx.workspace_id, include_archived=True)
     matched_item = next((i for i in summary_data["items"] if i["id"] == str(pg.id)), None)
     return {"item": matched_item, "summary": summary_data["summary"]}
+
+
+@pages_router.post("/via-create-launch")
+def create_page_via_profile_and_log(
+    ctx: WriteCtx,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    from urllib.parse import quote
+    from app.core.enums import ReferenceStatus
+    from app.models.entities import BusinessManager, Page, PersonalAccountReference
+
+    page_name = str(payload.get("page_name") or payload.get("name") or "").strip()[:200]
+    if not page_name:
+        from app.core.errors import ValidationError
+        raise ValidationError("Vui lòng nhập tên Fanpage cần khởi tạo qua Via.")
+
+    category = str(payload.get("category") or "Thương mại điện tử / Cửa hàng").strip()[:120]
+    bio_description = str(payload.get("bio_description") or "").strip()[:1000]
+    warmup_post_text = str(payload.get("warmup_post_text") or "").strip()[:2000]
+    via_id_raw = str(payload.get("via_id") or payload.get("holder_identity_id") or "").strip()
+    bm_id_raw = str(payload.get("owner_bm_id") or "").strip()
+
+    via_obj: PersonalAccountReference | None = None
+    if via_id_raw:
+        with contextlib.suppress(Exception):
+            cand = ctx.session.get(PersonalAccountReference, uuid.UUID(via_id_raw))
+            if cand and cand.workspace_id == ctx.workspace_id:
+                via_obj = cand
+
+    bm_obj: BusinessManager | None = None
+    if bm_id_raw:
+        with contextlib.suppress(Exception):
+            cand_bm = ctx.session.get(BusinessManager, uuid.UUID(bm_id_raw))
+            if cand_bm and cand_bm.workspace_id == ctx.workspace_id:
+                bm_obj = cand_bm
+
+    via_label = via_obj.label if via_obj else "Via Quản trị"
+    browser_prof = (via_obj.browser_profile_label if via_obj and via_obj.browser_profile_label else "Chrome — Default")
+    notes_combined = bio_description or f"Khởi tạo qua Via {via_label} ({browser_prof})"
+
+    pg = Page(
+        workspace_id=ctx.workspace_id,
+        name=page_name,
+        external_page_id=str(payload.get("external_page_id") or "").strip()[:120] or None,
+        url=str(payload.get("url") or "").strip()[:2048] or None,
+        category=category,
+        status=ReferenceStatus.ACTIVE,
+        notes=notes_combined[:5000],
+    )
+    ctx.session.add(pg)
+    ctx.session.flush()
+
+    now_iso = datetime.now(UTC).isoformat()
+    meta_record: dict[str, Any] = {
+        "page_name": page_name,
+        "category": category,
+        "bio_description": bio_description,
+        "health_status": "LIVE",
+        "is_published": True,
+        "via_id": str(via_obj.id) if via_obj else "",
+        "holder_identity_id": str(via_obj.id) if via_obj else "",
+        "via_label": via_label,
+        "browser_profile": browser_prof,
+        "owner_bm_id": str(bm_obj.id) if bm_obj else "",
+        "owner_bm_name": bm_obj.name if bm_obj else "",
+        "owner_bm_external_id": bm_obj.external_id if bm_obj else "",
+        "last_synced_at": now_iso,
+    }
+    ctx.audit.record(
+        action="page.via_created",
+        entity_type="page",
+        entity_id=pg.id,
+        metadata=meta_record,
+    )
+
+    if warmup_post_text:
+        ctx.audit.record(
+            action="page.warmup_posted",
+            entity_type="page",
+            entity_id=pg.id,
+            metadata={
+                "page_name": page_name,
+                "category": category,
+                "via_id": str(via_obj.id) if via_obj else "",
+                "via_label": via_label,
+                "browser_profile": browser_prof,
+                "message": warmup_post_text,
+                "delivery_mode": "CHROME_ASSIST_LOGGED",
+                "last_warmup_at": now_iso,
+            },
+        )
+
+    ctx.commit()
+    summary_data = _build_pages_summary(ctx.session, ctx.workspace_id, include_archived=False)
+    created_item = next((i for i in summary_data["items"] if i["id"] == str(pg.id)), None)
+    creation_url = (
+        f"https://www.facebook.com/pages/creation/"
+        f"?adsops_page_name={quote(page_name)}"
+        f"&adsops_page_cat={quote(category)}"
+        f"&adsops_page_bio={quote(bio_description[:250])}"
+    )
+    return {
+        "item": created_item,
+        "launch_url": creation_url,
+        **summary_data,
+    }
+
+
+@pages_router.post("/{page_id}/warmup-post")
+def publish_or_log_page_warmup_post(
+    ctx: WriteCtx,
+    page_id: uuid.UUID,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    from app.models.entities import Page, PersonalAccountReference
+
+    pg = get_or_404(ctx.session, Page, page_id, ctx.workspace_id, label="Page")
+    message_txt = str(payload.get("message") or "").strip()[:2000]
+    if not message_txt:
+        from app.core.errors import ValidationError
+        raise ValidationError("Vui lòng nhập hoặc chọn nội dung bài mồi nuôi Fanpage.")
+
+    post_mode = str(payload.get("post_mode") or "graph_api_or_assist").strip().lower()
+    via_id_raw = str(payload.get("via_id") or "").strip()
+    via_obj: PersonalAccountReference | None = None
+    if via_id_raw:
+        with contextlib.suppress(Exception):
+            cand = ctx.session.get(PersonalAccountReference, uuid.UUID(via_id_raw))
+            if cand and cand.workspace_id == ctx.workspace_id:
+                via_obj = cand
+
+    delivery_mode = "CHROME_ASSIST_LOGGED"
+    external_post_id: str | None = None
+
+    if pg.external_page_id and post_mode != "chrome_assist":
+        tokens = _collect_workspace_meta_tokens(ctx.session, ctx.workspace_id, None)
+        for tok in tokens:
+            token_resp = _meta_graph_get_json(
+                f"{pg.external_page_id}?fields=access_token,name",
+                tok,
+            )
+            page_access_token = (token_resp or {}).get("access_token") if isinstance(token_resp, dict) else None
+            if page_access_token:
+                try:
+                    import urllib.parse
+                    import urllib.request
+                    import json as _json
+
+                    feed_url = f"https://graph.facebook.com/v21.0/{pg.external_page_id}/feed"
+                    form_bytes = urllib.parse.urlencode(
+                        {"message": message_txt, "access_token": str(page_access_token)}
+                    ).encode("utf-8")
+                    req = urllib.request.Request(feed_url, data=form_bytes, method="POST")
+                    with urllib.request.urlopen(req, timeout=12) as resp:
+                        resp_data = _json.loads(resp.read().decode("utf-8"))
+                        if isinstance(resp_data, dict) and resp_data.get("id"):
+                            external_post_id = str(resp_data["id"])
+                            delivery_mode = "GRAPH_API_PUBLISHED"
+                            break
+                except Exception:
+                    pass
+
+    now_iso = datetime.now(UTC).isoformat()
+    pg.updated_at = datetime.now(UTC)
+    ctx.audit.record(
+        action="page.warmup_posted",
+        entity_type="page",
+        entity_id=pg.id,
+        metadata={
+            "page_name": pg.name,
+            "category": pg.category or "Trang Thương hiệu",
+            "via_id": str(via_obj.id) if via_obj else via_id_raw,
+            "via_label": via_obj.label if via_obj else str(payload.get("via_label") or "Via Giữ Page"),
+            "browser_profile": (
+                via_obj.browser_profile_label
+                if via_obj and via_obj.browser_profile_label
+                else str(payload.get("browser_profile") or "Chrome Profile")
+            ),
+            "message": message_txt,
+            "delivery_mode": delivery_mode,
+            "external_post_id": external_post_id,
+            "last_warmup_at": now_iso,
+        },
+    )
+    ctx.commit()
+    summary_data = _build_pages_summary(ctx.session, ctx.workspace_id, include_archived=False)
+    matched_item = next((i for i in summary_data["items"] if i["id"] == str(pg.id)), None)
+    return {
+        "delivery_mode": delivery_mode,
+        "external_post_id": external_post_id,
+        "item": matched_item,
+        **summary_data,
+    }
 
 
 # ------------------------------------------------------------------------- Unified Assets Control Center

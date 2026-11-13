@@ -71,6 +71,45 @@ export interface FanpageSummaryItem {
   restricted_ad_account_count: number
   contagion_risk: 'SAFE' | 'MEDIUM' | 'HIGH'
   last_synced_at: string | null
+  warmup_posts_count?: number
+  warmup_score?: number
+  warmup_stage?: 'NEW_RAW' | 'NURTURING' | 'READY'
+  last_warmup_at?: string | null
+  bio_description?: string
+}
+
+export interface ViaQuotaItem {
+  via_id: string
+  label: string
+  external_reference_id: string | null
+  browser_profile: string
+  network_label: string
+  via_tier: 'veteran_xmdt' | 'standard_via'
+  holding_pages_count: number
+  holding_page_names: string[]
+  created_today_count: number
+  created_7d_count: number
+  warmup_posts_count: number
+  daily_limit: number
+  weekly_limit: number
+  holding_limit: number
+  cooldown_hours: number
+  quota_status: 'SAFE' | 'COOLDOWN' | 'LIMIT_REACHED'
+  last_activity_at: string | null
+}
+
+export interface ViaActivityLogItem {
+  id: string
+  created_at: string
+  action: string
+  action_label: string
+  via_id: string
+  via_label: string
+  browser_profile: string
+  page_id: string
+  page_name: string
+  category: string
+  detail: string
 }
 
 export interface FanpageSummaryResponse {
@@ -83,7 +122,60 @@ export interface FanpageSummaryResponse {
     isolated_with_holder_pages: number
     total_followers: number
   }
+  via_quotas?: ViaQuotaItem[]
+  via_activity_logs?: ViaActivityLogItem[]
 }
+
+const VIA_PAGE_TEMPLATES = [
+  {
+    key: 'beauty_spa',
+    badge: '💄 Mỹ phẩm & Spa',
+    namePrefix: 'Viện Chăm Sóc Sắc Đẹp & Da Liễu Chuẩn Y Khoa',
+    category: 'Sức khỏe / Sắc đẹp (Health & Beauty)',
+    bio: 'Chuyên gia giải pháp chăm sóc da chuyên sâu, trẻ hóa làn da tự nhiên và phân phối mỹ phẩm chính hãng an toàn cho phụ nữ Việt.',
+    warmupPost: '✨ Bí quyết giữ làn da căng bóng, khỏe mạnh tự nhiên mỗi ngày chỉ với 3 bước làm sạch và cấp ẩm chuẩn khoa học tại nhà. Chị em cùng lưu lại để áp dụng ngay nhé! 🌿💧 #ChamSocDa #LamDepAnToan',
+  },
+  {
+    key: 'fashion_store',
+    badge: '👗 Thời trang & Phụ kiện',
+    namePrefix: 'Thời Trang Thiết Kế Thanh Lịch & Hiện Đại',
+    category: 'Thương hiệu Quần áo / Thời trang (Clothing Brand)',
+    bio: 'Bộ sưu tập thời trang công sở & dạo phố thiết kế tinh tế, chất liệu cao cấp, tôn dáng và bảo hành đường may trọn đời.',
+    warmupPost: '👗 Gợi ý phối đồ thanh lịch cho tuần làm việc mới tràn đầy năng lượng! Sự kết hợp giữa gam màu trung tính và phom dáng chuẩn giúp nàng tự tin trong mọi cuộc gặp gỡ. ✨👜 #ThoiTrangThietKe #PhongCachCongSo',
+  },
+  {
+    key: 'home_decor',
+    badge: '🛋️ Nội thất & Gia dụng',
+    namePrefix: 'Không Gian Sống Tinh Tế — Nội Thất & Decor',
+    category: 'Cửa hàng Nội thất & Gia dụng (Home & Living)',
+    bio: 'Giải pháp thiết kế nội thất thông minh và phụ kiện trang trí tổ ấm hiện đại, tối ưu diện tích và nâng tầm chất lượng sống.',
+    warmupPost: '🏡 Một góc nhỏ bình yên trong ngôi nhà được bài trí gọn gàng với ánh sáng ấm áp sẽ giúp bạn tái tạo năng lượng sau ngày dài làm việc. Bạn thích phong cách tối giản hay Bắc Âu? 🌿🛋️ #KhongGianSong #NoiThatHienDai',
+  },
+  {
+    key: 'fnb_cuisine',
+    badge: '🍜 Ẩm thực & F&B',
+    namePrefix: 'Bếp Ngon Bản Địa — Hương Vị Truyền Thống',
+    category: 'Nhà hàng / Dịch vụ Ẩm thực (Restaurant & Cafe)',
+    bio: 'Thưởng thức hương vị ẩm thực tươi ngon mỗi ngày từ nguyên liệu tuyển chọn kỹ lưỡng, không gian ấm cúng cho gia đình và bạn bè.',
+    warmupPost: '🍲 Không gì tuyệt vời hơn bữa cơm sum vầy cùng gia đình với những món ăn nóng hổi, đậm đà hương vị truyền thống. Chúc cả nhà một ngày cuối tuần thật ngon miệng và ấm áp! 🥢🍃 #AmThucViet #MonNgonMoiNgay',
+  },
+  {
+    key: 'tech_saas',
+    badge: '💻 Công nghệ & Giải pháp Số',
+    namePrefix: 'Giải Pháp Chuyển Đổi Số & Vận Hành Doanh Nghiệp',
+    category: 'Công ty Công nghệ / Phần mềm (Information Technology)',
+    bio: 'Cung cấp nền tảng quản trị tự động hóa, tối ưu hiệu suất vận hành và bảo mật dữ liệu toàn diện cho doanh nghiệp SME.',
+    warmupPost: '🚀 Chuyển đổi số bắt đầu từ việc chuẩn hóa quy trình làm việc hàng ngày. Tối ưu 30% thời gian vận hành giúp đội ngũ tập trung vào sáng tạo và chăm sóc khách hàng tốt hơn! 💡📊 #ChuyenDoiSo #QuanTriDoanhNghiep',
+  },
+  {
+    key: 'real_estate',
+    badge: '🏠 Bất động sản & Đầu tư',
+    namePrefix: 'Tư Vấn An Cư & Đầu Tư Bất Động Sản Bền Vững',
+    category: 'Dịch vụ Bất động sản (Real Estate Service)',
+    bio: 'Cập nhật thông tin quy hoạch minh bạch, phân tích pháp lý chuẩn xác và đồng hành cùng nhà đầu tư lựa chọn bất động sản giá trị thực.',
+    warmupPost: '🏙️ 3 tiêu chí cốt lõi khi lựa chọn không gian an cư lâu dài cho gia đình trẻ: Pháp lý minh bạch, kết nối hạ tầng thuận tiện và hệ sinh thái tiện ích xanh nội khu. 🌳🏡 #AnCuLacNghiep #BatDongSanBenVung',
+  },
+]
 
 export default function FanpageControlCenter({ embedded = false }: { embedded?: boolean }) {
   const { language } = useI18n()
@@ -101,6 +193,19 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
   // Modal state for Edit / Governance / Link Ad Accounts
   const [editingPage, setEditingPage] = useState<FanpageSummaryItem | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+
+  // Via Page Creator & Auto-Warmup Studio state
+  const [studioOpen, setStudioOpen] = useState(false)
+  const [studioTab, setStudioTab] = useState<'create' | 'warmup' | 'logs'>('create')
+  const [studioViaId, setStudioViaId] = useState('')
+  const [studioBmId, setStudioBmId] = useState('')
+  const [studioPageName, setStudioPageName] = useState('')
+  const [studioCategory, setStudioCategory] = useState('Thương mại điện tử / Cửa hàng')
+  const [studioBio, setStudioBio] = useState(VIA_PAGE_TEMPLATES[0].bio)
+  const [studioWarmupPost, setStudioWarmupPost] = useState(VIA_PAGE_TEMPLATES[0].warmupPost)
+  const [warmupTargetPageId, setWarmupTargetPageId] = useState('')
+  const [warmupMessage, setWarmupMessage] = useState(VIA_PAGE_TEMPLATES[0].warmupPost)
+  const [logViaFilter, setLogViaFilter] = useState('ALL')
 
   // Form fields for Edit / Create
   const [formName, setFormName] = useState('')
@@ -237,7 +342,90 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
     },
   })
 
+  const viaCreateLaunchMut = useMutation({
+    mutationFn: (payload: {
+      via_id: string
+      owner_bm_id: string
+      page_name: string
+      category: string
+      bio_description: string
+      warmup_post_text: string
+      browser_profile: string
+      via_label: string
+      network_label: string
+    }) =>
+      api.post<FanpageSummaryResponse & { item: FanpageSummaryItem; launch_url: string }>(
+        '/api/v1/facebook-pages/via-create-launch',
+        payload,
+      ),
+    onSuccess: (res, vars) => {
+      void qc.invalidateQueries({ queryKey: ['facebook-pages-summary'] })
+      void qc.invalidateQueries({ queryKey: ['pages'] })
+      const textToCopy = `${vars.page_name}\n\nTiểu sử: ${vars.bio_description}\n\nBài đăng mồi đầu tiên:\n${vars.warmup_post_text}`
+      void navigator.clipboard.writeText(textToCopy)
+      launchInAssignedChromeProfile(
+        res.launch_url || 'https://www.facebook.com/pages/creation/',
+        vars.browser_profile || 'Profile 1',
+        vars.via_label || 'Via Giữ Page',
+        vars.network_label || '',
+      )
+      setStudioPageName('')
+      setBannerMsg(
+        isEn
+          ? `🌱 Created & logged Page "${vars.page_name}" under Via "${vars.via_label}" and launched Chrome (${vars.browser_profile}) to auto-fill!`
+          : `🌱 Đã lưu Fanpage «${vars.page_name}» + ghi nhận định mức & lịch sử cho Via «${vars.via_label}», đồng thời mở đúng Hồ sơ Chrome (${vars.browser_profile}) tự điền tạo Page!`,
+      )
+    },
+  })
+
+  const warmupPostMut = useMutation({
+    mutationFn: (payload: {
+      pageId: string
+      pageName: string
+      externalPageId: string | null
+      pageUrl: string | null
+      viaId: string
+      viaLabel: string
+      browserProfile: string
+      networkLabel: string
+      message: string
+      postMode: 'graph_api_or_assist' | 'chrome_assist'
+    }) =>
+      api.post<FanpageSummaryResponse & { delivery_mode: string; item: FanpageSummaryItem }>(
+        `/api/v1/facebook-pages/${payload.pageId}/warmup-post`,
+        {
+          message: payload.message,
+          via_id: payload.viaId,
+          via_label: payload.viaLabel,
+          browser_profile: payload.browserProfile,
+          post_mode: payload.postMode,
+        },
+      ),
+    onSuccess: (res, vars) => {
+      void qc.invalidateQueries({ queryKey: ['facebook-pages-summary'] })
+      void navigator.clipboard.writeText(vars.message)
+      if (vars.postMode === 'chrome_assist' || res.delivery_mode !== 'GRAPH_API_PUBLISHED') {
+        const targetFbUrl =
+          vars.pageUrl ||
+          (vars.externalPageId ? `https://www.facebook.com/${vars.externalPageId}` : 'https://www.facebook.com/pages/?category=your_pages')
+        launchInAssignedChromeProfile(
+          targetFbUrl,
+          vars.browserProfile || 'Profile 1',
+          vars.viaLabel || vars.pageName,
+          vars.networkLabel || '',
+        )
+      }
+      setBannerMsg(
+        res.delivery_mode === 'GRAPH_API_PUBLISHED'
+          ? `✅ Đã tự động đăng bài mồi lên Fanpage «${vars.pageName}» qua Meta Graph API và lưu vào Nhật ký hoạt động của Via «${vars.viaLabel}»!`
+          : `✍️ Đã sao chép bài mồi, lưu vào Nhật ký nuôi Page vĩnh viễn của Via «${vars.viaLabel}» và mở Chrome (${vars.browserProfile}) để bạn dán đăng 1 chạm!`,
+      )
+    },
+  })
+
   const items = pagesSummaryQ.data?.items ?? []
+  const viaQuotas = pagesSummaryQ.data?.via_quotas ?? []
+  const viaActivityLogs = pagesSummaryQ.data?.via_activity_logs ?? []
   const summary = pagesSummaryQ.data?.summary ?? {
     total_pages: 0,
     live_pages: 0,
@@ -389,6 +577,30 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                     : '🔄 Đồng bộ Fanpage & Quét Sức khỏe từ Meta'}
               </span>
             </Button>
+            <Button
+              size="sm"
+              variant={studioOpen ? 'default' : 'secondary'}
+              onClick={() => {
+                if (!studioViaId && (viaQuotas[0]?.via_id || allVias[0]?.id)) {
+                  setStudioViaId(viaQuotas[0]?.via_id || String(allVias[0]?.id || ''))
+                }
+                if (!studioBmId && allBms[0]?.id) {
+                  setStudioBmId(String(allBms[0].id))
+                }
+                if (!warmupTargetPageId && items[0]?.id) {
+                  setWarmupTargetPageId(items[0].id)
+                }
+                setStudioOpen((prev) => !prev)
+              }}
+              className="gap-1.5 font-bold border-emerald-500/50 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              <span>
+                {isEn
+                  ? '🌱 Via Page Creator & Auto-Warmup Studio'
+                  : '🌱 Tạo Page bằng Via & Nuôi Page Sống Lâu (Định mức & Nhật ký)'}
+              </span>
+            </Button>
             <Button size="sm" onClick={openCreateModal} className="gap-1.5 font-semibold">
               <Plus className="h-3.5 w-3.5" />
               <span>{isEn ? '+ Add Fanpage' : '+ Thêm Fanpage mới'}</span>
@@ -396,6 +608,497 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
           </div>
         </div>
       </div>
+
+      {/* VIA PAGE CREATOR, QUOTA TRACKER & PERSISTENT ACTIVITY LOG STUDIO */}
+      {studioOpen && (
+        <Card className="border-emerald-500/40 bg-surface shadow-md">
+          <CardHeader className="border-b border-line pb-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300">
+                  <Sparkles className="h-4 w-4" />
+                  <span>
+                    {isEn
+                      ? 'Via-Based Fanpage Creator, Safe Quota Tracker & Persistent Activity History'
+                      : 'Trung Tâm Tạo Fanpage Bằng Via, Định Mức Chống Checkpoint & Nhật Ký Lưu Vĩnh Viễn'}
+                  </span>
+                </CardTitle>
+                <p className="mt-0.5 text-xs text-ink-muted">
+                  {isEn
+                    ? 'Every Page creation and warm-up post is permanently saved in PostgreSQL so you can close and reopen the browser anytime without losing Via history.'
+                    : 'Mỗi lần dùng Via tạo Page hoặc đăng bài mồi nuôi Page đều được lưu vĩnh viễn vào Database PostgreSQL — tắt trình duyệt mở lại vẫn giữ nguyên lịch sử và bộ đếm định mức của từng Via.'}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setStudioTab('create')}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                    studioTab === 'create'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'border border-line bg-surface-muted text-ink hover:border-emerald-500/50'
+                  }`}
+                >
+                  🌱 1. Tạo Page qua Via & Định mức ({viaQuotas.length} Via)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!warmupTargetPageId && items[0]?.id) setWarmupTargetPageId(items[0].id)
+                    setStudioTab('warmup')
+                  }}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                    studioTab === 'warmup'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'border border-line bg-surface-muted text-ink hover:border-emerald-500/50'
+                  }`}
+                >
+                  ✍️ 2. Đăng Bài Mồi Nuôi Page ({items.length} Page)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStudioTab('logs')}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                    studioTab === 'logs'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'border border-line bg-surface-muted text-ink hover:border-emerald-500/50'
+                  }`}
+                >
+                  📜 3. Nhật Ký Hoạt Động Via ({viaActivityLogs.length} bản ghi)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStudioOpen(false)}
+                  className="rounded-lg border border-line px-2 py-1.5 text-xs font-semibold text-ink-muted hover:text-ink"
+                >
+                  ✕ Đóng
+                </button>
+              </div>
+            </div>
+          </CardHeader>
+
+          <CardContent className="space-y-4 p-4">
+            {/* SAFE QUOTA REFERENCE RULES BAR */}
+            <div className="grid gap-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 sm:grid-cols-4 text-xs">
+              <div>
+                <div className="font-extrabold text-emerald-700 dark:text-emerald-300">
+                  📊 Định mức Tạo theo Ngày
+                </div>
+                <div className="mt-0.5 text-ink-muted">
+                  Via Cổ / XMDT: <strong>1–2 Page/ngày</strong> · Via mới: <strong> tối đa 1 Page/ngày</strong> (tránh spam bị khóa tính năng tạo Page).
+                </div>
+              </div>
+              <div>
+                <div className="font-extrabold text-emerald-700 dark:text-emerald-300">
+                  🗓️ Định mức Tuần & Tổng Giữ
+                </div>
+                <div className="mt-0.5 text-ink-muted">
+                  Tối đa <strong>3–4 Page/tuần/Via</strong> · Tổng số Page 1 Via nắm giữ an toàn: <strong>5–8 Page</strong> (chia sẻ vào BM Trung tâm).
+                </div>
+              </div>
+              <div>
+                <div className="font-extrabold text-emerald-700 dark:text-emerald-300">
+                  ⏱️ Thời gian Nghỉ (Cooldown)
+                </div>
+                <div className="mt-0.5 text-ink-muted">
+                  Giữa 2 lần bấm tạo Page trên cùng 1 Via phải cách nhau tối thiểu <strong>6–12 tiếng</strong> và mở đúng Hồ sơ Chrome riêng.
+                </div>
+              </div>
+              <div>
+                <div className="font-extrabold text-emerald-700 dark:text-emerald-300">
+                  🌱 Quy tắc Nuôi Page Sống Lâu
+                </div>
+                <div className="mt-0.5 text-ink-muted">
+                  Sau khi tạo, đăng <strong>3–5 bài mồi sạch</strong> trong 48h–72h đầu để tăng điểm Trust trước khi gắn vào TKQC chạy Ads.
+                </div>
+              </div>
+            </div>
+
+            {/* TAB 1: CREATE PAGE VIA CHROME PROFILE + QUOTA MATRIX */}
+            {studioTab === 'create' && (
+              <div className="grid gap-4 lg:grid-cols-12">
+                {/* Left: Via Quota Selector */}
+                <div className="space-y-2.5 lg:col-span-5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-ink">
+                      1. Chọn Tài khoản Via (Lớp 1 / Dự phòng) để Tạo & Giữ Page
+                    </span>
+                    <span className="text-[11px] text-ink-muted">Bấm chọn Via bên dưới</span>
+                  </div>
+                  <div className="max-h-[340px] space-y-2 overflow-y-auto pr-1">
+                    {viaQuotas.map((vq) => {
+                      const activeViaId = studioViaId || viaQuotas[0]?.via_id || ''
+                      const isSelected = vq.via_id === activeViaId
+                      return (
+                        <button
+                          key={vq.via_id}
+                          type="button"
+                          onClick={() => setStudioViaId(vq.via_id)}
+                          className={`w-full rounded-xl border p-2.5 text-left transition ${
+                            isSelected
+                              ? 'border-emerald-500 bg-emerald-500/10 shadow-xs'
+                              : 'border-line bg-surface hover:border-emerald-500/40'
+                          }`}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-1.5">
+                            <span className="text-xs font-bold text-ink">
+                              🛡️ {vq.label}{' '}
+                              <span className="font-mono text-[10px] font-normal text-ink-muted">
+                                ({vq.browser_profile})
+                              </span>
+                            </span>
+                            {vq.quota_status === 'SAFE' && (
+                              <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
+                                🟢 An toàn tạo tiếp
+                              </span>
+                            )}
+                            {vq.quota_status === 'COOLDOWN' && (
+                              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                                🟡 Đã tạo {vq.created_today_count}/{vq.daily_limit} hôm nay (Nghỉ {vq.cooldown_hours}h)
+                              </span>
+                            )}
+                            {vq.quota_status === 'LIMIT_REACHED' && (
+                              <span className="rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-bold text-rose-700 dark:text-rose-300">
+                                🔴 Đạt ngưỡng an toàn ({vq.holding_pages_count}/{vq.holding_limit} Page)
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-ink-muted">
+                            <span className="rounded bg-surface-muted px-1.5 py-0.5 font-mono">
+                              Hôm nay: <strong>{vq.created_today_count}/{vq.daily_limit}</strong>
+                            </span>
+                            <span className="rounded bg-surface-muted px-1.5 py-0.5 font-mono">
+                              7 ngày: <strong>{vq.created_7d_count}/{vq.weekly_limit}</strong>
+                            </span>
+                            <span className="rounded bg-surface-muted px-1.5 py-0.5 font-mono">
+                              Đang giữ: <strong>{vq.holding_pages_count}/{vq.holding_limit} Page</strong>
+                            </span>
+                            <span className="rounded bg-surface-muted px-1.5 py-0.5 font-mono">
+                              Bài mồi: <strong>{vq.warmup_posts_count}</strong>
+                            </span>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Right: Smart Page Template & 1-Click Chrome Auto-Create */}
+                <div className="space-y-3 rounded-xl border border-line bg-surface-muted/30 p-3.5 lg:col-span-7">
+                  <div>
+                    <div className="text-xs font-bold text-ink">
+                      2. Chọn Mẫu Ngành Hàng Chuẩn Chính Sách (Tự điền Tên Page + Hạng mục + Tiểu sử + Bài mồi)
+                    </div>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {VIA_PAGE_TEMPLATES.map((tpl) => (
+                        <button
+                          key={tpl.key}
+                          type="button"
+                          onClick={() => {
+                            const suffix = Math.floor(100 + Math.random() * 899)
+                            setStudioPageName(`${tpl.namePrefix} #${suffix}`)
+                            setStudioCategory(tpl.category)
+                            setStudioBio(tpl.bio)
+                            setStudioWarmupPost(tpl.warmupPost)
+                          }}
+                          className="rounded-lg border border-line bg-surface px-2.5 py-1 text-[11px] font-semibold text-ink hover:border-emerald-500 hover:text-emerald-700 dark:hover:text-emerald-300"
+                        >
+                          {tpl.badge}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-2.5 sm:grid-cols-2">
+                    <div>
+                      <label className="label text-xs">Tên Fanpage cần tạo *</label>
+                      <input
+                        type="text"
+                        value={studioPageName}
+                        onChange={(e) => setStudioPageName(e.target.value)}
+                        placeholder="VD: Viện Chăm Sóc Sắc Đẹp & Da Liễu #208"
+                        className="input text-xs font-semibold"
+                      />
+                    </div>
+                    <div>
+                      <label className="label text-xs">Hạng mục (Category)</label>
+                      <input
+                        type="text"
+                        value={studioCategory}
+                        onChange={(e) => setStudioCategory(e.target.value)}
+                        className="input text-xs"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="label text-xs">Đưa vào BM Trung tâm quản lý</label>
+                      <select
+                        value={studioBmId || (allBms[0]?.id ?? '')}
+                        onChange={(e) => setStudioBmId(e.target.value)}
+                        className="input text-xs"
+                      >
+                        <option value="">— Giữ ở Via cá nhân trước, đưa vào BM sau —</option>
+                        {allBms.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            🏛️ {String(b.name ?? b.id)} {b.external_id ? `(${String(b.external_id)})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="label text-xs">Tiểu sử chuẩn SEO (Tự điền vào ô Bio của Facebook)</label>
+                      <textarea
+                        rows={2}
+                        value={studioBio}
+                        onChange={(e) => setStudioBio(e.target.value)}
+                        className="input text-xs"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="label text-xs">Bài đăng mồi đầu tiên (Kèm lưu nhật ký nuôi Page)</label>
+                      <textarea
+                        rows={2}
+                        value={studioWarmupPost}
+                        onChange={(e) => setStudioWarmupPost(e.target.value)}
+                        className="input text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                    <span className="text-[11px] text-ink-muted">
+                      💡 Hệ thống sẽ: (1) Lưu Page & Nhật ký Via vào PostgreSQL, (2) Mở đúng Chrome của Via đã chọn tại trang Tạo Page và (3) Extension tự điền Tên + Hạng mục + Tiểu sử.
+                    </span>
+                    <Button
+                      size="sm"
+                      disabled={!studioPageName.trim() || viaCreateLaunchMut.isPending}
+                      onClick={() => {
+                        const activeViaId = studioViaId || viaQuotas[0]?.via_id || String(allVias[0]?.id || '')
+                        const chosenVia = viaQuotas.find((v) => v.via_id === activeViaId)
+                        viaCreateLaunchMut.mutate({
+                          via_id: activeViaId,
+                          owner_bm_id: studioBmId || String(allBms[0]?.id || ''),
+                          page_name: studioPageName.trim(),
+                          category: studioCategory.trim(),
+                          bio_description: studioBio.trim(),
+                          warmup_post_text: studioWarmupPost.trim(),
+                          browser_profile: chosenVia?.browser_profile || 'Chrome — Default',
+                          via_label: chosenVia?.label || 'Tài Khoản Chính',
+                          network_label: chosenVia?.network_label || '',
+                        })
+                      }}
+                      className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 font-bold"
+                    >
+                      <Globe className="h-3.5 w-3.5" />
+                      <span>
+                        {viaCreateLaunchMut.isPending
+                          ? 'Đang lưu & khởi chạy...'
+                          : '🚀 Lưu Hệ Thống & Mở Chrome Via Tự Điền Tạo Page'}
+                      </span>
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 2: AUTO WARM-UP POST STUDIO TO NURTURE FANPAGES */}
+            {studioTab === 'warmup' && (
+              <div className="grid gap-4 lg:grid-cols-12">
+                <div className="space-y-2.5 lg:col-span-5">
+                  <div className="text-xs font-bold text-ink">
+                    1. Chọn Fanpage cần Đăng Bài Mồi Nuôi Độ Trust
+                  </div>
+                  <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
+                    {items.map((pg) => {
+                      const activePid = warmupTargetPageId || items[0]?.id || ''
+                      const isSel = pg.id === activePid
+                      const wScore = pg.warmup_score ?? 65
+                      const wPosts = pg.warmup_posts_count ?? 1
+                      return (
+                        <button
+                          key={pg.id}
+                          type="button"
+                          onClick={() => setWarmupTargetPageId(pg.id)}
+                          className={`w-full rounded-xl border p-2.5 text-left transition ${
+                            isSel
+                              ? 'border-emerald-500 bg-emerald-500/10 shadow-xs'
+                              : 'border-line bg-surface hover:border-emerald-500/40'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate text-xs font-bold text-ink">{pg.name}</span>
+                            <span
+                              className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                                wScore >= 75
+                                  ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                  : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                              }`}
+                            >
+                              🌱 Trust {wScore}% · {wPosts} bài mồi
+                            </span>
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-ink-muted">
+                            <span>🛡️ Via: {pg.holder_label || 'Via Tổng'}</span>
+                            <span className="font-mono text-[10px]">({pg.holder_browser_profile})</span>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-3 rounded-xl border border-line bg-surface-muted/30 p-3.5 lg:col-span-7">
+                  <div>
+                    <div className="text-xs font-bold text-ink">
+                      2. Chọn kịch bản bài mồi tự nhiên (Tương tác sạch, không từ khóa vi phạm chính sách)
+                    </div>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {VIA_PAGE_TEMPLATES.map((tpl) => (
+                        <button
+                          key={tpl.key}
+                          type="button"
+                          onClick={() => setWarmupMessage(tpl.warmupPost)}
+                          className="rounded-lg border border-line bg-surface px-2.5 py-1 text-[11px] font-semibold text-ink hover:border-emerald-500"
+                        >
+                          {tpl.badge}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="label text-xs">Nội dung bài đăng nuôi Page *</label>
+                    <textarea
+                      rows={4}
+                      value={warmupMessage}
+                      onChange={(e) => setWarmupMessage(e.target.value)}
+                      className="input text-xs"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={!warmupMessage.trim() || warmupPostMut.isPending}
+                      onClick={() => {
+                        const targetPg = items.find((x) => x.id === (warmupTargetPageId || items[0]?.id))
+                        if (!targetPg) return
+                        warmupPostMut.mutate({
+                          pageId: targetPg.id,
+                          pageName: targetPg.name,
+                          externalPageId: targetPg.external_page_id,
+                          pageUrl: targetPg.url,
+                          viaId: targetPg.holder_identity_id || '',
+                          viaLabel: targetPg.holder_label || 'Via Tổng',
+                          browserProfile: targetPg.holder_browser_profile || 'Profile 1',
+                          networkLabel: targetPg.holder_network_label || '',
+                          message: warmupMessage.trim(),
+                          postMode: 'chrome_assist',
+                        })
+                      }}
+                      className="gap-1.5 font-semibold"
+                    >
+                      <Globe className="h-3.5 w-3.5" />
+                      <span>🌐 Copy Bài + Mở Chrome Via Đăng & Lưu Nhật Ký</span>
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={!warmupMessage.trim() || warmupPostMut.isPending}
+                      onClick={() => {
+                        const targetPg = items.find((x) => x.id === (warmupTargetPageId || items[0]?.id))
+                        if (!targetPg) return
+                        warmupPostMut.mutate({
+                          pageId: targetPg.id,
+                          pageName: targetPg.name,
+                          externalPageId: targetPg.external_page_id,
+                          pageUrl: targetPg.url,
+                          viaId: targetPg.holder_identity_id || '',
+                          viaLabel: targetPg.holder_label || 'Via Tổng',
+                          browserProfile: targetPg.holder_browser_profile || 'Profile 1',
+                          networkLabel: targetPg.holder_network_label || '',
+                          message: warmupMessage.trim(),
+                          postMode: 'graph_api_or_assist',
+                        })
+                      }}
+                      className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 font-bold"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      <span>⚡ Đăng Bài Mồi (Graph API / Ghi Nhật Ký Nuôi Page)</span>
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: PERSISTENT VIA ACTIVITY LOGS (STORED IN POSTGRESQL AUDIT_LOGS) */}
+            {studioTab === 'logs' && (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs font-bold text-ink">
+                    📜 Lịch sử hoạt động của từng Via (Lưu vĩnh viễn trong PostgreSQL — mở lại trình duyệt bất cứ lúc nào đều xem lại được)
+                  </div>
+                  <select
+                    value={logViaFilter}
+                    onChange={(e) => setLogViaFilter(e.target.value)}
+                    className="input h-8 w-auto text-xs font-semibold"
+                  >
+                    <option value="ALL">🛡️ Tất cả Via ({viaActivityLogs.length} hoạt động)</option>
+                    {viaQuotas.map((vq) => (
+                      <option key={vq.via_id} value={vq.via_id}>
+                        {vq.label} ({vq.browser_profile})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="max-h-[320px] overflow-y-auto rounded-xl border border-line">
+                  <table className="w-full border-collapse text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-line bg-surface-muted/70 text-[11px] font-bold text-ink-muted">
+                        <th className="px-3 py-2">Thời gian</th>
+                        <th className="px-3 py-2">Tài khoản Via & Hồ sơ Chrome</th>
+                        <th className="px-3 py-2">Hoạt động</th>
+                        <th className="px-3 py-2">Fanpage mục tiêu</th>
+                        <th className="px-3 py-2">Chi tiết lưu trữ</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-line">
+                      {viaActivityLogs
+                        .filter((lg) => logViaFilter === 'ALL' || lg.via_id === logViaFilter)
+                        .map((lg) => (
+                          <tr key={lg.id} className="hover:bg-surface-muted/30">
+                            <td className="whitespace-nowrap px-3 py-2 font-mono text-[11px] text-ink-muted">
+                              {new Date(lg.created_at).toLocaleString('vi-VN')}
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="font-bold text-ink">🛡️ {lg.via_label}</div>
+                              <div className="font-mono text-[10px] text-ink-muted">💻 {lg.browser_profile}</div>
+                            </td>
+                            <td className="px-3 py-2">
+                              <span
+                                className={`inline-block rounded px-2 py-0.5 text-[11px] font-bold ${
+                                  lg.action === 'page.via_created'
+                                    ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                  : lg.action === 'page.warmup_posted'
+                                    ? 'bg-brand-light text-brand-text'
+                                    : 'bg-surface-muted text-ink'
+                                }`}
+                              >
+                                {lg.action_label}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 font-semibold text-ink">{lg.page_name}</td>
+                            <td className="px-3 py-2 text-[11px] text-ink-muted">{lg.detail}</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {bannerMsg && (
         <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3.5 py-2.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
@@ -794,6 +1497,18 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                                       ? 'Check Live'
                                       : 'Kiểm tra Live'}
                                 </span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setWarmupTargetPageId(item.id)
+                                  setStudioTab('warmup')
+                                  setStudioOpen(true)
+                                }}
+                                className="inline-flex items-center gap-1 rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20"
+                                title="Đăng bài mồi nuôi độ Trust cho Fanpage này và lưu lịch sử hoạt động Via"
+                              >
+                                <span>🌱 Trust {item.warmup_score ?? 65}% ({item.warmup_posts_count ?? 1} bài)</span>
                               </button>
                             </div>
 

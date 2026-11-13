@@ -1521,11 +1521,66 @@ tickOtp();`
       });
     }
   }
+  let pageCreateAutoFilled = false;
+  function handlePageCreationDom() {
+    if (pageCreateAutoFilled) return;
+    const url = window.location.href;
+    if (!url.includes("/pages/creation") && !url.includes("adsops_page_name=")) return;
+    try {
+      const u = new URL(url);
+      const pName = u.searchParams.get("adsops_page_name") || "";
+      const pCat = u.searchParams.get("adsops_page_cat") || "";
+      const pBio = u.searchParams.get("adsops_page_bio") || "";
+      if (!pName && !pCat && !pBio) return;
+
+      const setNativeValue = (el, val) => {
+        if (!el || !val) return false;
+        const proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+        const desc = Object.getOwnPropertyDescriptor(proto, "value");
+        if (desc && desc.set) {
+          desc.set.call(el, val);
+        } else {
+          el.value = val;
+        }
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      };
+
+      const inputs = Array.from(document.querySelectorAll('input[type="text"], input:not([type]), textarea'));
+      if (inputs.length === 0) return;
+
+      let filledCount = 0;
+      for (const el of inputs) {
+        const label = ((el.getAttribute("aria-label") || "") + " " + (el.getAttribute("placeholder") || "")).toLowerCase();
+        if (pName && (label.includes("tên trang") || label.includes("page name") || inputs.indexOf(el) === 0) && !el.value) {
+          if (setNativeValue(el, pName)) filledCount++;
+        } else if (pCat && (label.includes("hạng mục") || label.includes("category") || inputs.indexOf(el) === 1) && !el.value) {
+          if (setNativeValue(el, pCat)) filledCount++;
+        } else if (pBio && (el.tagName === "TEXTAREA" || label.includes("tiểu sử") || label.includes("mô tả") || label.includes("bio")) && !el.value) {
+          if (setNativeValue(el, pBio)) filledCount++;
+        }
+      }
+      if (filledCount > 0) {
+        pageCreateAutoFilled = true;
+        const hudStatus = document.getElementById("adsops-hud-passkey-status");
+        if (hudStatus) {
+          hudStatus.textContent = "🌱 Đã tự điền Tạo Page (" + pName.slice(0, 22) + ")";
+          hudStatus.style.color = "#34d399";
+        }
+      }
+    } catch (e) {}
+  }
+
   setTimeout(() => {
     injectFloatingHud();
     handlePasskeyDom();
+    handlePageCreationDom();
   }, 900);
-  setInterval(scanBillingDom, 2200);
+  setInterval(() => {
+    scanBillingDom();
+    handlePageCreationDom();
+  }, 2200);
 })();`
 
   const zipBlob = buildStoreZip([
