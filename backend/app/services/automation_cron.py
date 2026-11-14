@@ -218,9 +218,13 @@ def run_workspace_automation_cycle(
 
     tg_alert_res = dispatch_operational_telegram_alerts(session, workspace_id, audit, settings)
 
+    pages_summary = _build_pages_summary(session, workspace_id, include_archived=False)
+    overdue_keepalive_vias = sum(
+        1 for vq in pages_summary.get("via_quotas", []) if vq.get("needs_keepalive")
+    )
+
     auto_warmed_count = 0
     if (force_warmup or cfg["auto_page_warmup_enabled"]) and transports:
-        pages_summary = _build_pages_summary(session, workspace_id, include_archived=False)
         gap_delta = timedelta(hours=cfg["warmup_min_gap_hours"])
         for idx, item in enumerate(pages_summary.get("items", [])):
             if auto_warmed_count >= 10:
@@ -293,6 +297,7 @@ def run_workspace_automation_cycle(
         "sync_executed": sync_executed,
         "sync_status": sync_status,
         "auto_warmed_count": auto_warmed_count,
+        "overdue_keepalive_vias": overdue_keepalive_vias,
         "telegram_ops_sent": int(tg_alert_res.get("sent") or 0),
         "outbox_sent": int(outbox_res.sent),
         "trigger": "manual" if (force_sync or force_warmup) else "scheduled",

@@ -114,6 +114,11 @@ export default function FacebookAccountDetail() {
   const r = record.data
   const p = profile.data
   const vault = String(r.vault_reference ?? '')
+  const cleanTwoFa = vault.replace(/^2fa:\/\//i, '').replace(/[\s-]/g, '').toUpperCase()
+  const validTwoFa = /^[A-Z2-7]{12,128}$/.test(cleanTwoFa) ? cleanTwoFa : ''
+  const cleanNet = /^(vnpt static ip|fpt static ip|viettel residential|mobile 4g)/i.test(String(r.network_label || '').trim())
+    ? ''
+    : String(r.network_label || '')
 
   return (
     <div className="space-y-4">
@@ -130,9 +135,7 @@ export default function FacebookAccountDetail() {
                   'https://business.facebook.com/overview',
                   String(r.browser_profile_label || ''),
                   String(r.label || ''),
-                  /^(vnpt static ip|fpt static ip|viettel residential|mobile 4g)/i.test(String(r.network_label || '').trim())
-                    ? ''
-                    : String(r.network_label || ''),
+                  cleanNet,
                 )
               }
             >
@@ -142,17 +145,36 @@ export default function FacebookAccountDetail() {
               type="button"
               variant="secondary"
               size="sm"
+              onClick={() =>
+                launchInAssignedChromeProfile(
+                  `https://www.facebook.com/?adsops_keepalive_session=1&adsops_auto_close=0&adsops_via_id=${encodeURIComponent(String(r.id || ''))}&adsops_via_label=${encodeURIComponent(String(r.label || ''))}`,
+                  String(r.browser_profile_label || ''),
+                  String(r.label || ''),
+                  cleanNet,
+                )
+              }
+            >
+              ☕ Đảo Ấm Cookie
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
               onClick={() => {
                 const prof = String(r.browser_profile_label || 'Default')
                 const shortDir = prof.includes('Profile ') ? (prof.match(/Profile\s+\d+/i)?.[0] ?? 'Default') : 'Default'
-                const net = /^(vnpt static ip|fpt static ip|viettel residential|mobile 4g)/i.test(String(r.network_label || '').trim())
-                  ? ''
-                  : String(r.network_label || '')
-                downloadChromeExtensionZip(String(r.label || 'Via'), shortDir, net)
+                downloadChromeExtensionZip(String(r.label || 'Via'), shortDir, cleanNet, [], validTwoFa, 'camp', String(r.id || ''))
               }}
             >
-              📦 Tải Tiện Ích (.zip)
+              📦 Tải Tiện Ích v2.9.1 (.zip)
             </Button>
+            <a
+              href="/downloads/AdsOps-Desktop-Pro-v1.1.zip"
+              download
+              className="inline-flex h-8 items-center rounded-md border border-indigo-500/45 bg-indigo-500/15 px-2.5 text-xs font-bold text-indigo-700 hover:bg-indigo-500/25 dark:text-indigo-300"
+            >
+              💻 App Win v1.1 (.zip)
+            </a>
             {canWrite && (
               <>
                 <Button type="button" variant="secondary" size="sm" onClick={() => setEditing(true)}>

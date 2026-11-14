@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -223,6 +224,91 @@ public sealed class PagedPersonalAccountsDto
     [JsonPropertyName("total")] public int Total { get; set; }
 }
 
+public sealed class AdAccountBillingMetaDto
+{
+    [JsonPropertyName("balance_raw")] public JsonElement? BalanceRaw { get; set; }
+    [JsonPropertyName("billing_threshold_raw")] public JsonElement? BillingThresholdRaw { get; set; }
+    [JsonPropertyName("next_bill_date")] public string? NextBillDate { get; set; }
+    [JsonPropertyName("meta_daily_limit_raw")] public JsonElement? MetaDailyLimitRaw { get; set; }
+    [JsonPropertyName("payment_card_display")] public string? PaymentCardDisplay { get; set; }
+    [JsonPropertyName("business_legal_name")] public string? BusinessLegalName { get; set; }
+
+    public static string? AsOptionalString(JsonElement? el)
+    {
+        if (!el.HasValue) return null;
+        var v = el.Value;
+        return v.ValueKind switch
+        {
+            JsonValueKind.Null or JsonValueKind.Undefined => null,
+            JsonValueKind.String => v.GetString(),
+            JsonValueKind.Number => v.GetRawText(),
+            _ => v.ToString(),
+        };
+    }
+}
+
+public sealed class AdAccountSpendPeriodsDto
+{
+    [JsonPropertyName("balance_raw")] public JsonElement? BalanceRaw { get; set; }
+}
+
+public sealed class AdAccountIdentityLinkDto
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+    [JsonPropertyName("label")] public string Label { get; set; } = "";
+    [JsonPropertyName("browser_profile_label")] public string BrowserProfileLabel { get; set; } = "";
+}
+
+public sealed class AdAccountItemDto
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+    [JsonPropertyName("display_name")] public string DisplayName { get; set; } = "";
+    [JsonPropertyName("external_account_id")] public string ExternalAccountId { get; set; } = "";
+    [JsonPropertyName("status")] public string Status { get; set; } = "";
+    [JsonPropertyName("currency")] public string Currency { get; set; } = "VND";
+    [JsonPropertyName("business_manager_name")] public string? BusinessManagerName { get; set; }
+    [JsonPropertyName("billing_meta")] public AdAccountBillingMetaDto? BillingMeta { get; set; }
+    [JsonPropertyName("spend_periods")] public AdAccountSpendPeriodsDto? SpendPeriods { get; set; }
+    [JsonPropertyName("facebook_identities")] public List<AdAccountIdentityLinkDto> FacebookIdentities { get; set; } = new();
+}
+
+public sealed class PagedAdAccountsDto
+{
+    [JsonPropertyName("items")] public List<AdAccountItemDto> Items { get; set; } = new();
+    [JsonPropertyName("total")] public int Total { get; set; }
+}
+
+public sealed class BundledExtensionAccountDto
+{
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("external_account_id")] public string ExternalAccountId { get; set; } = "";
+    [JsonPropertyName("status")] public string Status { get; set; } = "";
+    [JsonPropertyName("currency")] public string Currency { get; set; } = "VND";
+    [JsonPropertyName("balance_raw")] public string? BalanceRaw { get; set; }
+    [JsonPropertyName("billing_threshold_raw")] public string? BillingThresholdRaw { get; set; }
+    [JsonPropertyName("next_bill_date")] public string? NextBillDate { get; set; }
+    [JsonPropertyName("meta_daily_limit_raw")] public string? MetaDailyLimitRaw { get; set; }
+    [JsonPropertyName("payment_card_display")] public string? PaymentCardDisplay { get; set; }
+    [JsonPropertyName("business_legal_name")] public string? BusinessLegalName { get; set; }
+    [JsonPropertyName("bm_name")] public string? BmName { get; set; }
+
+    public static BundledExtensionAccountDto FromApi(AdAccountItemDto a) => new()
+    {
+        Name = string.IsNullOrWhiteSpace(a.DisplayName) ? (string.IsNullOrWhiteSpace(a.ExternalAccountId) ? "TKQC" : a.ExternalAccountId) : a.DisplayName,
+        ExternalAccountId = a.ExternalAccountId ?? "",
+        Status = a.Status ?? "",
+        Currency = string.IsNullOrWhiteSpace(a.Currency) ? "VND" : a.Currency,
+        BalanceRaw = AdAccountBillingMetaDto.AsOptionalString(a.BillingMeta?.BalanceRaw)
+                     ?? AdAccountBillingMetaDto.AsOptionalString(a.SpendPeriods?.BalanceRaw),
+        BillingThresholdRaw = AdAccountBillingMetaDto.AsOptionalString(a.BillingMeta?.BillingThresholdRaw),
+        NextBillDate = a.BillingMeta?.NextBillDate,
+        MetaDailyLimitRaw = AdAccountBillingMetaDto.AsOptionalString(a.BillingMeta?.MetaDailyLimitRaw),
+        PaymentCardDisplay = a.BillingMeta?.PaymentCardDisplay,
+        BusinessLegalName = a.BillingMeta?.BusinessLegalName,
+        BmName = a.BusinessManagerName,
+    };
+}
+
 public sealed class ViaQuotaDto
 {
     [JsonPropertyName("via_id")] public string ViaId { get; set; } = "";
@@ -312,6 +398,231 @@ public sealed class ViaWorkspaceEntry
     public double KeepAliveIntervalDays { get; set; } = 3.0;
     public bool NeedsKeepAlive { get; set; }
     public string ExtensionFolder { get; set; } = "";
+    public List<BundledExtensionAccountDto> BundledAccounts { get; set; } = new();
+}
+
+public sealed class LocalViaSecretRecord
+{
+    [JsonPropertyName("key")] public string Key { get; set; } = "";
+    [JsonPropertyName("via_id")] public string ViaId { get; set; } = "";
+    [JsonPropertyName("via_label")] public string ViaLabel { get; set; } = "";
+    [JsonPropertyName("profile_dir")] public string ProfileDir { get; set; } = "";
+    [JsonPropertyName("protected_cookie_b64")] public string ProtectedCookieB64 { get; set; } = "";
+    [JsonPropertyName("protected_twofa_b64")] public string ProtectedTwoFaB64 { get; set; } = "";
+    [JsonPropertyName("updated_at_utc")] public string UpdatedAtUtc { get; set; } = DateTime.UtcNow.ToString("O");
+}
+
+public sealed class PlainViaSecretBackupEntry
+{
+    [JsonPropertyName("via_id")] public string ViaId { get; set; } = "";
+    [JsonPropertyName("via_label")] public string ViaLabel { get; set; } = "";
+    [JsonPropertyName("profile_dir")] public string ProfileDir { get; set; } = "";
+    [JsonPropertyName("cookie_raw")] public string CookieRaw { get; set; } = "";
+    [JsonPropertyName("two_fa_secret")] public string TwoFaSecret { get; set; } = "";
+    [JsonPropertyName("updated_at_utc")] public string UpdatedAtUtc { get; set; } = DateTime.UtcNow.ToString("O");
+}
+
+public sealed record LocalVaultLookupResult(
+    bool Found,
+    string ViaId,
+    string ViaLabel,
+    string ProfileDir,
+    string CookieRaw,
+    string TwoFaSecret,
+    string UpdatedAtUtc);
+
+/// <summary>100% local DPAPI-encrypted store for per-Via Cookie &amp; 2FA secrets (never transmitted to Cloud API).</summary>
+public sealed class LocalSecretVaultStore
+{
+    private static readonly Lazy<LocalSecretVaultStore> _default =
+        new(() => new LocalSecretVaultStore(Path.Combine(DesktopConfig.AppDataRoot, "local_secrets_dpapi.json")));
+
+    public static LocalSecretVaultStore Default => _default.Value;
+
+    private readonly string _filePath;
+    private readonly object _gate = new();
+    private List<LocalViaSecretRecord> _records = new();
+
+    public LocalSecretVaultStore(string filePath)
+    {
+        _filePath = filePath;
+        LoadFromDisk();
+    }
+
+    private void LoadFromDisk()
+    {
+        lock (_gate)
+        {
+            try
+            {
+                if (File.Exists(_filePath))
+                {
+                    var txt = File.ReadAllText(_filePath, Encoding.UTF8);
+                    _records = JsonSerializer.Deserialize<List<LocalViaSecretRecord>>(txt) ?? new();
+                }
+            }
+            catch
+            {
+                _records = new();
+            }
+        }
+    }
+
+    private void SaveToDiskLocked()
+    {
+        var dir = Path.GetDirectoryName(_filePath);
+        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+        var json = JsonSerializer.Serialize(_records, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(_filePath, json, new UTF8Encoding(false));
+    }
+
+    private static string BuildCanonicalKey(string viaId, string profileDir, string viaLabel)
+    {
+        var id = (viaId ?? "").Trim();
+        if (!string.IsNullOrEmpty(id)) return $"id:{id.ToLowerInvariant()}";
+        var prof = (profileDir ?? "").Trim().ToLowerInvariant();
+        var lbl = (viaLabel ?? "").Trim().ToLowerInvariant();
+        return $"local:{prof}::{lbl}";
+    }
+
+    private LocalViaSecretRecord? FindRecordLocked(string? viaId, string? profileDir, string? viaLabel)
+    {
+        var id = (viaId ?? "").Trim();
+        var prof = (profileDir ?? "").Trim();
+        var lbl = (viaLabel ?? "").Trim();
+
+        if (!string.IsNullOrEmpty(id))
+        {
+            var byId = _records.FirstOrDefault(r => string.Equals(r.ViaId, id, StringComparison.OrdinalIgnoreCase));
+            if (byId != null) return byId;
+        }
+        if (!string.IsNullOrEmpty(prof) && !string.IsNullOrEmpty(lbl))
+        {
+            var exactBoth = _records.FirstOrDefault(r =>
+                string.Equals(r.ProfileDir, prof, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(r.ViaLabel, lbl, StringComparison.OrdinalIgnoreCase));
+            if (exactBoth != null) return exactBoth;
+        }
+        if (!string.IsNullOrEmpty(lbl))
+        {
+            var byLbl = _records.FirstOrDefault(r => string.Equals(r.ViaLabel, lbl, StringComparison.OrdinalIgnoreCase));
+            if (byLbl != null) return byLbl;
+        }
+        if (!string.IsNullOrEmpty(prof))
+        {
+            var byProf = _records.Where(r => string.Equals(r.ProfileDir, prof, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (byProf.Count == 1) return byProf[0];
+        }
+        return null;
+    }
+
+    private static string SafeUnprotect(string cipherB64)
+    {
+        if (string.IsNullOrWhiteSpace(cipherB64)) return "";
+        try { return WindowsDpapi.UnprotectString(cipherB64); }
+        catch { return ""; }
+    }
+
+    public LocalVaultLookupResult Upsert(
+        string? viaId,
+        string? viaLabel,
+        string? profileDir,
+        string? cookieRaw,
+        string? twoFaSecret,
+        bool allowOverwriteEmpty = false)
+    {
+        var cleanId = (viaId ?? "").Trim();
+        var cleanLbl = (viaLabel ?? "").Trim();
+        var cleanProf = (profileDir ?? "").Trim();
+        var cleanCk = (cookieRaw ?? "").Trim();
+        var clean2Fa = new string((twoFaSecret ?? "").Where(c => !char.IsWhiteSpace(c)).ToArray()).ToUpperInvariant();
+
+        lock (_gate)
+        {
+            var rec = FindRecordLocked(cleanId, cleanProf, cleanLbl);
+            if (rec == null)
+            {
+                rec = new LocalViaSecretRecord
+                {
+                    Key = BuildCanonicalKey(cleanId, cleanProf, cleanLbl),
+                    ViaId = cleanId,
+                    ViaLabel = cleanLbl,
+                    ProfileDir = cleanProf,
+                };
+                _records.Add(rec);
+            }
+            if (!string.IsNullOrEmpty(cleanId)) rec.ViaId = cleanId;
+            if (!string.IsNullOrEmpty(cleanLbl)) rec.ViaLabel = cleanLbl;
+            if (!string.IsNullOrEmpty(cleanProf)) rec.ProfileDir = cleanProf;
+
+            if (allowOverwriteEmpty || !string.IsNullOrEmpty(cleanCk))
+            {
+                rec.ProtectedCookieB64 = string.IsNullOrEmpty(cleanCk) ? "" : WindowsDpapi.ProtectString(cleanCk);
+            }
+            if (allowOverwriteEmpty || !string.IsNullOrEmpty(clean2Fa))
+            {
+                rec.ProtectedTwoFaB64 = string.IsNullOrEmpty(clean2Fa) ? "" : WindowsDpapi.ProtectString(clean2Fa);
+            }
+            rec.UpdatedAtUtc = DateTime.UtcNow.ToString("O");
+            SaveToDiskLocked();
+
+            return new LocalVaultLookupResult(
+                true,
+                rec.ViaId,
+                rec.ViaLabel,
+                rec.ProfileDir,
+                SafeUnprotect(rec.ProtectedCookieB64),
+                SafeUnprotect(rec.ProtectedTwoFaB64),
+                rec.UpdatedAtUtc);
+        }
+    }
+
+    public LocalVaultLookupResult Find(string? viaId, string? profileDir, string? viaLabel)
+    {
+        lock (_gate)
+        {
+            var rec = FindRecordLocked(viaId, profileDir, viaLabel);
+            if (rec == null)
+            {
+                return new LocalVaultLookupResult(false, "", "", "", "", "", "");
+            }
+            var ck = SafeUnprotect(rec.ProtectedCookieB64);
+            var tfa = SafeUnprotect(rec.ProtectedTwoFaB64);
+            var hasData = !string.IsNullOrEmpty(ck) || !string.IsNullOrEmpty(tfa);
+            return new LocalVaultLookupResult(hasData, rec.ViaId, rec.ViaLabel, rec.ProfileDir, ck, tfa, rec.UpdatedAtUtc);
+        }
+    }
+
+    public List<PlainViaSecretBackupEntry> ExportPlainEntries()
+    {
+        lock (_gate)
+        {
+            return _records.Select(r => new PlainViaSecretBackupEntry
+            {
+                ViaId = r.ViaId,
+                ViaLabel = r.ViaLabel,
+                ProfileDir = r.ProfileDir,
+                CookieRaw = SafeUnprotect(r.ProtectedCookieB64),
+                TwoFaSecret = SafeUnprotect(r.ProtectedTwoFaB64),
+                UpdatedAtUtc = r.UpdatedAtUtc,
+            })
+            .Where(e => !string.IsNullOrEmpty(e.CookieRaw) || !string.IsNullOrEmpty(e.TwoFaSecret))
+            .ToList();
+        }
+    }
+
+    public int ImportPlainEntries(IEnumerable<PlainViaSecretBackupEntry>? entries)
+    {
+        if (entries == null) return 0;
+        int imported = 0;
+        foreach (var e in entries)
+        {
+            if (string.IsNullOrEmpty(e.CookieRaw) && string.IsNullOrEmpty(e.TwoFaSecret)) continue;
+            Upsert(e.ViaId, e.ViaLabel, e.ProfileDir, e.CookieRaw, e.TwoFaSecret, allowOverwriteEmpty: false);
+            imported++;
+        }
+        return imported;
+    }
 }
 
 public sealed class ParsedAdsOpsUri

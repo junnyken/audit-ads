@@ -24,6 +24,7 @@ import {
   fetchRealLocalChromeProfiles,
   launchInAssignedChromeProfile,
   normalizeProxyKey,
+  probeLocalDesktopBridge,
 } from '../lib/chromeProfileLauncher'
 
 const LEGACY_MOCK_NETWORKS = [
@@ -371,6 +372,13 @@ export default function FacebookAccounts() {
     initialData: WORKSTATION_REAL_CHROME_PROFILES,
     retry: false,
   })
+  const desktopBridgeQ = useQuery({
+    queryKey: ['local-desktop-bridge-probe'],
+    queryFn: () => probeLocalDesktopBridge(),
+    refetchInterval: 10000,
+    retry: false,
+  })
+  const bridgeProbe = desktopBridgeQ.data
   const proxyHealthQ = useQuery({
     queryKey: ['proxy-health-map'],
     queryFn: () => api.get<{ health_map: Record<string, ProxyHealthItem> }>('/api/v1/proxies/health-map'),
@@ -592,14 +600,30 @@ export default function FacebookAccounts() {
                 {checkBatchProxies.isPending ? '🩺 Đang kiểm tra Proxy...' : '🩺 Kiểm tra tất cả Proxy'}
               </Button>
             )}
+            {bridgeProbe?.isDesktopApp && (
+              <span
+                className="inline-flex items-center gap-1 rounded-md border border-emerald-500/50 bg-emerald-500/15 px-2.5 py-1.5 text-xs font-extrabold text-emerald-700 dark:text-emerald-300"
+                title="AdsOps Desktop Pro đang chạy ngầm tại 127.0.0.1:17890"
+              >
+                💻 App Windows v{bridgeProbe.version || '1.1'} Đang Chạy
+              </span>
+            )}
+            <a
+              href="/downloads/AdsOps-Desktop-Pro-v1.1.zip"
+              download
+              className="inline-flex h-9 items-center gap-1 rounded-md border border-indigo-500/45 bg-indigo-500/15 px-3 text-xs font-bold text-indigo-700 hover:bg-indigo-500/25 dark:text-indigo-300"
+              title="Tải App Windows AdsOps Desktop Pro v1.1 (Cầu nối 2 chiều + Két Cookie DPAPI + Extension v2.9.1)"
+            >
+              💻 Tải App Windows v1.1 (.zip)
+            </a>
             <Button
               type="button"
               variant="secondary"
               onClick={downloadWindowsChromeLauncherBat}
-              title="Tải file cài đặt dự phòng cho máy Windows khác"
+              title="Tải file .bat dự phòng cho máy Windows khác"
               data-testid="fb-chrome-launcher-setup"
             >
-              ⚡ Tải bộ kết nối cho máy khác
+              ⚡ Tải .bat dự phòng
             </Button>
             {canWrite && (
               <Button type="button" onClick={() => setCreating(true)}>
@@ -833,6 +857,18 @@ export default function FacebookAccounts() {
                                 title={`Mở đúng cửa sổ Chrome (${browserLabel}) của Via ${String(row.label)}`}
                               >
                                 🚀 Mở Chrome
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const kaTier = meta.tier === 'vault' ? 'vault' : 'standard'
+                                  const kaUrl = `https://www.facebook.com/?adsops_keepalive_session=1&adsops_auto_close=0&adsops_via_tier=${kaTier}&adsops_via_id=${encodeURIComponent(row.id)}&adsops_via_label=${encodeURIComponent(String(row.label || ''))}`
+                                  safeLaunchChrome(kaUrl)
+                                }}
+                                className="inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-500/20 dark:text-amber-300"
+                                title="Chạy phiên Đảo Ấm Cookie sinh học an toàn ngay trên Chrome của Via này"
+                              >
+                                ☕ Đảo Ấm
                               </button>
                               <button
                                 type="button"

@@ -7,10 +7,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>AdsOpsDesktop</AssemblyName>
     <RootNamespace>AdsOpsDesktop</RootNamespace>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <Product>AdsOps Desktop Pro</Product>
     <Company>AdsOps</Company>
-    <Description>AdsOps Desktop Pro v1.0 — Local Chrome Bridge, Extension v2.9 Auto-Provisioner, 2-Way Browser Event Relay &amp; Vault Backup</Description>
+    <Description>AdsOps Desktop Pro v1.1 — Local Chrome Bridge, Extension v2.9.1 Auto-Provisioner, Real AdAccount Bundler, DPAPI Local Cookie/2FA Vault, 2-Way Browser Event Relay &amp; Vault Backup</Description>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 

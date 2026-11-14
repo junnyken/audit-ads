@@ -309,7 +309,7 @@ export default function Operations() {
                 <Puzzle className="h-4 w-4 text-brand-text" />
                 <span>{isEn ? 'Chrome Extension & Proxy Shield' : 'Tiện ích Chrome & Bọc Proxy'}</span>
               </span>
-              <Badge tone="positive">v2.5 Pro</Badge>
+              <Badge tone="positive">v2.9.1 Pro</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-xs text-ink-muted">

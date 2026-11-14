@@ -23,6 +23,7 @@ public sealed class MainForm : Form
     private string _currentUserSummary = "Chưa đăng nhập";
 
     private readonly NotifyIcon _trayIcon;
+    private readonly ContextMenuStrip _trayMenu = new();
     private readonly System.Windows.Forms.Timer _keepAliveTimer = new() { Interval = 60_000 };
     private readonly System.Windows.Forms.Timer _syncTimer = new() { Interval = 300_000 };
 
@@ -49,20 +50,11 @@ public sealed class MainForm : Form
         _trayIcon = new NotifyIcon
         {
             Icon = SystemIcons.Shield,
-            Text = "AdsOps Desktop Pro v1.0",
+            Text = "AdsOps Desktop Pro v1.1",
             Visible = true,
+            ContextMenuStrip = _trayMenu,
         };
-        var trayMenu = new ContextMenuStrip();
-        trayMenu.Items.Add("Mở Bảng điều khiển AdsOps", null, (_, _) => RestoreWindow());
-        trayMenu.Items.Add("Đồng bộ Dàn Via", null, async (_, _) => await RefreshWorkspaceDataAsync());
-        trayMenu.Items.Add("Cập nhật Extension v2.9 hàng loạt", null, (_, _) => ProvisionAllViasExtensions());
-        trayMenu.Items.Add(new ToolStripSeparator());
-        trayMenu.Items.Add("Thoát hẳn AdsOps Desktop", null, (_, _) =>
-        {
-            _allowExit = true;
-            Close();
-        });
-        _trayIcon.ContextMenuStrip = trayMenu;
+        RebuildTrayMenu();
         _trayIcon.DoubleClick += (_, _) => RestoreWindow();
 
         InitializeUi();
@@ -89,7 +81,7 @@ public sealed class MainForm : Form
             }
             else
             {
-                AppendLog("Sẵn sàng. Hãy đăng nhập tài khoản AdsOps Cloud để đồng bộ Dàn Via & Relay Telegram.");
+                AppendLog("Sẵn sàng v1.1. Hãy đăng nhập tài khoản AdsOps Cloud để đồng bộ Dàn Via + TKQC + Relay Telegram.");
             }
         };
 
@@ -99,7 +91,7 @@ public sealed class MainForm : Form
             {
                 e.Cancel = true;
                 Hide();
-                _trayIcon.ShowBalloonTip(2500, "AdsOps Desktop Pro", "App vẫn đang chạy ngầm tại khay hệ thống (127.0.0.1:17890).", ToolTipIcon.Info);
+                _trayIcon.ShowBalloonTip(2500, "AdsOps Desktop Pro v1.1", "App vẫn đang chạy ngầm tại khay hệ thống (127.0.0.1:17890).", ToolTipIcon.Info);
                 return;
             }
             _keepAliveTimer.Stop();
@@ -108,14 +100,63 @@ public sealed class MainForm : Form
             _api.Dispose();
             _trayIcon.Visible = false;
             _trayIcon.Dispose();
+            _trayMenu.Dispose();
         };
+    }
+
+    private void RebuildTrayMenu()
+    {
+        if (InvokeRequired)
+        {
+            BeginInvoke(RebuildTrayMenu);
+            return;
+        }
+        _trayMenu.Items.Clear();
+        _trayMenu.Items.Add("Mở Bảng điều khiển AdsOps v1.1", null, (_, _) => RestoreWindow());
+
+        var launchMenu = new ToolStripMenuItem($"🚀 Mở nhanh Chrome Via ({_vias.Count})");
+        if (_vias.Count == 0)
+        {
+            launchMenu.DropDownItems.Add("(Chưa đồng bộ Via)").Enabled = false;
+        }
+        else
+        {
+            foreach (var v in _vias.Take(20))
+            {
+                var captured = v;
+                launchMenu.DropDownItems.Add($"{captured.Label} ({captured.ProfileDir})", null, async (_, _) =>
+                    await LaunchViaInChromeAsync(captured, "https://www.facebook.com/"));
+            }
+        }
+        _trayMenu.Items.Add(launchMenu);
+
+        var overdueVias = _vias.Where(v => v.NeedsKeepAlive).ToList();
+        var warmItem = new ToolStripMenuItem($"☕ Đảo Ấm Ngay Các Via Quá Hạn ({overdueVias.Count})");
+        warmItem.Enabled = overdueVias.Count > 0;
+        warmItem.Click += async (_, _) =>
+        {
+            foreach (var ov in overdueVias.Take(5))
+            {
+                await LaunchKeepAliveForViaAsync(ov, manual: true);
+            }
+        };
+        _trayMenu.Items.Add(warmItem);
+
+        _trayMenu.Items.Add("🔄 Đồng bộ Dàn Via & TKQC", null, async (_, _) => await RefreshWorkspaceDataAsync());
+        _trayMenu.Items.Add("🧩 Cập nhật Extension v2.9.1 hàng loạt", null, (_, _) => ProvisionAllViasExtensions());
+        _trayMenu.Items.Add(new ToolStripSeparator());
+        _trayMenu.Items.Add("Thoát hẳn AdsOps Desktop", null, (_, _) =>
+        {
+            _allowExit = true;
+            Close();
+        });
     }
 
     private void InitializeUi()
     {
-        Text = "AdsOps Desktop Pro v1.0 — Cầu Nối Chrome · Extension v2.9 · Vault Backup";
-        Size = new Size(1160, 740);
-        MinimumSize = new Size(960, 600);
+        Text = "AdsOps Desktop Pro v1.1 — Cầu Nối Chrome · Extension v2.9.1 · Két Cookie & 2FA Local · TKQC Thật";
+        Size = new Size(1240, 760);
+        MinimumSize = new Size(980, 620);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Color.FromArgb(11, 17, 32);
         ForeColor = Color.FromArgb(241, 245, 249);
@@ -143,10 +184,10 @@ public sealed class MainForm : Form
             Margin = new Padding(0),
         };
 
-        _txtBackendUrl = CreateTextBox(_config.BackendBaseUrl, 240);
-        _txtEmail = CreateTextBox(_config.UserEmail, 175);
+        _txtBackendUrl = CreateTextBox(_config.BackendBaseUrl, 235);
+        _txtEmail = CreateTextBox(_config.UserEmail, 170);
         _txtEmail.PlaceholderText = "Email AdsOps...";
-        _txtPassword = CreateTextBox("", 130);
+        _txtPassword = CreateTextBox("", 125);
         _txtPassword.UseSystemPasswordChar = true;
         _txtPassword.PlaceholderText = "Mật khẩu...";
 
@@ -222,7 +263,7 @@ public sealed class MainForm : Form
         {
             _config.UseIsolatedProfiles = _chkIsolated.Checked;
             _config.Save();
-            AppendLog($"Chế độ mở Chrome: {(_config.UseIsolatedProfiles ? "100% Isolated Profile (--user-data-dir + Auto-load Ext v2.9)" : "Chrome Profile Chuẩn (--profile-directory)")}");
+            AppendLog($"Chế độ mở Chrome: {(_config.UseIsolatedProfiles ? "100% Isolated Profile (--user-data-dir + Auto-load Ext v2.9.1)" : "Chrome Profile Chuẩn (--profile-directory)")}");
         };
 
         _chkAutoKeepAlive = new CheckBox
@@ -240,10 +281,10 @@ public sealed class MainForm : Form
             AppendLog($"Lịch Auto Đảo Ấm: {(_config.AutoKeepAliveScheduler ? "ĐANG BẬT" : "ĐÃ TẮT")}");
         };
 
-        var btnSync = CreateActionButton("🔄 Đồng bộ Dàn Via", Color.FromArgb(30, 58, 138));
+        var btnSync = CreateActionButton("🔄 Đồng bộ Dàn Via & TKQC", Color.FromArgb(30, 58, 138));
         btnSync.Click += async (_, _) => await RefreshWorkspaceDataAsync();
 
-        var btnProvAll = CreateActionButton("🧩 Cài/Cập nhật Ext v2.9 Hàng loạt", Color.FromArgb(5, 150, 105));
+        var btnProvAll = CreateActionButton("🧩 Cài/Cập nhật Ext v2.9.1 Hàng loạt", Color.FromArgb(5, 150, 105));
         btnProvAll.Click += (_, _) => ProvisionAllViasExtensions();
 
         var btnExportVault = CreateActionButton("📤 Xuất Vault AES-256", Color.FromArgb(180, 83, 9));
@@ -286,15 +327,16 @@ public sealed class MainForm : Form
         _gridVias.DefaultCellStyle.SelectionForeColor = Color.White;
         _gridVias.RowTemplate.Height = 32;
 
-        _gridVias.Columns.Add(new DataGridViewTextBoxColumn { Name = "colName", HeaderText = "Tên Via / Vai trò", FillWeight = 22 });
-        _gridVias.Columns.Add(new DataGridViewTextBoxColumn { Name = "colProfile", HeaderText = "Hồ sơ Chrome", FillWeight = 16 });
-        _gridVias.Columns.Add(new DataGridViewTextBoxColumn { Name = "colProxy", HeaderText = "Proxy riêng", FillWeight = 18 });
-        _gridVias.Columns.Add(new DataGridViewTextBoxColumn { Name = "colHold", HeaderText = "Giữ Page / Tạo", FillWeight = 12 });
-        _gridVias.Columns.Add(new DataGridViewTextBoxColumn { Name = "colIdle", HeaderText = "Đảo ấm / Idle", FillWeight = 13 });
-        _gridVias.Columns.Add(new DataGridViewTextBoxColumn { Name = "colStatus", HeaderText = "Hạn mức", FillWeight = 11 });
-        _gridVias.Columns.Add(new DataGridViewButtonColumn { Name = "colOpen", HeaderText = "Chrome", Text = "🚀 Mở", UseColumnTextForButtonValue = true, FillWeight = 9 });
+        _gridVias.Columns.Add(new DataGridViewTextBoxColumn { Name = "colName", HeaderText = "Tên Via / Vai trò", FillWeight = 20 });
+        _gridVias.Columns.Add(new DataGridViewTextBoxColumn { Name = "colProfile", HeaderText = "Hồ sơ Chrome", FillWeight = 14 });
+        _gridVias.Columns.Add(new DataGridViewTextBoxColumn { Name = "colProxy", HeaderText = "Proxy riêng", FillWeight = 16 });
+        _gridVias.Columns.Add(new DataGridViewTextBoxColumn { Name = "colHold", HeaderText = "Page / TKQC", FillWeight = 14 });
+        _gridVias.Columns.Add(new DataGridViewTextBoxColumn { Name = "colIdle", HeaderText = "Đảo ấm / Idle", FillWeight = 12 });
+        _gridVias.Columns.Add(new DataGridViewTextBoxColumn { Name = "colStatus", HeaderText = "Hạn mức", FillWeight = 9 });
+        _gridVias.Columns.Add(new DataGridViewButtonColumn { Name = "colVault", HeaderText = "Két Sắt Ck/2FA", UseColumnTextForButtonValue = false, FillWeight = 10 });
+        _gridVias.Columns.Add(new DataGridViewButtonColumn { Name = "colOpen", HeaderText = "Chrome", Text = "🚀 Mở", UseColumnTextForButtonValue = true, FillWeight = 8 });
         _gridVias.Columns.Add(new DataGridViewButtonColumn { Name = "colWarm", HeaderText = "Cookie", Text = "☕ Đảo Ấm", UseColumnTextForButtonValue = true, FillWeight = 9 });
-        _gridVias.Columns.Add(new DataGridViewButtonColumn { Name = "colCheckProxy", HeaderText = "Mạng", Text = "🩺 Check", UseColumnTextForButtonValue = true, FillWeight = 9 });
+        _gridVias.Columns.Add(new DataGridViewButtonColumn { Name = "colCheckProxy", HeaderText = "Mạng", Text = "🩺 Check", UseColumnTextForButtonValue = true, FillWeight = 8 });
         _gridVias.CellContentClick += async (_, e) => await HandleGridButtonClickAsync(e.RowIndex, e.ColumnIndex);
 
         // 4. Bottom Log Box
@@ -363,22 +405,25 @@ public sealed class MainForm : Form
     {
         try
         {
+            LocalBridgeServer.RetireLegacyBridgeHoldingPort(_config.BridgePort, AppendLog);
             _bridge = new LocalBridgeServer(
                 _config.BridgePort,
                 HandleOpenChromeRequestAsync,
                 HandleBrowserEventAsync,
                 () => Task.FromResult(ProvisionAllViasExtensions()),
-                AppendLog);
+                AppendLog,
+                HandleLocalVaultSaveAsync,
+                HandleLocalVaultGetAsync);
             _bridge.Start();
-            _lblBridgeStatus.Text = $"🟢 Cầu nối 127.0.0.1:{_bridge.BoundPort} (Ext v2.9 Ready)";
+            _lblBridgeStatus.Text = $"🟢 Cầu nối v1.1 · 127.0.0.1:{_bridge.BoundPort} (Ext v2.9.1)";
             _lblBridgeStatus.ForeColor = Color.FromArgb(52, 211, 153);
-            AppendLog($"Cầu nối HTTP đang lắng nghe tại http://127.0.0.1:{_bridge.BoundPort}");
+            AppendLog($"Cầu nối HTTP v1.1 đang lắng nghe tại http://127.0.0.1:{_bridge.BoundPort}");
         }
         catch (Exception ex)
         {
             _lblBridgeStatus.Text = $"🟡 Cổng {_config.BridgePort} đang bận ({ex.Message})";
             _lblBridgeStatus.ForeColor = Color.FromArgb(251, 191, 36);
-            AppendLog($"Không thể mở cổng {_config.BridgePort}: {ex.Message}. Hãy tắt file .bat cũ nếu đang chạy.");
+            AppendLog($"Không thể mở cổng {_config.BridgePort}: {ex.Message}. Hãy tắt tiến trình đang chiếm cổng.");
         }
     }
 
@@ -446,23 +491,55 @@ public sealed class MainForm : Form
             var me = await _api.GetCurrentUserAsync();
             var refs = await _api.ListPersonalAccountsAsync();
             var summary = await _api.GetPagesSummaryAsync();
+            List<AdAccountItemDto> allAdAccounts = new();
+            try
+            {
+                var accRes = await _api.ListAdAccountsAsync();
+                allAdAccounts = accRes.Items ?? new();
+            }
+            catch (Exception ex)
+            {
+                if (!silent) AppendLog($"⚠️ Tạm chưa tải được danh sách TKQC ({ex.Message}); tiếp tục đồng bộ Via.");
+            }
 
+            var allBundled = allAdAccounts.Select(BundledExtensionAccountDto.FromApi).ToList();
             var quotaById = summary.ViaQuotas.ToDictionary(q => q.ViaId ?? "", StringComparer.OrdinalIgnoreCase);
             var refById = refs.Items.ToDictionary(r => r.Id ?? "", StringComparer.OrdinalIgnoreCase);
+
+            List<BundledExtensionAccountDto> ResolveAccountsForVia(string viaId, string viaLabel)
+            {
+                if (allAdAccounts.Count == 0) return new();
+                var lblLow = (viaLabel ?? "").Trim().ToLowerInvariant();
+                var matched = allAdAccounts.Where(a =>
+                    a.FacebookIdentities.Any(fid =>
+                        (!string.IsNullOrEmpty(viaId) && string.Equals(fid.Id, viaId, StringComparison.OrdinalIgnoreCase)) ||
+                        (!string.IsNullOrEmpty(lblLow) && string.Equals((fid.Label ?? "").Trim().ToLowerInvariant(), lblLow, StringComparison.Ordinal))
+                    )).ToList();
+                return matched.Count > 0
+                    ? matched.Select(BundledExtensionAccountDto.FromApi).ToList()
+                    : allBundled;
+            }
 
             var merged = new List<ViaWorkspaceEntry>();
             foreach (var r in refs.Items)
             {
                 quotaById.TryGetValue(r.Id, out var q);
                 var backendTier = q?.ViaTier ?? "standard_via";
+                var profDir = ExtensionProvisioner.ResolveProfileDirectory(r.BrowserProfileLabel, r.Label);
+                var extracted2fa = ExtensionProvisioner.ExtractTwoFaSecret(r.VaultReference, r.Notes);
+                if (string.IsNullOrEmpty(extracted2fa))
+                {
+                    var localSec = LocalSecretVaultStore.Default.Find(r.Id, profDir, r.Label);
+                    if (localSec.Found) extracted2fa = localSec.TwoFaSecret;
+                }
                 merged.Add(new ViaWorkspaceEntry
                 {
                     ViaId = r.Id,
                     Label = r.Label,
                     BrowserProfileLabel = string.IsNullOrWhiteSpace(r.BrowserProfileLabel) ? (q?.BrowserProfile ?? "Default") : r.BrowserProfileLabel,
-                    ProfileDir = ExtensionProvisioner.ResolveProfileDirectory(r.BrowserProfileLabel, r.Label),
+                    ProfileDir = profDir,
                     NetworkLabel = string.IsNullOrWhiteSpace(r.NetworkLabel) ? (q?.NetworkLabel ?? "") : r.NetworkLabel,
-                    TwoFaSecret = ExtensionProvisioner.ExtractTwoFaSecret(r.VaultReference, r.Notes),
+                    TwoFaSecret = extracted2fa,
                     ViaTier = backendTier == "veteran_xmdt" ? "vault" : "camp",
                     BackendTier = backendTier,
                     HoldingPagesCount = q?.HoldingPagesCount ?? 0,
@@ -472,19 +549,23 @@ public sealed class MainForm : Form
                     IdleDays = q?.IdleDays ?? 0,
                     KeepAliveIntervalDays = q?.KeepAliveIntervalDays ?? 3.0,
                     NeedsKeepAlive = q?.NeedsKeepAlive ?? false,
+                    BundledAccounts = ResolveAccountsForVia(r.Id, r.Label),
                 });
             }
 
             foreach (var q in summary.ViaQuotas)
             {
                 if (!string.IsNullOrEmpty(q.ViaId) && refById.ContainsKey(q.ViaId)) continue;
+                var profDir = ExtensionProvisioner.ResolveProfileDirectory(q.BrowserProfile, q.Label);
+                var localSec = LocalSecretVaultStore.Default.Find(q.ViaId, profDir, q.Label);
                 merged.Add(new ViaWorkspaceEntry
                 {
                     ViaId = q.ViaId,
                     Label = q.Label,
                     BrowserProfileLabel = q.BrowserProfile,
-                    ProfileDir = ExtensionProvisioner.ResolveProfileDirectory(q.BrowserProfile, q.Label),
+                    ProfileDir = profDir,
                     NetworkLabel = q.NetworkLabel,
+                    TwoFaSecret = localSec.Found ? localSec.TwoFaSecret : "",
                     ViaTier = q.ViaTier == "veteran_xmdt" ? "vault" : "camp",
                     BackendTier = q.ViaTier,
                     HoldingPagesCount = q.HoldingPagesCount,
@@ -494,6 +575,7 @@ public sealed class MainForm : Form
                     IdleDays = q.IdleDays,
                     KeepAliveIntervalDays = q.KeepAliveIntervalDays,
                     NeedsKeepAlive = q.NeedsKeepAlive,
+                    BundledAccounts = ResolveAccountsForVia(q.ViaId, q.Label),
                 });
             }
 
@@ -502,14 +584,15 @@ public sealed class MainForm : Form
                 _vias.Clear();
                 _vias.AddRange(merged);
                 _currentUserSummary = $"{me.Email} · {me.Workspace?.Name ?? "Workspace"}";
-                _lblAuthStatus.Text = $"🟢 {_currentUserSummary} ({_vias.Count} Via)";
+                _lblAuthStatus.Text = $"🟢 {_currentUserSummary} ({_vias.Count} Via · {allBundled.Count} TKQC)";
                 _lblAuthStatus.ForeColor = Color.FromArgb(52, 211, 153);
                 RenderViaGrid();
+                RebuildTrayMenu();
             });
             ProvisionAllViasExtensions(quiet: true);
             if (!silent)
             {
-                AppendLog($"Đã đồng bộ {merged.Count} Via từ {_currentUserSummary} & tự cập nhật Extension v2.9.");
+                AppendLog($"Đã đồng bộ {merged.Count} Via & {allBundled.Count} TKQC từ {_currentUserSummary} -> đóng gói Extension v2.9.1.");
             }
         }
         catch (Exception ex)
@@ -529,15 +612,28 @@ public sealed class MainForm : Form
         foreach (var v in _vias)
         {
             var idleText = v.NeedsKeepAlive ? $"⚠️ {v.IdleDays:0.0}d (Cần ấm)" : $"✅ {v.IdleDays:0.0}d / {v.KeepAliveIntervalDays:0.0}d";
-            var holdText = $"{v.HoldingPagesCount} Page · {v.CreatedTodayCount}/{v.DailyLimit} hôm nay";
+            var holdText = $"{v.HoldingPagesCount} Page ({v.CreatedTodayCount}/{v.DailyLimit}) · {v.BundledAccounts.Count} TKQC";
             var proxyDisp = string.IsNullOrWhiteSpace(v.NetworkLabel) ? "(Mạng gốc)" : v.NetworkLabel;
+
+            var stored = LocalSecretVaultStore.Default.Find(v.ViaId, v.ProfileDir, v.Label);
+            var hasCk = stored.Found && !string.IsNullOrWhiteSpace(stored.CookieRaw);
+            var has2fa = !string.IsNullOrWhiteSpace(v.TwoFaSecret) || (stored.Found && !string.IsNullOrWhiteSpace(stored.TwoFaSecret));
+            var vaultBtnText = (hasCk, has2fa) switch
+            {
+                (true, true) => "🔐 Ck+2FA",
+                (true, false) => "🍪 Có Ck",
+                (false, true) => "🔑 Có 2FA",
+                _ => "➕ Lưu Ck",
+            };
+
             var rowIdx = _gridVias.Rows.Add(
                 v.Label,
                 string.IsNullOrWhiteSpace(v.BrowserProfileLabel) ? v.ProfileDir : $"{v.ProfileDir} ({v.BrowserProfileLabel})",
                 proxyDisp,
                 holdText,
                 idleText,
-                v.QuotaStatus);
+                v.QuotaStatus,
+                vaultBtnText);
             _gridVias.Rows[rowIdx].Tag = v;
         }
     }
@@ -559,8 +655,8 @@ public sealed class MainForm : Form
         }
         if (!quiet)
         {
-            AppendLog($"🧩 Đã đóng gói/cập nhật Extension v2.9.0 cho {count} Via tại {ExtensionProvisioner.ExtensionsRoot}");
-            _trayIcon.ShowBalloonTip(2500, "Extension v2.9.0", $"Đã cập nhật tự động cho {count} hồ sơ Via.", ToolTipIcon.Info);
+            AppendLog($"🧩 Đã đóng gói/cập nhật Extension v2.9.1 (kèm TKQC + 2FA) cho {count} Via tại {ExtensionProvisioner.ExtensionsRoot}");
+            _trayIcon.ShowBalloonTip(2500, "Extension v2.9.1", $"Đã cập nhật tự động cho {count} hồ sơ Via.", ToolTipIcon.Info);
         }
         return count;
     }
@@ -571,7 +667,11 @@ public sealed class MainForm : Form
         if (_gridVias.Rows[rowIndex].Tag is not ViaWorkspaceEntry via) return;
         var colName = _gridVias.Columns[colIndex].Name;
 
-        if (colName == "colOpen")
+        if (colName == "colVault")
+        {
+            OpenLocalVaultEditorDialog(via);
+        }
+        else if (colName == "colOpen")
         {
             await LaunchViaInChromeAsync(via, "https://www.facebook.com/");
         }
@@ -585,6 +685,174 @@ public sealed class MainForm : Form
         }
     }
 
+    private void OpenLocalVaultEditorDialog(ViaWorkspaceEntry via)
+    {
+        var cur = LocalSecretVaultStore.Default.Find(via.ViaId, via.ProfileDir, via.Label);
+        using var dlg = new Form
+        {
+            Text = $"🔐 Két Sắt Cookie & 2FA Local (DPAPI) — {via.Label}",
+            Width = 560,
+            Height = 360,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            StartPosition = FormStartPosition.CenterParent,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            BackColor = Color.FromArgb(15, 23, 42),
+            ForeColor = Color.White,
+        };
+
+        var lblNote = new Label
+        {
+            Left = 14,
+            Top = 12,
+            Width = 516,
+            Height = 34,
+            ForeColor = Color.FromArgb(148, 163, 184),
+            Text = "Dữ liệu chỉ mã hóa & lưu 100% cục bộ bằng Windows DPAPI trên máy này (không bao giờ gửi lên Cloud). Dùng nút «📥 Nạp từ Két App Win» trong Chrome Extension v2.9.1 để bơm vào Chrome.",
+        };
+        var lbl2fa = new Label { Left = 14, Top = 52, Width = 516, Text = "Khóa 2FA Base32:" };
+        var txt2fa = new TextBox
+        {
+            Left = 14,
+            Top = 74,
+            Width = 516,
+            BackColor = Color.FromArgb(30, 41, 59),
+            ForeColor = Color.White,
+            Text = !string.IsNullOrEmpty(cur.TwoFaSecret) ? cur.TwoFaSecret : via.TwoFaSecret,
+        };
+        var lblCk = new Label { Left = 14, Top = 108, Width = 516, Text = "Cookie Facebook (JSON hoặc c_user=...; xs=...):" };
+        var txtCk = new TextBox
+        {
+            Left = 14,
+            Top = 130,
+            Width = 516,
+            Height = 130,
+            Multiline = true,
+            ScrollBars = ScrollBars.Vertical,
+            BackColor = Color.FromArgb(30, 41, 59),
+            ForeColor = Color.White,
+            Font = new Font("Consolas", 9f),
+            Text = cur.CookieRaw,
+        };
+        var btnSave = new Button
+        {
+            Text = "💾 Lưu vào Két DPAPI",
+            Left = 390,
+            Top = 274,
+            Width = 140,
+            Height = 32,
+            DialogResult = DialogResult.OK,
+            BackColor = Color.FromArgb(5, 150, 105),
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat,
+        };
+        var btnClear = new Button
+        {
+            Text = "🗑️ Xóa sạch Két Via này",
+            Left = 14,
+            Top = 274,
+            Width = 165,
+            Height = 32,
+            BackColor = Color.FromArgb(127, 29, 29),
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat,
+        };
+        bool clearRequested = false;
+        btnClear.Click += (_, _) =>
+        {
+            clearRequested = true;
+            txtCk.Text = "";
+            txt2fa.Text = "";
+            dlg.DialogResult = DialogResult.OK;
+            dlg.Close();
+        };
+
+        dlg.Controls.AddRange(new Control[] { lblNote, lbl2fa, txt2fa, lblCk, txtCk, btnClear, btnSave });
+        dlg.AcceptButton = btnSave;
+        if (dlg.ShowDialog(this) == DialogResult.OK)
+        {
+            var next2fa = new string((txt2fa.Text ?? "").Where(c => !char.IsWhiteSpace(c)).ToArray()).ToUpperInvariant();
+            var nextCk = (txtCk.Text ?? "").Trim();
+            LocalSecretVaultStore.Default.Upsert(
+                via.ViaId,
+                via.Label,
+                via.ProfileDir,
+                nextCk,
+                next2fa,
+                allowOverwriteEmpty: clearRequested || string.IsNullOrEmpty(nextCk) || string.IsNullOrEmpty(next2fa));
+            via.TwoFaSecret = next2fa;
+            ExtensionProvisioner.ProvisionForVia(via);
+            RenderViaGrid();
+            AppendLog(clearRequested
+                ? $"🗑️ Đã xóa Cookie/2FA trong Két Local DPAPI của «{via.Label}»."
+                : $"🔐 Đã cập nhật Két Local DPAPI cho «{via.Label}» (Cookie={(string.IsNullOrEmpty(nextCk) ? "Không" : "Có")}, 2FA={(string.IsNullOrEmpty(next2fa) ? "Không" : "Có")}).");
+        }
+    }
+
+    private Task<LocalVaultGetResult> HandleLocalVaultSaveAsync(LocalVaultSaveRequest req)
+    {
+        var saved = LocalSecretVaultStore.Default.Upsert(
+            req.ViaId,
+            req.ViaLabel,
+            req.ProfileDir,
+            req.CookieRaw,
+            req.TwoFaSecret,
+            allowOverwriteEmpty: false);
+
+        Invoke(() =>
+        {
+            var matched = _vias.FirstOrDefault(v =>
+                (!string.IsNullOrWhiteSpace(req.ViaId) && string.Equals(v.ViaId, req.ViaId, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(req.ViaLabel) && string.Equals(v.Label, req.ViaLabel, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(req.ProfileDir) && string.Equals(v.ProfileDir, req.ProfileDir, StringComparison.OrdinalIgnoreCase)));
+            if (matched != null)
+            {
+                if (!string.IsNullOrEmpty(saved.TwoFaSecret)) matched.TwoFaSecret = saved.TwoFaSecret;
+                ExtensionProvisioner.ProvisionForVia(matched);
+            }
+            RenderViaGrid();
+        });
+        AppendLog($"🔐 [Extension -> Két Win DPAPI] Đã lưu bảo mật Cookie/2FA cho «{saved.ViaLabel}» ({saved.ProfileDir}).");
+        return Task.FromResult(new LocalVaultGetResult
+        {
+            Ok = true,
+            Found = saved.Found,
+            ViaId = saved.ViaId,
+            ViaLabel = saved.ViaLabel,
+            ProfileDir = saved.ProfileDir,
+            CookieRaw = saved.CookieRaw,
+            TwoFaSecret = saved.TwoFaSecret,
+            UpdatedAt = saved.UpdatedAtUtc,
+        });
+    }
+
+    private Task<LocalVaultGetResult> HandleLocalVaultGetAsync(string viaId, string profileDir, string viaName)
+    {
+        var res = LocalSecretVaultStore.Default.Find(viaId, profileDir, viaName);
+        var fallback2fa = "";
+        if (!res.Found || string.IsNullOrEmpty(res.TwoFaSecret))
+        {
+            var matched = _vias.FirstOrDefault(v =>
+                (!string.IsNullOrWhiteSpace(viaId) && string.Equals(v.ViaId, viaId, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(viaName) && string.Equals(v.Label, viaName, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(profileDir) && string.Equals(v.ProfileDir, profileDir, StringComparison.OrdinalIgnoreCase)));
+            if (matched != null) fallback2fa = matched.TwoFaSecret;
+        }
+        var effective2fa = !string.IsNullOrEmpty(res.TwoFaSecret) ? res.TwoFaSecret : fallback2fa;
+        var foundAny = res.Found || !string.IsNullOrEmpty(effective2fa);
+        return Task.FromResult(new LocalVaultGetResult
+        {
+            Ok = true,
+            Found = foundAny,
+            ViaId = res.ViaId,
+            ViaLabel = res.ViaLabel,
+            ProfileDir = res.ProfileDir,
+            CookieRaw = res.CookieRaw,
+            TwoFaSecret = effective2fa,
+            UpdatedAt = res.UpdatedAtUtc,
+        });
+    }
+
     private Task LaunchViaInChromeAsync(ViaWorkspaceEntry via, string url)
     {
         try
@@ -596,7 +864,7 @@ public sealed class MainForm : Form
                 extDir,
                 _config.UseIsolatedProfiles,
                 ExtensionProvisioner.SanitizeFolderSlug(via.Label, via.ViaId));
-            AppendLog($"🚀 Mở Chrome ({(_config.UseIsolatedProfiles ? "Isolated" : via.ProfileDir)}) + Ext v2.9 cho «{via.Label}»");
+            AppendLog($"🚀 Mở Chrome ({(_config.UseIsolatedProfiles ? "Isolated" : via.ProfileDir)}) + Ext v2.9.1 cho «{via.Label}»");
         }
         catch (Exception ex)
         {
@@ -614,7 +882,7 @@ public sealed class MainForm : Form
         }
         if (!_api.HasToken)
         {
-            AppendLog($"⚠️ Cần đăng nhập Cloud để kiểm tra Proxy qua Backend.");
+            AppendLog("⚠️ Cần đăng nhập Cloud để kiểm tra Proxy qua Backend.");
             return true;
         }
         try
@@ -788,15 +1056,17 @@ public sealed class MainForm : Form
 
         try
         {
+            var secrets = LocalSecretVaultStore.Default.ExportPlainEntries();
             var payload = new VaultBackupPayload
             {
                 BackendBaseUrl = _config.BackendBaseUrl,
                 UserEmail = _config.UserEmail,
                 Vias = _vias.ToList(),
+                LocalSecrets = secrets,
             };
             var bytes = VaultBackupService.EncryptToBytes(payload, pw);
             File.WriteAllBytes(sfd.FileName, bytes);
-            AppendLog($"🔐 Đã xuất {payload.Vias.Count} Via ra tệp mã hóa AES-256-GCM: {sfd.FileName}");
+            AppendLog($"🔐 Đã xuất {payload.Vias.Count} Via + {secrets.Count} Két Cookie/2FA ra tệp mã hóa AES-256-GCM: {sfd.FileName}");
         }
         catch (Exception ex)
         {
@@ -820,11 +1090,13 @@ public sealed class MainForm : Form
         {
             var raw = File.ReadAllBytes(ofd.FileName);
             var payload = VaultBackupService.DecryptFromBytes(raw, pw);
+            var restoredSecrets = LocalSecretVaultStore.Default.ImportPlainEntries(payload.LocalSecrets);
             _vias.Clear();
             _vias.AddRange(payload.Vias);
             RenderViaGrid();
+            RebuildTrayMenu();
             ProvisionAllViasExtensions(quiet: true);
-            AppendLog($"🔓 Đã khôi phục {_vias.Count} Via từ tệp Vault (Exported {payload.ExportedAtUtc}) & nạp sẵn Extension v2.9.");
+            AppendLog($"🔓 Đã khôi phục {_vias.Count} Via + {restoredSecrets} Két Cookie/2FA từ tệp Vault (Exported {payload.ExportedAtUtc}) & nạp sẵn Extension v2.9.1.");
         }
         catch (Exception ex)
         {

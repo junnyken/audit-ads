@@ -14,6 +14,7 @@ public sealed class VaultBackupPayload
     [JsonPropertyName("backend_base_url")] public string BackendBaseUrl { get; set; } = DesktopConfig.DefaultBackendUrl;
     [JsonPropertyName("user_email")] public string UserEmail { get; set; } = "";
     [JsonPropertyName("vias")] public List<ViaWorkspaceEntry> Vias { get; set; } = new();
+    [JsonPropertyName("local_secrets")] public List<PlainViaSecretBackupEntry> LocalSecrets { get; set; } = new();
 }
 
 internal sealed class EncryptedVaultEnvelope

@@ -65,8 +65,8 @@ const PHRASE_PAIRS: Array<[string, string]> = [
   ["Quán ăn", "Restaurant"],
   ["Đồng bộ từ BM", "Synced from BM"],
   [
-    "🚫 Khiên Chặn Passkey Tự Động (passkey_shield.js): Tiện ích AdsOps Companion v2.5 Pro khóa thẳng hàm WebAuthn (PublicKeyCredential) ngay trước khi trang Facebook tải xong — bảng Windows Hello / QR Passkey sẽ KHÔNG BAO GIỜ nhảy lên nữa, ép Facebook chuyển thẳng về ô nhập mã 2FA 6 số.",
-    "🚫 Automatic Passkey Shield (passkey_shield.js): AdsOps Companion v2.5 Pro overrides WebAuthn (PublicKeyCredential) before Facebook finishes loading — Windows Hello / QR Passkey dialogs NEVER appear, forcing Facebook directly to 6-digit 2FA."
+    "🚫 Khiên Chặn Passkey Tự Động (passkey_shield.js): Tiện ích AdsOps Companion v2.9.1 Pro khóa thẳng hàm WebAuthn (PublicKeyCredential) ngay trước khi trang Facebook tải xong — bảng Windows Hello / QR Passkey sẽ KHÔNG BAO GIỜ nhảy lên nữa, ép Facebook chuyển thẳng về ô nhập mã 2FA 6 số.",
+    "🚫 Automatic Passkey Shield (passkey_shield.js): AdsOps Companion v2.9.1 Pro overrides WebAuthn (PublicKeyCredential) before Facebook finishes loading — Windows Hello / QR Passkey dialogs NEVER appear, forcing Facebook directly to 6-digit 2FA."
   ],
   [
     "🗑️ Nút 1 Chạm «🚫 Quét & Xoá Passkey» trên bảng Via: Bấm 1 nút trên bảng Tài khoản Facebook (hoặc trong Popup tiện ích), trình duyệt sẽ mở thẳng trang Quản lý Passkey của Meta và tự động phát hiện + bấm Xoá sạch Passkey đang lưu.",
@@ -217,8 +217,8 @@ const PHRASE_PAIRS: Array<[string, string]> = [
     "First 72h warm-up: DO NOT open Ads Manager, DO NOT change password, DO NOT kick old sessions. Browse Newsfeed/Watch 5–10 mins only."
   ],
   [
-    "Chạy file .bat (1 lần) để mở đúng Hồ sơ Chrome từ Web & cài gói Tiện ích v2.3 Pro (2FA tự điền, khóa WebRTC).",
-    "Run the .bat file (once) to launch the exact Chrome Profile from the Web & install Extension v2.5 Pro (2FA auto-fill, WebRTC shield)."
+    "Chạy file .bat (1 lần) để mở đúng Hồ sơ Chrome từ Web & cài gói Tiện ích v2.9.1 Pro (2FA tự điền, khóa WebRTC).",
+    "Run the .bat file (once) to launch the exact Chrome Profile from the Web & install Extension v2.9.1 Pro (2FA auto-fill, WebRTC shield)."
   ],
   [
     "Không gắn quá 3 TKQC chung 1 thẻ trực tiếp để tránh chết liên đới (bão thẻ) khi 1 TKQC bị khoá hoặc hụt tiền.",
@@ -305,8 +305,8 @@ const PHRASE_PAIRS: Array<[string, string]> = [
     "Log in with the managing Facebook account and open Ads Manager to inspect live account status."
   ],
   [
-    "(1 lần) để mở đúng Hồ sơ Chrome từ Web & cài gói Tiện ích v2.3 Pro (2FA tự điền, khóa WebRTC).",
-    "(once) to open the exact Chrome Profile from Web & install Extension v2.5 Pro (2FA auto-fill, WebRTC shield)."
+    "(1 lần) để mở đúng Hồ sơ Chrome từ Web & cài gói Tiện ích v2.9.1 Pro (2FA tự điền, khóa WebRTC).",
+    "(once) to open the exact Chrome Profile from Web & install Extension v2.9.1 Pro (2FA auto-fill, WebRTC shield)."
   ],
   [
     "Tuyệt đối tách bạch quyền Sở hữu Tài sản (Admin BM) và quyền Lên Chiến dịch (Advertiser TKQC):",
@@ -789,8 +789,8 @@ const PHRASE_PAIRS: Array<[string, string]> = [
     "Your projected daily spend is within this limit"
   ],
   [
-    "Tiện ích Google Chrome chính thức · v2.5 Pro (Anti-Passkey)",
-    "Official Google Chrome Extension · v2.5 Pro (Anti-Passkey)"
+    "Tiện ích Google Chrome chính thức · v2.9.1 Pro (Anti-Passkey)",
+    "Official Google Chrome Extension · v2.9.1 Pro (Anti-Passkey)"
   ],
   [
     "Token thiếu quyền đọc BM (ads_read / business_management).",

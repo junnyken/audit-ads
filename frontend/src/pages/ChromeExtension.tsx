@@ -299,7 +299,7 @@ export default function ChromeExtension() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-3xl space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="info">Tiện ích Google Chrome chính thức · v2.9 Pro (Đảo Ấm Sinh Học Đa Lộ Trình + Cầu nối 2 Chiều Desktop + Full Auto-Pilot)</Badge>
+              <Badge tone="info">Tiện ích Google Chrome chính thức · v2.9.1 Pro (Đảo Ấm Sinh Học Đa Lộ Trình + Cầu nối 2 Chiều Desktop + Full Auto-Pilot)</Badge>
               <Badge tone="positive">Manifest V3 · Chặn &amp; Tự Xoá Passkey 1 Chạm + 2FA Tự Điền + Khóa WebRTC</Badge>
               {bridgeProbe?.isDesktopApp && (
                 <Badge tone="positive">
@@ -317,12 +317,12 @@ export default function ChromeExtension() {
 
           <div className="flex flex-wrap items-center gap-2">
             <a
-              href="/downloads/AdsOps-Desktop-Pro-v1.0.zip"
+              href="/downloads/AdsOps-Desktop-Pro-v1.1.zip"
               download
               className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-indigo-500/50 bg-indigo-600 px-3.5 text-xs font-extrabold text-white shadow-xs hover:bg-indigo-700"
-              title="Tải App Windows AdsOps Desktop Pro v1.0 (.exe chạy ngầm 24/7 ở khay hệ thống)"
+              title="Tải App Windows AdsOps Desktop Pro v1.1 (.exe chạy ngầm 24/7 ở khay hệ thống)"
             >
-              <span>💻 Tải App Windows AdsOps Desktop Pro v1.0 (.zip)</span>
+              <span>💻 Tải App Windows AdsOps Desktop Pro v1.1 (.zip)</span>
             </a>
             <Button
               type="button"
@@ -334,11 +334,12 @@ export default function ChromeExtension() {
                   bundledForZip,
                   twoFaInput,
                   viaTier,
+                  selectedViaId,
                 )
               }
             >
               <Download className="mr-1.5 h-4 w-4" aria-hidden="true" />
-              <span>Tải Gói Tiện Ích v2.9 (.zip) Cho {selectedViaLabel}</span>
+              <span>Tải Gói Tiện Ích v2.9.1 (.zip) Cho {selectedViaLabel}</span>
             </Button>
             {vias.length > 0 && (
               <Button
@@ -376,6 +377,7 @@ export default function ChromeExtension() {
                       bm_name: a.business_manager_name ?? null,
                     }))
                     return {
+                      viaId: v.id,
                       viaName: vLbl,
                       profileDir: folder,
                       rawProxy: cleanRealProxy(v.network_label),
@@ -391,10 +393,10 @@ export default function ChromeExtension() {
                   })
                   downloadAllViasExtensionsBundleZip(specs)
                 }}
-                title="Đóng gói sẵn thư mục AdsOps Companion v2.9 riêng cho từng Via vào chung 1 file .zip để cài nhanh hàng loạt"
+                title="Đóng gói sẵn thư mục AdsOps Companion v2.9.1 riêng cho từng Via vào chung 1 file .zip để cài nhanh hàng loạt"
               >
                 <Layers className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                <span>📦 Tải Trọn Bộ v2.9 Cho Tất Cả {vias.length} Via (.zip)</span>
+                <span>📦 Tải Trọn Bộ v2.9.1 Cho Tất Cả {vias.length} Via (.zip)</span>
               </Button>
             )}
             <Button
@@ -428,18 +430,18 @@ export default function ChromeExtension() {
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-500/35 bg-indigo-500/10 px-4 py-3 text-xs">
           <div className="space-y-0.5">
             <div className="font-extrabold text-indigo-800 dark:text-indigo-200">
-              💻 App Windows AdsOps Desktop Pro v1.0 — Thay thế hoàn toàn file .bat &amp; Mở đa Chrome an toàn
+              💻 App Windows AdsOps Desktop Pro v1.1 — Thay thế hoàn toàn file .bat &amp; Mở đa Chrome an toàn
             </div>
             <p className="text-[11px] text-ink-muted">
-              Chạy ngầm System Tray 24/7, tự đóng gói &amp; cập nhật Extension v2.9 cho toàn bộ Dàn Via, bật chế độ Cô lập 100% Chrome Profile (<code>--user-data-dir</code>), Cầu nối 2 chiều tự bắt Page ID mới về Web và báo động Telegram ngay khi văng Cookie/Checkpoint, kèm sao lưu Vault <code>.adsopsvault</code> AES-256-GCM.
+              Chạy ngầm System Tray 24/7, tự đóng gói &amp; cập nhật Extension v2.9.1 cho toàn bộ Dàn Via, bật chế độ Cô lập 100% Chrome Profile (<code>--user-data-dir</code>), Cầu nối 2 chiều tự bắt Page ID mới về Web và báo động Telegram ngay khi văng Cookie/Checkpoint, kèm sao lưu Vault <code>.adsopsvault</code> AES-256-GCM.
             </p>
           </div>
           <a
-            href="/downloads/AdsOps-Desktop-Pro-v1.0.zip"
+            href="/downloads/AdsOps-Desktop-Pro-v1.1.zip"
             download
             className="shrink-0 rounded-lg border border-indigo-500/50 bg-indigo-600 px-3 py-1.5 font-bold text-white hover:bg-indigo-700"
           >
-            📥 Tải AdsOps Desktop Pro v1.0 (.zip)
+            📥 Tải AdsOps Desktop Pro v1.1 (.zip)
           </a>
         </div>
 
@@ -740,7 +742,7 @@ export default function ChromeExtension() {
                     AO
                   </span>
                   <div>
-                    <div className="text-xs font-extrabold text-ink">AdsOps Companion v2.9 Pro (Đảo Ấm Sinh Học Đa Lộ Trình + Bắt Bệnh Văng Cookie + Full Auto-Pilot)</div>
+                    <div className="text-xs font-extrabold text-ink">AdsOps Companion v2.9.1.1 Pro (Đảo Ấm Sinh Học Đa Lộ Trình + Bắt Bệnh Văng Cookie + Full Auto-Pilot)</div>
                     <div className="text-[10px] text-ink-muted">
                       Hồ sơ: {shortFolder} · Via: {selectedViaLabel} (
                       {viaTier === 'vault' ? '🛡️ Via Tổng' : viaTier === 'standby' ? '🌱 Dự Phòng' : '🚀 Lên Camp'})

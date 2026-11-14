@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -12,7 +13,11 @@ namespace AdsOpsDesktop;
 public sealed class AdsOpsApiClient : IDisposable
 {
     private readonly HttpClient _http;
-    private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
+    private static readonly JsonSerializerOptions JsonOpts = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        NumberHandling = JsonNumberHandling.AllowReadingFromString,
+    };
     private string _baseUrl = DesktopConfig.DefaultBackendUrl;
     private string _token = "";
 
@@ -86,6 +91,9 @@ public sealed class AdsOpsApiClient : IDisposable
 
     public Task<PagedPersonalAccountsDto> ListPersonalAccountsAsync(CancellationToken ct = default) =>
         SendJsonAsync<PagedPersonalAccountsDto>(HttpMethod.Get, "/api/v1/personal-account-references?page=1&page_size=200", null, ct);
+
+    public Task<PagedAdAccountsDto> ListAdAccountsAsync(CancellationToken ct = default) =>
+        SendJsonAsync<PagedAdAccountsDto>(HttpMethod.Get, "/api/v1/ad-accounts?page=1&page_size=200", null, ct);
 
     public Task<FacebookPagesSummaryDto> GetPagesSummaryAsync(CancellationToken ct = default) =>
         SendJsonAsync<FacebookPagesSummaryDto>(HttpMethod.Get, "/api/v1/facebook-pages/summary", null, ct);

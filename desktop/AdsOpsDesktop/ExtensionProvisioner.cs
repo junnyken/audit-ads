@@ -14,13 +14,14 @@ namespace AdsOpsDesktop;
 
 public sealed class ExtensionTemplateBundle
 {
-    [JsonPropertyName("version")] public string Version { get; set; } = "2.9.0";
+    [JsonPropertyName("version")] public string Version { get; set; } = "2.9.1";
     [JsonPropertyName("description")] public string Description { get; set; } = "";
     [JsonPropertyName("passkey_shield_js")] public string PasskeyShieldJs { get; set; } = "";
     [JsonPropertyName("background_js_after_default_state")] public string BackgroundJsAfterDefaultState { get; set; } = "";
     [JsonPropertyName("content_js")] public string ContentJs { get; set; } = "";
     [JsonPropertyName("popup_html")] public string PopupHtml { get; set; } = "";
     [JsonPropertyName("popup_js")] public string PopupJs { get; set; } = "";
+    [JsonPropertyName("popup_js_after_defaults")] public string PopupJsAfterDefaults { get; set; } = "";
 }
 
 public sealed class ChromeProfileInfo
@@ -87,7 +88,7 @@ public static class ExtensionProvisioner
         }
 
         _cachedBundle = JsonSerializer.Deserialize<ExtensionTemplateBundle>(jsonText)
-            ?? throw new InvalidDataException("Không thể đọc dữ liệu template Extension v2.9.");
+            ?? throw new InvalidDataException("Không thể đọc dữ liệu template Extension v2.9.1.");
         return _cachedBundle;
     }
 
@@ -180,7 +181,10 @@ public static class ExtensionProvisioner
         return $"{baseName}{suffix}".ToLowerInvariant();
     }
 
-    public static string ProvisionForVia(ViaWorkspaceEntry via, string? extensionsRootOverride = null)
+    public static string ProvisionForVia(
+        ViaWorkspaceEntry via,
+        string? extensionsRootOverride = null,
+        LocalSecretVaultStore? secretStore = null)
     {
         var tpl = LoadTemplates();
         var root = extensionsRootOverride ?? ExtensionsRoot;
@@ -192,6 +196,20 @@ public static class ExtensionProvisioner
         var parsedProxy = ParseProxy(via.NetworkLabel);
         var hasProxy = parsedProxy != null && !string.IsNullOrEmpty(parsedProxy.Host);
         var displayViaName = string.IsNullOrWhiteSpace(via.Label) ? "Via Quản trị" : via.Label.Trim();
+        var effectiveTier = string.IsNullOrWhiteSpace(via.ViaTier) ? "camp" : via.ViaTier;
+
+        var store = secretStore ?? (extensionsRootOverride == null ? LocalSecretVaultStore.Default : null);
+        var effectiveTwoFa = (via.TwoFaSecret ?? "").Trim().ToUpperInvariant();
+        if (string.IsNullOrEmpty(effectiveTwoFa) && store != null)
+        {
+            var stored = store.Find(via.ViaId, profileDir, displayViaName);
+            if (stored.Found && !string.IsNullOrEmpty(stored.TwoFaSecret))
+            {
+                effectiveTwoFa = stored.TwoFaSecret;
+            }
+        }
+
+        var accountsList = via.BundledAccounts ?? new List<BundledExtensionAccountDto>();
 
         var manifestObj = new
         {
@@ -256,15 +274,28 @@ public static class ExtensionProvisioner
             viaId = via.ViaId ?? "",
             viaName = displayViaName,
             profileCode = profileDir,
-            viaTier = string.IsNullOrWhiteSpace(via.ViaTier) ? "camp" : via.ViaTier,
-            twoFaSecret = (via.TwoFaSecret ?? "").Trim().ToUpperInvariant(),
+            viaTier = effectiveTier,
+            twoFaSecret = effectiveTwoFa,
             webrtcShield = true,
             blockPasskey = true,
             passkeyStatus = "clean",
             proxyRaw = parsedProxy?.CompactRaw ?? "",
             proxyEnabled = hasProxy,
-            accounts = Array.Empty<object>(),
+            accounts = accountsList,
         });
+
+        var defaultAccountsJson = JsonSerializer.Serialize(accountsList);
+        var defaultViaMetaJson = JsonSerializer.Serialize(new
+        {
+            viaId = via.ViaId ?? "",
+            viaName = displayViaName,
+            profileCode = profileDir,
+            viaTier = effectiveTier,
+            twoFaSecret = effectiveTwoFa,
+        });
+        var popupJsBody = !string.IsNullOrEmpty(tpl.PopupJsAfterDefaults)
+            ? $"const DEFAULT_ACCOUNTS = {defaultAccountsJson};\nconst DEFAULT_VIA_META = {defaultViaMetaJson};\n{tpl.PopupJsAfterDefaults}"
+            : tpl.PopupJs;
 
         var utf8NoBom = new UTF8Encoding(false);
         File.WriteAllText(Path.Combine(targetDir, "manifest.json"), JsonSerializer.Serialize(manifestObj, new JsonSerializerOptions { WriteIndented = true }) + "\n", utf8NoBom);
@@ -272,11 +303,12 @@ public static class ExtensionProvisioner
         File.WriteAllText(Path.Combine(targetDir, "background.js"), $"const DEFAULT_STATE = {defaultStateJson};\n{tpl.BackgroundJsAfterDefaultState}", utf8NoBom);
         File.WriteAllText(Path.Combine(targetDir, "content.js"), tpl.ContentJs, utf8NoBom);
         File.WriteAllText(Path.Combine(targetDir, "popup.html"), tpl.PopupHtml, utf8NoBom);
-        File.WriteAllText(Path.Combine(targetDir, "popup.js"), tpl.PopupJs, utf8NoBom);
+        File.WriteAllText(Path.Combine(targetDir, "popup.js"), popupJsBody, utf8NoBom);
         File.WriteAllText(
             Path.Combine(targetDir, "HUONG-DAN-CAI-DAT.txt"),
-            $"ADSOPS COMPANION v{tpl.Version} (AUTO-PROVISIONED BY ADSOPS DESKTOP PRO)\r\n" +
+            $"ADSOPS COMPANION v{tpl.Version} (AUTO-PROVISIONED BY ADSOPS DESKTOP PRO v1.1)\r\n" +
             $"Via: {displayViaName}\r\nChrome Profile: {profileDir}\r\nProxy: {(hasProxy ? parsedProxy!.CompactRaw : "Direct")}\r\n" +
+            $"TKQC kem theo: {accountsList.Count}\r\n" +
             "Co the nap thu cong qua chrome://extensions -> Load unpacked tai thu muc nay, hoac de AdsOps Desktop Pro nap tu dong.\r\n",
             utf8NoBom);
 

@@ -497,6 +497,44 @@ def dispatch_operational_telegram_alerts(
         except Exception:
             logger.exception("telegram_retainer_scan_failed")
 
+    try:
+        from app.api.v1.routers.meta_operations import _build_pages_summary
+
+        pages_sum = _build_pages_summary(session, workspace_id, include_archived=False)
+        for vq in pages_sum.get("via_quotas", []):
+            idle_d = float(vq.get("idle_days") or 0.0)
+            interval_d = float(vq.get("keepalive_interval_days") or 3.0)
+            if vq.get("needs_keepalive") and idle_d >= (interval_d + 1.0):
+                dk = f"via_ka:{vq.get('via_id') or vq.get('label')}:{now.strftime('%Y-%m-%d')}"
+                if dk not in already_sent:
+                    prof = str(vq.get("browser_profile") or "Default")
+                    findings.append(
+                        (
+                            dk,
+                            False,
+                            f"• Via {vq.get('label')} ({prof}): Đã {idle_d:.1f} ngày chưa đảo ấm Cookie",
+                        )
+                    )
+        for vlog in pages_sum.get("via_activity_logs", []):
+            if vlog.get("action") != "page.via_alert":
+                continue
+            created_raw = str(vlog.get("created_at") or "").strip()
+            if created_raw:
+                try:
+                    cdt = datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
+                    if cdt.tzinfo is None:
+                        cdt = cdt.replace(tzinfo=UTC)
+                    if cdt < dedupe_since:
+                        continue
+                except Exception:
+                    pass
+            dk = f"via_alert_log:{vlog.get('id')}"
+            if dk not in already_sent:
+                detail_msg = str(vlog.get("detail") or "Văng Cookie / Checkpoint")[:100]
+                findings.append((dk, True, f"• Cảnh báo Via {vlog.get('via_label')}: {detail_msg}"))
+    except Exception:
+        logger.exception("telegram_via_keepalive_scan_failed")
+
     if not findings:
         return {"sent": 0, "skipped_reason": "no_new_incidents"}
 

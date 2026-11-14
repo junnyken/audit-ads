@@ -1499,7 +1499,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                     className="inline-flex items-center gap-1 rounded border border-emerald-500/50 bg-emerald-500/15 px-2 py-1 font-extrabold text-emerald-700 dark:text-emerald-300"
                     title="Ứng dụng Windows AdsOps Desktop Pro đang chạy ngầm trên máy (127.0.0.1:17890)"
                   >
-                    💻 App Windows Desktop Pro Đang Chạy (v{bridgeProbe.version || '1.0'})
+                    💻 App Windows Desktop Pro Đang Chạy (v{bridgeProbe.version || '1.1'})
                   </span>
                 ) : bridgeProbe?.online ? (
                   <span className="inline-flex items-center gap-1 rounded border border-sky-500/40 bg-sky-500/10 px-2 py-1 font-bold text-sky-700 dark:text-sky-300">
@@ -1507,12 +1507,12 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                   </span>
                 ) : null}
                 <a
-                  href="/downloads/AdsOps-Desktop-Pro-v1.0.zip"
+                  href="/downloads/AdsOps-Desktop-Pro-v1.1.zip"
                   download
                   className="rounded border border-indigo-500/45 bg-indigo-500/15 px-2 py-1 font-bold text-indigo-700 hover:bg-indigo-500/25 dark:text-indigo-300"
-                  title="Tải App Windows AdsOps Desktop Pro v1.0 (.exe chạy ngầm System Tray 24/7, tự cài Extension v2.9, Cầu nối 2 chiều tự bắt Page ID & báo Telegram)"
+                  title="Tải App Windows AdsOps Desktop Pro v1.1 (.exe chạy ngầm System Tray 24/7, tự cài Extension v2.9.1, Cầu nối 2 chiều tự bắt Page ID & báo Telegram)"
                 >
-                  💻 Tải App Windows v1.0 (.zip)
+                  💻 Tải App Windows v1.1 (.zip)
                 </a>
                 <button
                   type="button"
@@ -1526,7 +1526,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                   to="/chrome-extension"
                   className="rounded border border-line bg-surface px-2 py-1 font-bold text-brand-text hover:underline"
                 >
-                  Cài Extension v2.9 ↗
+                  Cài Extension v2.9.1 ↗
                 </Link>
               </div>
             </div>
@@ -1846,7 +1846,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                             Cấu hình Proxy Via ↗
                           </Link>
                           <Link to="/chrome-extension" className="underline hover:opacity-80">
-                            Tải Bộ Extension v2.9 ↗
+                            Tải Bộ Extension v2.9.1 ↗
                           </Link>
                         </span>
                       </div>
@@ -1972,7 +1972,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                           🎯 Hàng đợi {batchQueue.length} Page đã lưu vào Hệ thống
                         </div>
                         <p className="text-[11px] text-ink-muted">
-                          Bấm <strong>🤖 Chạy Full Automatic</strong> để Web tự mở từng Via giãn nhịp ({batchStaggerSeconds}s + ngẫu nhiên), Extension v2.9 tự bấm Tạo Trang và tự quét Page ID sau khi xong.
+                          Bấm <strong>🤖 Chạy Full Automatic</strong> để Web tự mở từng Via giãn nhịp ({batchStaggerSeconds}s + ngẫu nhiên), Extension v2.9.1 tự bấm Tạo Trang và tự quét Page ID sau khi xong.
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
@@ -2316,7 +2316,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
 
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                     <span className="text-[11px] text-ink-muted">
-                      💡 Hệ thống sẽ: (1) Lưu Page &amp; Nhật ký Via, (2) Mở đúng Chrome của Via đã chọn và (3) {autoSubmitMode ? 'Extension v2.9 tự điền + tự bấm Tạo Trang giãn nhịp an toàn (tự quét Page ID sau 26s).' : 'Extension v2.9 tự điền sẵn Tên + Tiểu sử chờ bạn kiểm tra & bấm Tạo Trang.'}
+                      💡 Hệ thống sẽ: (1) Lưu Page &amp; Nhật ký Via, (2) Mở đúng Chrome của Via đã chọn và (3) {autoSubmitMode ? 'Extension v2.9.1 tự điền + tự bấm Tạo Trang giãn nhịp an toàn (tự quét Page ID sau 26s).' : 'Extension v2.9.1 tự điền sẵn Tên + Tiểu sử chờ bạn kiểm tra & bấm Tạo Trang.'}
                     </span>
                     <div className="flex flex-wrap items-center gap-2">
                     <Button

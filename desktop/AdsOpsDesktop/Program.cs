@@ -89,7 +89,15 @@ internal static class Program
         Directory.CreateDirectory(tempRoot);
         try
         {
-            // 1. ExtensionProvisioner 7-file output + version 2.9.0
+            var testSecretStore = new LocalSecretVaultStore(Path.Combine(tempRoot, "local_secrets_dpapi.json"));
+            testSecretStore.Upsert(
+                "11111111-2222-3333-4444-555555555555",
+                "Via Test Desktop",
+                "Profile 7",
+                "c_user=10001; xs=secret_xs",
+                "JBSWY3DPEHPK3PXP");
+
+            // 1. ExtensionProvisioner 7-file output + version 2.9.1 + real AdAccount & DEFAULT_VIA_META injection
             var via = new ViaWorkspaceEntry
             {
                 ViaId = "11111111-2222-3333-4444-555555555555",
@@ -99,8 +107,19 @@ internal static class Program
                 NetworkLabel = "103.10.20.30:8080:usr:pwd",
                 TwoFaSecret = "JBSWY3DPEHPK3PXP",
                 ViaTier = "vault",
+                BundledAccounts = new List<BundledExtensionAccountDto>
+                {
+                    new()
+                    {
+                        Name = "TKQC Test 01",
+                        ExternalAccountId = "act_999888777",
+                        Status = "active",
+                        Currency = "VND",
+                        BalanceRaw = "1500000",
+                    },
+                },
             };
-            var extDir = ExtensionProvisioner.ProvisionForVia(via, Path.Combine(tempRoot, "Ext"));
+            var extDir = ExtensionProvisioner.ProvisionForVia(via, Path.Combine(tempRoot, "Ext"), testSecretStore);
             foreach (var fname in new[] { "manifest.json", "passkey_shield.js", "background.js", "content.js", "popup.html", "popup.js", "HUONG-DAN-CAI-DAT.txt" })
             {
                 if (!File.Exists(Path.Combine(extDir, fname)))
@@ -108,23 +127,43 @@ internal static class Program
             }
             using (var mfDoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(extDir, "manifest.json"))))
             {
-                if (mfDoc.RootElement.GetProperty("version").GetString() != "2.9.0")
-                    throw new InvalidOperationException("Manifest version is not 2.9.0");
+                if (mfDoc.RootElement.GetProperty("version").GetString() != "2.9.1")
+                    throw new InvalidOperationException("Manifest version is not 2.9.1");
             }
             var bgText = File.ReadAllText(Path.Combine(extDir, "background.js"));
-            if (!bgText.Contains("ADSOPS_REPORT_BROWSER_EVENT", StringComparison.Ordinal) || !bgText.Contains("11111111-2222-3333-4444-555555555555", StringComparison.Ordinal))
-                throw new InvalidOperationException("background.js missing v2.9 bridge or viaId");
+            if (!bgText.Contains("ADSOPS_REPORT_BROWSER_EVENT", StringComparison.Ordinal) ||
+                !bgText.Contains("11111111-2222-3333-4444-555555555555", StringComparison.Ordinal) ||
+                !bgText.Contains("act_999888777", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("background.js missing v2.9.1 bridge, viaId, or bundled account");
+            }
 
-            // 2. VaultBackupService AES-256-GCM round-trip + wrong password rejection
+            var popupText = File.ReadAllText(Path.Combine(extDir, "popup.js"));
+            if (!popupText.Contains("act_999888777", StringComparison.Ordinal) ||
+                !popupText.Contains("DEFAULT_VIA_META", StringComparison.Ordinal) ||
+                !popupText.Contains("btn-vault-save", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("popup.js missing DEFAULT_ACCOUNTS, DEFAULT_VIA_META, or btn-vault-save");
+            }
+
+            // 2. LocalSecretVaultStore + VaultBackupService AES-256-GCM round-trip + wrong password rejection
+            var exportedSecrets = testSecretStore.ExportPlainEntries();
+            if (exportedSecrets.Count != 1 || exportedSecrets[0].CookieRaw != "c_user=10001; xs=secret_xs")
+                throw new InvalidOperationException("LocalSecretVaultStore DPAPI roundtrip mismatch");
+
             var backup = new VaultBackupPayload
             {
                 UserEmail = "owner@test.local",
                 Vias = new List<ViaWorkspaceEntry> { via },
+                LocalSecrets = exportedSecrets,
             };
             var enc = VaultBackupService.EncryptToBytes(backup, "StrongPass!2026");
             var dec = VaultBackupService.DecryptFromBytes(enc, "StrongPass!2026");
-            if (dec.Vias.Count != 1 || dec.Vias[0].Label != "Via Test Desktop")
+            if (dec.Vias.Count != 1 || dec.Vias[0].Label != "Via Test Desktop" ||
+                dec.LocalSecrets.Count != 1 || dec.LocalSecrets[0].CookieRaw != "c_user=10001; xs=secret_xs")
+            {
                 throw new InvalidOperationException("Vault decrypt mismatch");
+            }
             bool wrongRejected = false;
             try { VaultBackupService.DecryptFromBytes(enc, "WrongPass123"); }
             catch (CryptographicException) { wrongRejected = true; }
@@ -135,7 +174,7 @@ internal static class Program
             if (WindowsDpapi.UnprotectString(protectedJwt) != "eyJ.sample.jwt.token")
                 throw new InvalidOperationException("DPAPI roundtrip mismatch");
 
-            // 4. LocalBridgeServer ephemeral port 0 tests (/health, OPTIONS PNA, /chrome-profiles, /browser-event)
+            // 4. LocalBridgeServer ephemeral port 0 tests (/health, OPTIONS PNA, /chrome-profiles, /browser-event, /local-vault/save & get)
             BrowserEventPayloadDto? capturedEv = null;
             using var srv = new LocalBridgeServer(
                 0,
@@ -146,7 +185,37 @@ internal static class Program
                     return Task.FromResult(new BrowserEventResponseDto { Ok = true, EventType = ev.EventType, MatchedPageId = ev.PageId });
                 },
                 () => Task.FromResult(1),
-                _ => { });
+                _ => { },
+                req =>
+                {
+                    var s = testSecretStore.Upsert(req.ViaId, req.ViaLabel, req.ProfileDir, req.CookieRaw, req.TwoFaSecret);
+                    return Task.FromResult(new LocalVaultGetResult
+                    {
+                        Ok = true,
+                        Found = s.Found,
+                        ViaId = s.ViaId,
+                        ViaLabel = s.ViaLabel,
+                        ProfileDir = s.ProfileDir,
+                        CookieRaw = s.CookieRaw,
+                        TwoFaSecret = s.TwoFaSecret,
+                        UpdatedAt = s.UpdatedAtUtc,
+                    });
+                },
+                (vid, prof, nm) =>
+                {
+                    var f = testSecretStore.Find(vid, prof, nm);
+                    return Task.FromResult(new LocalVaultGetResult
+                    {
+                        Ok = true,
+                        Found = f.Found,
+                        ViaId = f.ViaId,
+                        ViaLabel = f.ViaLabel,
+                        ProfileDir = f.ProfileDir,
+                        CookieRaw = f.CookieRaw,
+                        TwoFaSecret = f.TwoFaSecret,
+                        UpdatedAt = f.UpdatedAtUtc,
+                    });
+                });
             srv.Start();
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
             var baseUrl = $"http://127.0.0.1:{srv.BoundPort}";
@@ -154,8 +223,12 @@ internal static class Program
             var healthResp = await http.GetAsync($"{baseUrl}/health");
             healthResp.EnsureSuccessStatusCode();
             var healthBody = await healthResp.Content.ReadAsStringAsync();
-            if (!healthBody.Contains("\"app\":\"AdsOpsDesktop\"", StringComparison.Ordinal) || !healthBody.Contains("\"extVersion\":\"2.9.0\"", StringComparison.Ordinal))
+            if (!healthBody.Contains("\"app\":\"AdsOpsDesktop\"", StringComparison.Ordinal) ||
+                !healthBody.Contains("\"version\":\"1.1.0\"", StringComparison.Ordinal) ||
+                !healthBody.Contains("\"extVersion\":\"2.9.1\"", StringComparison.Ordinal))
+            {
                 throw new InvalidOperationException($"Unexpected /health response: {healthBody}");
+            }
 
             var optReq = new HttpRequestMessage(HttpMethod.Options, $"{baseUrl}/open");
             var optResp = await http.SendAsync(optReq);
@@ -171,6 +244,16 @@ internal static class Program
             evResp.EnsureSuccessStatusCode();
             if (capturedEv == null || capturedEv.EventType != "PAGE_CREATED" || capturedEv.ExternalPageId != "1000888999")
                 throw new InvalidOperationException("Browser event callback did not receive payload");
+
+            var vsResp = await http.PostAsync(
+                $"{baseUrl}/local-vault/save",
+                new StringContent("{\"via_id\":\"via-2\",\"via_label\":\"Via Hai\",\"profile_dir\":\"Profile 8\",\"cookie_raw\":\"c_user=2002; xs=abc\",\"two_fa_secret\":\"MFRGGZDFMZTWQ2LK\"}", Encoding.UTF8, "application/json"));
+            vsResp.EnsureSuccessStatusCode();
+            var vgResp = await http.GetAsync($"{baseUrl}/local-vault/get?via_id=via-2");
+            vgResp.EnsureSuccessStatusCode();
+            var vgJson = await vgResp.Content.ReadAsStringAsync();
+            if (!vgJson.Contains("c_user=2002; xs=abc", StringComparison.Ordinal) || !vgJson.Contains("MFRGGZDFMZTWQ2LK", StringComparison.Ordinal))
+                throw new InvalidOperationException($"Local vault bridge roundtrip mismatch: {vgJson}");
 
             // 5. ProtocolRegistrar.TryParseAdsOpsUri valid vs non-https reject
             if (!ProtocolRegistrar.TryParseAdsOpsUri("adsops-chrome://open?profile=Profile%209&url=https%3A%2F%2Fwww.facebook.com%2F", out var okUri)

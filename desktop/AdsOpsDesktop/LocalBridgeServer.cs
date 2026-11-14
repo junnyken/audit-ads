@@ -1,13 +1,18 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net;
+using System.Net.Http;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Web;
 
 namespace AdsOpsDesktop;
 
@@ -19,6 +24,27 @@ public sealed class OpenChromeBridgeRequest
     [JsonPropertyName("url")] public string? Url { get; set; }
 }
 
+public sealed class LocalVaultSaveRequest
+{
+    [JsonPropertyName("via_id")] public string? ViaId { get; set; }
+    [JsonPropertyName("via_label")] public string? ViaLabel { get; set; }
+    [JsonPropertyName("profile_dir")] public string? ProfileDir { get; set; }
+    [JsonPropertyName("cookie_raw")] public string? CookieRaw { get; set; }
+    [JsonPropertyName("two_fa_secret")] public string? TwoFaSecret { get; set; }
+}
+
+public sealed class LocalVaultGetResult
+{
+    [JsonPropertyName("ok")] public bool Ok { get; set; } = true;
+    [JsonPropertyName("found")] public bool Found { get; set; }
+    [JsonPropertyName("via_id")] public string ViaId { get; set; } = "";
+    [JsonPropertyName("via_label")] public string ViaLabel { get; set; } = "";
+    [JsonPropertyName("profile_dir")] public string ProfileDir { get; set; } = "";
+    [JsonPropertyName("cookie_raw")] public string CookieRaw { get; set; } = "";
+    [JsonPropertyName("two_fa_secret")] public string TwoFaSecret { get; set; } = "";
+    [JsonPropertyName("updated_at")] public string UpdatedAt { get; set; } = "";
+}
+
 /// <summary>Zero-Admin TCP HTTP server on 127.0.0.1 with full CORS + Chrome Private Network Access headers.</summary>
 public sealed class LocalBridgeServer : IDisposable
 {
@@ -26,6 +52,8 @@ public sealed class LocalBridgeServer : IDisposable
     private readonly Func<OpenChromeBridgeRequest, Task<(bool Ok, string Message)>> _onOpenChrome;
     private readonly Func<BrowserEventPayloadDto, Task<BrowserEventResponseDto>> _onBrowserEvent;
     private readonly Func<Task<int>> _onProvisionAll;
+    private readonly Func<LocalVaultSaveRequest, Task<LocalVaultGetResult>> _onVaultSave;
+    private readonly Func<string, string, string, Task<LocalVaultGetResult>> _onVaultGet;
     private readonly Action<string> _log;
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -38,13 +66,78 @@ public sealed class LocalBridgeServer : IDisposable
         Func<OpenChromeBridgeRequest, Task<(bool Ok, string Message)>> onOpenChrome,
         Func<BrowserEventPayloadDto, Task<BrowserEventResponseDto>> onBrowserEvent,
         Func<Task<int>> onProvisionAll,
-        Action<string> log)
+        Action<string> log,
+        Func<LocalVaultSaveRequest, Task<LocalVaultGetResult>>? onVaultSave = null,
+        Func<string, string, string, Task<LocalVaultGetResult>>? onVaultGet = null)
     {
         _requestedPort = port;
         _onOpenChrome = onOpenChrome;
         _onBrowserEvent = onBrowserEvent;
         _onProvisionAll = onProvisionAll;
         _log = log;
+        _onVaultSave = onVaultSave ?? (_ => Task.FromResult(new LocalVaultGetResult { Ok = false }));
+        _onVaultGet = onVaultGet ?? ((_, _, _) => Task.FromResult(new LocalVaultGetResult { Ok = true, Found = false }));
+    }
+
+    public static bool RetireLegacyBridgeHoldingPort(int port, Action<string> log)
+    {
+        try
+        {
+            using (var http = new HttpClient { Timeout = TimeSpan.FromMilliseconds(700) })
+            {
+                try
+                {
+                    var probe = http.GetStringAsync($"http://127.0.0.1:{port}/health").GetAwaiter().GetResult();
+                    if (probe.Contains("\"AdsOpsDesktop\"", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return false;
+                    }
+                }
+                catch
+                {
+                    // Either port is free or legacy bridge returns 404/non-health
+                }
+            }
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = "netstat.exe",
+                Arguments = "-ano -p tcp",
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            using var netstatProc = Process.Start(psi);
+            if (netstatProc == null) return false;
+            var output = netstatProc.StandardOutput.ReadToEnd();
+            netstatProc.WaitForExit(3000);
+
+            var lineRx = new Regex($@"^\s*TCP\s+127\.0\.0\.1:{port}\s+\S+\s+LISTENING\s+(\d+)\s*$", RegexOptions.Multiline | RegexOptions.IgnoreCase);
+            var retiredAny = false;
+            foreach (Match m in lineRx.Matches(output))
+            {
+                if (!int.TryParse(m.Groups[1].Value, out var pid) || pid <= 4 || pid == Environment.ProcessId) continue;
+                try
+                {
+                    using var holder = Process.GetProcessById(pid);
+                    var pname = (holder.ProcessName ?? "").ToLowerInvariant();
+                    if (pname is "python" or "pythonw" or "powershell" or "pwsh")
+                    {
+                        holder.Kill(entireProcessTree: true);
+                        holder.WaitForExit(1500);
+                        log($"♻️ Đã tự động thay thế Cầu nối .bat cũ ({pname} PID {pid}) trên cổng {port} bằng AdsOps Desktop Pro v1.1.");
+                        retiredAny = true;
+                    }
+                }
+                catch { }
+            }
+            if (retiredAny) Thread.Sleep(250);
+            return retiredAny;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public void Start()
@@ -93,7 +186,9 @@ public sealed class LocalBridgeServer : IDisposable
                     return;
                 }
 
-                var path = rawPath.Split('?')[0].TrimEnd('/');
+                var qIdx = rawPath.IndexOf('?');
+                var path = (qIdx >= 0 ? rawPath[..qIdx] : rawPath).TrimEnd('/');
+                var rawQuery = qIdx >= 0 ? rawPath[(qIdx + 1)..] : "";
                 if (string.IsNullOrEmpty(path)) path = "/";
 
                 if (method == "GET" && path == "/health")
@@ -103,7 +198,7 @@ public sealed class LocalBridgeServer : IDisposable
                     {
                         ok = true,
                         app = "AdsOpsDesktop",
-                        version = "1.0.0",
+                        version = "1.1.0",
                         extVersion = tpl.Version,
                         port = BoundPort,
                     });
@@ -149,6 +244,29 @@ public sealed class LocalBridgeServer : IDisposable
                         string.IsNullOrWhiteSpace(bodyText) ? "{}" : bodyText,
                         new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new BrowserEventPayloadDto();
                     var result = await _onBrowserEvent(ev).ConfigureAwait(false);
+                    var json = JsonSerializer.Serialize(result);
+                    await WriteHttpResponseAsync(stream, 200, "OK", json, ct).ConfigureAwait(false);
+                    return;
+                }
+
+                if (method == "POST" && path == "/local-vault/save")
+                {
+                    var req = JsonSerializer.Deserialize<LocalVaultSaveRequest>(
+                        string.IsNullOrWhiteSpace(bodyText) ? "{}" : bodyText,
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new LocalVaultSaveRequest();
+                    var result = await _onVaultSave(req).ConfigureAwait(false);
+                    var json = JsonSerializer.Serialize(result);
+                    await WriteHttpResponseAsync(stream, result.Ok ? 200 : 400, result.Ok ? "OK" : "Bad Request", json, ct).ConfigureAwait(false);
+                    return;
+                }
+
+                if (method == "GET" && path == "/local-vault/get")
+                {
+                    var qs = HttpUtility.ParseQueryString(rawQuery);
+                    var viaId = (qs["via_id"] ?? "").Trim();
+                    var profile = (qs["profile"] ?? "").Trim();
+                    var name = (qs["name"] ?? "").Trim();
+                    var result = await _onVaultGet(viaId, profile, name).ConfigureAwait(false);
                     var json = JsonSerializer.Serialize(result);
                     await WriteHttpResponseAsync(stream, 200, "OK", json, ct).ConfigureAwait(false);
                     return;

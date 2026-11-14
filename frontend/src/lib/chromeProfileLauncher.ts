@@ -614,7 +614,7 @@ export function downloadWindowsChromeLauncherBat(): void {
     '    }',
     '    $path = $req.Url.AbsolutePath.TrimEnd("/")',
     '    if ($path -eq "/health" -and $req.HttpMethod -eq "GET") {',
-    `      Send-Json $res 200 '{"ok":true,"version":"2.9.0"}'`,
+    `      Send-Json $res 200 '{"ok":true,"version":"2.9.1"}'`,
     '      continue',
     '    }',
     '    if ($path -eq "/chrome-profiles" -and $req.HttpMethod -eq "GET") {',
@@ -905,9 +905,9 @@ export function buildExtensionFilesForVia(
       ? `AdsOps Companion Pro · ${profileDir} · Proxy ${parsed!.host}:${parsed!.port}`
       : `AdsOps Companion Pro · ${profileDir} (${viaName})`,
     short_name: 'AdsOps Companion Pro',
-    version: '2.9.0',
+    version: '2.9.1',
     description:
-      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.9 Pro: Đảo Ấm Cookie Sinh Học Đa Lộ Trình + Tự Dừng Nếu Văng Cookie, Full Auto-Pilot Tạo Fanpage giãn nhịp an toàn + Checkpoint Guard, Anti-Passkey, 2FA, WebRTC Lock & EAAB Token.',
+      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.9.1 Pro: Đảo Ấm Cookie Sinh Học Đa Lộ Trình + Tự Dừng Nếu Văng Cookie, Full Auto-Pilot Tạo Fanpage giãn nhịp an toàn + Checkpoint Guard, Anti-Passkey, 2FA, WebRTC Lock & EAAB Token.',
     permissions: [
       'proxy',
       'privacy',
@@ -966,7 +966,7 @@ export function buildExtensionFilesForVia(
 
   // Runs in MAIN world at document_start BEFORE Facebook's scripts load:
   // Completely blocks Windows Hello / WebAuthn / Passkey popup from ever appearing!
-  const passkeyShieldJs = `// AdsOps Companion Pro v2.9 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
+  const passkeyShieldJs = `// AdsOps Companion Pro v2.9.1 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
 (function() {
   try {
     if (window.PublicKeyCredential) {
@@ -1056,7 +1056,7 @@ chrome.runtime.onInstalled.addListener(() => {
       viaName: res.viaName || DEFAULT_STATE.viaName,
       profileCode: res.profileCode || DEFAULT_STATE.profileCode,
       viaTier: res.viaTier || DEFAULT_STATE.viaTier,
-      twoFaSecret: res.twoFaSecret !== undefined ? res.twoFaSecret : DEFAULT_STATE.twoFaSecret,
+      twoFaSecret: res.twoFaSecret ? res.twoFaSecret : DEFAULT_STATE.twoFaSecret,
       webrtcShield: res.webrtcShield !== undefined ? Boolean(res.webrtcShield) : true,
       blockPasskey: res.blockPasskey !== undefined ? Boolean(res.blockPasskey) : true,
       passkeyStatus: res.passkeyStatus || "clean",
@@ -1268,7 +1268,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   <div class="header">
     <div class="brand">
       <span class="logo">AO</span>
-      <span>AdsOps Companion v2.9 Pro</span>
+      <span>AdsOps Companion v2.9.1 Pro</span>
     </div>
     <span id="proxy-badge" class="status-pill">MẠNG GỐC</span>
   </div>
@@ -1368,19 +1368,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     <div id="acc-list" class="acc-list"></div>
   </div>
 
-  <!-- SECTION 4: COOKIE EXPORT/IMPORT, KEEP-ALIVE v2.9 & TOKEN EXTRACTOR -->
+  <!-- SECTION 4: COOKIE EXPORT/IMPORT, KEEP-ALIVE v2.9.1 & TOKEN EXTRACTOR -->
   <details class="card" style="cursor:pointer;">
-    <summary class="section-title" style="margin-bottom:0;">4. 🍪 Cookie · ☕ Đảo Ấm v2.9 &amp; ⚡ Bắt Token EAAB</summary>
+    <summary class="section-title" style="margin-bottom:0;">4. 🍪 Cookie · ☕ Đảo Ấm v2.9.1 &amp; ⚡ Bắt Token EAAB</summary>
     <div style="margin-top:8px;">
       <div class="btn-row" style="margin-top:0; margin-bottom:6px;">
         <button id="btn-export-cookie" type="button" class="btn btn-primary">🍪 Chép Cookie FB</button>
         <button id="btn-extract-token" type="button" class="btn btn-emerald">⚡ Bắt Token EAAB</button>
       </div>
-      <button id="btn-run-keepalive" type="button" class="btn" style="width:100%;margin-bottom:6px;border-color:rgba(245,158,11,0.55);color:#fcd34d;">☕ Đảo Ấm Cookie Như Người Thật (v2.9)</button>
+      <button id="btn-run-keepalive" type="button" class="btn" style="width:100%;margin-bottom:6px;border-color:rgba(245,158,11,0.55);color:#fcd34d;">☕ Đảo Ấm Cookie Như Người Thật (v2.9.1)</button>
       <div id="ka-last-status" style="margin-bottom:6px; font-size:10px; color:#94a3b8;"></div>
       <textarea id="cookie-box" rows="2" class="mono" placeholder="Dán Cookie JSON hoặc c_user=...; xs=... vào đây để đăng nhập Via không cần mật khẩu"></textarea>
       <div class="btn-row">
         <button id="btn-import-cookie" type="button" class="btn">📥 Nạp Cookie vào Chrome này</button>
+      </div>
+      <div class="btn-row">
+        <button id="btn-vault-save" type="button" class="btn btn-emerald" title="Mã hóa DPAPI &amp; lưu Cookie + 2FA vào App Windows AdsOps Desktop Pro trên máy (không gửi lên Cloud)">🔐 Lưu vào Két App Win</button>
+        <button id="btn-vault-load" type="button" class="btn btn-primary" title="Lấy Cookie + 2FA từ Két App Windows và nạp thẳng vào Chrome này">📥 Nạp từ Két App Win</button>
       </div>
       <div id="cookie-status" style="margin-top:4px; font-size:10.5px; color:#34d399;"></div>
     </div>
@@ -1417,7 +1421,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 </body>
 </html>`
 
+  const defaultViaMetaJson = JSON.stringify({
+    viaId: String(viaId || ''),
+    viaName: String(viaName || 'Via Facebook'),
+    profileCode: String(profileDir || 'Default'),
+    viaTier: String(viaTier || 'camp'),
+    twoFaSecret: twoFaSecret.replace(/\s+/g, '').toUpperCase(),
+  })
+
   const popupJs = `const DEFAULT_ACCOUNTS = ${JSON.stringify(bundledAccounts)};
+const DEFAULT_VIA_META = ${defaultViaMetaJson};
+let currentViaId = DEFAULT_VIA_META.viaId || "";
 const viaInput = document.getElementById("via-name");
 const profileInput = document.getElementById("profile-code");
 const tierSelect = document.getElementById("via-tier");
@@ -1577,36 +1591,156 @@ document.getElementById("btn-export-cookie")?.addEventListener("click", () => {
   });
 });
 
+function applyRawCookiesToBrowser(raw) {
+  let count = 0;
+  const clean = String(raw || "").trim();
+  if (!clean) return 0;
+  if (clean.startsWith("[")) {
+    const arr = JSON.parse(clean);
+    if (Array.isArray(arr)) {
+      arr.forEach((c) => {
+        if (c && c.name && c.value) {
+          chrome.cookies?.set({ url: "https://www.facebook.com", domain: ".facebook.com", name: String(c.name), value: String(c.value), path: "/" });
+          count++;
+        }
+      });
+    }
+    return count;
+  }
+  clean.split(";").forEach((pair) => {
+    const idx = pair.indexOf("=");
+    if (idx > 0) {
+      const name = pair.slice(0, idx).trim();
+      const value = pair.slice(idx + 1).trim();
+      if (name && value) {
+        chrome.cookies?.set({ url: "https://www.facebook.com", domain: ".facebook.com", name, value, path: "/" });
+        count++;
+      }
+    }
+  });
+  return count;
+}
+
 document.getElementById("btn-import-cookie")?.addEventListener("click", () => {
   const statusEl = document.getElementById("cookie-status");
   const raw = (document.getElementById("cookie-box")?.value || "").trim();
   if (!raw) return;
-  let count = 0;
   try {
-    if (raw.startsWith("[")) {
-      const arr = JSON.parse(raw);
-      arr.forEach((c) => {
-        if (c.name && c.value) {
-          chrome.cookies?.set({ url: "https://www.facebook.com", domain: ".facebook.com", name: c.name, value: c.value, path: "/" });
-          count++;
-        }
-      });
-    } else {
-      raw.split(";").forEach((pair) => {
-        const idx = pair.indexOf("=");
-        if (idx > 0) {
-          const name = pair.slice(0, idx).trim();
-          const value = pair.slice(idx + 1).trim();
-          if (name && value) {
-            chrome.cookies?.set({ url: "https://www.facebook.com", domain: ".facebook.com", name, value, path: "/" });
-            count++;
-          }
-        }
-      });
+    const count = applyRawCookiesToBrowser(raw);
+    if (statusEl) {
+      statusEl.style.color = "#34d399";
+      statusEl.textContent = "✓ Đã nạp " + count + " Cookie! Hãy tải lại tab Facebook.";
     }
-    if (statusEl) statusEl.textContent = "✓ Đã nạp " + count + " Cookie! Hãy tải lại tab Facebook.";
   } catch (e) {
-    if (statusEl) statusEl.textContent = "Lỗi định dạng Cookie.";
+    if (statusEl) {
+      statusEl.style.color = "#fda4af";
+      statusEl.textContent = "Lỗi định dạng Cookie.";
+    }
+  }
+});
+
+document.getElementById("btn-vault-save")?.addEventListener("click", () => {
+  const statusEl = document.getElementById("cookie-status");
+  const box = document.getElementById("cookie-box");
+  chrome.cookies?.getAll({ domain: "facebook.com" }, async (cookies) => {
+    const browserCookie = Array.isArray(cookies) && cookies.length > 0
+      ? cookies.map((c) => c.name + "=" + c.value).join("; ")
+      : "";
+    const manualCookie = (box?.value || "").trim();
+    const cookieRaw = browserCookie || manualCookie;
+    if (browserCookie && box && !manualCookie) box.value = browserCookie;
+    const sec = (twofaInput?.value || "").replace(/\\s+/g, "").toUpperCase();
+    const vName = (viaInput?.value || DEFAULT_VIA_META.viaName || "Via Facebook").trim();
+    const pCode = (profileInput?.value || DEFAULT_VIA_META.profileCode || "Default").trim();
+    if (!cookieRaw && !sec) {
+      if (statusEl) {
+        statusEl.style.color = "#fbbf24";
+        statusEl.textContent = "Chưa có Cookie Facebook hoặc Khóa 2FA để lưu.";
+      }
+      return;
+    }
+    try {
+      const resp = await fetch("http://127.0.0.1:17890/local-vault/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          via_id: currentViaId || "",
+          via_label: vName,
+          profile_dir: pCode,
+          cookie_raw: cookieRaw,
+          two_fa_secret: sec
+        })
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && data.ok) {
+        if (statusEl) {
+          statusEl.style.color = "#34d399";
+          statusEl.textContent = "🔐 Đã mã hóa DPAPI & lưu Cookie + 2FA vào Két App Windows!";
+        }
+      } else {
+        if (statusEl) {
+          statusEl.style.color = "#fda4af";
+          statusEl.textContent = "Lỗi lưu Két App Windows.";
+        }
+      }
+    } catch (e) {
+      if (statusEl) {
+        statusEl.style.color = "#fda4af";
+        statusEl.textContent = "⚠️ Chưa bật App Windows AdsOps Desktop Pro (127.0.0.1:17890).";
+      }
+    }
+  });
+});
+
+document.getElementById("btn-vault-load")?.addEventListener("click", async () => {
+  const statusEl = document.getElementById("cookie-status");
+  const box = document.getElementById("cookie-box");
+  const vName = (viaInput?.value || DEFAULT_VIA_META.viaName || "").trim();
+  const pCode = (profileInput?.value || DEFAULT_VIA_META.profileCode || "Default").trim();
+  try {
+    const qs = new URLSearchParams({
+      via_id: currentViaId || "",
+      profile: pCode,
+      name: vName
+    });
+    const resp = await fetch("http://127.0.0.1:17890/local-vault/get?" + qs.toString());
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || !data.ok) {
+      if (statusEl) {
+        statusEl.style.color = "#fda4af";
+        statusEl.textContent = "Không đọc được Két App Windows.";
+      }
+      return;
+    }
+    if (!data.found) {
+      if (statusEl) {
+        statusEl.style.color = "#fbbf24";
+        statusEl.textContent = "Chưa có bản lưu Cookie/2FA cho Via này trong Két App Windows.";
+      }
+      return;
+    }
+    if (data.two_fa_secret) {
+      if (twofaInput) twofaInput.value = data.two_fa_secret;
+      chrome.storage?.local?.set({ twoFaSecret: data.two_fa_secret }, () => tickOtp());
+    }
+    if (data.cookie_raw) {
+      if (box) box.value = data.cookie_raw;
+      const n = applyRawCookiesToBrowser(data.cookie_raw);
+      if (statusEl) {
+        statusEl.style.color = "#34d399";
+        statusEl.textContent = "✓ Đã nạp " + n + " Cookie" + (data.two_fa_secret ? " + 2FA" : "") + " từ Két App Windows! Hãy tải lại tab FB.";
+      }
+    } else if (data.two_fa_secret) {
+      if (statusEl) {
+        statusEl.style.color = "#34d399";
+        statusEl.textContent = "✓ Đã nạp Khóa 2FA từ Két App Windows (chưa có Cookie lưu sẵn).";
+      }
+    }
+  } catch (e) {
+    if (statusEl) {
+      statusEl.style.color = "#fda4af";
+      statusEl.textContent = "⚠️ Chưa bật App Windows AdsOps Desktop Pro (127.0.0.1:17890).";
+    }
   }
 });
 
@@ -1733,11 +1867,12 @@ function flashSaved() {
 renderAccounts(DEFAULT_ACCOUNTS);
 
 if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
-  chrome.storage.local.get(["viaName", "profileCode", "viaTier", "twoFaSecret", "passkeyStatus", "proxyRaw", "proxyEnabled", "accounts", "lastKeepAliveStatus"], (res) => {
-    if (viaInput) viaInput.value = res.viaName || "${viaName.replace(/"/g, '\\"')}";
-    if (profileInput) profileInput.value = res.profileCode || "${profileDir.replace(/"/g, '\\"')}";
-    if (tierSelect) tierSelect.value = res.viaTier || "${viaTier}";
-    if (twofaInput) twofaInput.value = res.twoFaSecret || "${twoFaSecret.replace(/\s+/g, '').toUpperCase()}";
+  chrome.storage.local.get(["viaId", "viaName", "profileCode", "viaTier", "twoFaSecret", "passkeyStatus", "proxyRaw", "proxyEnabled", "accounts", "lastKeepAliveStatus"], (res) => {
+    currentViaId = res.viaId || DEFAULT_VIA_META.viaId || "";
+    if (viaInput) viaInput.value = res.viaName || DEFAULT_VIA_META.viaName || "";
+    if (profileInput) profileInput.value = res.profileCode || DEFAULT_VIA_META.profileCode || "Default";
+    if (tierSelect) tierSelect.value = res.viaTier || DEFAULT_VIA_META.viaTier || "camp";
+    if (twofaInput) twofaInput.value = res.twoFaSecret || DEFAULT_VIA_META.twoFaSecret || "";
     if (proxyInput) proxyInput.value = res.proxyRaw || "";
     if (passkeyBadge) {
       if (res.passkeyStatus === "detected") {
@@ -1842,7 +1977,7 @@ refreshIp();
 tickOtp();`
 
   const readmeTxt = [
-    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.9 PRO - FULL AUTO PAGE + ANTI-PASSKEY)',
+    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.9.1 PRO - FULL AUTO PAGE + ANTI-PASSKEY)',
     '===================================================================================',
     'Bước 1: Giải nén file .zip này ra một thư mục cố định (ví dụ: Desktop\\AdsOps-Chrome-Extension).',
     'Bước 2: Mở trình duyệt Google Chrome của Via -> gõ vào thanh địa chỉ: chrome://extensions',
@@ -1851,7 +1986,7 @@ tickOtp();`
     'Bước 5: Bấm biểu tượng mảnh ghép trên góc phải Chrome -> Bấm nút Ghim (Pin) cạnh "AdsOps Companion Pro".',
   ].join('\r\n')
 
-  const contentJs = `// AdsOps Companion Pro v2.9 — Full Auto-Pilot Page Creator + Safety Guard + Anti-Passkey + HUD
+  const contentJs = `// AdsOps Companion Pro v2.9.1 — Full Auto-Pilot Page Creator + Safety Guard + Anti-Passkey + HUD
 (function() {
   let lastSyncedAct = "";
   let autoDeletePasskeyTriggered = false;
@@ -2244,7 +2379,7 @@ tickOtp();`
       if (!avFile || pageAutoPilotHalted) return;
       assignFileToInput(fileInputs[0], avFile);
       lastMediaAttachedAt = Date.now();
-      setHudPageStatus("🖼️ [Auto v2.9] Đã tự gắn Avatar độc bản (chống trùng Hash)...", "#38bdf8");
+      setHudPageStatus("🖼️ [Auto v2.9.1] Đã tự gắn Avatar độc bản (chống trùng Hash)...", "#38bdf8");
 
       if (fileInputs.length > 1) {
         setTimeout(() => {
@@ -2253,7 +2388,7 @@ tickOtp();`
             if (!cvFile || pageAutoPilotHalted) return;
             assignFileToInput(fileInputs[1], cvFile);
             lastMediaAttachedAt = Date.now();
-            setHudPageStatus("🖼️ [Auto v2.9] Đã tự gắn đủ Avatar + Cover độc bản!", "#34d399");
+            setHudPageStatus("🖼️ [Auto v2.9.1] Đã tự gắn đủ Avatar + Cover độc bản!", "#34d399");
           });
         }, randDelay(950, 1550));
       }
@@ -2493,7 +2628,7 @@ tickOtp();`
       const waitMs = randDelay(stopMeta.minMs, stopMeta.maxMs);
 
       const reader = startBiometricReadingLoop(
-        "☕ [Đảo Ấm v2.9 · Bước " + (idx + 1) + "/" + steps.length + "] Đang đọc " + stopMeta.label + " tự nhiên (" + Math.round(waitMs / 1000) + "s)..."
+        "☕ [Đảo Ấm v2.9.1 · Bước " + (idx + 1) + "/" + steps.length + "] Đang đọc " + stopMeta.label + " tự nhiên (" + Math.round(waitMs / 1000) + "s)..."
       );
 
       setTimeout(() => {
@@ -2528,7 +2663,7 @@ tickOtp();`
             route_summary: summary,
             duration_sec: Math.max(15, Math.round((Date.now() - (Number(session.startedAt) || Date.now())) / 1000)),
           });
-          setHudPageStatus("☕ [v2.9] Đã đảo ấm sinh học hoàn tất (" + summary + ")!", "#34d399");
+          setHudPageStatus("☕ [v2.9.1] Đã đảo ấm sinh học hoàn tất (" + summary + ")!", "#34d399");
           if (session.autoClose) {
             scheduleSafeTabAutoClose(randDelay(7500, 10500));
           }
@@ -2563,7 +2698,7 @@ tickOtp();`
           return;
         }
         const waitMs = randDelay(12500, 17500);
-        const reader = startBiometricReadingLoop("🌿 [Auto v2.9] Đang đọc lướt Newsfeed sinh học " + Math.round(waitMs / 1000) + "s trước khi tạo Page...");
+        const reader = startBiometricReadingLoop("🌿 [Auto v2.9.1] Đang đọc lướt Newsfeed sinh học " + Math.round(waitMs / 1000) + "s trước khi tạo Page...");
         setTimeout(() => {
           reader.stop();
           if (pageAutoPilotHalted) return;
@@ -2866,7 +3001,7 @@ tickOtp();`
       const tFinal = tBio + randDelay(1900, 2850);
 
       if (autoSubmit) {
-        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9] Đang nhập tự nhiên theo nhịp người thật...", "#38bdf8");
+        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9.1] Đang nhập tự nhiên theo nhịp người thật...", "#38bdf8");
       }
 
       if (pName && nameEl && !nameEl.value) {
@@ -2954,7 +3089,7 @@ tickOtp();`
           sessionStorage.setItem("adsops_media_uploaded", "0");
         } catch (e) {}
         createBtn.click();
-        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9] Đã bấm Tạo Trang — Đang hoàn tất bước phụ...", "#38bdf8");
+        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9.1] Đã bấm Tạo Trang — Đang hoàn tất bước phụ...", "#38bdf8");
       };
 
       setTimeout(() => tryAutoClickCreate(true), tFinal);
@@ -2994,6 +3129,7 @@ export function downloadChromeExtensionZip(
   bundledAccounts: ExtensionBundledAccount[] = [],
   twoFaSecret = '',
   viaTier: 'vault' | 'camp' | 'standby' = 'camp',
+  viaId = '',
 ): void {
   const slug = profileDir.replace(/[^a-zA-Z0-9_-]/g, '-')
   const zipBlob = buildStoreZip(
@@ -3005,12 +3141,13 @@ export function downloadChromeExtensionZip(
       bundledAccounts,
       twoFaSecret,
       viaTier,
+      viaId,
     ),
   )
   const url = URL.createObjectURL(zipBlob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `AdsOps-Chrome-Extension-v2.9-${slug}.zip`
+  a.download = `AdsOps-Chrome-Extension-v2.9.1-${slug}.zip`
   document.body.appendChild(a)
   a.click()
   a.remove()
@@ -3018,6 +3155,7 @@ export function downloadChromeExtensionZip(
 }
 
 export interface ViaExtensionBundleSpec {
+  viaId?: string
   viaName: string
   profileDir: string
   rawProxy: string
@@ -3030,12 +3168,12 @@ export function downloadAllViasExtensionsBundleZip(items: ViaExtensionBundleSpec
   if (!Array.isArray(items) || items.length === 0) return
   const allFiles: Array<{ name: string; content: string | Uint8Array }> = []
   const guideLines: string[] = [
-    'TRON BO TIEN ICH ADSOPS COMPANION v2.9 PRO CHO TOAN BO DAN VIA',
+    'TRON BO TIEN ICH ADSOPS COMPANION v2.9.1 PRO CHO TOAN BO DAN VIA',
     '================================================================',
     `Tong so thu muc Extension da dong goi: ${items.length} Via`,
     '',
     'Cach cai nhanh:',
-    '1. Giai nen file .zip nay ra mot thu muc co dinh (VD: Desktop\AdsOps-Extensions-v2.9).',
+    '1. Giai nen file .zip nay ra mot thu muc co dinh (VD: Desktop\AdsOps-Extensions-v2.9.1).',
     '2. Mo Chrome cua tung Via -> chrome://extensions -> Bat Developer mode -> Load unpacked -> chon dung thu muc ten cua Via do ben duoi:',
     '',
   ]
@@ -3053,6 +3191,7 @@ export function downloadAllViasExtensionsBundleZip(items: ViaExtensionBundleSpec
         spec.bundledAccounts,
         spec.twoFaSecret,
         spec.viaTier,
+        spec.viaId || '',
       ),
     )
   })
@@ -3066,7 +3205,7 @@ export function downloadAllViasExtensionsBundleZip(items: ViaExtensionBundleSpec
   const url = URL.createObjectURL(zipBlob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `AdsOps-Tron-Bo-Extension-v2.9-${items.length}Via.zip`
+  a.download = `AdsOps-Tron-Bo-Extension-v2.9.1-${items.length}Via.zip`
   document.body.appendChild(a)
   a.click()
   a.remove()
