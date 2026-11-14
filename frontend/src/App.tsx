@@ -1,9 +1,9 @@
-import { lazy } from 'react'
+import { Suspense, lazy } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import AppShell from './components/AppShell'
 import { SeoHead } from './components/shell/SeoHead'
 import { useAuth } from './hooks/useAuth'
-import Login from './pages/Login'
+const Login = lazy(() => import('./pages/Login'))
 const Overview = lazy(() => import('./pages/Overview'))
 const Accounts = lazy(() => import('./pages/Accounts'))
 const AccountDetail = lazy(() => import('./pages/AccountDetail'))
@@ -50,7 +50,15 @@ export default function App() {
     return (
       <>
         <SeoHead />
-        <Login />
+        <Suspense
+          fallback={
+            <LoadingRegion className="mx-auto max-w-md space-y-2 p-8">
+              <Skeleton className="h-8 w-full" />
+            </LoadingRegion>
+          }
+        >
+          <Login />
+        </Suspense>
       </>
     )
   }

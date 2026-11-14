@@ -484,6 +484,12 @@ def alert_notifications(ctx: Ctx, alert_id: uuid.UUID) -> list[dict[str, Any]]:
 
 
 # ------------------------------------------------------------------------------- policy
+def _ws_tg_configured(session, workspace_id: uuid.UUID, settings) -> bool:
+    from app.services.telegram_bot_helper import resolve_workspace_telegram_transport
+
+    return resolve_workspace_telegram_transport(session, workspace_id, settings) is not None
+
+
 def _policy_payload(ctx, policy) -> dict[str, Any]:
     settings = get_settings()
     data = {
@@ -501,7 +507,10 @@ def _policy_payload(ctx, policy) -> dict[str, Any]:
         "reminder_interval_hours": policy.reminder_interval_hours,
         "max_reminders_per_alert": policy.max_reminders_per_alert,
         # Capability booleans only. The bot token has no representation in this response.
-        "telegram_transport_configured": settings.telegram_transport_configured,
+        "telegram_transport_configured": bool(
+            settings.telegram_transport_configured
+            or _ws_tg_configured(ctx.session, ctx.workspace_id, settings)
+        ),
         "recipient_configured": bool(policy.telegram_chat_id),
         "telegram_chat_id_masked": mask_chat_reference(policy.telegram_chat_id),
         "updated_at": policy.updated_at,
@@ -636,7 +645,10 @@ def notification_status(ctx: Ctx) -> dict[str, Any]:
     if oldest is not None and oldest.tzinfo is None:
         oldest = oldest.replace(tzinfo=UTC)
     return {
-        "telegram_transport_configured": settings.telegram_transport_configured,
+        "telegram_transport_configured": bool(
+            settings.telegram_transport_configured
+            or _ws_tg_configured(ctx.session, ctx.workspace_id, settings)
+        ),
         "recipient_configured": bool(policy and policy.telegram_chat_id),
         "transport_mode": settings.notification_transport,
         "due_deliveries": service.due_count(now),

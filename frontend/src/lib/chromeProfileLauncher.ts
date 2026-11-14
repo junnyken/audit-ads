@@ -189,37 +189,58 @@ export interface ParsedProxyInfo {
 export function parseProxyString(raw?: string | null): ParsedProxyInfo | null {
   if (!raw) return null
   const s = raw.trim()
-  const mAt = s.match(/(?:(http|https|socks5):\/\/)?([^:\s]+):([^@\s]+)@(\d{1,3}(?:\.\d{1,3}){3}):(\d{2,5})/i)
-  if (mAt) {
-    return {
-      scheme: (mAt[1] || 'http').toLowerCase(),
-      user: mAt[2],
-      pass: mAt[3],
-      host: mAt[4],
-      port: Number(mAt[5]),
+  if (!s) return null
+
+  const mUrl = s.match(
+    /^(?:(http|https|socks5):\/\/)?(?:([^:\s/@]+):([^@\s/]+)@)?([A-Za-z0-9.-]+\.[A-Za-z0-9.-]+):(\d{1,5})$/i,
+  )
+  if (mUrl) {
+    const port = Number(mUrl[5])
+    if (port >= 1 && port <= 65535) {
+      return {
+        scheme: (mUrl[1] || 'http').toLowerCase(),
+        user: mUrl[2] || '',
+        pass: mUrl[3] || '',
+        host: mUrl[4].toLowerCase(),
+        port,
+      }
     }
   }
-  const mColon4 = s.match(/(\d{1,3}(?:\.\d{1,3}){3}):(\d{2,5}):([^:\s]+):([^\s]+)/)
+
+  const mColon4 = s.match(/^([A-Za-z0-9.-]+\.[A-Za-z0-9.-]+):(\d{1,5}):([^:\s]+):([^\s]+)$/)
   if (mColon4) {
-    return {
-      scheme: 'http',
-      host: mColon4[1],
-      port: Number(mColon4[2]),
-      user: mColon4[3],
-      pass: mColon4[4],
+    const port = Number(mColon4[2])
+    if (port >= 1 && port <= 65535) {
+      return {
+        scheme: 'http',
+        host: mColon4[1].toLowerCase(),
+        port,
+        user: mColon4[3],
+        pass: mColon4[4],
+      }
     }
   }
-  const mColon2 = s.match(/(\d{1,3}(?:\.\d{1,3}){3}):(\d{2,5})/)
+
+  const mColon2 = s.match(/^([A-Za-z0-9.-]+\.[A-Za-z0-9.-]+):(\d{1,5})$/)
   if (mColon2) {
-    return {
-      scheme: 'http',
-      host: mColon2[1],
-      port: Number(mColon2[2]),
-      user: '',
-      pass: '',
+    const port = Number(mColon2[2])
+    if (port >= 1 && port <= 65535) {
+      return {
+        scheme: 'http',
+        host: mColon2[1].toLowerCase(),
+        port,
+        user: '',
+        pass: '',
+      }
     }
   }
+
   return null
+}
+
+export function normalizeProxyKey(raw?: string | null): string {
+  const p = parseProxyString(raw)
+  return p ? `${p.scheme}://${p.host.toLowerCase()}:${p.port}` : ''
 }
 
 /**

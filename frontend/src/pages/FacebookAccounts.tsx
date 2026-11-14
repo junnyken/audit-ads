@@ -23,7 +23,7 @@ import {
   downloadWindowsChromeLauncherBat,
   fetchRealLocalChromeProfiles,
   launchInAssignedChromeProfile,
-  parseProxyString,
+  normalizeProxyKey,
 } from '../lib/chromeProfileLauncher'
 
 const LEGACY_MOCK_NETWORKS = [
@@ -42,6 +42,19 @@ function isRealNetworkLabel(val: string): boolean {
   if (!clean) return false
   const lower = clean.toLowerCase()
   return !LEGACY_MOCK_NETWORKS.some((p) => lower.startsWith(p))
+}
+
+interface ProxyHealthItem {
+  ok: boolean
+  status: 'LIVE' | 'DEAD' | 'INVALID'
+  ssrf_blocked?: boolean
+  exit_ip: string | null
+  country_code: string | null
+  country_name: string | null
+  latency_ms: number | null
+  normalized_key: string
+  error_summary?: string | null
+  checked_at?: string | null
 }
 
 export type ViaRoleTier = 'vault' | 'camp' | 'standby'
@@ -358,6 +371,33 @@ export default function FacebookAccounts() {
     initialData: WORKSTATION_REAL_CHROME_PROFILES,
     retry: false,
   })
+  const proxyHealthQ = useQuery({
+    queryKey: ['proxy-health-map'],
+    queryFn: () => api.get<{ health_map: Record<string, ProxyHealthItem> }>('/api/v1/proxies/health-map'),
+    retry: false,
+  })
+  const checkSingleProxy = useMutation({
+    mutationFn: (proxy_string: string) =>
+      api.post<ProxyHealthItem>('/api/v1/proxies/check-live', { proxy_string }),
+    onSuccess: (res) => {
+      void queryClient.invalidateQueries({ queryKey: ['proxy-health-map'] })
+      setSyncNotice(
+        res.status === 'LIVE'
+          ? `🟢 Proxy ${res.normalized_key} SỐNG — IP ra: ${res.exit_ip ?? '—'} (${res.country_code ?? '—'} · ${res.latency_ms ?? 0}ms)`
+          : `🔴 Proxy ${res.normalized_key || ''} LỖI/CHẾT: ${res.error_summary ?? 'Không phản hồi'}`,
+      )
+    },
+  })
+  const checkBatchProxies = useMutation({
+    mutationFn: () =>
+      api.post<{ checked_count: number; live_count: number; dead_count: number }>('/api/v1/proxies/check-batch', {}),
+    onSuccess: (res) => {
+      void queryClient.invalidateQueries({ queryKey: ['proxy-health-map'] })
+      setSyncNotice(
+        `🩺 Đã kiểm tra ${res.checked_count} Proxy: 🟢 ${res.live_count} Sống · 🔴 ${res.dead_count} Chết/Lỗi.`,
+      )
+    },
+  })
 
   const syncFromMeta = useMutation({
     mutationFn: () =>
@@ -541,6 +581,17 @@ export default function FacebookAccounts() {
                 {syncFromMeta.isPending ? 'Đang lấy Via từ Meta...' : 'Tự động lấy Via từ Meta'}
               </Button>
             )}
+            {canWrite && (
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={checkBatchProxies.isPending}
+                onClick={() => checkBatchProxies.mutate()}
+                title="Kiểm tra hàng loạt xem Proxy gắn cho từng Via còn sống hay đã chết, IP ra & Quốc gia nào"
+              >
+                {checkBatchProxies.isPending ? '🩺 Đang kiểm tra Proxy...' : '🩺 Kiểm tra tất cả Proxy'}
+              </Button>
+            )}
             <Button
               type="button"
               variant="secondary"
@@ -653,6 +704,17 @@ export default function FacebookAccounts() {
             <TableBody>
               {filteredItems.map((item) => {
                 const { row, s, browserLabel, networkLabel, meta, warmup, sharedNetwork, risks } = item
+                const proxyNormKey = normalizeProxyKey(networkLabel)
+                const proxyHealth = proxyNormKey ? proxyHealthQ.data?.health_map?.[proxyNormKey] : undefined
+                const safeLaunchChrome = (targetUrl: string) => {
+                  if (proxyHealth?.status === 'DEAD') {
+                    const proceed = window.confirm(
+                      '⚠️ CẢNH BÁO PROXY ĐÃ CHẾT / LỖI: Lần kiểm tra gần nhất cho thấy Proxy của Via này không phản hồi. Mở Chrome lúc này có thể lộ IP thật hoặc gây Checkpoint! Bạn vẫn muốn mở?',
+                    )
+                    if (!proceed) return
+                  }
+                  launchInAssignedChromeProfile(targetUrl, browserLabel, String(row.label), networkLabel)
+                }
                 const ownership = String(row.ownership_type ?? 'agency_owned')
                 const clientName = String(row.client_name ?? '').trim()
                 const emailHint = String(row.email_hint ?? '').trim()
@@ -766,14 +828,7 @@ export default function FacebookAccounts() {
                             <>
                               <button
                                 type="button"
-                                onClick={() =>
-                                  launchInAssignedChromeProfile(
-                                    'https://business.facebook.com/overview',
-                                    browserLabel,
-                                    String(row.label),
-                                    networkLabel,
-                                  )
-                                }
+                                onClick={() => safeLaunchChrome('https://business.facebook.com/overview')}
                                 className="inline-flex items-center gap-1 rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
                                 title={`Mở đúng cửa sổ Chrome (${browserLabel}) của Via ${String(row.label)}`}
                               >
@@ -781,14 +836,7 @@ export default function FacebookAccounts() {
                               </button>
                               <button
                                 type="button"
-                                onClick={() =>
-                                  launchInAssignedChromeProfile(
-                                    'https://accountscenter.facebook.com/password_and_security/passkeys?adsops_auto_delete_passkey=1',
-                                    browserLabel,
-                                    String(row.label),
-                                    networkLabel,
-                                  )
-                                }
+                                onClick={() => safeLaunchChrome('https://accountscenter.facebook.com/password_and_security/passkeys?adsops_auto_delete_passkey=1')}
                                 className="inline-flex items-center gap-1 rounded border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-500/20 dark:text-rose-300"
                                 data-detail-only="true"
                                 title="Mở thẳng trang Khóa truy cập (Passkey) trên Chrome của Via này để Tiện ích tự động phát hiện & xóa sạch Passkey chỉ với 1 chạm"
@@ -827,14 +875,33 @@ export default function FacebookAccounts() {
                                     ? `2/2 Via · Chung với ${sharedNetwork[0]}`
                                     : `${sharedNetwork.length + 1}/2 Via · Quá tải Proxy`}
                               </Badge>
-                              {parseProxyString(networkLabel) && (
-                                <button
-                                  type="button"
-                                  onClick={() => downloadSwitchyOmegaConfig(networkLabel, String(row.label))}
-                                  className="inline-flex items-center gap-1 rounded border border-blue-500/40 bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-500/20 dark:text-blue-300"
-                                >
-                                  🛡️ Tải cấu hình Proxy (.bak)
-                                </button>
+                              {proxyNormKey && (
+                                <>
+                                  <Badge tone={proxyHealth?.status === 'LIVE' ? 'positive' : proxyHealth?.status === 'DEAD' ? 'attention' : 'neutral'}>
+                                    {proxyHealth?.status === 'LIVE'
+                                      ? `🟢 Sống · ${proxyHealth.country_code ?? '—'} · ${proxyHealth.latency_ms ?? 0}ms (${proxyHealth.exit_ip ?? '—'})`
+                                      : proxyHealth?.status === 'DEAD'
+                                        ? '🔴 Proxy Chết / Lỗi'
+                                        : '⚪ Chưa kiểm tra'}
+                                  </Badge>
+                                  {canWrite && (
+                                    <button
+                                      type="button"
+                                      disabled={checkSingleProxy.isPending}
+                                      onClick={() => checkSingleProxy.mutate(networkLabel)}
+                                      className="inline-flex items-center gap-1 rounded border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+                                    >
+                                      🩺 Test Proxy
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => downloadSwitchyOmegaConfig(networkLabel, String(row.label))}
+                                    className="inline-flex items-center gap-1 rounded border border-blue-500/40 bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-500/20 dark:text-blue-300"
+                                  >
+                                    🛡️ Tải cấu hình Proxy (.bak)
+                                  </button>
+                                </>
                               )}
                             </>
                           ) : (

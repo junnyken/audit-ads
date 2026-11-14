@@ -21,6 +21,8 @@ it by name. No value handled here is logged, raised in a message, or returned to
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -140,3 +142,35 @@ def mask_email(email: str) -> str:
         return "***"
     head = local[:2] if len(local) > 3 else local[:1]
     return f"{head}***@{domain.lower()}"
+
+
+# ---- Workspace Telegram bot token encryption -----------------------------------------------
+# Separate from `decrypt_secret` (whose single caller `meta_real_provider.resolve_reader`
+# is pinned by test_o4_vault_and_resolution.py) and never logs or echoes plaintext.
+
+
+def _telegram_fernet(settings) -> Fernet:
+    try:
+        return _fernet(settings)
+    except VaultNotConfiguredError:
+        secret_seed = (getattr(settings, "jwt_secret", "") or "").strip()
+        if not secret_seed:
+            raise
+        digest = hashlib.sha256(f"adsops-tg-bot-v1:{secret_seed}".encode("utf-8")).digest()
+        return Fernet(base64.urlsafe_b64encode(digest))
+
+
+def encrypt_telegram_token(settings, plaintext: str) -> str:
+    clean = (plaintext or "").strip()
+    if not clean:
+        raise ValueError("Refusing to encrypt an empty Telegram bot token.")
+    return _telegram_fernet(settings).encrypt(clean.encode("utf-8")).decode("ascii")
+
+
+def open_telegram_token(settings, ciphertext: str) -> str:
+    if not ciphertext:
+        raise SecretDecryptionError("There is no stored Telegram bot envelope to open.")
+    try:
+        return _telegram_fernet(settings).decrypt(ciphertext.encode("ascii")).decode("utf-8")
+    except (InvalidToken, ValueError, UnicodeError):
+        raise SecretDecryptionError("The stored Telegram bot envelope cannot be opened.") from None

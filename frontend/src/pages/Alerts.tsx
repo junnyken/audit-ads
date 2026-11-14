@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { ChevronRight } from 'lucide-react'
 import { api, query } from '../lib/api'
@@ -141,6 +141,23 @@ export default function Alerts() {
   const summary = useQuery({
     queryKey: ['alert-summary'],
     queryFn: () => api.get<AlertSummary>('/api/v1/alerts/summary'),
+  })
+  const telegramCfg = useQuery({
+    queryKey: ['telegram-bot-config'],
+    queryFn: () =>
+      api.get<{
+        enabled: boolean
+        bot_configured: boolean
+        chat_configured: boolean
+        bot_username: string | null
+        chat_id_masked: string | null
+      }>('/api/v1/telegram-bot/config'),
+  })
+  const [tgNotice, setTgNotice] = useState<string | null>(null)
+  const testTgMut = useMutation({
+    mutationFn: () => api.post<{ ok: boolean; message: string }>('/api/v1/telegram-bot/test-send', {}),
+    onSuccess: (res) => setTgNotice(`✓ ${res.message}`),
+    onError: (err) => setTgNotice(`✕ ${err instanceof Error ? err.message : 'Gửi thử thất bại.'}`),
   })
 
   function refresh() {
@@ -314,6 +331,35 @@ export default function Alerts() {
   return (
     <div className="space-y-4">
       <PageHeader title={t('al.title')} />
+
+      {telegramCfg.data && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-surface px-3.5 py-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2">
+            {telegramCfg.data.bot_configured && telegramCfg.data.chat_configured && telegramCfg.data.enabled ? (
+              <span className="font-medium text-emerald-700 dark:text-emerald-300">
+                🟢 Báo động Telegram đang bật
+                {telegramCfg.data.bot_username ? ` (@${telegramCfg.data.bot_username})` : ''} · Nhóm{' '}
+                {telegramCfg.data.chat_id_masked}
+              </span>
+            ) : (
+              <span className="font-medium text-amber-700 dark:text-amber-300">
+                ⚠️ Chưa gắn Bot Telegram hoặc Chat ID để nhận báo động tức thời khi TKQC / Page có sự cố
+              </span>
+            )}
+            {tgNotice && <span className="text-ink-muted">{tgNotice}</span>}
+          </div>
+          <div className="flex items-center gap-2">
+            {telegramCfg.data.bot_configured && telegramCfg.data.chat_configured && (
+              <Button type="button" size="sm" variant="secondary" disabled={testTgMut.isPending} onClick={() => testTgMut.mutate()}>
+                {testTgMut.isPending ? 'Đang gửi...' : '📨 Gửi Test'}
+              </Button>
+            )}
+            <Link to="/settings" className="font-semibold text-brand-text hover:underline">
+              {telegramCfg.data.bot_configured ? 'Cấu hình Telegram →' : 'Thiết lập ngay →'}
+            </Link>
+          </div>
+        </div>
+      )}
 
       {summary.data && (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">

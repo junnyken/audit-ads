@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import type { CurrentUser, ExtensionInstallation, NotificationPolicy } from '../lib/types'
 import { Badge } from '../components/primitives/badge'
@@ -104,7 +104,20 @@ export default function Settings() {
         </Panel>
       </div>
 
-      <NotificationPolicySection isOwner={isOwner} />
+      <TelegramInstantBotSection isOwner={isOwner} />
+
+      <AutomationCronSection isOwner={isOwner} />
+
+      <DomainSeoSection isOwner={isOwner} />
+
+      <details className="rounded-md border border-line bg-surface p-3">
+        <summary className="cursor-pointer text-sm font-semibold text-ink hover:text-brand-text">
+          ⚙️ Cấu hình nâng cao: Khung giờ yên lặng (Quiet Hours) &amp; Tần suất nhắc lại
+        </summary>
+        <div className="mt-3">
+          <NotificationPolicySection isOwner={isOwner} />
+        </div>
+      </details>
 
       <ConnectedBrowsersSection />
 
@@ -428,6 +441,570 @@ function NotificationPolicySection({ isOwner }: { isOwner: boolean }) {
             {save.isPending ? t('set.notif.saving') : t('set.notif.save')}
           </Button>
         </form>
+      )}
+    </Panel>
+  )
+}
+
+
+interface TelegramBotConfigResp {
+  enabled: boolean
+  bot_configured: boolean
+  bot_source: string
+  bot_mask: string
+  bot_username: string | null
+  bot_name: string | null
+  chat_configured: boolean
+  chat_id_masked: string | null
+  notify_ad_account_disabled: boolean
+  notify_billing_failed: boolean
+  notify_page_restricted: boolean
+  notify_retainer_overspend: boolean
+  quiet_hours_respect: boolean
+  quiet_hours_enabled: boolean
+  quiet_hours_start: string
+  quiet_hours_end: string
+  updated_at: string | null
+}
+
+interface DetectedChatItem {
+  chat_id: string
+  title: string
+  type: string
+  username: string | null
+}
+
+function TelegramInstantBotSection({ isOwner }: { isOwner: boolean }) {
+  const qc = useQueryClient()
+  const cfgQ = useQuery({
+    queryKey: ['telegram-bot-config'],
+    queryFn: () => api.get<TelegramBotConfigResp>('/api/v1/telegram-bot/config'),
+  })
+
+  const [enabled, setEnabled] = useState(true)
+  const [botToken, setBotToken] = useState('')
+  const [chatId, setChatId] = useState('')
+  const [notifyDisabled, setNotifyDisabled] = useState(true)
+  const [notifyBilling, setNotifyBilling] = useState(true)
+  const [notifyPage, setNotifyPage] = useState(true)
+  const [notifyRetainer, setNotifyRetainer] = useState(true)
+  const [quietRespect, setQuietRespect] = useState(true)
+  const [detectedChats, setDetectedChats] = useState<DetectedChatItem[]>([])
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null)
+
+  useEffect(() => {
+    if (!cfgQ.data) return
+    setEnabled(cfgQ.data.enabled)
+    setNotifyDisabled(cfgQ.data.notify_ad_account_disabled)
+    setNotifyBilling(cfgQ.data.notify_billing_failed)
+    setNotifyPage(cfgQ.data.notify_page_restricted)
+    setNotifyRetainer(cfgQ.data.notify_retainer_overspend)
+    setQuietRespect(cfgQ.data.quiet_hours_respect)
+  }, [cfgQ.data])
+
+  const saveMut = useMutation({
+    mutationFn: () =>
+      api.post<TelegramBotConfigResp>('/api/v1/telegram-bot/config', {
+        enabled,
+        ...(botToken.trim() ? { bot_token: botToken.trim() } : {}),
+        ...(chatId.trim() ? { chat_id: chatId.trim() } : {}),
+        notify_ad_account_disabled: notifyDisabled,
+        notify_billing_failed: notifyBilling,
+        notify_page_restricted: notifyPage,
+        notify_retainer_overspend: notifyRetainer,
+        quiet_hours_respect: quietRespect,
+      }),
+    onSuccess: (res) => {
+      setBotToken('')
+      setChatId('')
+      void qc.invalidateQueries({ queryKey: ['telegram-bot-config'] })
+      void qc.invalidateQueries({ queryKey: ['notification-policy'] })
+      setNotice({
+        ok: true,
+        text: `Đã lưu cấu hình Telegram${res.bot_username ? ` (@${res.bot_username})` : ''}.`,
+      })
+    },
+    onError: (err) => {
+      setNotice({ ok: false, text: err instanceof Error ? err.message : 'Không lưu được cấu hình Telegram.' })
+    },
+  })
+
+  const detectMut = useMutation({
+    mutationFn: () =>
+      api.post<{ chats: DetectedChatItem[]; hint: string }>('/api/v1/telegram-bot/detect-chat', {
+        ...(botToken.trim() ? { bot_token: botToken.trim() } : {}),
+      }),
+    onSuccess: (res) => {
+      setDetectedChats(res.chats)
+      if (res.chats.length > 0 && !chatId.trim()) {
+        setChatId(res.chats[0].chat_id)
+      }
+      setNotice({ ok: res.chats.length > 0, text: res.hint })
+    },
+    onError: (err) => {
+      setNotice({ ok: false, text: err instanceof Error ? err.message : 'Không quét được Chat ID Telegram.' })
+    },
+  })
+
+  const testMut = useMutation({
+    mutationFn: () =>
+      api.post<{ ok: boolean; message: string }>('/api/v1/telegram-bot/test-send', {
+        ...(botToken.trim() ? { bot_token: botToken.trim() } : {}),
+        ...(chatId.trim() ? { chat_id: chatId.trim() } : {}),
+      }),
+    onSuccess: (res) => {
+      setNotice({ ok: true, text: res.message })
+    },
+    onError: (err) => {
+      setNotice({ ok: false, text: err instanceof Error ? err.message : 'Gửi tin nhắn thử thất bại.' })
+    },
+  })
+
+  const cfg = cfgQ.data
+
+  return (
+    <Panel title="🤖 Cảnh Báo Tức Thời Qua Telegram Bot">
+      {cfgQ.isLoading ? (
+        <Skeleton className="h-24 w-full" />
+      ) : cfgQ.isError ? (
+        <ErrorState title="Không tải được cấu hình Telegram Bot" error={cfgQ.error} onRetry={() => cfgQ.refetch()} compact />
+      ) : (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone={cfg?.bot_configured ? 'positive' : 'caution'}>
+              {cfg?.bot_configured
+                ? `🟢 Đã kết nối Bot${cfg.bot_username ? ` (@${cfg.bot_username})` : ` (${cfg.bot_mask})`}`
+                : '⚪ Chưa gắn Bot Token'}
+            </Badge>
+            <Badge tone={cfg?.chat_configured ? 'positive' : 'caution'}>
+              {cfg?.chat_configured ? `🟢 Nhóm nhận: ${cfg.chat_id_masked}` : '⚪ Chưa chọn nhóm / Chat ID'}
+            </Badge>
+            <Badge tone={cfg?.enabled ? 'info' : 'neutral'}>
+              {cfg?.enabled ? 'Đang bật báo động' : 'Đang tạm tắt'}
+            </Badge>
+          </div>
+
+          <div className="rounded-md border border-line bg-surface-sunken px-3 py-2 text-xs text-ink-muted">
+            <strong>3 bước gắn nhanh:</strong> B1: Mở <code className="font-mono">@BotFather</code> trên Telegram gõ{' '}
+            <code className="font-mono">/newbot</code> lấy Token · B2: Thêm Bot vào nhóm Telegram của bạn &amp; nhắn{' '}
+            <code className="font-mono">/start</code> · B3: Bấm <strong>🔍 Tự lấy ID nhóm</strong> rồi bấm{' '}
+            <strong>📨 Gửi Tin Nhắn Test Ngay</strong>.
+          </div>
+
+          {!isOwner ? (
+            <NoPermissionState compact description="Chỉ Chủ Workspace (Owner) mới được sửa Bot Token Telegram." />
+          ) : (
+            <div className="space-y-3">
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={enabled}
+                  onChange={(e) => setEnabled(e.target.checked)}
+                />
+                Bật gửi báo động tức thời về Telegram
+              </label>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <Field
+                  label="Bot Token Telegram (Mã hóa AES tại máy chủ)"
+                  hint={cfg?.bot_configured ? `Đang lưu: ${cfg.bot_mask} (Để trống nếu giữ nguyên)` : 'VD: 123456789:ABCdef...'}
+                >
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    className="input font-mono text-xs"
+                    value={botToken}
+                    onChange={(e) => setBotToken(e.target.value)}
+                    placeholder={cfg?.bot_configured ? `Đã lưu (${cfg.bot_mask})` : '123456789:ABCdefGHIjkl...'}
+                    maxLength={140}
+                  />
+                </Field>
+
+                <Field
+                  label="Chat ID / ID Nhóm Telegram nhận tin"
+                  hint={cfg?.chat_configured ? `Đang lưu: ${cfg.chat_id_masked} (Để trống nếu giữ nguyên)` : 'VD: -1001234567890'}
+                >
+                  <div className="flex items-center gap-2">
+                    <input
+                      className="input flex-1 font-mono text-xs"
+                      value={chatId}
+                      onChange={(e) => setChatId(e.target.value)}
+                      placeholder={cfg?.chat_id_masked ?? '-1001234567890'}
+                      maxLength={64}
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      disabled={detectMut.isPending}
+                      onClick={() => {
+                        setNotice(null)
+                        detectMut.mutate()
+                      }}
+                    >
+                      {detectMut.isPending ? 'Đang quét...' : '🔍 Tự lấy ID nhóm'}
+                    </Button>
+                  </div>
+                </Field>
+              </div>
+
+              {detectedChats.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-line bg-surface-sunken px-3 py-2 text-xs">
+                  <span className="font-semibold text-ink">Chọn nhóm vừa quét:</span>
+                  {detectedChats.map((ch) => (
+                    <button
+                      key={ch.chat_id}
+                      type="button"
+                      onClick={() => setChatId(ch.chat_id)}
+                      className={`rounded-full border px-2.5 py-0.5 font-mono text-[11px] font-medium transition ${
+                        chatId === ch.chat_id
+                          ? 'border-brand bg-brand text-brand-fg'
+                          : 'border-line bg-surface hover:border-brand text-ink'
+                      }`}
+                    >
+                      {ch.title} ({ch.chat_id})
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="grid gap-2 sm:grid-cols-2 text-xs">
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" className="h-4 w-4" checked={notifyDisabled} onChange={(e) => setNotifyDisabled(e.target.checked)} />
+                  🔴 TKQC bị Vô hiệu hóa / Hạn chế QC
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" className="h-4 w-4" checked={notifyBilling} onChange={(e) => setNotifyBilling(e.target.checked)} />
+                  💳 Lỗi Thẻ thanh toán / Dư nợ quá hạn
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" className="h-4 w-4" checked={notifyPage} onChange={(e) => setNotifyPage(e.target.checked)} />
+                  🚩 Fanpage bị Hạn chế / Hủy đăng
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" className="h-4 w-4" checked={notifyRetainer} onChange={(e) => setNotifyRetainer(e.target.checked)} />
+                  💰 Retainer sắp vượt / chạm trần (≥ 90%)
+                </label>
+              </div>
+
+              <label className="flex items-center gap-2 text-xs text-ink-muted">
+                <input type="checkbox" className="h-4 w-4" checked={quietRespect} onChange={(e) => setQuietRespect(e.target.checked)} />
+                Tôn trọng khung giờ yên lặng cho cảnh báo thường (Báo động Khẩn cấp luôn gửi ngay)
+              </label>
+
+              {notice && (
+                <div
+                  className={`rounded-md border px-3 py-2 text-xs font-medium ${
+                    notice.ok
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
+                      : 'border-rose-500/40 bg-rose-500/10 text-rose-800 dark:text-rose-200'
+                  }`}
+                >
+                  {notice.text}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  disabled={saveMut.isPending}
+                  onClick={() => {
+                    setNotice(null)
+                    saveMut.mutate()
+                  }}
+                >
+                  {saveMut.isPending ? 'Đang lưu...' : '💾 Lưu Cấu Hình Telegram'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={testMut.isPending || (!cfg?.bot_configured && !botToken.trim())}
+                  onClick={() => {
+                    setNotice(null)
+                    testMut.mutate()
+                  }}
+                >
+                  {testMut.isPending ? 'Đang gửi thử...' : '📨 Gửi Tin Nhắn Test Ngay'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+interface AutomationCronStatusResp {
+  auto_meta_sync_enabled: boolean
+  sync_interval_minutes: number
+  auto_page_warmup_enabled: boolean
+  warmup_min_gap_hours: number
+  last_run_at: string | null
+  last_sync_at: string | null
+  next_sync_at: string | null
+  last_run_summary: {
+    outbox_processed?: number
+    sync_executed?: boolean
+    alerts_dispatched?: number
+    warmup_posts_published?: number
+    warmup_skipped_count?: number
+  } | null
+}
+
+function AutomationCronSection({ isOwner }: { isOwner: boolean }) {
+  const qc = useQueryClient()
+  const { language } = useI18n()
+  const cronQ = useQuery({
+    queryKey: ['automation-cron-status'],
+    queryFn: () => api.get<AutomationCronStatusResp>('/api/v1/automation-cron/status'),
+  })
+
+  const [autoSync, setAutoSync] = useState(true)
+  const [syncMinutes, setSyncMinutes] = useState(60)
+  const [autoWarmup, setAutoWarmup] = useState(true)
+  const [gapHours, setGapHours] = useState(8)
+  const [notice, setNotice] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!cronQ.data) return
+    setAutoSync(cronQ.data.auto_meta_sync_enabled)
+    setSyncMinutes(cronQ.data.sync_interval_minutes)
+    setAutoWarmup(cronQ.data.auto_page_warmup_enabled)
+    setGapHours(cronQ.data.warmup_min_gap_hours)
+  }, [cronQ.data])
+
+  const saveMut = useMutation({
+    mutationFn: () =>
+      api.post<AutomationCronStatusResp>('/api/v1/automation-cron/config', {
+        auto_meta_sync_enabled: autoSync,
+        sync_interval_minutes: syncMinutes,
+        auto_page_warmup_enabled: autoWarmup,
+        warmup_min_gap_hours: gapHours,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['automation-cron-status'] })
+      setNotice('Đã lưu lịch chạy ngầm Auto-Cron.')
+    },
+  })
+
+  const runNowMut = useMutation({
+    mutationFn: () =>
+      api.post<{ run_summary: NonNullable<AutomationCronStatusResp['last_run_summary']> }>(
+        '/api/v1/automation-cron/run-now',
+        { sync: true, warmup: true },
+      ),
+    onSuccess: (res) => {
+      void qc.invalidateQueries({ queryKey: ['automation-cron-status'] })
+      void qc.invalidateQueries({ queryKey: ['facebook-pages-summary'] })
+      const s = res.run_summary
+      setNotice(
+        `Đã chạy xong chu kỳ: ${s.sync_executed ? 'Đồng bộ Meta OK' : 'Bỏ qua Sync'} · Đăng ${
+          s.warmup_posts_published ?? 0
+        } bài mồi Fanpage · Gửi ${s.alerts_dispatched ?? 0} cảnh báo Telegram.`,
+      )
+    },
+  })
+
+  const st = cronQ.data
+
+  return (
+    <Panel title="⏱️ Tự Động Hóa Chạy Ngầm (Auto-Cron Meta & Nuôi Page 48h)">
+      {cronQ.isLoading ? (
+        <Skeleton className="h-24 w-full" />
+      ) : cronQ.isError ? (
+        <ErrorState title="Không tải được trạng thái Auto-Cron" error={cronQ.error} onRetry={() => cronQ.refetch()} compact />
+      ) : (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <Badge tone={st?.auto_meta_sync_enabled ? 'positive' : 'neutral'}>
+              {st?.auto_meta_sync_enabled ? `🟢 Auto Sync: mỗi ${st.sync_interval_minutes} phút` : '⚪ Auto Sync: Tắt'}
+            </Badge>
+            <Badge tone={st?.auto_page_warmup_enabled ? 'positive' : 'neutral'}>
+              {st?.auto_page_warmup_enabled ? `🟢 Tự rải bài nuôi Page: cách ${st.warmup_min_gap_hours}h` : '⚪ Auto Nuôi Page: Tắt'}
+            </Badge>
+            <span className="text-ink-muted">
+              Chạy gần nhất: <strong>{st?.last_run_at ? formatRelative(st.last_run_at, language) : 'Chưa chạy'}</strong>
+              {st?.next_sync_at ? ` · Lần Sync tới: ${formatRelative(st.next_sync_at, language)}` : ''}
+            </span>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-2 rounded-md border border-line bg-surface-sunken p-3">
+              <label className="flex items-center gap-2 text-xs font-semibold">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  disabled={!isOwner}
+                  checked={autoSync}
+                  onChange={(e) => setAutoSync(e.target.checked)}
+                />
+                Tự động đồng bộ TKQC, Page &amp; Chi tiêu từ Meta + Quét báo động Telegram
+              </label>
+              <Field label="Chu kỳ quét Meta Graph API">
+                <select
+                  className="input text-xs"
+                  disabled={!isOwner || !autoSync}
+                  value={syncMinutes}
+                  onChange={(e) => setSyncMinutes(Number(e.target.value))}
+                >
+                  <option value={30}>Mỗi 30 phút</option>
+                  <option value={60}>Mỗi 60 phút (Khuyên dùng)</option>
+                  <option value={180}>Mỗi 3 giờ</option>
+                  <option value={360}>Mỗi 6 giờ</option>
+                </select>
+              </Field>
+            </div>
+
+            <div className="space-y-2 rounded-md border border-line bg-surface-sunken p-3">
+              <label className="flex items-center gap-2 text-xs font-semibold">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  disabled={!isOwner}
+                  checked={autoWarmup}
+                  onChange={(e) => setAutoWarmup(e.target.checked)}
+                />
+                Tự động đăng bài mồi Fanpage đang LIVE (cho tới đủ 3 bài chuẩn Ads)
+              </label>
+              <Field label="Giãn cách tối thiểu giữa bài #2 và bài #3">
+                <select
+                  className="input text-xs"
+                  disabled={!isOwner || !autoWarmup}
+                  value={gapHours}
+                  onChange={(e) => setGapHours(Number(e.target.value))}
+                >
+                  <option value={6}>Cách nhau 6 giờ</option>
+                  <option value={8}>Cách nhau 8 giờ (Chuẩn chống Spam)</option>
+                  <option value={12}>Cách nhau 12 giờ</option>
+                </select>
+              </Field>
+            </div>
+          </div>
+
+          {notice && (
+            <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-800 dark:text-emerald-200">
+              ✓ {notice}
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            {isOwner && (
+              <Button type="button" disabled={saveMut.isPending} onClick={() => saveMut.mutate()}>
+                {saveMut.isPending ? 'Đang lưu...' : '💾 Lưu Lịch Tự Động'}
+              </Button>
+            )}
+            <Button type="button" variant="secondary" disabled={runNowMut.isPending} onClick={() => runNowMut.mutate()}>
+              {runNowMut.isPending ? 'Đang chạy chu kỳ...' : '⚡ Chạy Chu Kỳ Ngay'}
+            </Button>
+          </div>
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+interface DomainSeoConfigResp {
+  custom_domain: string
+  effective_public_url: string
+  default_env_cors_count: number
+  updated_at: string | null
+  seo_checklist: Array<{ key: string; label: string; ready: boolean }>
+}
+
+function DomainSeoSection({ isOwner }: { isOwner: boolean }) {
+  const qc = useQueryClient()
+  const seoQ = useQuery({
+    queryKey: ['domain-seo-config'],
+    queryFn: () => api.get<DomainSeoConfigResp>('/api/v1/domain-seo/config'),
+  })
+
+  const [domainInput, setDomainInput] = useState('')
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null)
+
+  useEffect(() => {
+    if (seoQ.data) setDomainInput(seoQ.data.custom_domain)
+  }, [seoQ.data])
+
+  const saveMut = useMutation({
+    mutationFn: () =>
+      api.post<DomainSeoConfigResp>('/api/v1/domain-seo/config', {
+        custom_domain: domainInput.trim(),
+      }),
+    onSuccess: (res) => {
+      void qc.invalidateQueries({ queryKey: ['domain-seo-config'] })
+      setNotice({ ok: true, text: `Đã cập nhật tên miền chính thức: ${res.effective_public_url} (Đã mở CORS & link Telegram tự động).` })
+    },
+    onError: (err) => {
+      setNotice({ ok: false, text: err instanceof Error ? err.message : 'Tên miền không hợp lệ.' })
+    },
+  })
+
+  const data = seoQ.data
+
+  return (
+    <Panel title="🌐 Tên Miền Chính Thức & Chuẩn Hóa SEO">
+      {seoQ.isLoading ? (
+        <Skeleton className="h-20 w-full" />
+      ) : seoQ.isError ? (
+        <ErrorState title="Không tải được cấu hình tên miền" error={seoQ.error} onRetry={() => seoQ.refetch()} compact />
+      ) : (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-ink-muted">Tên miền đang dùng:</span>
+            <code className="rounded border border-line bg-surface-sunken px-2 py-0.5 font-mono text-ink">
+              {data?.effective_public_url}
+            </code>
+            <a href="/og-banner.png" target="_blank" rel="noreferrer" className="text-brand-text hover:underline">
+              Xem ảnh OG 1200×630 →
+            </a>
+            <a href="/sitemap.xml" target="_blank" rel="noreferrer" className="text-brand-text hover:underline">
+              Sitemap.xml →
+            </a>
+          </div>
+
+          <div className="flex flex-wrap gap-1.5">
+            {(data?.seo_checklist ?? []).map((item) => (
+              <Badge key={item.key} tone={item.ready ? 'positive' : 'caution'}>
+                {item.ready ? '✓' : '•'} {item.label}
+              </Badge>
+            ))}
+          </div>
+
+          {isOwner && (
+            <div className="space-y-2">
+              <Field
+                label="Tên miền riêng khi đổi Domain (HTTPS)"
+                hint="Khi trỏ domain mới (VD: https://adsops.tencongty.vn), hệ thống tự mở CORS Backend và dùng domain này cho nút bấm trong Telegram mà không cần sửa file .env."
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    className="input flex-1 font-mono text-xs"
+                    value={domainInput}
+                    onChange={(e) => setDomainInput(e.target.value)}
+                    placeholder="https://adsops.tencongty.vn (để trống để dùng domain mặc định)"
+                    maxLength={160}
+                  />
+                  <Button type="button" disabled={saveMut.isPending} onClick={() => saveMut.mutate()}>
+                    {saveMut.isPending ? 'Đang lưu...' : '💾 Lưu Tên Miền'}
+                  </Button>
+                </div>
+              </Field>
+              {notice && (
+                <div
+                  className={`rounded-md border px-3 py-2 text-xs font-medium ${
+                    notice.ok
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
+                      : 'border-rose-500/40 bg-rose-500/10 text-rose-800 dark:text-rose-200'
+                  }`}
+                >
+                  {notice.text}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       )}
     </Panel>
   )

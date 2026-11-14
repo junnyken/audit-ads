@@ -414,7 +414,13 @@ class NotificationDispatcherService:
         self.workspace_id = workspace_id
         self.audit = audit
         self.settings = get_settings()
-        self.transport = transport or build_transport(self.settings)
+        from app.services.telegram_bot_helper import resolve_workspace_telegram_transport
+
+        self.transport = (
+            transport
+            or resolve_workspace_telegram_transport(session, workspace_id, self.settings)
+            or build_transport(self.settings)
+        )
 
     # ------------------------------------------------------------------ claim
     def _due_query(self, now: datetime):

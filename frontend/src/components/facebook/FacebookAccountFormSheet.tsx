@@ -52,6 +52,13 @@ export function FacebookAccountFormSheet({
 
   const [autoToken, setAutoToken] = useState('')
   const [autoConnectMsg, setAutoConnectMsg] = useState<string | null>(null)
+  const [proxyCheckResult, setProxyCheckResult] = useState<{
+    status: string
+    exit_ip: string | null
+    country_code: string | null
+    latency_ms: number | null
+    error_summary?: string | null
+  } | null>(null)
 
   const [label, setLabel] = useState('')
   const [displayName, setDisplayName] = useState('')
@@ -106,6 +113,7 @@ export function FacebookAccountFormSheet({
     if (!open) return
     setAutoToken('')
     setAutoConnectMsg(null)
+    setProxyCheckResult(null)
     setLabel(String(record?.label ?? ''))
     setDisplayName(String(record?.display_name ?? ''))
     setExternalId(String(record?.external_reference_id ?? ''))
@@ -159,6 +167,30 @@ export function FacebookAccountFormSheet({
       if (!record) {
         setTimeout(() => onClose(), 900)
       }
+    },
+  })
+
+  const testProxyMut = useMutation({
+    mutationFn: () =>
+      api.post<{
+        status: string
+        exit_ip: string | null
+        country_code: string | null
+        latency_ms: number | null
+        error_summary?: string | null
+      }>('/api/v1/proxies/check-live', { proxy_string: networkLabel.trim() }),
+    onSuccess: (res) => {
+      setProxyCheckResult(res)
+      void queryClient.invalidateQueries({ queryKey: ['proxy-health-map'] })
+    },
+    onError: (err) => {
+      setProxyCheckResult({
+        status: 'DEAD',
+        exit_ip: null,
+        country_code: null,
+        latency_ms: null,
+        error_summary: err instanceof Error ? err.message : 'Không kiểm tra được Proxy.',
+      })
     },
   })
 
@@ -354,16 +386,40 @@ export function FacebookAccountFormSheet({
                 data-testid="fb-network-input"
               />
               {parseProxyString(networkLabel) && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => downloadSwitchyOmegaConfig(networkLabel, label)}
-                >
-                  🔌 SwitchyOmega (.bak)
-                </Button>
+                <>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    disabled={testProxyMut.isPending}
+                    onClick={() => testProxyMut.mutate()}
+                  >
+                    {testProxyMut.isPending ? 'Đang test...' : '🩺 Kiểm tra Proxy'}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => downloadSwitchyOmegaConfig(networkLabel, label)}
+                  >
+                    🔌 SwitchyOmega (.bak)
+                  </Button>
+                </>
               )}
             </div>
+            {proxyCheckResult && (
+              <div
+                className={`rounded border px-2.5 py-1 text-[11px] font-medium ${
+                  proxyCheckResult.status === 'LIVE'
+                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
+                    : 'border-rose-500/40 bg-rose-500/10 text-rose-800 dark:text-rose-200'
+                }`}
+              >
+                {proxyCheckResult.status === 'LIVE'
+                  ? `🟢 Proxy Sống · IP ra: ${proxyCheckResult.exit_ip ?? '—'} (${proxyCheckResult.country_code ?? '—'}) · Độ trễ ${proxyCheckResult.latency_ms ?? 0}ms`
+                  : `🔴 Proxy Chết / Lỗi: ${proxyCheckResult.error_summary ?? 'Không kết nối được'}`}
+              </div>
+            )}
             <p className="text-[11px] text-ink-muted">
               Để trống nếu chạy trực tiếp trên Wifi/Mạng gốc. Chỉ dán khi bạn có Proxy thật muốn bọc riêng cho Via này.
             </p>

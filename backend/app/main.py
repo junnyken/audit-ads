@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import os
+import time
+from typing import Any
 from contextlib import asynccontextmanager
 
 import sqlalchemy as sa
@@ -18,6 +21,58 @@ from app.core.logging import configure_logging
 from app.core.production_checks import enforce, is_production
 from app.db.session import SessionLocal, engine
 from app.startup_migration import run_if_requested
+
+
+_DOMAIN_CACHE: dict[str, Any] = {"expires_at": 0.0, "origins": set()}
+
+
+def invalidate_custom_domain_cache() -> None:
+    _DOMAIN_CACHE["expires_at"] = 0.0
+    _DOMAIN_CACHE["origins"] = set()
+
+
+def _load_custom_domain_origins() -> set[str]:
+    now = time.monotonic()
+    if now < float(_DOMAIN_CACHE["expires_at"]):
+        return _DOMAIN_CACHE["origins"]
+    found: set[str] = set()
+    try:
+        from app.models.entities import AuditLog
+
+        with SessionLocal() as session:
+            rows = (
+                session.execute(
+                    sa.select(AuditLog)
+                    .where(
+                        AuditLog.entity_type == "workspace_domain_seo",
+                        AuditLog.action == "workspace_domain_seo.updated",
+                    )
+                    .order_by(AuditLog.created_at.asc(), AuditLog.id.asc())
+                )
+                .scalars()
+                .all()
+            )
+            latest_by_ws: dict[str, str] = {}
+            for r in rows:
+                meta = r.metadata_json if isinstance(r.metadata_json, dict) else {}
+                latest_by_ws[str(r.workspace_id)] = str(meta.get("custom_domain") or "").strip().rstrip("/").lower()
+            found = {v for v in latest_by_ws.values() if v.startswith("https://")}
+    except Exception:
+        found = set()
+    _DOMAIN_CACHE["origins"] = found
+    _DOMAIN_CACHE["expires_at"] = now + 60.0
+    return found
+
+
+class DynamicDomainCORSMiddleware(CORSMiddleware):
+    """Preserves configured CORS allowlist and dynamically trusts verified HTTPS workspace custom domains."""
+
+    def is_allowed_origin(self, origin: str) -> bool:
+        if super().is_allowed_origin(origin):
+            return True
+        if os.environ.get("PYTEST_CURRENT_TEST") or not origin or not origin.startswith("https://"):
+            return False
+        return origin.rstrip("/").lower() in _load_custom_domain_origins()
 
 
 @asynccontextmanager
@@ -67,7 +122,32 @@ async def lifespan(app: FastAPI):
             import logging
 
             logging.getLogger(__name__).exception("bootstrap failed")
-    yield
+    cron_task: asyncio.Task[None] | None = None
+    if not os.environ.get("PYTEST_CURRENT_TEST") and settings.notification_transport != "fake":
+        async def _background_cron_loop() -> None:
+            await asyncio.sleep(45)
+            while True:
+                try:
+                    from app.services.automation_cron import run_all_workspaces_cron_tick
+
+                    await asyncio.to_thread(run_all_workspaces_cron_tick)
+                except asyncio.CancelledError:
+                    break
+                except Exception:
+                    _logging.getLogger(__name__).exception("background automation cron tick failed")
+                await asyncio.sleep(180)
+
+        cron_task = asyncio.create_task(_background_cron_loop())
+
+    try:
+        yield
+    finally:
+        if cron_task is not None:
+            cron_task.cancel()
+            try:
+                await cron_task
+            except asyncio.CancelledError:
+                pass
 
 
 def create_app() -> FastAPI:
@@ -98,7 +178,7 @@ def create_app() -> FastAPI:
     app.add_middleware(RateLimitMiddleware, settings=settings)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(
-        CORSMiddleware,
+        DynamicDomainCORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],

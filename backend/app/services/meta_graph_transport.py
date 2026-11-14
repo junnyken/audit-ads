@@ -278,3 +278,34 @@ class MetaGraphTransport:
             graph_error_code=code,
             graph_error_subcode=subcode,
         )
+
+
+_DIGITS_ID_RE = re.compile(r"^\d{1,40}$")
+
+
+def publish_page_feed_post(
+    external_page_id: str,
+    page_access_token: str,
+    message: str,
+    *,
+    api_base_url: str = "https://graph.facebook.com",
+    api_version: str = "v21.0",
+    timeout_seconds: int = 12,
+) -> str | None:
+    """Publishes a single warm-up post onto a synced Facebook Page feed using its page token."""
+    clean_pid = (external_page_id or "").strip()
+    clean_tok = (page_access_token or "").strip()
+    clean_msg = (message or "").strip()
+    if not _DIGITS_ID_RE.match(clean_pid) or not clean_tok or not clean_msg:
+        return None
+    feed_url = f"{api_base_url.rstrip('/')}/{api_version}/{clean_pid}/feed"
+    form_bytes = urllib.parse.urlencode({"message": clean_msg, "access_token": clean_tok}).encode("utf-8")
+    req = urllib.request.Request(feed_url, data=form_bytes, method="POST")  # noqa: S310
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
+            data = json.loads((resp.read() or b"{}").decode("utf-8"))
+            if isinstance(data, dict) and data.get("id"):
+                return str(data["id"])
+    except Exception:
+        return None
+    return None

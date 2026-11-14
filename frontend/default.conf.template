@@ -21,6 +21,12 @@ server {
     server_tokens off;
     client_max_body_size 2m;
 
+    gzip on;
+    gzip_comp_level 5;
+    gzip_min_length 1024;
+    gzip_vary on;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml application/manifest+json;
+
     # Runtime API configuration
     location = /config.js {
         default_type application/javascript;
@@ -40,6 +46,13 @@ server {
         default_type application/xml;
         add_header Cache-Control "public, max-age=3600" always;
         return 200 '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url>\n    <loc>https://$http_host/</loc>\n    <changefreq>daily</changefreq>\n    <priority>1.0</priority>\n  </url>\n  <url>\n    <loc>https://$http_host/login</loc>\n    <changefreq>weekly</changefreq>\n    <priority>0.9</priority>\n  </url>\n</urlset>\n';
+    }
+
+    # Note: Do not use add_header here so nginx preserves server-level OWASP headers.
+    location /assets/ {
+        expires 1y;
+        access_log off;
+        try_files $uri =404;
     }
 
     location / {

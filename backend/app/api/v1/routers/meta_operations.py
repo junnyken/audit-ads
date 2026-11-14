@@ -4138,6 +4138,50 @@ def create_page_via_profile_and_log(
     }
 
 
+def _collect_workspace_meta_transports(session, workspace_id: uuid.UUID) -> list[Any]:
+    """Resolves active workspace MetaGraphTransport instances (vault + optional env fallback)."""
+    settings = get_settings()
+    creds_all = list(
+        session.execute(
+            sa.select(MetaReaderCredential)
+            .where(
+                MetaReaderCredential.workspace_id == workspace_id,
+                MetaReaderCredential.archived_at.is_(None),
+            )
+            .order_by(MetaReaderCredential.connected_at.desc(), MetaReaderCredential.id.desc())
+        )
+        .scalars()
+        .all()
+    )
+    transports: list[Any] = []
+    for c in creds_all:
+        if c.status.value == "active":
+            with contextlib.suppress(Exception):
+                prov = build_real_provider(settings, business_id=settings.meta_business_id, credential=c)
+                if getattr(prov, "transport", None) is not None:
+                    transports.append(prov.transport)
+    if (settings.meta_access_token or "").strip() and is_bootstrap_owner_workspace(session, workspace_id):
+        with contextlib.suppress(Exception):
+            prov = build_real_provider(settings, business_id=settings.meta_business_id, credential=None)
+            if getattr(prov, "transport", None) is not None:
+                transports.append(prov.transport)
+    return transports
+
+
+def _resolve_page_access_token_via_transports(transports: list[Any], external_page_id: str) -> str | None:
+    clean_pid = (external_page_id or "").strip()
+    if not clean_pid:
+        return None
+    for tr in transports:
+        with contextlib.suppress(Exception):
+            resp = tr.get(clean_pid, {"fields": "access_token,name"})
+            if getattr(resp, "ok", False) and isinstance(resp.payload, dict):
+                pat = resp.payload.get("access_token")
+                if pat:
+                    return str(pat)
+    return None
+
+
 @pages_router.post("/{page_id}/warmup-post")
 def publish_or_log_page_warmup_post(
     ctx: WriteCtx,
@@ -4165,32 +4209,22 @@ def publish_or_log_page_warmup_post(
     external_post_id: str | None = None
 
     if pg.external_page_id and post_mode != "chrome_assist":
-        tokens = _collect_workspace_meta_tokens(ctx.session, ctx.workspace_id, None)
-        for tok in tokens:
-            token_resp = _meta_graph_get_json(
-                f"{pg.external_page_id}?fields=access_token,name",
-                tok,
-            )
-            page_access_token = (token_resp or {}).get("access_token") if isinstance(token_resp, dict) else None
-            if page_access_token:
-                try:
-                    import urllib.parse
-                    import urllib.request
-                    import json as _json
+        from app.services.meta_graph_transport import publish_page_feed_post
 
-                    feed_url = f"https://graph.facebook.com/v21.0/{pg.external_page_id}/feed"
-                    form_bytes = urllib.parse.urlencode(
-                        {"message": message_txt, "access_token": str(page_access_token)}
-                    ).encode("utf-8")
-                    req = urllib.request.Request(feed_url, data=form_bytes, method="POST")
-                    with urllib.request.urlopen(req, timeout=12) as resp:
-                        resp_data = _json.loads(resp.read().decode("utf-8"))
-                        if isinstance(resp_data, dict) and resp_data.get("id"):
-                            external_post_id = str(resp_data["id"])
-                            delivery_mode = "GRAPH_API_PUBLISHED"
-                            break
-                except Exception:
-                    pass
+        settings = get_settings()
+        transports = _collect_workspace_meta_transports(ctx.session, ctx.workspace_id)
+        page_access_token = _resolve_page_access_token_via_transports(transports, pg.external_page_id)
+        if page_access_token:
+            published_id = publish_page_feed_post(
+                pg.external_page_id,
+                page_access_token,
+                message_txt,
+                api_base_url=settings.meta_graph_api_base_url,
+                api_version=settings.meta_graph_api_version,
+            )
+            if published_id:
+                external_post_id = published_id
+                delivery_mode = "GRAPH_API_PUBLISHED"
 
     now_iso = datetime.now(UTC).isoformat()
     pg.updated_at = datetime.now(UTC)
@@ -4445,7 +4479,8 @@ def batch_warmup_under_nurtured_pages(
             candidates.append(it)
 
     candidates = candidates[:max_pages]
-    tokens = _collect_workspace_meta_tokens(ctx.session, ctx.workspace_id, None)
+    transports = _collect_workspace_meta_transports(ctx.session, ctx.workspace_id)
+    settings = get_settings()
     now_dt = datetime.now(UTC)
     now_iso = now_dt.isoformat()
 
@@ -4464,29 +4499,21 @@ def batch_warmup_under_nurtured_pages(
         external_post_id: str | None = None
 
         if pg_obj.external_page_id:
-            for tok in tokens:
-                token_resp = _meta_graph_get_json(f"{pg_obj.external_page_id}?fields=access_token,name", tok)
-                page_access_token = (token_resp or {}).get("access_token") if isinstance(token_resp, dict) else None
-                if page_access_token:
-                    try:
-                        import urllib.parse
-                        import urllib.request
-                        import json as _json
+            from app.services.meta_graph_transport import publish_page_feed_post
 
-                        feed_url = f"https://graph.facebook.com/v21.0/{pg_obj.external_page_id}/feed"
-                        form_bytes = urllib.parse.urlencode(
-                            {"message": post_msg, "access_token": str(page_access_token)}
-                        ).encode("utf-8")
-                        req = urllib.request.Request(feed_url, data=form_bytes, method="POST")
-                        with urllib.request.urlopen(req, timeout=10) as resp:
-                            resp_data = _json.loads(resp.read().decode("utf-8"))
-                            if isinstance(resp_data, dict) and resp_data.get("id"):
-                                external_post_id = str(resp_data["id"])
-                                delivery_mode = "GRAPH_API_PUBLISHED"
-                                graph_published_count += 1
-                                break
-                    except Exception:
-                        pass
+            page_access_token = _resolve_page_access_token_via_transports(transports, pg_obj.external_page_id)
+            if page_access_token:
+                published_id = publish_page_feed_post(
+                    pg_obj.external_page_id,
+                    page_access_token,
+                    post_msg,
+                    api_base_url=settings.meta_graph_api_base_url,
+                    api_version=settings.meta_graph_api_version,
+                )
+                if published_id:
+                    external_post_id = published_id
+                    delivery_mode = "GRAPH_API_PUBLISHED"
+                    graph_published_count += 1
 
         pg_obj.updated_at = now_dt
         ctx.audit.record(

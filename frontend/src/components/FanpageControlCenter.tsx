@@ -538,6 +538,35 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
     },
   })
 
+  const cronStatusQ = useQuery({
+    queryKey: ['automation-cron-status'],
+    queryFn: () =>
+      api.get<{
+        auto_meta_sync_enabled: boolean
+        sync_interval_minutes: number
+        auto_page_warmup_enabled: boolean
+        warmup_min_gap_hours: number
+        last_run_at: string | null
+      }>('/api/v1/automation-cron/status'),
+  })
+
+  const runAutoCronMut = useMutation({
+    mutationFn: () =>
+      api.post<{
+        run_summary: { sync_executed?: boolean; warmup_posts_published?: number; alerts_dispatched?: number }
+      }>('/api/v1/automation-cron/run-now', { sync: true, warmup: true }),
+    onSuccess: (res) => {
+      void qc.invalidateQueries({ queryKey: ['automation-cron-status'] })
+      void qc.invalidateQueries({ queryKey: ['facebook-pages-summary'] })
+      const s = res.run_summary
+      setBannerMsg(
+        `⚡ Auto-Cron hoàn tất: ${s.sync_executed ? 'Đã đồng bộ Meta' : 'Bỏ qua Sync'} · Tự đăng ${
+          s.warmup_posts_published ?? 0
+        } bài mồi nuôi Page · Gửi ${s.alerts_dispatched ?? 0} báo động Telegram.`,
+      )
+    },
+  })
+
   const items = pagesSummaryQ.data?.items ?? []
   const viaQuotas = pagesSummaryQ.data?.via_quotas ?? []
   const viaActivityLogs = pagesSummaryQ.data?.via_activity_logs ?? []
@@ -748,6 +777,37 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
           </div>
         </div>
       </div>
+
+      {cronStatusQ.data && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-surface px-3.5 py-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2 text-ink">
+            <span className="font-semibold">⏱️ Auto-Cron chạy ngầm:</span>
+            <span className="text-ink-muted">
+              {cronStatusQ.data.auto_meta_sync_enabled
+                ? `Đồng bộ Meta mỗi ${cronStatusQ.data.sync_interval_minutes}p`
+                : 'Auto Sync tắt'}{' '}
+              ·{' '}
+              {cronStatusQ.data.auto_page_warmup_enabled
+                ? `Tự rải bài mồi nuôi Page mỗi ${cronStatusQ.data.warmup_min_gap_hours}h (tới đủ 3 bài)`
+                : 'Tự nuôi Page tắt'}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={runAutoCronMut.isPending}
+              onClick={() => runAutoCronMut.mutate()}
+            >
+              {runAutoCronMut.isPending ? 'Đang chạy Auto-Cron...' : '⚡ Chạy Auto-Cron ngay'}
+            </Button>
+            <Link to="/settings" className="font-semibold text-brand-text hover:underline">
+              Đổi lịch →
+            </Link>
+          </div>
+        </div>
+      )}
 
       {/* GLOBAL VIA PAGE QUOTA ALERT BAR (Always warns when any Via hits Limit / Cooldown / Near Limit) */}
       {(quotaAlerts.limit_reached_vias_count > 0 || quotaAlerts.cooldown_vias_count > 0 || quotaAlerts.near_limit_vias_count > 0) && (

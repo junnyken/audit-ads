@@ -4,6 +4,7 @@ from app.api.v1.routers import (
     account_operations,
     ad_accounts,
     alerts,
+    automation_ops,
     audit,
     auth,
     events,
@@ -44,3 +45,4 @@ api_router.include_router(security_sessions.router)
 api_router.include_router(team.router)
 api_router.include_router(spend.router)
 api_router.include_router(facebook_identities.router)
+api_router.include_router(automation_ops.router)

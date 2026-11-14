@@ -235,7 +235,9 @@ def test_only_named_modules_may_make_an_outbound_request():
     )
     allowed_network_modules = {
         "services/telegram_transport.py",
+        "services/telegram_bot_helper.py",
         "services/preflight_safe_http.py",
+        "services/proxy_health_transport.py",
         "services/meta_graph_transport.py",
     }
 

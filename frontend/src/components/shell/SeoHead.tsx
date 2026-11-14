@@ -74,6 +74,23 @@ export function SeoHead() {
     }
     ogUrlEl.setAttribute('content', canonicalHref)
 
+    const ogImageHref = `${origin}/og-banner.png`
+    let ogImgEl = doc.querySelector('meta[property="og:image"]') as HTMLMetaElement | null
+    if (!ogImgEl) {
+      ogImgEl = doc.createElement('meta')
+      ogImgEl.setAttribute('property', 'og:image')
+      doc.head.appendChild(ogImgEl)
+    }
+    ogImgEl.setAttribute('content', ogImageHref)
+
+    let twImgEl = doc.querySelector('meta[name="twitter:image"]') as HTMLMetaElement | null
+    if (!twImgEl) {
+      twImgEl = doc.createElement('meta')
+      twImgEl.setAttribute('name', 'twitter:image')
+      doc.head.appendChild(twImgEl)
+    }
+    twImgEl.setAttribute('content', ogImageHref)
+
     // Public landing page is indexable; authenticated workspace pages are private
     let robotsEl = doc.querySelector('meta[name="robots"]') as HTMLMetaElement | null
     if (!robotsEl) {
