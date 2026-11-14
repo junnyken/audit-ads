@@ -1507,12 +1507,12 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                   </span>
                 ) : null}
                 <a
-                  href="/downloads/AdsOps-Desktop-Pro-v1.1.zip"
+                  href="/downloads/AdsOps-Desktop-Pro-v2.0.zip"
                   download
                   className="rounded border border-indigo-500/45 bg-indigo-500/15 px-2 py-1 font-bold text-indigo-700 hover:bg-indigo-500/25 dark:text-indigo-300"
-                  title="Tải App Windows AdsOps Desktop Pro v1.1 (.exe chạy ngầm System Tray 24/7, tự cài Extension v2.9.1, Cầu nối 2 chiều tự bắt Page ID & báo Telegram)"
+                  title="Tải App Windows AdsOps Desktop Pro v2.0 (.exe chạy ngầm System Tray 24/7, tự cài Extension v2.9.1, Cầu nối 2 chiều tự bắt Page ID & báo Telegram)"
                 >
-                  💻 Tải App Windows v1.1 (.zip)
+                  💻 Tải App Windows v2.0 (.zip)
                 </a>
                 <button
                   type="button"

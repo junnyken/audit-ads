@@ -23,7 +23,7 @@ public sealed class AdsOpsApiClient : IDisposable
 
     public AdsOpsApiClient()
     {
-        _http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+        _http = new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
     }
 
     public void Configure(string baseUrl, string accessToken)
@@ -33,10 +33,13 @@ public sealed class AdsOpsApiClient : IDisposable
     }
 
     public bool HasToken => !string.IsNullOrWhiteSpace(_token);
+    public string BaseUrl => _baseUrl;
 
     private HttpRequestMessage BuildRequest(HttpMethod method, string relativePath, object? body = null)
     {
         var req = new HttpRequestMessage(method, _baseUrl + relativePath);
+        req.Headers.TryAddWithoutValidation("X-AdsOps-Client", "2.0.0");
+        req.Headers.TryAddWithoutValidation("X-AdsOps-Source", "desktop");
         if (!string.IsNullOrWhiteSpace(_token))
         {
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _token);
@@ -69,9 +72,10 @@ public sealed class AdsOpsApiClient : IDisposable
         {
             using var doc = JsonDocument.Parse(raw);
             if (doc.RootElement.TryGetProperty("detail", out var det)) return det.ToString();
+            if (doc.RootElement.TryGetProperty("message", out var msg)) return msg.ToString();
         }
         catch { }
-        return raw.Length > 200 ? raw[..200] : raw;
+        return raw.Length > 220 ? raw[..220] : raw;
     }
 
     public async Task<LoginResponseDto> LoginAsync(string email, string password, CancellationToken ct = default)
@@ -92,27 +96,129 @@ public sealed class AdsOpsApiClient : IDisposable
     public Task<PagedPersonalAccountsDto> ListPersonalAccountsAsync(CancellationToken ct = default) =>
         SendJsonAsync<PagedPersonalAccountsDto>(HttpMethod.Get, "/api/v1/personal-account-references?page=1&page_size=200", null, ct);
 
+    public Task<PersonalAccountRefDto> CreatePersonalAccountAsync(PersonalAccountUpsertRequestDto payload, CancellationToken ct = default) =>
+        SendJsonAsync<PersonalAccountRefDto>(HttpMethod.Post, "/api/v1/personal-account-references", payload, ct);
+
+    public Task<PersonalAccountRefDto> UpdatePersonalAccountAsync(string id, object payload, CancellationToken ct = default) =>
+        SendJsonAsync<PersonalAccountRefDto>(HttpMethod.Patch, $"/api/v1/personal-account-references/{Uri.EscapeDataString(id)}", payload, ct);
+
+    public Task<PersonalAccountRefDto> ArchivePersonalAccountAsync(string id, CancellationToken ct = default) =>
+        SendJsonAsync<PersonalAccountRefDto>(HttpMethod.Post, $"/api/v1/personal-account-references/{Uri.EscapeDataString(id)}/archive", new { }, ct);
+
+    public Task<PagedBusinessManagersDto> ListBusinessManagersAsync(CancellationToken ct = default) =>
+        SendJsonAsync<PagedBusinessManagersDto>(HttpMethod.Get, "/api/v1/business-managers?page=1&page_size=200", null, ct);
+
     public Task<PagedAdAccountsDto> ListAdAccountsAsync(CancellationToken ct = default) =>
         SendJsonAsync<PagedAdAccountsDto>(HttpMethod.Get, "/api/v1/ad-accounts?page=1&page_size=200", null, ct);
 
     public Task<FacebookPagesSummaryDto> GetPagesSummaryAsync(CancellationToken ct = default) =>
         SendJsonAsync<FacebookPagesSummaryDto>(HttpMethod.Get, "/api/v1/facebook-pages/summary", null, ct);
 
+    public Task<QuickSyncResponseDto> QuickSyncMetaAsync(CancellationToken ct = default) =>
+        SendJsonAsync<QuickSyncResponseDto>(HttpMethod.Post, "/api/v1/meta/quick-sync", new { }, ct);
+
+    public Task<SyncPagesResponseDto> SyncPagesFromMetaAsync(CancellationToken ct = default) =>
+        SendJsonAsync<SyncPagesResponseDto>(HttpMethod.Post, "/api/v1/facebook-pages/sync-meta", new { }, ct);
+
+    public Task<CheckPageLiveResponseDto> CheckPageLiveAsync(string pageId, CancellationToken ct = default) =>
+        SendJsonAsync<CheckPageLiveResponseDto>(HttpMethod.Post, $"/api/v1/facebook-pages/{Uri.EscapeDataString(pageId)}/check-live", new { }, ct);
+
+    public Task<ClaimPageResponseDto> ClaimPageToBmAsync(string pageId, string? businessManagerId = null, CancellationToken ct = default)
+    {
+        object body = string.IsNullOrWhiteSpace(businessManagerId)
+            ? new { }
+            : new { business_manager_id = businessManagerId };
+        return SendJsonAsync<ClaimPageResponseDto>(HttpMethod.Post, $"/api/v1/facebook-pages/{Uri.EscapeDataString(pageId)}/claim-to-bm", body, ct);
+    }
+
+    public Task<WarmupPostResponseDto> PublishWarmupPostAsync(
+        string pageId,
+        string message,
+        string viaId,
+        string viaLabel,
+        string browserProfile,
+        string postMode = "graph_api_or_assist",
+        CancellationToken ct = default) =>
+        SendJsonAsync<WarmupPostResponseDto>(
+            HttpMethod.Post,
+            $"/api/v1/facebook-pages/{Uri.EscapeDataString(pageId)}/warmup-post",
+            new
+            {
+                message,
+                via_id = viaId,
+                via_label = viaLabel,
+                browser_profile = browserProfile,
+                post_mode = postMode,
+            },
+            ct);
+
+    public Task<BatchWarmupResponseDto> BatchWarmupPagesAsync(int maxPages = 10, CancellationToken ct = default) =>
+        SendJsonAsync<BatchWarmupResponseDto>(HttpMethod.Post, "/api/v1/facebook-pages/batch-warmup", new { max_pages = maxPages }, ct);
+
+    public Task<ViaBatchCreateResponseDto> ViaBatchCreatePagesAsync(ViaBatchCreateRequestDto payload, CancellationToken ct = default) =>
+        SendJsonAsync<ViaBatchCreateResponseDto>(HttpMethod.Post, "/api/v1/facebook-pages/via-batch-create", payload, ct);
+
+    public Task<JsonElement> LogViaKeepAliveBatchAsync(IEnumerable<object> vias, CancellationToken ct = default) =>
+        SendJsonAsync<JsonElement>(HttpMethod.Post, "/api/v1/facebook-pages/via-keepalive-log", new { vias }, ct);
+
+    public Task<JsonElement> DiscardPageDraftAsync(string pageId, CancellationToken ct = default) =>
+        SendJsonAsync<JsonElement>(HttpMethod.Delete, $"/api/v1/facebook-pages/{Uri.EscapeDataString(pageId)}/draft", null, ct);
+
     public Task<ProxyCheckResultDto> CheckProxyLiveAsync(string proxyString, string viaLabel, CancellationToken ct = default) =>
         SendJsonAsync<ProxyCheckResultDto>(
             HttpMethod.Post,
             "/api/v1/proxies/check-live",
             new { proxy_string = proxyString, timeout_seconds = 4.5, via_label = viaLabel, notify_on_dead = true },
-            ct
-        );
+            ct);
+
+    public Task<ProxyBatchCheckResponseDto> CheckProxyBatchAsync(CancellationToken ct = default) =>
+        SendJsonAsync<ProxyBatchCheckResponseDto>(HttpMethod.Post, "/api/v1/proxies/check-batch", new { }, ct);
+
+    public Task<AlertSummaryDto> GetAlertsSummaryAsync(CancellationToken ct = default) =>
+        SendJsonAsync<AlertSummaryDto>(HttpMethod.Get, "/api/v1/alerts/summary", null, ct);
+
+    public Task<PagedAlertsDto> ListAlertsAsync(int pageSize = 30, CancellationToken ct = default) =>
+        SendJsonAsync<PagedAlertsDto>(HttpMethod.Get, $"/api/v1/alerts?page=1&page_size={pageSize}", null, ct);
+
+    public Task<JsonElement> AcknowledgeAlertAsync(string alertId, string note = "Đã kiểm tra trên AdsOps Desktop Pro", CancellationToken ct = default) =>
+        SendJsonAsync<JsonElement>(HttpMethod.Post, $"/api/v1/alerts/{Uri.EscapeDataString(alertId)}/acknowledge", new { note }, ct);
+
+    public Task<JsonElement> ResolveAlertAsync(string alertId, string reason = "Đã xử lý từ AdsOps Desktop Pro", CancellationToken ct = default) =>
+        SendJsonAsync<JsonElement>(HttpMethod.Post, $"/api/v1/alerts/{Uri.EscapeDataString(alertId)}/resolve", new { reason }, ct);
+
+    public Task<AutomationCronStatusDto> GetAutomationCronStatusAsync(CancellationToken ct = default) =>
+        SendJsonAsync<AutomationCronStatusDto>(HttpMethod.Get, "/api/v1/automation-cron/status", null, ct);
+
+    public Task<AutomationCronStatusDto> SaveAutomationCronConfigAsync(
+        bool autoMetaSyncEnabled,
+        int syncIntervalMinutes,
+        bool autoPageWarmupEnabled,
+        int warmupMinGapHours,
+        CancellationToken ct = default) =>
+        SendJsonAsync<AutomationCronStatusDto>(
+            HttpMethod.Post,
+            "/api/v1/automation-cron/config",
+            new
+            {
+                auto_meta_sync_enabled = autoMetaSyncEnabled,
+                sync_interval_minutes = syncIntervalMinutes,
+                auto_page_warmup_enabled = autoPageWarmupEnabled,
+                warmup_min_gap_hours = warmupMinGapHours,
+            },
+            ct);
+
+    public Task<AutomationCronRunResponseDto> RunAutomationCronNowAsync(bool sync = true, bool warmup = true, CancellationToken ct = default) =>
+        SendJsonAsync<AutomationCronRunResponseDto>(HttpMethod.Post, "/api/v1/automation-cron/run-now", new { sync, warmup }, ct);
+
+    public Task<TelegramTestSendResponseDto> SendTelegramTestAsync(CancellationToken ct = default) =>
+        SendJsonAsync<TelegramTestSendResponseDto>(HttpMethod.Post, "/api/v1/telegram-bot/test-send", new { }, ct);
 
     public Task<BrowserEventResponseDto> PostBrowserEventAsync(BrowserEventPayloadDto payload, CancellationToken ct = default) =>
         SendJsonAsync<BrowserEventResponseDto>(
             HttpMethod.Post,
             "/api/v1/facebook-pages/browser-event",
             payload,
-            ct
-        );
+            ct);
 
     public void Dispose() => _http.Dispose();
 }

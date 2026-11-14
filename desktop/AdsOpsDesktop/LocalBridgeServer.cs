@@ -125,7 +125,7 @@ public sealed class LocalBridgeServer : IDisposable
                     {
                         holder.Kill(entireProcessTree: true);
                         holder.WaitForExit(1500);
-                        log($"♻️ Đã tự động thay thế Cầu nối .bat cũ ({pname} PID {pid}) trên cổng {port} bằng AdsOps Desktop Pro v1.1.");
+                        log($"♻️ Đã tự động thay thế Cầu nối .bat cũ ({pname} PID {pid}) trên cổng {port} bằng AdsOps Desktop Pro v2.0.");
                         retiredAny = true;
                     }
                 }
@@ -198,7 +198,7 @@ public sealed class LocalBridgeServer : IDisposable
                     {
                         ok = true,
                         app = "AdsOpsDesktop",
-                        version = "1.1.0",
+                        version = "2.0.0",
                         extVersion = tpl.Version,
                         port = BoundPort,
                     });
@@ -268,6 +268,27 @@ public sealed class LocalBridgeServer : IDisposable
                     var name = (qs["name"] ?? "").Trim();
                     var result = await _onVaultGet(viaId, profile, name).ConfigureAwait(false);
                     var json = JsonSerializer.Serialize(result);
+                    await WriteHttpResponseAsync(stream, 200, "OK", json, ct).ConfigureAwait(false);
+                    return;
+                }
+
+                if (method == "GET" && path == "/totp")
+                {
+                    var qs = HttpUtility.ParseQueryString(rawQuery);
+                    var viaId = (qs["via_id"] ?? "").Trim();
+                    var profile = (qs["profile"] ?? "").Trim();
+                    var name = (qs["name"] ?? "").Trim();
+                    var vault = await _onVaultGet(viaId, profile, name).ConfigureAwait(false);
+                    var totp = TotpService.ComputeTotp(vault.TwoFaSecret);
+                    var json = JsonSerializer.Serialize(new
+                    {
+                        ok = true,
+                        found = vault.Found && totp.Valid,
+                        code = totp.Code6,
+                        formatted = totp.FormattedCode,
+                        seconds_remaining = totp.SecondsRemaining,
+                        via_label = !string.IsNullOrWhiteSpace(vault.ViaLabel) ? vault.ViaLabel : name,
+                    });
                     await WriteHttpResponseAsync(stream, 200, "OK", json, ct).ConfigureAwait(false);
                     return;
                 }

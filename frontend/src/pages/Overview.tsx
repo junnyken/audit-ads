@@ -116,11 +116,11 @@ export default function Overview() {
             </p>
             <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
               <a
-                href="/downloads/AdsOps-Desktop-Pro-v1.1.zip"
+                href="/downloads/AdsOps-Desktop-Pro-v2.0.zip"
                 download
                 className="rounded border border-indigo-500/50 bg-indigo-600 px-2 py-1 text-[11px] font-bold text-white hover:bg-indigo-700"
               >
-                💻 App Win v1.1
+                💻 App Win v2.0
               </a>
               <button
                 type="button"

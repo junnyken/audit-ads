@@ -1,0 +1,378 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace AdsOpsDesktop;
+
+public enum QueuePhase
+{
+    Idle,
+    Running,
+    Paused,
+    NightPaused,
+    Syncing,
+    Completed,
+}
+
+public enum QueueKind
+{
+    KeepAlive,
+    PageCreation,
+}
+
+public sealed record QueueTaskItem(
+    string ViaId,
+    string ViaLabel,
+    string BrowserProfile,
+    string NetworkLabel,
+    string TargetUrl,
+    string TaskTitle,
+    string ViaTier);
+
+public sealed record QueueSnapshot(
+    QueuePhase Phase,
+    QueueKind Kind,
+    int CurrentIndex,
+    int TotalCount,
+    int LaunchedCount,
+    int SkippedCount,
+    int CountdownSeconds,
+    int LastJitterSeconds,
+    string CurrentViaLabel,
+    string CurrentTaskTitle,
+    bool CheckingProxy,
+    string LastNotice);
+
+/// <summary>Multi-Via safe automation queue runner with IP Cluster Guard, Proxy Pre-flight check, Human Jitter Rest &amp; Daytime Guard.</summary>
+public sealed class AutomationQueueEngine : IDisposable
+{
+    private readonly Func<QueueTaskItem, Task<(bool Live, string Reason)>> _proxyPreCheck;
+    private readonly Func<QueueTaskItem, Task> _launchChrome;
+    private readonly Func<QueueKind, Task> _onQueueSync;
+    private readonly Func<DateTime> _clockNow;
+    private readonly Action<string> _log;
+    private readonly Random _rng = new();
+    private readonly object _gate = new();
+
+    private CancellationTokenSource? _cts;
+    private Task? _runnerTask;
+    private List<QueueTaskItem> _items = new();
+    private QueueSnapshot _snapshot = new(QueuePhase.Idle, QueueKind.KeepAlive, 0, 0, 0, 0, 0, 0, "", "", false, "");
+    private readonly Dictionary<string, int> _proxyBatchUseCounts = new(StringComparer.OrdinalIgnoreCase);
+
+    private int _baseStaggerSec = 48;
+    private bool _preCheckProxy = true;
+    private int _maxViasPerProxy = 2;
+    private int _startHour = 8;
+    private int _endHour = 22;
+    private int _tickIntervalMs = 1000;
+    private int _syncWaitSeconds = 22;
+    private bool _skipRequested;
+
+    public event Action<QueueSnapshot>? SnapshotChanged;
+
+    public AutomationQueueEngine(
+        Func<QueueTaskItem, Task<(bool Live, string Reason)>> proxyPreCheck,
+        Func<QueueTaskItem, Task> launchChrome,
+        Func<QueueKind, Task> onQueueSync,
+        Action<string> log,
+        Func<DateTime>? clockNow = null)
+    {
+        _proxyPreCheck = proxyPreCheck;
+        _launchChrome = launchChrome;
+        _onQueueSync = onQueueSync;
+        _log = log;
+        _clockNow = clockNow ?? (() => DateTime.Now);
+    }
+
+    public QueueSnapshot Current => _snapshot;
+
+    public void ConfigureTiming(int tickIntervalMs, int syncWaitSeconds)
+    {
+        _tickIntervalMs = Math.Clamp(tickIntervalMs, 10, 2000);
+        _syncWaitSeconds = Math.Clamp(syncWaitSeconds, 1, 90);
+    }
+
+    public static string ExtractProxyHostPort(string? rawProxy)
+    {
+        var parsed = ExtensionProvisioner.ParseProxy(rawProxy);
+        if (parsed != null && !string.IsNullOrEmpty(parsed.Host))
+        {
+            return $"{parsed.Host}:{parsed.Port}".ToLowerInvariant();
+        }
+        return (rawProxy ?? "").Trim().ToLowerInvariant();
+    }
+
+    public int ComputeHumanRestSeconds(int baseSeconds, out int jitterExtraSeconds)
+    {
+        if (baseSeconds <= 2)
+        {
+            jitterExtraSeconds = 0;
+            return Math.Max(1, baseSeconds);
+        }
+        var minExtra = Math.Max(2, (int)Math.Round(baseSeconds * 0.12));
+        var maxExtra = Math.Max(minExtra + 2, (int)Math.Round(baseSeconds * 0.28));
+        jitterExtraSeconds = _rng.Next(minExtra, maxExtra + 1);
+        return baseSeconds + jitterExtraSeconds;
+    }
+
+    public void StartQueue(
+        QueueKind kind,
+        IReadOnlyList<QueueTaskItem> items,
+        int baseStaggerSeconds,
+        bool preCheckProxy,
+        int maxViasPerProxy = 2,
+        int daytimeStartHour = 8,
+        int daytimeEndHour = 22,
+        bool enforceDaytimeWindow = true)
+    {
+        if (items == null || items.Count == 0) return;
+
+        Stop();
+
+        _items = items.ToList();
+        _baseStaggerSec = Math.Max(1, baseStaggerSeconds);
+        _preCheckProxy = preCheckProxy;
+        _maxViasPerProxy = Math.Max(1, maxViasPerProxy);
+        _startHour = Math.Clamp(daytimeStartHour, 0, 23);
+        _endHour = Math.Clamp(daytimeEndHour, 0, 23);
+        _proxyBatchUseCounts.Clear();
+        _skipRequested = false;
+
+        _cts = new CancellationTokenSource();
+        var token = _cts.Token;
+        UpdateSnapshot(new QueueSnapshot(
+            QueuePhase.Running,
+            kind,
+            0,
+            _items.Count,
+            0,
+            0,
+            0,
+            0,
+            _items[0].ViaLabel,
+            _items[0].TaskTitle,
+            false,
+            $"Bắt đầu hàng đợi {items.Count} Via..."));
+
+        _runnerTask = Task.Run(() => RunLoopAsync(kind, enforceDaytimeWindow, token), token);
+    }
+
+    public void Pause()
+    {
+        lock (_gate)
+        {
+            if (_snapshot.Phase == QueuePhase.Running)
+            {
+                UpdateSnapshot(_snapshot with { Phase = QueuePhase.Paused, LastNotice = "Đã tạm dừng hàng đợi." });
+            }
+        }
+    }
+
+    public void Resume()
+    {
+        lock (_gate)
+        {
+            if (_snapshot.Phase == QueuePhase.Paused)
+            {
+                UpdateSnapshot(_snapshot with { Phase = QueuePhase.Running, LastNotice = "Đã tiếp tục hàng đợi." });
+            }
+        }
+    }
+
+    public void SkipCurrentWait()
+    {
+        _skipRequested = true;
+    }
+
+    public void Stop()
+    {
+        try { _cts?.Cancel(); } catch { }
+        try { _runnerTask?.Wait(800); } catch { }
+        _cts?.Dispose();
+        _cts = null;
+        _runnerTask = null;
+        UpdateSnapshot(new QueueSnapshot(QueuePhase.Idle, _snapshot.Kind, 0, 0, 0, 0, 0, 0, "", "", false, "Đã dừng hàng đợi."));
+    }
+
+    private async Task RunLoopAsync(QueueKind kind, bool enforceDaytimeWindow, CancellationToken ct)
+    {
+        int launched = 0;
+        int skipped = 0;
+
+        for (int i = 0; i < _items.Count && !ct.IsCancellationRequested; i++)
+        {
+            while (!ct.IsCancellationRequested && _snapshot.Phase == QueuePhase.Paused)
+            {
+                await Task.Delay(Math.Min(300, _tickIntervalMs), ct).ConfigureAwait(false);
+            }
+            if (ct.IsCancellationRequested) break;
+
+            if (enforceDaytimeWindow && _items.Count >= 3 && kind == QueueKind.PageCreation && _baseStaggerSec >= 300)
+            {
+                while (!ct.IsCancellationRequested && IsOutsideDaytimeWindow(_clockNow()))
+                {
+                    UpdateSnapshot(_snapshot with
+                    {
+                        Phase = QueuePhase.NightPaused,
+                        CurrentIndex = i,
+                        CurrentViaLabel = _items[i].ViaLabel,
+                        CurrentTaskTitle = _items[i].TaskTitle,
+                        LastNotice = $"Tạm nghỉ ban đêm (chỉ chạy {_startHour:00}:00–{_endHour:00}:30).",
+                    });
+                    await Task.Delay(Math.Min(2000, _tickIntervalMs * 2), ct).ConfigureAwait(false);
+                }
+            }
+
+            var item = _items[i];
+            var hostPort = ExtractProxyHostPort(item.NetworkLabel);
+            if (!string.IsNullOrEmpty(hostPort) &&
+                kind == QueueKind.PageCreation &&
+                _proxyBatchUseCounts.TryGetValue(hostPort, out var usedCount) &&
+                usedCount >= _maxViasPerProxy)
+            {
+                skipped++;
+                var msg = $"Bỏ qua «{item.ViaLabel}»: Proxy {hostPort} đã gánh {usedCount}/{_maxViasPerProxy} Via trong lô.";
+                _log($"⚠️ {msg}");
+                UpdateSnapshot(_snapshot with
+                {
+                    Phase = QueuePhase.Running,
+                    CurrentIndex = i,
+                    LaunchedCount = launched,
+                    SkippedCount = skipped,
+                    CurrentViaLabel = item.ViaLabel,
+                    CurrentTaskTitle = item.TaskTitle,
+                    CheckingProxy = false,
+                    LastNotice = msg,
+                });
+                continue;
+            }
+
+            if (_preCheckProxy && !string.IsNullOrWhiteSpace(item.NetworkLabel))
+            {
+                UpdateSnapshot(_snapshot with
+                {
+                    Phase = QueuePhase.Running,
+                    CurrentIndex = i,
+                    LaunchedCount = launched,
+                    SkippedCount = skipped,
+                    CurrentViaLabel = item.ViaLabel,
+                    CurrentTaskTitle = item.TaskTitle,
+                    CheckingProxy = true,
+                    LastNotice = $"Đang kiểm tra Proxy của {item.ViaLabel}...",
+                });
+
+                var (isLive, reason) = await _proxyPreCheck(item).ConfigureAwait(false);
+                if (ct.IsCancellationRequested) break;
+
+                if (!isLive)
+                {
+                    skipped++;
+                    var skipMsg = $"Bỏ qua «{item.ViaLabel}»: Proxy lỗi ({reason}).";
+                    _log($"🛑 {skipMsg}");
+                    UpdateSnapshot(_snapshot with
+                    {
+                        Phase = QueuePhase.Running,
+                        CurrentIndex = i,
+                        LaunchedCount = launched,
+                        SkippedCount = skipped,
+                        CheckingProxy = false,
+                        LastNotice = skipMsg,
+                    });
+                    continue;
+                }
+            }
+
+            if (!string.IsNullOrEmpty(hostPort))
+            {
+                _proxyBatchUseCounts[hostPort] = _proxyBatchUseCounts.GetValueOrDefault(hostPort) + 1;
+            }
+
+            await _launchChrome(item).ConfigureAwait(false);
+            launched++;
+
+            if (i < _items.Count - 1)
+            {
+                var waitSec = ComputeHumanRestSeconds(_baseStaggerSec, out var jitterExtra);
+                _skipRequested = false;
+                for (int rem = waitSec; rem > 0 && !ct.IsCancellationRequested && !_skipRequested; rem--)
+                {
+                    while (!ct.IsCancellationRequested && !_skipRequested && _snapshot.Phase == QueuePhase.Paused)
+                    {
+                        await Task.Delay(Math.Min(300, _tickIntervalMs), ct).ConfigureAwait(false);
+                    }
+                    UpdateSnapshot(_snapshot with
+                    {
+                        Phase = QueuePhase.Running,
+                        CurrentIndex = i,
+                        LaunchedCount = launched,
+                        SkippedCount = skipped,
+                        CountdownSeconds = rem,
+                        LastJitterSeconds = jitterExtra,
+                        CurrentViaLabel = item.ViaLabel,
+                        CurrentTaskTitle = item.TaskTitle,
+                        CheckingProxy = false,
+                        LastNotice = $"Đã mở {item.ViaLabel} · Nghỉ an toàn {rem}s (+{jitterExtra}s jitter) trước Via tiếp.",
+                    });
+                    await Task.Delay(_tickIntervalMs, ct).ConfigureAwait(false);
+                }
+                _skipRequested = false;
+            }
+        }
+
+        if (ct.IsCancellationRequested) return;
+
+        if (launched > 0)
+        {
+            for (int rem = _syncWaitSeconds; rem > 0 && !ct.IsCancellationRequested; rem--)
+            {
+                UpdateSnapshot(_snapshot with
+                {
+                    Phase = QueuePhase.Syncing,
+                    LaunchedCount = launched,
+                    SkippedCount = skipped,
+                    CountdownSeconds = rem,
+                    CheckingProxy = false,
+                    LastNotice = $"Đang chờ Chrome hoàn tất thao tác & đồng bộ Cloud ({rem}s)...",
+                });
+                await Task.Delay(_tickIntervalMs, ct).ConfigureAwait(false);
+            }
+            if (!ct.IsCancellationRequested)
+            {
+                try { await _onQueueSync(kind).ConfigureAwait(false); } catch { }
+            }
+        }
+
+        UpdateSnapshot(_snapshot with
+        {
+            Phase = QueuePhase.Completed,
+            LaunchedCount = launched,
+            SkippedCount = skipped,
+            CountdownSeconds = 0,
+            CheckingProxy = false,
+            LastNotice = $"Hoàn tất lô: đã mở {launched}/{_items.Count} Via (bỏ qua {skipped}).",
+        });
+    }
+
+    private bool IsOutsideDaytimeWindow(DateTime localNow)
+    {
+        var mins = localNow.Hour * 60 + localNow.Minute;
+        return mins < (_startHour * 60) || mins > (_endHour * 60 + 30);
+    }
+
+    private void UpdateSnapshot(QueueSnapshot next)
+    {
+        lock (_gate)
+        {
+            _snapshot = next;
+        }
+        SnapshotChanged?.Invoke(next);
+    }
+
+    public void Dispose()
+    {
+        Stop();
+    }
+}
