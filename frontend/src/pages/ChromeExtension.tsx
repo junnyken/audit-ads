@@ -291,7 +291,7 @@ export default function ChromeExtension() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-3xl space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="info">Tiện ích Google Chrome chính thức · v2.6 Pro (Full Auto-Pilot Tạo Page + Anti-Passkey)</Badge>
+              <Badge tone="info">Tiện ích Google Chrome chính thức · v2.7 Pro (Full Auto-Pilot + Warm-up + Ảnh Độc Bản + Anti-Passkey)</Badge>
               <Badge tone="positive">Manifest V3 · Chặn &amp; Tự Xoá Passkey 1 Chạm + 2FA Tự Điền + Khóa WebRTC</Badge>
             </div>
             <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-ink">
@@ -317,7 +317,7 @@ export default function ChromeExtension() {
               }
             >
               <Download className="mr-1.5 h-4 w-4" aria-hidden="true" />
-              <span>Tải Gói Tiện Ích v2.6 (.zip) Cho {selectedViaLabel}</span>
+              <span>Tải Gói Tiện Ích v2.7 (.zip) Cho {selectedViaLabel}</span>
             </Button>
             {vias.length > 0 && (
               <Button
@@ -370,10 +370,10 @@ export default function ChromeExtension() {
                   })
                   downloadAllViasExtensionsBundleZip(specs)
                 }}
-                title="Đóng gói sẵn thư mục AdsOps Companion v2.6 riêng cho từng Via vào chung 1 file .zip để cài nhanh hàng loạt"
+                title="Đóng gói sẵn thư mục AdsOps Companion v2.7 riêng cho từng Via vào chung 1 file .zip để cài nhanh hàng loạt"
               >
                 <Layers className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                <span>📦 Tải Trọn Bộ v2.6 Cho Tất Cả {vias.length} Via (.zip)</span>
+                <span>📦 Tải Trọn Bộ v2.7 Cho Tất Cả {vias.length} Via (.zip)</span>
               </Button>
             )}
             <Button
@@ -700,7 +700,7 @@ export default function ChromeExtension() {
                     AO
                   </span>
                   <div>
-                    <div className="text-xs font-extrabold text-ink">AdsOps Companion v2.6 Pro (Full Auto-Pilot + Anti-Passkey)</div>
+                    <div className="text-xs font-extrabold text-ink">AdsOps Companion v2.7 Pro (Full Auto-Pilot + Warm-up + Ảnh Độc Bản + Anti-Passkey)</div>
                     <div className="text-[10px] text-ink-muted">
                       Hồ sơ: {shortFolder} · Via: {selectedViaLabel} (
                       {viaTier === 'vault' ? '🛡️ Via Tổng' : viaTier === 'standby' ? '🌱 Dự Phòng' : '🚀 Lên Camp'})

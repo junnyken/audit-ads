@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import contextlib
 import re
 import uuid
 from datetime import UTC, datetime
@@ -276,7 +277,14 @@ def check_single_proxy_live(ctx: WriteCtx, payload: dict[str, Any] | None = None
     proxy_str = str(body.get("proxy_string") or "").strip()
     if not proxy_str:
         raise ValidationError("Vui lòng nhập chuỗi Proxy trước khi kiểm tra.")
-    res = check_proxy_live(proxy_str, timeout_seconds=6.0)
+    try:
+        timeout_sec = max(2.0, min(8.0, float(body.get("timeout_seconds") or 4.5)))
+    except Exception:
+        timeout_sec = 4.5
+    via_label = str(body.get("via_label") or "").strip()[:120]
+    notify_on_dead = bool(body.get("notify_on_dead"))
+
+    res = check_proxy_live(proxy_str, timeout_seconds=timeout_sec)
     if res.get("normalized_key") and not res.get("ssrf_blocked") and res.get("status") in ("LIVE", "DEAD"):
         ctx.audit.record(
             action="proxy.health_checked",
@@ -285,6 +293,34 @@ def check_single_proxy_live(ctx: WriteCtx, payload: dict[str, Any] | None = None
             metadata=res,
         )
         ctx.commit()
+
+    if notify_on_dead and res.get("status") != "LIVE":
+        res["telegram_notified"] = False
+        with contextlib.suppress(Exception):
+            settings = get_settings()
+            from app.services.telegram_bot_helper import get_workspace_telegram_record
+
+            rec = get_workspace_telegram_record(ctx.session, ctx.workspace_id)
+            tok = resolve_workspace_bot_token(ctx.session, ctx.workspace_id, settings)
+            chat_id = str(rec.get("chat_id") or "").strip()
+            if rec.get("enabled") and tok and chat_id:
+                alert_text = "\n".join(
+                    [
+                        "⚠️ CẢNH BÁO PROXY VIA CHẾT TRƯỚC KHI MỞ CHROME",
+                        f"Via: {via_label or 'Chưa rõ'}",
+                        f"Proxy: {res.get('normalized_key') or proxy_str}",
+                        f"Trạng thái: {res.get('status') or 'DEAD'}",
+                        f"Chi tiết: {res.get('message') or 'Proxy không phản hồi'}",
+                        "👉 Auto-Runner đã tự động bỏ qua Via này để bảo vệ IP.",
+                    ]
+                )
+                tr_tg = TelegramTransport(
+                    bot_token=tok,
+                    api_base_url=settings.telegram_api_base_url,
+                    timeout_seconds=min(4, int(settings.telegram_timeout_seconds or 4)),
+                )
+                tg_res = tr_tg.send(OutboundMessage(chat_id=chat_id, text=alert_text))
+                res["telegram_notified"] = bool(tg_res.ok)
     return res
 
 

@@ -7,6 +7,7 @@ import {
   Building2,
   Check,
   CheckCircle2,
+  Coffee,
   Copy,
   ExternalLink,
   Flag,
@@ -33,6 +34,7 @@ import { useI18n } from '../i18n'
 import { api } from '../lib/api'
 import type { AdAccount, Paged, ReferenceRecord } from '../lib/types'
 import {
+  buildViaKeepAliveUrl,
   computeSafeViaRestSeconds,
   downloadBatchPageCreationBat,
   downloadUniquePageMediaZip,
@@ -118,6 +120,8 @@ export interface ViaQuotaItem {
   warning_reasons?: string[]
   quota_status: 'SAFE' | 'NEAR_LIMIT' | 'COOLDOWN' | 'LIMIT_REACHED'
   last_activity_at: string | null
+  idle_days?: number
+  needs_keepalive?: boolean
 }
 
 export interface QuotaAlertsSummary {
@@ -265,6 +269,10 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
   const [batchQueue, setBatchQueue] = useState<BatchCreatedPageTask[]>([])
   const [batchQueueIdx, setBatchQueueIdx] = useState(0)
   const [autoSubmitMode, setAutoSubmitMode] = useState(true)
+  const [preCheckProxy, setPreCheckProxy] = useState(true)
+  const [warmupBeforeCreate, setWarmupBeforeCreate] = useState(true)
+  const [autoUploadMedia, setAutoUploadMedia] = useState(true)
+  const [autoCloseTab, setAutoCloseTab] = useState(true)
   const [autoRunner, setAutoRunner] = useState<{
     phase: 'idle' | 'running' | 'paused' | 'syncing' | 'done'
     currentIdx: number
@@ -274,6 +282,10 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
     currentViaLabel: string
     currentPageName: string
     bridgeMode: 'bridge' | 'protocol' | null
+    skippedProxyCount: number
+    checkingProxy: boolean
+    nightPaused: boolean
+    isKeepAliveRun: boolean
   }>({
     phase: 'idle',
     currentIdx: 0,
@@ -283,16 +295,29 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
     currentViaLabel: '',
     currentPageName: '',
     bridgeMode: null,
+    skippedProxyCount: 0,
+    checkingProxy: false,
+    nightPaused: false,
+    isKeepAliveRun: false,
   })
   const runnerTasksRef = useRef<BatchCreatedPageTask[]>([])
   const runnerStateRef = useRef(autoRunner)
   runnerStateRef.current = autoRunner
+  const usedProxyCountsRef = useRef<Record<string, number>>({})
   const autoRunAfterCreateRef = useRef(true)
   const autoSyncTimerRef = useRef<number | null>(null)
   const staggerSecondsRef = useRef(batchStaggerSeconds)
   staggerSecondsRef.current = batchStaggerSeconds
   const autoSubmitModeRef = useRef(autoSubmitMode)
   autoSubmitModeRef.current = autoSubmitMode
+  const preCheckProxyRef = useRef(preCheckProxy)
+  preCheckProxyRef.current = preCheckProxy
+  const warmupBeforeCreateRef = useRef(warmupBeforeCreate)
+  warmupBeforeCreateRef.current = warmupBeforeCreate
+  const autoUploadMediaRef = useRef(autoUploadMedia)
+  autoUploadMediaRef.current = autoUploadMedia
+  const autoCloseTabRef = useRef(autoCloseTab)
+  autoCloseTabRef.current = autoCloseTab
   const [warmupTargetPageId, setWarmupTargetPageId] = useState('')
   const [warmupMessage, setWarmupMessage] = useState(VIA_PAGE_TEMPLATES[0].warmupPost)
   const [logViaFilter, setLogViaFilter] = useState('ALL')
@@ -330,17 +355,26 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
 
   const syncMetaMut = useMutation({
     mutationFn: () =>
-      api.post<FanpageSummaryResponse & { synced_count: number; new_count: number; linked_account_count: number }>(
-        '/api/v1/facebook-pages/sync-meta',
-        {},
-      ),
+      api.post<
+        FanpageSummaryResponse & {
+          synced_count: number
+          new_count: number
+          linked_account_count: number
+          bm_claimed_count?: number
+        }
+      >('/api/v1/facebook-pages/sync-meta', {}),
     onSuccess: (res) => {
       void qc.invalidateQueries({ queryKey: ['facebook-pages-summary'] })
       void qc.invalidateQueries({ queryKey: ['pages'] })
+      const bmClaimSuffix = res.bm_claimed_count
+        ? isEn
+          ? `, ${res.bm_claimed_count} claimed to BM`
+          : `, tự động gom ${res.bm_claimed_count} Page về BM`
+        : ''
       setBannerMsg(
         isEn
-          ? `✅ Synced ${res.synced_count} Fanpages from Meta Graph API (${res.new_count} newly added, ${res.linked_account_count} ad account links updated).`
-          : `✅ Đã quét & đồng bộ ${res.synced_count} Fanpage từ Meta Graph API (${res.new_count} Page mới, ${res.linked_account_count} liên kết TKQC được cập nhật).`,
+          ? `✅ Synced ${res.synced_count} Fanpages from Meta Graph API (${res.new_count} newly added, ${res.linked_account_count} ad account links updated${bmClaimSuffix}).`
+          : `✅ Đã quét & đồng bộ ${res.synced_count} Fanpage từ Meta Graph API (${res.new_count} Page mới, ${res.linked_account_count} liên kết TKQC được cập nhật${bmClaimSuffix}).`,
       )
     },
   })
@@ -435,21 +469,153 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
   const syncMetaRef = useRef(syncMetaMut)
   syncMetaRef.current = syncMetaMut
 
-  const activateBatchTaskAtIndex = (
+  const extractProxyHostPort = (raw: string): string => {
+    const clean = (raw || '').trim()
+    if (!clean) return ''
+    const withoutScheme = clean.replace(/^(https?|socks5h?|socks4):\/\//i, '')
+    if (withoutScheme.includes('@')) {
+      const hostPart = withoutScheme.split('@').pop() || ''
+      return hostPart.split('/')[0].toLowerCase()
+    }
+    const segs = withoutScheme.split(':')
+    if (segs.length >= 2) {
+      return `${segs[0]}:${segs[1]}`.toLowerCase()
+    }
+    return withoutScheme.toLowerCase()
+  }
+
+  const activateBatchTaskAtIndex = async (
     tasks: BatchCreatedPageTask[],
     idx: number,
     baseStaggerSec: number,
     prevBridgeMode: 'bridge' | 'protocol' | null = null,
-  ) => {
+    isKeepAliveOverride?: boolean,
+    skippedCountOverride?: number,
+  ): Promise<void> => {
     const task = tasks[idx]
     if (!task) return
+    const isKeepAlive =
+      typeof isKeepAliveOverride === 'boolean' ? isKeepAliveOverride : runnerStateRef.current.isKeepAliveRun
+    const prevSkipped =
+      typeof skippedCountOverride === 'number'
+        ? skippedCountOverride
+        : runnerStateRef.current.skippedProxyCount
+
     setBatchQueueIdx(idx)
-    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+
+    const finishOrSkipNext = (nextSkipped: number, reasonBanner: string) => {
+      setBannerMsg(reasonBanner)
+      const nextIdx = idx + 1
+      if (nextIdx < tasks.length && runnerStateRef.current.phase !== 'idle') {
+        void activateBatchTaskAtIndex(
+          tasks,
+          nextIdx,
+          baseStaggerSec,
+          prevBridgeMode,
+          isKeepAlive,
+          nextSkipped,
+        )
+      } else {
+        const doneState = {
+          phase: 'done' as const,
+          currentIdx: idx,
+          total: tasks.length,
+          countdownSec: 0,
+          lastJitterSec: 0,
+          currentViaLabel: task.via_label,
+          currentPageName: task.page_name,
+          bridgeMode: prevBridgeMode,
+          skippedProxyCount: nextSkipped,
+          checkingProxy: false,
+          nightPaused: false,
+          isKeepAliveRun: isKeepAlive,
+        }
+        runnerStateRef.current = doneState
+        setAutoRunner(doneState)
+        if (!isKeepAlive && tasks.length > nextSkipped) {
+          syncMetaRef.current.mutate()
+        }
+      }
+    }
+
+    const proxyStr = (task.network_label || '').trim()
+    const hostPort = extractProxyHostPort(proxyStr)
+
+    if (hostPort && !isKeepAlive && (usedProxyCountsRef.current[hostPort] || 0) >= 2) {
+      const nextSkip = prevSkipped + 1
+      finishOrSkipNext(
+        nextSkip,
+        `⚠️ Đã bỏ qua Via «${task.via_label}» vì Proxy (${hostPort}) đã gánh ≥ 2 Via trong cùng lô (chống quét chùm IP).`,
+      )
+      return
+    }
+
+    if (preCheckProxyRef.current && proxyStr) {
+      const checkingState = {
+        phase: 'running' as const,
+        currentIdx: idx,
+        total: tasks.length,
+        countdownSec: baseStaggerSec,
+        lastJitterSec: 0,
+        currentViaLabel: task.via_label,
+        currentPageName: task.page_name,
+        bridgeMode: prevBridgeMode,
+        skippedProxyCount: prevSkipped,
+        checkingProxy: true,
+        nightPaused: false,
+        isKeepAliveRun: isKeepAlive,
+      }
+      runnerStateRef.current = checkingState
+      setAutoRunner(checkingState)
+
+      try {
+        const res = await Promise.race([
+          api.post<{ ok?: boolean; status?: string; normalized_key?: string; message?: string }>(
+            '/api/v1/proxies/check-live',
+            {
+              proxy_string: proxyStr,
+              via_label: task.via_label,
+              notify_on_dead: true,
+              timeout_seconds: 4.0,
+            },
+          ),
+          new Promise<{ status?: string }>((resolve) =>
+            window.setTimeout(() => resolve({ status: 'TIMEOUT_SKIP_GATE' }), 5000),
+          ),
+        ])
+        if (runnerStateRef.current.phase === 'idle') return
+        if (res.status === 'DEAD' || res.status === 'INVALID') {
+          const nextSkip = prevSkipped + 1
+          finishOrSkipNext(
+            nextSkip,
+            `🛑 Đã tự động bỏ qua Via «${task.via_label}» do Proxy ${res.status} (đã gửi cảnh báo Telegram) — chuyển sang Via kế tiếp!`,
+          )
+          return
+        }
+      } catch {
+        // Proceed gracefully if server probe request itself could not complete
+      }
+    }
+
+    if (hostPort) {
+      usedProxyCountsRef.current[hostPort] = (usedProxyCountsRef.current[hostPort] || 0) + 1
+    }
+
+    if (!isKeepAlive && typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
       void navigator.clipboard
         .writeText(`${task.page_name}\n\nTiểu sử: ${task.bio_description}\n\nBài mồi:\n${task.warmup_post_text}`)
         .catch(() => {})
     }
-    const targetUrl = withAutoSubmitPageUrl(task.launch_url, autoSubmitModeRef.current)
+
+    const targetUrl = isKeepAlive
+      ? buildViaKeepAliveUrl({ autoCloseTab: autoCloseTabRef.current, viaLabel: task.via_label })
+      : withAutoSubmitPageUrl(task.launch_url, {
+          autoSubmit: autoSubmitModeRef.current,
+          warmupBeforeCreate: warmupBeforeCreateRef.current,
+          autoUploadMedia: autoUploadMediaRef.current,
+          autoCloseTab: autoCloseTabRef.current,
+        })
+
     void launchInAssignedChromeProfile(
       targetUrl,
       task.browser_profile,
@@ -465,11 +631,15 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
         phase: 'syncing' as const,
         currentIdx: idx,
         total: tasks.length,
-        countdownSec: 24,
+        countdownSec: isKeepAlive ? 18 : warmupBeforeCreateRef.current ? 40 : 24,
         lastJitterSec: 0,
         currentViaLabel: task.via_label,
         currentPageName: task.page_name,
         bridgeMode: prevBridgeMode,
+        skippedProxyCount: prevSkipped,
+        checkingProxy: false,
+        nightPaused: false,
+        isKeepAliveRun: isKeepAlive,
       }
       runnerStateRef.current = syncState
       setAutoRunner(syncState)
@@ -484,16 +654,41 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
         currentViaLabel: task.via_label,
         currentPageName: task.page_name,
         bridgeMode: prevBridgeMode,
+        skippedProxyCount: prevSkipped,
+        checkingProxy: false,
+        nightPaused: false,
+        isKeepAliveRun: isKeepAlive,
       }
       runnerStateRef.current = nextState
       setAutoRunner(nextState)
     }
   }
 
-  const startWebAutoRunner = (tasks: BatchCreatedPageTask[], baseStaggerSec: number) => {
+  const startWebAutoRunner = (
+    tasks: BatchCreatedPageTask[],
+    baseStaggerSec: number,
+    isKeepAlive = false,
+  ) => {
     if (!Array.isArray(tasks) || tasks.length === 0) return
     runnerTasksRef.current = tasks
-    activateBatchTaskAtIndex(tasks, 0, baseStaggerSec, null)
+    usedProxyCountsRef.current = {}
+    const initState = {
+      phase: 'running' as const,
+      currentIdx: 0,
+      total: tasks.length,
+      countdownSec: baseStaggerSec,
+      lastJitterSec: 0,
+      currentViaLabel: tasks[0].via_label,
+      currentPageName: tasks[0].page_name,
+      bridgeMode: null as 'bridge' | 'protocol' | null,
+      skippedProxyCount: 0,
+      checkingProxy: false,
+      nightPaused: false,
+      isKeepAliveRun: isKeepAlive,
+    }
+    runnerStateRef.current = initState
+    setAutoRunner(initState)
+    void activateBatchTaskAtIndex(tasks, 0, baseStaggerSec, null, isKeepAlive, 0)
   }
 
   const stopWebAutoRunner = () => {
@@ -506,6 +701,10 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
       currentViaLabel: '',
       currentPageName: '',
       bridgeMode: null,
+      skippedProxyCount: 0,
+      checkingProxy: false,
+      nightPaused: false,
+      isKeepAliveRun: false,
     }
     runnerStateRef.current = stopped
     setAutoRunner(stopped)
@@ -523,7 +722,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
     if (autoRunner.phase !== 'running' && autoRunner.phase !== 'syncing') return
     const timer = window.setInterval(() => {
       const cur = runnerStateRef.current
-      if (cur.phase === 'paused' || cur.phase === 'idle' || cur.phase === 'done') return
+      if (cur.phase === 'paused' || cur.phase === 'idle' || cur.phase === 'done' || cur.checkingProxy) return
 
       if (cur.phase === 'syncing') {
         if (cur.countdownSec > 1) {
@@ -532,14 +731,38 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
           setAutoRunner(next)
           return
         }
-        const doneState = { ...cur, phase: 'done' as const, countdownSec: 0 }
+        const doneState = { ...cur, phase: 'done' as const, countdownSec: 0, nightPaused: false }
         runnerStateRef.current = doneState
         setAutoRunner(doneState)
-        syncMetaRef.current.mutate()
-        setBannerMsg(
-          '🤖 ✅ Hoàn tất chuỗi Full Automatic! Hệ thống đã tự quét đồng bộ Page ID mới từ Meta Graph API (Auto-Cron nền sẽ tiếp tục nuôi bài #2, #3 mỗi 8h).',
-        )
+        if (cur.isKeepAliveRun) {
+          setBannerMsg(
+            `☕ Đã hoàn tất đảo ấm Cookie tự nhiên cho ${cur.total - cur.skippedProxyCount} Via! Các tab an toàn sẽ tự đóng gọn.`,
+          )
+        } else {
+          syncMetaRef.current.mutate()
+          setBannerMsg(
+            '🤖 ✅ Hoàn tất chuỗi Full Automatic v2.7! Hệ thống đã tự quét đồng bộ Page ID mới + gom Page về BM qua Meta Graph API.',
+          )
+        }
         return
+      }
+
+      if (!cur.isKeepAliveRun && staggerSecondsRef.current >= 900) {
+        const hr = new Date().getHours()
+        const isNight = hr < 8 || hr >= 22
+        if (isNight) {
+          if (!cur.nightPaused) {
+            const np = { ...cur, nightPaused: true }
+            runnerStateRef.current = np
+            setAutoRunner(np)
+          }
+          return
+        }
+        if (cur.nightPaused) {
+          const dp = { ...cur, nightPaused: false }
+          runnerStateRef.current = dp
+          setAutoRunner(dp)
+        }
       }
 
       if (cur.countdownSec > 1) {
@@ -552,12 +775,16 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
       const tasks = runnerTasksRef.current
       const nextIdx = cur.currentIdx + 1
       if (nextIdx >= tasks.length) {
-        const syncState = { ...cur, phase: 'syncing' as const, countdownSec: 24 }
+        const syncState = {
+          ...cur,
+          phase: 'syncing' as const,
+          countdownSec: cur.isKeepAliveRun ? 18 : warmupBeforeCreateRef.current ? 40 : 24,
+        }
         runnerStateRef.current = syncState
         setAutoRunner(syncState)
         return
       }
-      activateBatchTaskAtIndex(tasks, nextIdx, staggerSecondsRef.current, cur.bridgeMode)
+      void activateBatchTaskAtIndex(tasks, nextIdx, staggerSecondsRef.current, cur.bridgeMode, cur.isKeepAliveRun, cur.skippedProxyCount)
     }, 1000)
     return () => window.clearInterval(timer)
   }, [autoRunner.phase])
@@ -586,8 +813,14 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
       const textToCopy = `${vars.page_name}\n\nTiểu sử: ${vars.bio_description}\n\nBài đăng mồi đầu tiên:\n${vars.warmup_post_text}`
       void navigator.clipboard.writeText(textToCopy)
       const isAuto = autoSubmitModeRef.current
+      const useWarmup = warmupBeforeCreateRef.current
       void launchInAssignedChromeProfile(
-        withAutoSubmitPageUrl(res.launch_url || 'https://www.facebook.com/pages/creation/', isAuto),
+        withAutoSubmitPageUrl(res.launch_url || 'https://www.facebook.com/pages/creation/', {
+          autoSubmit: isAuto,
+          warmupBeforeCreate: useWarmup,
+          autoUploadMedia: autoUploadMediaRef.current,
+          autoCloseTab: autoCloseTabRef.current,
+        }),
         vars.browser_profile || 'Profile 1',
         vars.via_label || 'Via Giữ Page',
         vars.network_label || '',
@@ -596,9 +829,12 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
         if (autoSyncTimerRef.current !== null) {
           window.clearTimeout(autoSyncTimerRef.current)
         }
-        autoSyncTimerRef.current = window.setTimeout(() => {
-          syncMetaRef.current.mutate()
-        }, 26_000)
+        autoSyncTimerRef.current = window.setTimeout(
+          () => {
+            syncMetaRef.current.mutate()
+          },
+          useWarmup ? 44_000 : 26_000,
+        )
       }
       setStudioPageName('')
       setForceOverrideQuota(false)
@@ -606,7 +842,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
         isEn
           ? `🌱 Created & logged Page "${vars.page_name}" under Via "${vars.via_label}" and launched Chrome (${vars.browser_profile})!`
           : isAuto
-            ? `🤖 [Full Automatic v2.6] Đã lưu Page «${vars.page_name}» + mở Chrome (${vars.browser_profile}) tự điền & tự bấm Tạo Trang theo nhịp tự nhiên; hệ thống sẽ tự quét Page ID sau 26s!`
+            ? `🤖 [Full Automatic v2.7] Đã lưu Page «${vars.page_name}» + mở Chrome (${vars.browser_profile}) ${useWarmup ? 'lướt ấm 15s rồi ' : ''}tự điền, gắn ảnh độc bản & tạo Page tự nhiên!`
             : `🌱 Đã lưu Fanpage «${vars.page_name}» + ghi nhận định mức cho Via «${vars.via_label}», đã mở Chrome (${vars.browser_profile}) tự điền chờ bạn bấm Tạo Trang!`,
       )
     },
@@ -678,6 +914,23 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
       void qc.invalidateQueries({ queryKey: ['pages'] })
       setBatchQueue((prev) => prev.filter((item) => item.page_id !== pageId))
       setBannerMsg('🗑️ Đã hủy bản nháp Fanpage và hoàn lại định mức tạo Page cho Via!')
+    },
+  })
+
+  const claimPageToBmMut = useMutation({
+    mutationFn: (payload: { pageId: string; businessManagerId?: string }) =>
+      api.post<FanpageSummaryResponse & { claimed: boolean; bm_name: string; message: string }>(
+        `/api/v1/facebook-pages/${payload.pageId}/claim-to-bm`,
+        payload.businessManagerId ? { business_manager_id: payload.businessManagerId } : {},
+      ),
+    onSuccess: (res) => {
+      void qc.invalidateQueries({ queryKey: ['facebook-pages-summary'] })
+      void qc.invalidateQueries({ queryKey: ['pages'] })
+      setBannerMsg(`🏛️ ${res.message}${res.bm_name ? ` (${res.bm_name})` : ''}`)
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : 'Chưa gom được Page về BM — Kiểm tra lại quyền Admin BM của Token.'
+      setBannerMsg(`⚠️ ${msg}`)
     },
   })
 
@@ -1186,10 +1439,230 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                   to="/chrome-extension"
                   className="rounded border border-line bg-surface px-2 py-1 font-bold text-brand-text hover:underline"
                 >
-                  Cài Extension v2.6 ↗
+                  Cài Extension v2.7 ↗
                 </Link>
               </div>
             </div>
+
+            {/* V2.7 PRO SAFETY TOGGLES & COOKIE KEEP-ALIVE */}
+            {(() => {
+              const idleVias = viaQuotas.filter((v) => v.needs_keepalive)
+              return (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-[11px]">
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <span className="font-extrabold text-emerald-700 dark:text-emerald-300">✨ Bảo vệ v2.7 Pro:</span>
+                    <label className="inline-flex cursor-pointer items-center gap-1.5 font-semibold text-ink">
+                      <input
+                        type="checkbox"
+                        checked={preCheckProxy}
+                        onChange={(e) => setPreCheckProxy(e.target.checked)}
+                        className="accent-emerald-600"
+                      />
+                      <span>🛡️ Check Proxy sống 2s</span>
+                    </label>
+                    <label className="inline-flex cursor-pointer items-center gap-1.5 font-semibold text-ink">
+                      <input
+                        type="checkbox"
+                        checked={warmupBeforeCreate}
+                        onChange={(e) => setWarmupBeforeCreate(e.target.checked)}
+                        className="accent-emerald-600"
+                      />
+                      <span>🌿 Lướt ấm 15s trước khi tạo</span>
+                    </label>
+                    <label className="inline-flex cursor-pointer items-center gap-1.5 font-semibold text-ink">
+                      <input
+                        type="checkbox"
+                        checked={autoUploadMedia}
+                        onChange={(e) => setAutoUploadMedia(e.target.checked)}
+                        className="accent-emerald-600"
+                      />
+                      <span>🖼️ Tự gắn Avatar/Cover độc bản</span>
+                    </label>
+                    <label className="inline-flex cursor-pointer items-center gap-1.5 font-semibold text-ink">
+                      <input
+                        type="checkbox"
+                        checked={autoCloseTab}
+                        onChange={(e) => setAutoCloseTab(e.target.checked)}
+                        className="accent-emerald-600"
+                      />
+                      <span>🧹 Tự đóng Tab khi xong</span>
+                    </label>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={viaQuotas.length === 0 || autoRunner.phase === 'running' || autoRunner.phase === 'syncing'}
+                    onClick={() => {
+                      const picked = (idleVias.length > 0 ? idleVias : viaQuotas.slice(0, 8)).slice(0, 12)
+                      if (picked.length === 0) return
+                      const tasks: BatchCreatedPageTask[] = picked.map((v, idx) => ({
+                        page_id: `keepalive-${v.via_id}`,
+                        page_name: `Lướt ấm Cookie (${v.label})`,
+                        category: 'Keep-Alive Cookie',
+                        bio_description: 'Lướt Newsfeed & Thông báo tự nhiên giữ session Via',
+                        warmup_post_text: '',
+                        via_id: v.via_id,
+                        via_label: v.label,
+                        browser_profile: v.browser_profile,
+                        network_label: v.network_label,
+                        launch_url: buildViaKeepAliveUrl({ autoCloseTab, viaLabel: v.label }),
+                        batch_index: idx + 1,
+                        batch_size: picked.length,
+                      }))
+                      void api
+                        .post('/api/v1/facebook-pages/via-keepalive-log', {
+                          vias: picked.map((v) => ({
+                            via_id: v.via_id,
+                            via_label: v.label,
+                            browser_profile: v.browser_profile,
+                          })),
+                        })
+                        .then(() => qc.invalidateQueries({ queryKey: ['facebook-pages-summary'] }))
+                        .catch(() => {})
+                      startWebAutoRunner(tasks, Math.min(batchStaggerSeconds, 45), true)
+                      setBannerMsg(
+                        `☕ Bắt đầu Đảo Ấm Cookie thụ động cho ${picked.length} Via (lướt Newsfeed + Thông báo tự nhiên, tự dừng nếu gặp xác minh)!`,
+                      )
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/45 bg-amber-500/15 px-2.5 py-1 text-[11px] font-bold text-amber-800 hover:bg-amber-500/25 disabled:opacity-50 dark:text-amber-200"
+                    title="Lướt Newsfeed + Thông báo thụ động định kỳ 3–5 ngày/lần cho dàn Via để giữ Cookie tươi tự nhiên (không bấm Like/Story ảo)"
+                  >
+                    <Coffee className="h-3.5 w-3.5" />
+                    <span>
+                      ☕ Đảo Ấm Cookie ({idleVias.length > 0 ? `${idleVias.length} Via nghỉ ≥3 ngày` : `${viaQuotas.length} Via`})
+                    </span>
+                  </button>
+                </div>
+              )
+            })()}
+
+            {/* LIVE WEB AUTO-RUNNER MONITOR (PAGE CREATION & KEEP-ALIVE) */}
+            {autoRunner.phase !== 'idle' && (
+              <div className="space-y-2 rounded-xl border-2 border-emerald-500/50 bg-surface p-3 shadow-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    {autoRunner.isKeepAliveRun ? (
+                      <Coffee className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                    ) : (
+                      <Bot className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                    )}
+                    <span className="font-extrabold text-ink">
+                      {autoRunner.checkingProxy &&
+                        `🛡️ Đang kiểm tra Proxy sống (${autoRunner.currentIdx + 1}/${autoRunner.total}) cho Via ${autoRunner.currentViaLabel}...`}
+                      {!autoRunner.checkingProxy &&
+                        autoRunner.nightPaused &&
+                        `🌙 Tạm nghỉ khung giờ đêm 22:00–08:00 (Via ${autoRunner.currentIdx + 1}/${autoRunner.total}) — Tự chạy tiếp lúc 08:00 sáng`}
+                      {!autoRunner.checkingProxy &&
+                        !autoRunner.nightPaused &&
+                        autoRunner.phase === 'running' &&
+                        `${autoRunner.isKeepAliveRun ? '☕ Đang Đảo Ấm Cookie' : '🤖 Đang chạy Automatic'} (${autoRunner.currentIdx + 1}/${autoRunner.total}) · Đang mở: ${autoRunner.currentViaLabel}`}
+                      {autoRunner.phase === 'paused' &&
+                        `⏸️ Đã tạm dừng ở Via ${autoRunner.currentIdx + 1}/${autoRunner.total} (${autoRunner.currentViaLabel})`}
+                      {autoRunner.phase === 'syncing' &&
+                        (autoRunner.isKeepAliveRun
+                          ? `☕ Đã mở đủ ${autoRunner.total}/${autoRunner.total} Via đảo ấm — Hoàn tất sau ${autoRunner.countdownSec}s...`
+                          : `🔄 Đã mở đủ ${autoRunner.total}/${autoRunner.total} Via — Đang đợi ${autoRunner.countdownSec}s rồi tự đồng bộ Page ID + gom về BM...`)}
+                      {autoRunner.phase === 'done' &&
+                        (autoRunner.isKeepAliveRun
+                          ? `✅ Hoàn tất đảo ấm Cookie ${autoRunner.total - autoRunner.skippedProxyCount}/${autoRunner.total} Via an toàn!`
+                          : `✅ Hoàn tất tự động ${autoRunner.total - autoRunner.skippedProxyCount}/${autoRunner.total} Via & đã kích hoạt đồng bộ Meta!`)}
+                    </span>
+                    {autoRunner.phase === 'running' && !autoRunner.checkingProxy && !autoRunner.nightPaused && (
+                      <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 font-mono text-[11px] font-bold text-amber-700 dark:text-amber-300">
+                        ⏳ Nghỉ an toàn {autoRunner.countdownSec}s (+{autoRunner.lastJitterSec}s ngẫu nhiên)
+                      </span>
+                    )}
+                    {autoRunner.skippedProxyCount > 0 && (
+                      <span className="rounded-full bg-rose-500/15 px-2 py-0.5 text-[10.5px] font-bold text-rose-700 dark:text-rose-300">
+                        🛑 Đã bỏ qua {autoRunner.skippedProxyCount} Via lỗi/trùng Proxy
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {autoRunner.phase === 'running' && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const p = { ...runnerStateRef.current, phase: 'paused' as const }
+                            runnerStateRef.current = p
+                            setAutoRunner(p)
+                          }}
+                          className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/15 px-2.5 py-1 text-[11px] font-bold text-amber-700 hover:bg-amber-500/25 dark:text-amber-300"
+                        >
+                          <Pause className="h-3 w-3" />
+                          <span>Tạm dừng</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const tasks = runnerTasksRef.current
+                            const nextIdx = runnerStateRef.current.currentIdx + 1
+                            if (nextIdx < tasks.length) {
+                              void activateBatchTaskAtIndex(
+                                tasks,
+                                nextIdx,
+                                staggerSecondsRef.current,
+                                runnerStateRef.current.bridgeMode,
+                                runnerStateRef.current.isKeepAliveRun,
+                                runnerStateRef.current.skippedProxyCount,
+                              )
+                            }
+                          }}
+                          className="inline-flex items-center gap-1 rounded-md border border-emerald-500/40 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-bold text-emerald-700 hover:bg-emerald-500/25 dark:text-emerald-300"
+                        >
+                          <SkipForward className="h-3 w-3" />
+                          <span>Mở ngay Via kế</span>
+                        </button>
+                      </>
+                    )}
+                    {autoRunner.phase === 'paused' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const r = { ...runnerStateRef.current, phase: 'running' as const }
+                          runnerStateRef.current = r
+                          setAutoRunner(r)
+                        }}
+                        className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-700"
+                      >
+                        <Play className="h-3 w-3" />
+                        <span>Tiếp tục</span>
+                      </button>
+                    )}
+                    {(autoRunner.phase === 'running' || autoRunner.phase === 'paused' || autoRunner.phase === 'syncing' || autoRunner.phase === 'done') && (
+                      <button
+                        type="button"
+                        onClick={stopWebAutoRunner}
+                        className="inline-flex items-center gap-1 rounded-md border border-rose-500/40 bg-rose-500/10 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-500/20 dark:text-rose-300"
+                      >
+                        <Square className="h-3 w-3" />
+                        <span>{autoRunner.phase === 'done' ? 'Đóng' : 'Dừng Auto'}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-surface-muted">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      autoRunner.isKeepAliveRun ? 'bg-amber-500' : 'bg-emerald-500'
+                    }`}
+                    style={{
+                      width: `${autoRunner.total > 0 ? Math.round(((autoRunner.currentIdx + 1) / autoRunner.total) * 100) : 0}%`,
+                    }}
+                  />
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-ink-muted">
+                  <span>Phiên hiện tại: <strong className="text-ink">{autoRunner.currentPageName}</strong></span>
+                  <span>
+                    {autoRunner.bridgeMode === 'bridge'
+                      ? '⚡ Đang mở qua Cầu nối ngầm 127.0.0.1:17890 (0 hộp thoại hỏi)'
+                      : autoRunner.bridgeMode === 'protocol'
+                        ? '🔗 Đang mở qua adsops-chrome:// (khuyên chạy .bat Cầu nối 1 lần để 0 popup)'
+                        : '🚀 Đang kết nối trình duyệt Chrome Profile...'}
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* TAB 1: AUTO-ROTATING MULTI-VIA BATCH PAGE CREATOR */}
             {studioTab === 'batch' && (
@@ -1254,6 +1727,8 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                           <option value={22}>22s + ngẫu nhiên 4–10s / Via (Khuyên dùng)</option>
                           <option value={32}>32s + ngẫu nhiên 5–12s / Via (Siêu an toàn)</option>
                           <option value={45}>45s + ngẫu nhiên 5–12s / Via (Nuôi kỹ tự nhiên)</option>
+                          <option value={1800}>⏳ Drip 30 phút / Via (+ngẫu nhiên, tự nghỉ đêm 22h–08h)</option>
+                          <option value={3600}>⏳ Drip 60 phút / Via (+ngẫu nhiên, nuôi siêu tự nhiên)</option>
                         </select>
                       </div>
 
@@ -1312,7 +1787,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                             Cấu hình Proxy Via ↗
                           </Link>
                           <Link to="/chrome-extension" className="underline hover:opacity-80">
-                            Tải Bộ Extension v2.6 ↗
+                            Tải Bộ Extension v2.7 ↗
                           </Link>
                         </span>
                       </div>
@@ -1399,8 +1874,13 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                                 </span>
                               )}
                             </div>
-                            <div className="mt-0.5 font-mono text-[10px] text-ink-muted">
-                              💻 {vq.browser_profile} · Hôm nay {vq.created_today_count}/{vq.daily_limit} · Tuần {vq.created_7d_count}/{vq.weekly_limit}
+                            <div className="mt-0.5 flex flex-wrap items-center justify-between gap-1 font-mono text-[10px] text-ink-muted">
+                              <span>💻 {vq.browser_profile} · Hôm nay {vq.created_today_count}/{vq.daily_limit} · Tuần {vq.created_7d_count}/{vq.weekly_limit}</span>
+                              {vq.needs_keepalive && (
+                                <span className="font-sans font-bold text-amber-700 dark:text-amber-300">
+                                  ☕ Nghỉ {vq.idle_days}d — Nên đảo ấm
+                                </span>
+                              )}
                             </div>
                           </div>
                         )
@@ -1412,112 +1892,13 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                 {/* POST-CREATION BATCH EXECUTION QUEUE & LIVE AUTO-RUNNER */}
                 {batchQueue.length > 0 && (
                   <div className="space-y-3 rounded-xl border-2 border-emerald-500/50 bg-emerald-500/5 p-3.5">
-                    {autoRunner.phase !== 'idle' && (
-                      <div className="space-y-2 rounded-xl border border-emerald-500/50 bg-surface p-3 shadow-xs">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex flex-wrap items-center gap-2 text-xs">
-                            <Bot className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                            <span className="font-extrabold text-ink">
-                              {autoRunner.phase === 'running' &&
-                                `🤖 Đang chạy Automatic (${autoRunner.currentIdx + 1}/${autoRunner.total}) · Đang mở: ${autoRunner.currentViaLabel}`}
-                              {autoRunner.phase === 'paused' &&
-                                `⏸️ Đã tạm dừng ở Via ${autoRunner.currentIdx + 1}/${autoRunner.total} (${autoRunner.currentViaLabel})`}
-                              {autoRunner.phase === 'syncing' &&
-                                `🔄 Đã mở đủ ${autoRunner.total}/${autoRunner.total} Via — Đang đợi ${autoRunner.countdownSec}s rồi tự đồng bộ Page ID từ Meta...`}
-                              {autoRunner.phase === 'done' &&
-                                `✅ Hoàn tất tự động ${autoRunner.total}/${autoRunner.total} Via & đã kích hoạt đồng bộ Meta!`}
-                            </span>
-                            {autoRunner.phase === 'running' && (
-                              <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 font-mono text-[11px] font-bold text-amber-700 dark:text-amber-300">
-                                ⏳ Nghỉ an toàn {autoRunner.countdownSec}s (+{autoRunner.lastJitterSec}s ngẫu nhiên)
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            {autoRunner.phase === 'running' && (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const p = { ...runnerStateRef.current, phase: 'paused' as const }
-                                    runnerStateRef.current = p
-                                    setAutoRunner(p)
-                                  }}
-                                  className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/15 px-2.5 py-1 text-[11px] font-bold text-amber-700 hover:bg-amber-500/25 dark:text-amber-300"
-                                >
-                                  <Pause className="h-3 w-3" />
-                                  <span>Tạm dừng</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const tasks = runnerTasksRef.current
-                                    const nextIdx = runnerStateRef.current.currentIdx + 1
-                                    if (nextIdx < tasks.length) {
-                                      activateBatchTaskAtIndex(tasks, nextIdx, staggerSecondsRef.current, runnerStateRef.current.bridgeMode)
-                                    }
-                                  }}
-                                  className="inline-flex items-center gap-1 rounded-md border border-emerald-500/40 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-bold text-emerald-700 hover:bg-emerald-500/25 dark:text-emerald-300"
-                                >
-                                  <SkipForward className="h-3 w-3" />
-                                  <span>Mở ngay Via kế</span>
-                                </button>
-                              </>
-                            )}
-                            {autoRunner.phase === 'paused' && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const r = { ...runnerStateRef.current, phase: 'running' as const }
-                                  runnerStateRef.current = r
-                                  setAutoRunner(r)
-                                }}
-                                className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-700"
-                              >
-                                <Play className="h-3 w-3" />
-                                <span>Tiếp tục</span>
-                              </button>
-                            )}
-                            {(autoRunner.phase === 'running' || autoRunner.phase === 'paused' || autoRunner.phase === 'syncing') && (
-                              <button
-                                type="button"
-                                onClick={stopWebAutoRunner}
-                                className="inline-flex items-center gap-1 rounded-md border border-rose-500/40 bg-rose-500/10 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-500/20 dark:text-rose-300"
-                              >
-                                <Square className="h-3 w-3" />
-                                <span>Dừng Auto</span>
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        <div className="h-2 w-full overflow-hidden rounded-full bg-surface-muted">
-                          <div
-                            className="h-full rounded-full bg-emerald-500 transition-all duration-500"
-                            style={{
-                              width: `${autoRunner.total > 0 ? Math.round(((autoRunner.currentIdx + 1) / autoRunner.total) * 100) : 0}%`,
-                            }}
-                          />
-                        </div>
-                        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-ink-muted">
-                          <span>Page hiện tại: <strong className="text-ink">{autoRunner.currentPageName}</strong></span>
-                          <span>
-                            {autoRunner.bridgeMode === 'bridge'
-                              ? '⚡ Đang mở qua Cầu nối ngầm 127.0.0.1:17890 (0 hộp thoại hỏi)'
-                              : autoRunner.bridgeMode === 'protocol'
-                                ? '🔗 Đang mở qua adsops-chrome:// (khuyên chạy .bat Cầu nối 1 lần để 0 popup)'
-                                : '🚀 Đang kết nối trình duyệt Chrome Profile...'}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
                         <div className="text-xs font-extrabold text-emerald-800 dark:text-emerald-200">
                           🎯 Hàng đợi {batchQueue.length} Page đã lưu vào Hệ thống
                         </div>
                         <p className="text-[11px] text-ink-muted">
-                          Bấm <strong>🤖 Chạy Full Automatic</strong> để Web tự mở từng Via giãn nhịp ({batchStaggerSeconds}s + ngẫu nhiên), Extension v2.6 tự bấm Tạo Trang và tự quét Page ID sau khi xong.
+                          Bấm <strong>🤖 Chạy Full Automatic</strong> để Web tự mở từng Via giãn nhịp ({batchStaggerSeconds}s + ngẫu nhiên), Extension v2.7 tự bấm Tạo Trang và tự quét Page ID sau khi xong.
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
@@ -1564,7 +1945,12 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                               `${task.page_name}\n\nTiểu sử: ${task.bio_description}\n\nBài mồi:\n${task.warmup_post_text}`,
                             )
                             void launchInAssignedChromeProfile(
-                              withAutoSubmitPageUrl(task.launch_url, autoSubmitMode),
+                              withAutoSubmitPageUrl(task.launch_url, {
+                                autoSubmit: autoSubmitMode,
+                                warmupBeforeCreate,
+                                autoUploadMedia,
+                                autoCloseTab,
+                              }),
                               task.browser_profile,
                               task.via_label,
                               task.network_label,
@@ -1603,7 +1989,12 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                               onClick={() => {
                                 void navigator.clipboard.writeText(`${task.page_name}\n${task.bio_description}`)
                                 void launchInAssignedChromeProfile(
-                                  withAutoSubmitPageUrl(task.launch_url, autoSubmitMode),
+                                  withAutoSubmitPageUrl(task.launch_url, {
+                                autoSubmit: autoSubmitMode,
+                                warmupBeforeCreate,
+                                autoUploadMedia,
+                                autoCloseTab,
+                              }),
                                   task.browser_profile,
                                   task.via_label,
                                   task.network_label,
@@ -1851,7 +2242,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
 
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                     <span className="text-[11px] text-ink-muted">
-                      💡 Hệ thống sẽ: (1) Lưu Page &amp; Nhật ký Via, (2) Mở đúng Chrome của Via đã chọn và (3) {autoSubmitMode ? 'Extension v2.6 tự điền + tự bấm Tạo Trang giãn nhịp an toàn (tự quét Page ID sau 26s).' : 'Extension v2.6 tự điền sẵn Tên + Tiểu sử chờ bạn kiểm tra & bấm Tạo Trang.'}
+                      💡 Hệ thống sẽ: (1) Lưu Page &amp; Nhật ký Via, (2) Mở đúng Chrome của Via đã chọn và (3) {autoSubmitMode ? 'Extension v2.7 tự điền + tự bấm Tạo Trang giãn nhịp an toàn (tự quét Page ID sau 26s).' : 'Extension v2.7 tự điền sẵn Tên + Tiểu sử chờ bạn kiểm tra & bấm Tạo Trang.'}
                     </span>
                     <div className="flex flex-wrap items-center gap-2">
                     <Button
@@ -2732,6 +3123,24 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                                   <span>Hủy nháp</span>
                                 </button>
                               </>
+                            )}
+
+                            {Boolean(extId) && !item.owner_bm_id && allBms.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  claimPageToBmMut.mutate({
+                                    pageId: item.id,
+                                    businessManagerId: studioBmId || String(allBms[0]?.id || ''),
+                                  })
+                                }
+                                disabled={claimPageToBmMut.isPending}
+                                className="inline-flex items-center gap-1 rounded-md border border-sky-500/40 bg-sky-500/10 px-2 py-1 text-[11px] font-semibold text-sky-700 hover:bg-sky-500/20 dark:text-sky-300"
+                                title="Gọi Meta Graph API gán quyền sở hữu Fanpage này về Business Manager trung tâm"
+                              >
+                                <Building2 className="h-3 w-3" />
+                                <span>🏛️ Gom về BM</span>
+                              </button>
                             )}
 
                             <a

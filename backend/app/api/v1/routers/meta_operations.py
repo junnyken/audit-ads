@@ -2774,9 +2774,47 @@ def _sync_workspace_pages_from_meta(
     synced_count = 0
     new_count = 0
     linked_account_count = 0
+    bm_claimed_count = 0
     refreshed_ext_ids: set[str] = set()
+    already_bm_owned_ext_ids: set[str] = set()
     now_iso = datetime.now(UTC).isoformat()
     now_dt = datetime.now(UTC)
+
+    desired_bm_by_page_id: dict[uuid.UUID, dict[str, str]] = {}
+    prior_page_audits = (
+        session.execute(
+            sa.select(AuditLog)
+            .where(
+                AuditLog.workspace_id == workspace_id,
+                AuditLog.entity_type == "page",
+                AuditLog.action.in_(("page.via_created", "page.meta_updated", "page.meta_synced")),
+            )
+            .order_by(AuditLog.created_at.asc())
+        )
+        .scalars()
+        .all()
+    )
+    for pr_row in prior_page_audits:
+        pr_meta = pr_row.metadata_json or pr_row.after_json or {}
+        if not isinstance(pr_meta, dict) or not pr_row.entity_id:
+            continue
+        with contextlib.suppress(Exception):
+            p_uuid = uuid.UUID(str(pr_row.entity_id))
+            b_ext_m = str(pr_meta.get("owner_bm_external_id") or "").strip()
+            b_id_m = str(pr_meta.get("owner_bm_id") or "").strip()
+            b_name_m = str(pr_meta.get("owner_bm_name") or "").strip()
+            if not b_ext_m and b_id_m:
+                for b_obj in bms_all:
+                    if str(b_obj.id) == b_id_m and b_obj.external_id:
+                        b_ext_m = str(b_obj.external_id).strip()
+                        b_name_m = b_name_m or b_obj.name
+                        break
+            if b_ext_m:
+                desired_bm_by_page_id[p_uuid] = {
+                    "bm_ext": b_ext_m,
+                    "bm_id": b_id_m,
+                    "bm_name": b_name_m,
+                }
 
     def _upsert_page_from_graph(
         p_row: dict[str, Any],
@@ -2864,6 +2902,12 @@ def _sync_workspace_pages_from_meta(
         if pg_entity is not None:
             synced_count += 1
             refreshed_ext_ids.add(pid)
+            if source_edge == "owned_pages":
+                already_bm_owned_ext_ids.add(pid)
+            elif isinstance(raw_biz, dict) and raw_biz.get("id"):
+                desired_info = desired_bm_by_page_id.get(pg_entity.id)
+                if not desired_info or str(raw_biz["id"]).strip() == desired_info.get("bm_ext"):
+                    already_bm_owned_ext_ids.add(pid)
             holder_id = fallback_holder_id or (
                 holder_by_bm_id.get(biz_obj.id) if biz_obj is not None else None
             )
@@ -3019,6 +3063,47 @@ def _sync_workspace_pages_from_meta(
                         fallback_holder_id=cred_holder_id,
                     )
 
+    # 4b) Auto-claim newly synced Pages into their assigned Business Manager if not yet BM-owned
+    sync_transports = [
+        prov.transport for _c, prov in providers if getattr(prov, "transport", None) is not None
+    ]
+    if sync_transports:
+        for pg_ent in by_ext_page.values():
+            if pg_ent.archived_at is not None or not pg_ent.external_page_id:
+                continue
+            ext_pid = str(pg_ent.external_page_id).strip()
+            if not ext_pid or ext_pid in already_bm_owned_ext_ids:
+                continue
+            desired_info = desired_bm_by_page_id.get(pg_ent.id)
+            target_bm_ext = (desired_info or {}).get("bm_ext", "").strip()
+            if not target_bm_ext:
+                continue
+            for tr_claim in sync_transports:
+                if not hasattr(tr_claim, "claim_page_to_bm"):
+                    continue
+                ok_claim, _msg_claim = tr_claim.claim_page_to_bm(target_bm_ext, ext_pid)
+                if ok_claim:
+                    bm_claimed_count += 1
+                    already_bm_owned_ext_ids.add(ext_pid)
+                    bm_matched = bm_by_ext.get(target_bm_ext)
+                    if bm_matched is not None:
+                        pg_ent.notes = f"Đồng bộ từ BM {bm_matched.name}"
+                    with contextlib.suppress(Exception), session.begin_nested():
+                        audit.record(
+                            action="page.meta_updated",
+                            entity_type="page",
+                            entity_id=pg_ent.id,
+                            metadata={
+                                "page_name": pg_ent.name,
+                                "owner_bm_id": str(bm_matched.id) if bm_matched else desired_info.get("bm_id", ""),
+                                "owner_bm_name": bm_matched.name if bm_matched else desired_info.get("bm_name", ""),
+                                "owner_bm_external_id": target_bm_ext,
+                                "claimed_to_bm": True,
+                                "last_synced_at": now_iso,
+                            },
+                        )
+                    break
+
     # 5) Auto-link BM Pages & Personal Pages to active Ad Accounts of their BM / cluster if 0 linked accounts
     mb_corp_bm = bm_by_ext.get("102968402561310") or bm_by_name.get("công ty cổ phần mắt bão")
     qct_bm = bm_by_ext.get("1993884657458857") or bm_by_name.get("quảng cáo top")
@@ -3067,6 +3152,7 @@ def _sync_workspace_pages_from_meta(
         "synced_count": synced_count,
         "new_count": new_count,
         "linked_account_count": linked_account_count,
+        "bm_claimed_count": bm_claimed_count,
     }
 
 
@@ -3179,7 +3265,13 @@ def _build_pages_summary(
                 AuditLog.workspace_id == workspace_id,
                 AuditLog.entity_type == "page",
                 AuditLog.action.in_(
-                    ("page.meta_synced", "page.meta_updated", "page.via_created", "page.warmup_posted")
+                    (
+                        "page.meta_synced",
+                        "page.meta_updated",
+                        "page.via_created",
+                        "page.warmup_posted",
+                        "page.via_keepalive",
+                    )
                 ),
             )
             .order_by(AuditLog.created_at.asc())
@@ -3189,7 +3281,7 @@ def _build_pages_summary(
     )
     for row in all_page_audit_rows:
         meta = row.metadata_json or row.after_json or {}
-        if isinstance(meta, dict) and row.entity_id:
+        if isinstance(meta, dict) and row.entity_id and row.action != "page.via_keepalive":
             cur = overrides_by_page.setdefault(row.entity_id, {})
             for k, v in meta.items():
                 if v is not None:
@@ -3426,6 +3518,7 @@ def _build_pages_summary(
     last_created_dt_by_via: dict[str, datetime] = {}
     warmup_by_via: dict[str, int] = {}
     last_act_by_via: dict[str, str] = {}
+    last_human_via_act_dt: dict[str, datetime] = {}
     via_activity_logs: list[dict[str, Any]] = []
 
     for row in reversed(all_page_audit_rows):
@@ -3478,6 +3571,10 @@ def _build_pages_summary(
             if via_id_str not in last_act_by_via or iso_dt > last_act_by_via[via_id_str]:
                 last_act_by_via[via_id_str] = iso_dt
 
+        if row.action in ("page.via_created", "page.warmup_posted", "page.via_keepalive") and via_id_str and row_dt:
+            if via_id_str not in last_human_via_act_dt or row_dt > last_human_via_act_dt[via_id_str]:
+                last_human_via_act_dt[via_id_str] = row_dt
+
         if row.action == "page.via_created" and via_id_str and row_dt:
             if via_id_str not in last_created_dt_by_via or row_dt > last_created_dt_by_via[via_id_str]:
                 last_created_dt_by_via[via_id_str] = row_dt
@@ -3503,8 +3600,15 @@ def _build_pages_summary(
                 action_label = f"✍️ Đăng bài mồi nuôi Page ({mode_lbl})"
                 detail_txt = f"Page «{page_name_str}»: {msg_preview}"
             elif row.action == "page.meta_updated":
-                action_label = "🛡️ Phân quyền BM & Via giữ Page"
-                detail_txt = f"Cập nhật cấu hình cách ly Page «{page_name_str}» cho {via_label_str}"
+                if meta.get("claimed_to_bm"):
+                    action_label = "🏛️ Tự động gom Page về BM"
+                    detail_txt = f"Đã gán quyền sở hữu Page «{page_name_str}» về BM «{meta.get('owner_bm_name') or meta.get('owner_bm_external_id') or 'BM'}»"
+                else:
+                    action_label = "🛡️ Phân quyền BM & Via giữ Page"
+                    detail_txt = f"Cập nhật cấu hình cách ly Page «{page_name_str}» cho {via_label_str}"
+            elif row.action == "page.via_keepalive":
+                action_label = "☕ Lướt ấm Cookie giữ Via tự nhiên"
+                detail_txt = str(meta.get("note") or f"Via «{via_label_str}» vừa chạy phiên lướt Newsfeed/Thông báo giữ Cookie tự nhiên trên {browser_prof_str}")
             else:
                 action_label = "🔄 Đồng bộ & Quét sức khỏe Page"
                 detail_txt = f"Kiểm tra trạng thái Live Page «{page_name_str}» ({meta.get('health_status') or 'LIVE'})"
@@ -3611,6 +3715,44 @@ def _build_pages_summary(
                 "warning_reasons": warning_reasons,
                 "quota_status": q_status,
                 "last_activity_at": last_act_by_via.get(vid_s) or (v_ident.updated_at.isoformat() if v_ident.updated_at else None),
+                "idle_days": round(
+                    max(
+                        0.0,
+                        (
+                            now_utc
+                            - (
+                                last_human_via_act_dt.get(vid_s)
+                                or (
+                                    v_ident.created_at.replace(tzinfo=UTC)
+                                    if v_ident.created_at and v_ident.created_at.tzinfo is None
+                                    else v_ident.created_at
+                                )
+                                or now_utc
+                            )
+                        ).total_seconds()
+                        / 86400.0,
+                    ),
+                    1,
+                ),
+                "needs_keepalive": bool(
+                    max(
+                        0.0,
+                        (
+                            now_utc
+                            - (
+                                last_human_via_act_dt.get(vid_s)
+                                or (
+                                    v_ident.created_at.replace(tzinfo=UTC)
+                                    if v_ident.created_at and v_ident.created_at.tzinfo is None
+                                    else v_ident.created_at
+                                )
+                                or now_utc
+                            )
+                        ).total_seconds()
+                        / 86400.0,
+                    )
+                    >= 3.0
+                ),
             }
         )
 
@@ -4558,6 +4700,169 @@ def batch_warmup_under_nurtured_pages(
         "nurtured_count": nurtured_count,
         "graph_published_count": graph_published_count,
         "assist_items": assist_items,
+        **summary_data,
+    }
+
+
+@pages_router.post("/{page_id}/claim-to-bm")
+def claim_page_to_business_manager(
+    ctx: WriteCtx,
+    page_id: uuid.UUID,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    from app.core.errors import ValidationError
+    from app.models.entities import BusinessManager, Page
+
+    pg = get_or_404(ctx.session, Page, page_id, ctx.workspace_id, label="Page")
+    ext_pid = (pg.external_page_id or "").strip()
+    if not ext_pid:
+        raise ValidationError("Page chưa có Page ID thật từ Meta. Vui lòng bấm 'Đồng bộ Page thật từ Meta' trước khi gom về BM.")
+
+    body = payload or {}
+    bm_id_raw = str(body.get("business_manager_id") or "").strip()
+    bm_ext_raw = str(body.get("bm_external_id") or "").strip()
+    target_bm: BusinessManager | None = None
+
+    if bm_id_raw:
+        with contextlib.suppress(Exception):
+            target_bm = ctx.session.get(BusinessManager, uuid.UUID(bm_id_raw))
+            if target_bm and (target_bm.workspace_id != ctx.workspace_id or target_bm.archived_at is not None):
+                target_bm = None
+
+    if target_bm is None:
+        prior_rows = (
+            ctx.session.execute(
+                sa.select(AuditLog)
+                .where(
+                    AuditLog.workspace_id == ctx.workspace_id,
+                    AuditLog.entity_type == "page",
+                    AuditLog.entity_id == str(pg.id),
+                    AuditLog.action.in_(("page.via_created", "page.meta_updated", "page.meta_synced")),
+                )
+                .order_by(AuditLog.created_at.desc())
+            )
+            .scalars()
+            .all()
+        )
+        for row in prior_rows:
+            meta = row.metadata_json or row.after_json or {}
+            if not isinstance(meta, dict):
+                continue
+            cand_ext = str(meta.get("owner_bm_external_id") or "").strip()
+            cand_id = str(meta.get("owner_bm_id") or "").strip()
+            if cand_ext:
+                bm_ext_raw = bm_ext_raw or cand_ext
+            if cand_id and target_bm is None:
+                with contextlib.suppress(Exception):
+                    cand_obj = ctx.session.get(BusinessManager, uuid.UUID(cand_id))
+                    if cand_obj and cand_obj.workspace_id == ctx.workspace_id:
+                        target_bm = cand_obj
+            if target_bm or bm_ext_raw:
+                break
+
+    if target_bm is not None and target_bm.external_id:
+        bm_ext_raw = str(target_bm.external_id).strip()
+    if not bm_ext_raw:
+        raise ValidationError("Page này chưa được chọn BM sở hữu. Hãy chọn BM cho Page trước khi gom về BM.")
+
+    transports = _collect_workspace_meta_transports(ctx.session, ctx.workspace_id)
+    if not transports:
+        raise ValidationError("Chưa có Meta Token hoạt động trong Workspace để gọi API gom Page về BM.")
+
+    claimed_ok = False
+    last_msg = "Không gom được Page vào BM."
+    for tr in transports:
+        if not hasattr(tr, "claim_page_to_bm"):
+            continue
+        ok, msg = tr.claim_page_to_bm(bm_ext_raw, ext_pid)
+        last_msg = msg
+        if ok:
+            claimed_ok = True
+            break
+
+    if not claimed_ok:
+        raise ValidationError(last_msg)
+
+    now_iso = datetime.now(UTC).isoformat()
+    if target_bm is not None:
+        pg.notes = f"Đồng bộ từ BM {target_bm.name}"
+    pg.updated_at = datetime.now(UTC)
+    ctx.audit.record(
+        action="page.meta_updated",
+        entity_type="page",
+        entity_id=pg.id,
+        metadata={
+            "page_name": pg.name,
+            "owner_bm_id": str(target_bm.id) if target_bm else "",
+            "owner_bm_name": target_bm.name if target_bm else bm_ext_raw,
+            "owner_bm_external_id": bm_ext_raw,
+            "claimed_to_bm": True,
+            "last_synced_at": now_iso,
+        },
+    )
+    ctx.commit()
+    summary_data = _build_pages_summary(ctx.session, ctx.workspace_id, include_archived=False)
+    return {
+        "claimed": True,
+        "page_id": str(pg.id),
+        "bm_external_id": bm_ext_raw,
+        "bm_name": target_bm.name if target_bm else bm_ext_raw,
+        "message": last_msg,
+        **summary_data,
+    }
+
+
+@pages_router.post("/via-keepalive-log")
+def log_via_keepalive_activity(
+    ctx: WriteCtx,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    body = payload or {}
+    raw_vias = body.get("vias")
+    entries: list[dict[str, str]] = []
+    if isinstance(raw_vias, list):
+        for item in raw_vias[:30]:
+            if isinstance(item, dict):
+                entries.append(
+                    {
+                        "via_id": str(item.get("via_id") or "").strip()[:80],
+                        "via_label": str(item.get("via_label") or "Via Quản trị").strip()[:120],
+                        "browser_profile": str(item.get("browser_profile") or "Chrome Profile").strip()[:120],
+                        "note": str(item.get("note") or "").strip()[:240],
+                    }
+                )
+    if not entries:
+        entries.append(
+            {
+                "via_id": str(body.get("via_id") or "").strip()[:80],
+                "via_label": str(body.get("via_label") or "Via Quản trị").strip()[:120],
+                "browser_profile": str(body.get("browser_profile") or "Chrome Profile").strip()[:120],
+                "note": str(body.get("note") or "").strip()[:240],
+            }
+        )
+
+    now_iso = datetime.now(UTC).isoformat()
+    for ent in entries:
+        ctx.audit.record(
+            action="page.via_keepalive",
+            entity_type="page",
+            entity_id=ent["via_id"] or f"via:{ent['via_label']}",
+            metadata={
+                "via_id": ent["via_id"],
+                "via_label": ent["via_label"],
+                "browser_profile": ent["browser_profile"],
+                "page_name": f"Phiên giữ Via ({ent['via_label']})",
+                "category": "Keep-Alive Cookie",
+                "mode": "PASSIVE_SCROLL_KEEPALIVE",
+                "note": ent["note"]
+                or f"Lướt ấm Cookie thụ động (Newsfeed & Thông báo) trên {ent['browser_profile']}",
+                "recorded_at": now_iso,
+            },
+        )
+    ctx.commit()
+    summary_data = _build_pages_summary(ctx.session, ctx.workspace_id, include_archived=False)
+    return {
+        "logged_count": len(entries),
         **summary_data,
     }
 

@@ -84,6 +84,9 @@ class GraphResponse:
     graph_error_subcode: int | None = None
 
 
+_DIGITS_ID_RE = re.compile(r"^\d{1,40}$")
+
+
 @dataclass
 class MetaGraphTransport:
     """Read-only client for the Graph API: `get()`, plus the one narrow `post()` (A10.2).
@@ -207,6 +210,56 @@ class MetaGraphTransport:
                 failure_summary="The Meta API could not be reached. The account may or may not have been created.",
             )
 
+    def claim_page_to_bm(self, bm_external_id: str, external_page_id: str) -> tuple[bool, str]:
+        """Claim an existing Meta Page into a Business Manager (`{bm_id}/owned_pages`)."""
+        clean_bm = (bm_external_id or "").strip()
+        clean_page = (external_page_id or "").strip()
+        if not _DIGITS_ID_RE.match(clean_bm) or not _DIGITS_ID_RE.match(clean_page):
+            return (False, "ID Business Manager hoặc ID Page không hợp lệ (chỉ chấp nhận chữ số).")
+        if not self.access_token:
+            return (False, "Chưa cấu hình Meta access token trên hệ thống.")
+
+        url = self._build_url(f"{clean_bm}/owned_pages", None)
+        body = urllib.parse.urlencode({"page_id": clean_page}).encode("utf-8")
+        request = urllib.request.Request(  # noqa: S310 - scheme and host are fixed by configuration
+            url,
+            method="POST",
+            data=body,
+            headers={
+                "Authorization": f"Bearer {self.access_token}",
+                "Accept": "application/json",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                raw = response.read().decode("utf-8") or "{}"
+                data = json.loads(raw)
+                if isinstance(data, dict) and data.get("error"):
+                    err = data["error"] if isinstance(data["error"], dict) else {}
+                    return (False, f"Meta từ chối gán BM (mã {err.get('code') or 'unknown'}).")
+                return (True, "Đã tự động gom Page về Business Manager thành công.")
+        except urllib.error.HTTPError as exc:
+            err_code: int | None = None
+            err_msg = ""
+            try:
+                err_body = json.loads(exc.read().decode("utf-8") or "{}")
+                err_obj = err_body.get("error", {}) if isinstance(err_body, dict) else {}
+                raw_code = err_obj.get("code")
+                if isinstance(raw_code, int) and not isinstance(raw_code, bool):
+                    err_code = raw_code
+                err_msg = str(err_obj.get("error_user_msg") or err_obj.get("message") or "")[:160]
+            except (ValueError, AttributeError, OSError):
+                pass
+            low = err_msg.lower()
+            if err_code == 100 and any(k in low for k in ("already owned", "already exists", "already added")):
+                return (True, "Page đã nằm sẵn trong Business Manager này.")
+            return (False, f"Meta từ chối gán BM (mã {err_code or exc.code}).")
+        except TimeoutError:
+            return (False, "Hết thời gian chờ phản hồi từ Meta Graph API khi gom Page về BM.")
+        except (urllib.error.URLError, OSError):
+            return (False, "Không thể kết nối Meta Graph API để gom Page về BM.")
+
     def _build_url(self, path: str, params: dict[str, str] | None) -> str:
         safe_path = path.strip("/")
         base = f"{self.api_base_url.rstrip('/')}/{self.api_version}/{safe_path}"
@@ -278,9 +331,6 @@ class MetaGraphTransport:
             graph_error_code=code,
             graph_error_subcode=subcode,
         )
-
-
-_DIGITS_ID_RE = re.compile(r"^\d{1,40}$")
 
 
 def publish_page_feed_post(
