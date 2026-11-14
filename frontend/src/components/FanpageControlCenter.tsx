@@ -41,6 +41,7 @@ import {
   downloadWindowsChromeLauncherBat,
   launchInAssignedChromeProfile,
   planHumanKeepAliveRoute,
+  probeLocalDesktopBridge,
   withAutoSubmitPageUrl,
   type BatchChromePageTask,
 } from '../lib/chromeProfileLauncher'
@@ -351,6 +352,13 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
     queryKey: ['personal-account-references-all'],
     queryFn: () => api.get<Paged<ReferenceRecord>>('/api/v1/personal-account-references?page_size=200'),
   })
+
+  const desktopBridgeQ = useQuery({
+    queryKey: ['local-desktop-bridge'],
+    queryFn: () => probeLocalDesktopBridge(),
+    refetchInterval: 10000,
+  })
+  const bridgeProbe = desktopBridgeQ.data
 
   const accountsQ = useQuery({
     queryKey: ['ad-accounts-all-for-pages'],
@@ -728,7 +736,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
     const plans = picked.map((v) => planHumanKeepAliveRoute(v.via_tier))
     const tasks: BatchCreatedPageTask[] = picked.map((v, idx) => ({
       page_id: `keepalive-${v.via_id}`,
-      page_name: `Đảo ấm v2.8 (${v.label} · ${plans[idx].routeSummary})`,
+      page_name: `Đảo ấm v2.9 (${v.label} · ${plans[idx].routeSummary})`,
       category: 'Keep-Alive Cookie',
       bio_description: `Đảo ấm sinh học (${plans[idx].routeSummary} • ~${plans[idx].estimatedSeconds}s)`,
       warmup_post_text: '',
@@ -764,7 +772,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
       picked.length === 1 ? 18 : Math.max(48, Math.min(batchStaggerSeconds, 75))
     startWebAutoRunner(tasks, spacingSec, true)
     setBannerMsg(
-      `☕ Bắt đầu Đảo Ấm Sinh Học v2.8 cho ${picked.length} Via (đa lộ trình Newsfeed / Thông báo / Trang / Business Suite BM + giữ nguyên tab nếu văng Cookie)!`,
+      `☕ Bắt đầu Đảo Ấm Sinh Học v2.9 cho ${picked.length} Via (đa lộ trình Newsfeed / Thông báo / Trang / Business Suite BM + giữ nguyên tab nếu văng Cookie)!`,
     )
   }
 
@@ -799,7 +807,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
         } else {
           syncMetaRef.current.mutate()
           setBannerMsg(
-            '🤖 ✅ Hoàn tất chuỗi Full Automatic v2.8! Hệ thống đã tự quét đồng bộ Page ID mới + gom Page về BM qua Meta Graph API.',
+            '🤖 ✅ Hoàn tất chuỗi Full Automatic v2.9! Hệ thống đã tự quét đồng bộ Page ID mới + gom Page về BM qua Meta Graph API.',
           )
         }
         return
@@ -901,7 +909,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
         isEn
           ? `🌱 Created & logged Page "${vars.page_name}" under Via "${vars.via_label}" and launched Chrome (${vars.browser_profile})!`
           : isAuto
-            ? `🤖 [Full Automatic v2.8] Đã lưu Page «${vars.page_name}» + mở Chrome (${vars.browser_profile}) ${useWarmup ? 'lướt ấm 15s rồi ' : ''}tự điền, gắn ảnh độc bản & tạo Page tự nhiên!`
+            ? `🤖 [Full Automatic v2.9] Đã lưu Page «${vars.page_name}» + mở Chrome (${vars.browser_profile}) ${useWarmup ? 'lướt ấm 15s rồi ' : ''}tự điền, gắn ảnh độc bản & tạo Page tự nhiên!`
             : `🌱 Đã lưu Fanpage «${vars.page_name}» + ghi nhận định mức cho Via «${vars.via_label}», đã mở Chrome (${vars.browser_profile}) tự điền chờ bạn bấm Tạo Trang!`,
       )
     },
@@ -1486,6 +1494,26 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                 </button>
               </div>
               <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                {bridgeProbe?.isDesktopApp ? (
+                  <span
+                    className="inline-flex items-center gap-1 rounded border border-emerald-500/50 bg-emerald-500/15 px-2 py-1 font-extrabold text-emerald-700 dark:text-emerald-300"
+                    title="Ứng dụng Windows AdsOps Desktop Pro đang chạy ngầm trên máy (127.0.0.1:17890)"
+                  >
+                    💻 App Windows Desktop Pro Đang Chạy (v{bridgeProbe.version || '1.0'})
+                  </span>
+                ) : bridgeProbe?.online ? (
+                  <span className="inline-flex items-center gap-1 rounded border border-sky-500/40 bg-sky-500/10 px-2 py-1 font-bold text-sky-700 dark:text-sky-300">
+                    ⚡ Cầu nối .bat Đang Chạy
+                  </span>
+                ) : null}
+                <a
+                  href="/downloads/AdsOps-Desktop-Pro-v1.0.zip"
+                  download
+                  className="rounded border border-indigo-500/45 bg-indigo-500/15 px-2 py-1 font-bold text-indigo-700 hover:bg-indigo-500/25 dark:text-indigo-300"
+                  title="Tải App Windows AdsOps Desktop Pro v1.0 (.exe chạy ngầm System Tray 24/7, tự cài Extension v2.9, Cầu nối 2 chiều tự bắt Page ID & báo Telegram)"
+                >
+                  💻 Tải App Windows v1.0 (.zip)
+                </a>
                 <button
                   type="button"
                   onClick={downloadWindowsChromeLauncherBat}
@@ -1498,18 +1526,18 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                   to="/chrome-extension"
                   className="rounded border border-line bg-surface px-2 py-1 font-bold text-brand-text hover:underline"
                 >
-                  Cài Extension v2.8 ↗
+                  Cài Extension v2.9 ↗
                 </Link>
               </div>
             </div>
 
-            {/* V2.8 PRO SAFETY TOGGLES & COOKIE KEEP-ALIVE */}
+            {/* V2.9 PRO SAFETY TOGGLES & COOKIE KEEP-ALIVE */}
             {(() => {
               const idleVias = viaQuotas.filter((v) => v.needs_keepalive)
               return (
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-[11px]">
                   <div className="flex flex-wrap items-center gap-2.5">
-                    <span className="font-extrabold text-emerald-700 dark:text-emerald-300">✨ Bảo vệ v2.8 Pro:</span>
+                    <span className="font-extrabold text-emerald-700 dark:text-emerald-300">✨ Bảo vệ v2.9 Pro:</span>
                     <label className="inline-flex cursor-pointer items-center gap-1.5 font-semibold text-ink">
                       <input
                         type="checkbox"
@@ -1555,11 +1583,11 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                       launchHumanKeepAliveForVias(picked)
                     }}
                     className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/45 bg-amber-500/15 px-2.5 py-1 text-[11px] font-bold text-amber-800 hover:bg-amber-500/25 disabled:opacity-50 dark:text-amber-200"
-                    title="Đảo Ấm Sinh Học v2.8 (chu kỳ lệch pha 2.5–4.5 ngày): đa lộ trình Newsfeed / Thông báo / Quản lý Trang / Business Suite BM, giữ nguyên tab nếu văng Cookie"
+                    title="Đảo Ấm Sinh Học v2.9 (chu kỳ lệch pha 2.5–4.5 ngày): đa lộ trình Newsfeed / Thông báo / Quản lý Trang / Business Suite BM, giữ nguyên tab nếu văng Cookie"
                   >
                     <Coffee className="h-3.5 w-3.5" />
                     <span>
-                      ☕ Đảo Ấm Sinh Học v2.8 ({idleVias.length > 0 ? `${idleVias.length} Via cần ấm` : `${Math.min(viaQuotas.length, 8)} Via`})
+                      ☕ Đảo Ấm Sinh Học v2.9 ({idleVias.length > 0 ? `${idleVias.length} Via cần ấm` : `${Math.min(viaQuotas.length, 8)} Via`})
                     </span>
                   </button>
                 </div>
@@ -1818,7 +1846,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                             Cấu hình Proxy Via ↗
                           </Link>
                           <Link to="/chrome-extension" className="underline hover:opacity-80">
-                            Tải Bộ Extension v2.8 ↗
+                            Tải Bộ Extension v2.9 ↗
                           </Link>
                         </span>
                       </div>
@@ -1944,7 +1972,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                           🎯 Hàng đợi {batchQueue.length} Page đã lưu vào Hệ thống
                         </div>
                         <p className="text-[11px] text-ink-muted">
-                          Bấm <strong>🤖 Chạy Full Automatic</strong> để Web tự mở từng Via giãn nhịp ({batchStaggerSeconds}s + ngẫu nhiên), Extension v2.8 tự bấm Tạo Trang và tự quét Page ID sau khi xong.
+                          Bấm <strong>🤖 Chạy Full Automatic</strong> để Web tự mở từng Via giãn nhịp ({batchStaggerSeconds}s + ngẫu nhiên), Extension v2.9 tự bấm Tạo Trang và tự quét Page ID sau khi xong.
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
@@ -2288,7 +2316,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
 
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                     <span className="text-[11px] text-ink-muted">
-                      💡 Hệ thống sẽ: (1) Lưu Page &amp; Nhật ký Via, (2) Mở đúng Chrome của Via đã chọn và (3) {autoSubmitMode ? 'Extension v2.8 tự điền + tự bấm Tạo Trang giãn nhịp an toàn (tự quét Page ID sau 26s).' : 'Extension v2.8 tự điền sẵn Tên + Tiểu sử chờ bạn kiểm tra & bấm Tạo Trang.'}
+                      💡 Hệ thống sẽ: (1) Lưu Page &amp; Nhật ký Via, (2) Mở đúng Chrome của Via đã chọn và (3) {autoSubmitMode ? 'Extension v2.9 tự điền + tự bấm Tạo Trang giãn nhịp an toàn (tự quét Page ID sau 26s).' : 'Extension v2.9 tự điền sẵn Tên + Tiểu sử chờ bạn kiểm tra & bấm Tạo Trang.'}
                     </span>
                     <div className="flex flex-wrap items-center gap-2">
                     <Button

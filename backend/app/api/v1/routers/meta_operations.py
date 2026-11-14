@@ -13,6 +13,7 @@ routes; it is `run_dispatcher.discovery_sweep_pass`, switched per connection by
 from __future__ import annotations
 
 import contextlib
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -3271,6 +3272,7 @@ def _build_pages_summary(
                         "page.via_created",
                         "page.warmup_posted",
                         "page.via_keepalive",
+                        "page.via_alert",
                     )
                 ),
             )
@@ -3281,7 +3283,7 @@ def _build_pages_summary(
     )
     for row in all_page_audit_rows:
         meta = row.metadata_json or row.after_json or {}
-        if isinstance(meta, dict) and row.entity_id and row.action != "page.via_keepalive":
+        if isinstance(meta, dict) and row.entity_id and row.action not in ("page.via_keepalive", "page.via_alert"):
             cur = overrides_by_page.setdefault(row.entity_id, {})
             for k, v in meta.items():
                 if v is not None:
@@ -3620,6 +3622,18 @@ def _build_pages_summary(
                 detail_txt = str(
                     meta.get("note")
                     or f"Via «{via_label_str}» vừa chạy phiên đảo ấm sinh học trên {browser_prof_str}"
+                )
+            elif row.action == "page.via_alert":
+                atype = str(meta.get("alert_type") or "")
+                action_label = (
+                    "🍪 Cảnh báo Văng Cookie Via"
+                    if atype == "COOKIE_LOGGED_OUT"
+                    else "🛑 Cảnh báo Checkpoint / Xác minh FB"
+                )
+                detail_txt = str(
+                    meta.get("detail")
+                    or meta.get("note")
+                    or f"Via «{via_label_str}» trên {browser_prof_str} cần kiểm tra lại phiên đăng nhập"
                 )
             else:
                 action_label = "🔄 Đồng bộ & Quét sức khỏe Page"
@@ -4271,6 +4285,8 @@ def create_page_via_profile_and_log(
         f"&adsops_page_cat={quote(category)}"
         f"&adsops_page_bio={quote(bio_description[:250])}"
         f"&adsops_auto_submit={'1' if auto_submit else '0'}"
+        f"&adsops_draft_page_id={pg.id}"
+        f"&adsops_via_id={quote(str(via_obj.id) if via_obj else '')}"
     )
     return {
         "item": created_item,
@@ -4557,6 +4573,8 @@ def batch_create_pages_auto_rotate_vias(
             f"&adsops_page_bio={quote(p_bio[:250])}"
             f"&adsops_batch_step={idx + 1}of{total_in_batch}"
             f"&adsops_auto_submit={'1' if auto_submit else '0'}"
+            f"&adsops_draft_page_id={pg.id}"
+            f"&adsops_via_id={quote(str(vq['via_id']))}"
         )
         batch_items.append(
             {
@@ -4717,47 +4735,13 @@ def claim_page_to_business_manager(
     body = payload or {}
     bm_id_raw = str(body.get("business_manager_id") or "").strip()
     bm_ext_raw = str(body.get("bm_external_id") or "").strip()
-    target_bm: BusinessManager | None = None
-
-    if bm_id_raw:
-        with contextlib.suppress(Exception):
-            target_bm = ctx.session.get(BusinessManager, uuid.UUID(bm_id_raw))
-            if target_bm and (target_bm.workspace_id != ctx.workspace_id or target_bm.archived_at is not None):
-                target_bm = None
-
-    if target_bm is None:
-        prior_rows = (
-            ctx.session.execute(
-                sa.select(AuditLog)
-                .where(
-                    AuditLog.workspace_id == ctx.workspace_id,
-                    AuditLog.entity_type == "page",
-                    AuditLog.entity_id == str(pg.id),
-                    AuditLog.action.in_(("page.via_created", "page.meta_updated", "page.meta_synced")),
-                )
-                .order_by(AuditLog.created_at.desc())
-            )
-            .scalars()
-            .all()
-        )
-        for row in prior_rows:
-            meta = row.metadata_json or row.after_json or {}
-            if not isinstance(meta, dict):
-                continue
-            cand_ext = str(meta.get("owner_bm_external_id") or "").strip()
-            cand_id = str(meta.get("owner_bm_id") or "").strip()
-            if cand_ext:
-                bm_ext_raw = bm_ext_raw or cand_ext
-            if cand_id and target_bm is None:
-                with contextlib.suppress(Exception):
-                    cand_obj = ctx.session.get(BusinessManager, uuid.UUID(cand_id))
-                    if cand_obj and cand_obj.workspace_id == ctx.workspace_id:
-                        target_bm = cand_obj
-            if target_bm or bm_ext_raw:
-                break
-
-    if target_bm is not None and target_bm.external_id:
-        bm_ext_raw = str(target_bm.external_id).strip()
+    target_bm, bm_ext_raw = _resolve_target_bm_for_page(
+        ctx.session,
+        ctx.workspace_id,
+        pg,
+        bm_id_raw=bm_id_raw,
+        bm_ext_raw=bm_ext_raw,
+    )
     if not bm_ext_raw:
         raise ValidationError("Page này chưa được chọn BM sở hữu. Hãy chọn BM cho Page trước khi gom về BM.")
 
@@ -4874,6 +4858,337 @@ def log_via_keepalive_activity(
     summary_data = _build_pages_summary(ctx.session, ctx.workspace_id, include_archived=False)
     return {
         "logged_count": len(entries),
+        **summary_data,
+    }
+
+
+def _send_workspace_telegram_alert(session: Any, workspace_id: uuid.UUID, lines: list[str]) -> bool:
+    """Best-effort workspace Telegram notification; reuses existing bot config and transport."""
+    from app.services.notification_transport import OutboundMessage
+    from app.services.telegram_bot_helper import get_workspace_telegram_record, resolve_workspace_bot_token
+    from app.services.telegram_transport import TelegramTransport
+
+    with contextlib.suppress(Exception):
+        settings = get_settings()
+        rec = get_workspace_telegram_record(session, workspace_id)
+        tok = resolve_workspace_bot_token(session, workspace_id, settings)
+        chat_id = str(rec.get("chat_id") or "").strip()
+        if rec.get("enabled") and tok and chat_id:
+            tr_tg = TelegramTransport(
+                bot_token=tok,
+                api_base_url=settings.telegram_api_base_url,
+                timeout_seconds=min(4, int(settings.telegram_timeout_seconds or 4)),
+            )
+            res = tr_tg.send(OutboundMessage(chat_id=chat_id, text="\n".join(lines)))
+            return bool(res.ok)
+    return False
+
+
+def _resolve_target_bm_for_page(
+    session: Any,
+    workspace_id: uuid.UUID,
+    pg: Any,
+    bm_id_raw: str = "",
+    bm_ext_raw: str = "",
+) -> tuple[Any, str]:
+    from app.models.entities import BusinessManager
+
+    target_bm: BusinessManager | None = None
+    if bm_id_raw:
+        with contextlib.suppress(Exception):
+            cand = session.get(BusinessManager, uuid.UUID(bm_id_raw))
+            if cand and cand.workspace_id == workspace_id and cand.archived_at is None:
+                target_bm = cand
+    if target_bm is None:
+        prior_rows = (
+            session.execute(
+                sa.select(AuditLog)
+                .where(
+                    AuditLog.workspace_id == workspace_id,
+                    AuditLog.entity_type == "page",
+                    AuditLog.entity_id == str(pg.id),
+                    AuditLog.action.in_(("page.via_created", "page.meta_updated", "page.meta_synced")),
+                )
+                .order_by(AuditLog.created_at.desc())
+            )
+            .scalars()
+            .all()
+        )
+        for row in prior_rows:
+            meta = row.metadata_json or row.after_json or {}
+            if not isinstance(meta, dict):
+                continue
+            cand_ext = str(meta.get("owner_bm_external_id") or "").strip()
+            cand_id = str(meta.get("owner_bm_id") or "").strip()
+            if cand_ext:
+                bm_ext_raw = bm_ext_raw or cand_ext
+            if cand_id and target_bm is None:
+                with contextlib.suppress(Exception):
+                    cand_obj = session.get(BusinessManager, uuid.UUID(cand_id))
+                    if cand_obj and cand_obj.workspace_id == workspace_id:
+                        target_bm = cand_obj
+            if target_bm or bm_ext_raw:
+                break
+    if target_bm is not None and target_bm.external_id:
+        bm_ext_raw = str(target_bm.external_id).strip()
+    return target_bm, bm_ext_raw
+
+
+def _extract_numeric_page_id(raw_id: str, raw_url: str) -> str:
+    cand = re.sub(r"\D", "", raw_id or "")
+    if 5 <= len(cand) <= 30:
+        return cand
+    if raw_url:
+        for pat in (r"[?&]id=(\d{5,30})", r"/profile\.php\?id=(\d{5,30})", r"facebook\.com/(\d{5,30})(?:[/?#]|$)"):
+            m = re.search(pat, raw_url)
+            if m:
+                return m.group(1)
+    return ""
+
+
+def _resolve_draft_page_for_browser_event(
+    session: Any,
+    workspace_id: uuid.UUID,
+    page_id_raw: str,
+    via_id_raw: str,
+    page_name_raw: str,
+) -> Any:
+    from app.models.entities import Page
+
+    if page_id_raw:
+        with contextlib.suppress(Exception):
+            cand = session.get(Page, uuid.UUID(page_id_raw))
+            if cand and cand.workspace_id == workspace_id and cand.archived_at is None:
+                return cand
+    drafts = list(
+        session.execute(
+            sa.select(Page)
+            .where(
+                Page.workspace_id == workspace_id,
+                Page.archived_at.is_(None),
+                sa.or_(Page.external_page_id.is_(None), Page.external_page_id == ""),
+            )
+            .order_by(Page.created_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+    if not drafts:
+        return None
+    if page_name_raw:
+        target_name = page_name_raw.strip().lower()
+        for d in drafts:
+            if (d.name or "").strip().lower() == target_name:
+                return d
+    if via_id_raw:
+        draft_ids = {str(d.id): d for d in drafts}
+        created_logs = (
+            session.execute(
+                sa.select(AuditLog)
+                .where(
+                    AuditLog.workspace_id == workspace_id,
+                    AuditLog.entity_type == "page",
+                    AuditLog.action == "page.via_created",
+                )
+                .order_by(AuditLog.created_at.desc())
+                .limit(50)
+            )
+            .scalars()
+            .all()
+        )
+        for row in created_logs:
+            meta = row.metadata_json or {}
+            if isinstance(meta, dict) and str(meta.get("via_id") or "") == via_id_raw and row.entity_id in draft_ids:
+                return draft_ids[row.entity_id]
+    return None
+
+
+@pages_router.post("/browser-event")
+def ingest_browser_event(
+    ctx: WriteCtx,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Ingest real-time events from AdsOps Desktop / Chrome Extension v2.9."""
+    from app.core.enums import ReferenceStatus
+    from app.core.errors import ValidationError
+    from app.models.entities import Page, PersonalAccountReference
+
+    body = payload or {}
+    event_type = str(body.get("event_type") or "").strip().upper()
+    if event_type not in ("PAGE_CREATED", "COOKIE_LOGGED_OUT", "SAFETY_CHALLENGE", "KEEPALIVE_OK"):
+        raise ValidationError("Loại sự kiện trình duyệt không hợp lệ.")
+
+    via_id_raw = str(body.get("via_id") or "").strip()[:80]
+    via_obj: PersonalAccountReference | None = None
+    if via_id_raw:
+        with contextlib.suppress(Exception):
+            cand_v = ctx.session.get(PersonalAccountReference, uuid.UUID(via_id_raw))
+            if cand_v and cand_v.workspace_id == ctx.workspace_id and cand_v.archived_at is None:
+                via_obj = cand_v
+
+    via_label_val = str(body.get("via_label") or (via_obj.label if via_obj else "") or "Via Quản trị").strip()[:120]
+    browser_prof_val = str(
+        body.get("browser_profile") or (via_obj.browser_profile_label if via_obj else "") or "Chrome Profile"
+    ).strip()[:120]
+    page_id_raw = str(body.get("page_id") or body.get("draft_page_id") or "").strip()[:80]
+    page_name_raw = str(body.get("page_name") or "").strip()[:200]
+    raw_page_url = str(body.get("page_url") or "").strip()[:500]
+    detail_txt = str(body.get("detail") or body.get("note") or "").strip()[:400]
+    now_iso = datetime.now(UTC).isoformat()
+
+    matched_pg = _resolve_draft_page_for_browser_event(
+        ctx.session,
+        ctx.workspace_id,
+        page_id_raw,
+        str(via_obj.id) if via_obj else via_id_raw,
+        page_name_raw,
+    )
+    bound_ext_pid = ""
+    auto_claimed = False
+    telegram_notified = False
+
+    if event_type == "PAGE_CREATED":
+        ext_pid = _extract_numeric_page_id(str(body.get("external_page_id") or ""), raw_page_url)
+        clean_url = raw_page_url if raw_page_url.startswith("https://") else (f"https://www.facebook.com/{ext_pid}" if ext_pid else "")
+        if matched_pg is not None and (ext_pid or clean_url):
+            if ext_pid:
+                dup = ctx.session.execute(
+                    sa.select(Page).where(
+                        Page.workspace_id == ctx.workspace_id,
+                        Page.external_page_id == ext_pid,
+                        Page.id != matched_pg.id,
+                    )
+                ).scalar_one_or_none()
+                if dup is None:
+                    matched_pg.external_page_id = ext_pid
+                    bound_ext_pid = ext_pid
+            if clean_url:
+                matched_pg.url = clean_url
+            matched_pg.status = ReferenceStatus.ACTIVE
+            matched_pg.updated_at = datetime.now(UTC)
+            ctx.audit.record(
+                action="page.meta_updated",
+                entity_type="page",
+                entity_id=matched_pg.id,
+                metadata={
+                    "page_name": matched_pg.name,
+                    "external_page_id": bound_ext_pid or matched_pg.external_page_id or "",
+                    "url": clean_url or matched_pg.url or "",
+                    "via_id": str(via_obj.id) if via_obj else via_id_raw,
+                    "via_label": via_label_val,
+                    "browser_profile": browser_prof_val,
+                    "synced_from_browser": True,
+                    "last_synced_at": now_iso,
+                },
+            )
+            if bound_ext_pid:
+                target_bm, bm_ext_raw = _resolve_target_bm_for_page(ctx.session, ctx.workspace_id, matched_pg)
+                if bm_ext_raw:
+                    for tr in _collect_workspace_meta_transports(ctx.session, ctx.workspace_id):
+                        if not hasattr(tr, "claim_page_to_bm"):
+                            continue
+                        ok, _ = tr.claim_page_to_bm(bm_ext_raw, bound_ext_pid)
+                        if ok:
+                            auto_claimed = True
+                            if target_bm is not None:
+                                matched_pg.notes = f"Tự động gom về BM {target_bm.name}"
+                            ctx.audit.record(
+                                action="page.meta_updated",
+                                entity_type="page",
+                                entity_id=matched_pg.id,
+                                metadata={
+                                    "page_name": matched_pg.name,
+                                    "owner_bm_id": str(target_bm.id) if target_bm else "",
+                                    "owner_bm_name": target_bm.name if target_bm else bm_ext_raw,
+                                    "owner_bm_external_id": bm_ext_raw,
+                                    "claimed_to_bm": True,
+                                    "auto_claimed_from_browser": True,
+                                    "last_synced_at": now_iso,
+                                },
+                            )
+                            break
+
+    elif event_type in ("COOKIE_LOGGED_OUT", "SAFETY_CHALLENGE"):
+        ctx.audit.record(
+            action="page.via_alert",
+            entity_type="page",
+            entity_id=str(matched_pg.id) if matched_pg else (via_id_raw or f"via:{via_label_val}"),
+            metadata={
+                "alert_type": event_type,
+                "via_id": str(via_obj.id) if via_obj else via_id_raw,
+                "via_label": via_label_val,
+                "browser_profile": browser_prof_val,
+                "page_name": (matched_pg.name if matched_pg else page_name_raw) or f"Cảnh báo Via ({via_label_val})",
+                "category": "Cảnh báo Via",
+                "detail": detail_txt or (
+                    "Phát hiện màn hình đăng nhập — Cookie Via có thể đã văng"
+                    if event_type == "COOKIE_LOGGED_OUT"
+                    else "Phát hiện Checkpoint / CAPTCHA — Auto đã dừng an toàn"
+                ),
+                "recorded_at": now_iso,
+            },
+        )
+        title_line = (
+            "🍪 CẢNH BÁO VĂNG COOKIE VIA (DESKTOP/CHROME)"
+            if event_type == "COOKIE_LOGGED_OUT"
+            else "🛑 CẢNH BÁO CHECKPOINT / XÁC MINH FB"
+        )
+        telegram_notified = _send_workspace_telegram_alert(
+            ctx.session,
+            ctx.workspace_id,
+            [
+                title_line,
+                f"Via: {via_label_val}",
+                f"Hồ sơ Chrome: {browser_prof_val}",
+                f"Chi tiết: {detail_txt or 'Cần kiểm tra trực tiếp trên trình duyệt Via'}",
+                "👉 Extension v2.9 đã tự dừng mọi thao tác để bảo vệ tài khoản.",
+            ],
+        )
+
+    elif event_type == "KEEPALIVE_OK":
+        ent = _parse_keepalive_entry(
+            {
+                "via_id": str(via_obj.id) if via_obj else via_id_raw,
+                "via_label": via_label_val,
+                "browser_profile": browser_prof_val,
+                "via_tier": body.get("via_tier") or "standard_via",
+                "route_summary": body.get("route_summary") or detail_txt or "feed -> notif",
+                "duration_sec": body.get("duration_sec") or 22,
+                "note": detail_txt,
+            }
+        )
+        route_s = ent["route_summary"] or "feed -> notif"
+        dur_sec = ent["duration_sec"]
+        dur_part = f" • ~{dur_sec}s" if dur_sec > 0 else ""
+        default_note = f"Đảo ấm Desktop/Extension v2.9 ({route_s}{dur_part}) trên {browser_prof_val}"
+        ctx.audit.record(
+            action="page.via_keepalive",
+            entity_type="page",
+            entity_id=ent["via_id"] or f"via:{via_label_val}",
+            metadata={
+                "via_id": ent["via_id"],
+                "via_label": via_label_val,
+                "browser_profile": browser_prof_val,
+                "via_tier": ent["via_tier"],
+                "route_summary": route_s,
+                "duration_sec": dur_sec,
+                "page_name": f"Phiên giữ Via ({via_label_val})",
+                "category": "Keep-Alive Cookie",
+                "mode": "DESKTOP_EXTENSION_KEEPALIVE_V29",
+                "note": ent["note"] or default_note,
+                "recorded_at": now_iso,
+            },
+        )
+
+    ctx.commit()
+    summary_data = _build_pages_summary(ctx.session, ctx.workspace_id, include_archived=False)
+    return {
+        "ok": True,
+        "event_type": event_type,
+        "matched_page_id": str(matched_pg.id) if matched_pg else None,
+        "external_page_id": bound_ext_pid or (matched_pg.external_page_id if matched_pg else None),
+        "auto_claimed_bm": auto_claimed,
+        "telegram_notified": telegram_notified,
         **summary_data,
     }
 

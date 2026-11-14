@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>AdsOpsDesktop</AssemblyName>
+    <RootNamespace>AdsOpsDesktop</RootNamespace>
+    <Version>1.0.0</Version>
+    <Product>AdsOps Desktop Pro</Product>
+    <Company>AdsOps</Company>
+    <Description>AdsOps Desktop Pro v1.0 — Local Chrome Bridge, Extension v2.9 Auto-Provisioner, 2-Way Browser Event Relay &amp; Vault Backup</Description>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="extension_templates_v29.json" />
+  </ItemGroup>
+</Project>
