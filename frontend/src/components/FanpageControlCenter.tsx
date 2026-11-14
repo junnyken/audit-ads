@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertTriangle,
+  Bot,
   Building2,
   Check,
   CheckCircle2,
@@ -13,13 +14,17 @@ import {
   Image as ImageIcon,
   Layers,
   Link2,
+  Pause,
+  Play,
   Plus,
   RefreshCw,
   Search,
   Settings2,
   ShieldAlert,
   ShieldCheck,
+  SkipForward,
   Sparkles,
+  Square,
   Trash2,
   UserRoundCog,
   X,
@@ -28,9 +33,12 @@ import { useI18n } from '../i18n'
 import { api } from '../lib/api'
 import type { AdAccount, Paged, ReferenceRecord } from '../lib/types'
 import {
+  computeSafeViaRestSeconds,
   downloadBatchPageCreationBat,
   downloadUniquePageMediaZip,
+  downloadWindowsChromeLauncherBat,
   launchInAssignedChromeProfile,
+  withAutoSubmitPageUrl,
   type BatchChromePageTask,
 } from '../lib/chromeProfileLauncher'
 import { Badge } from './primitives/badge'
@@ -253,9 +261,38 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
   const [batchBrandPrefix, setBatchBrandPrefix] = useState('')
   const [batchCustomNames, setBatchCustomNames] = useState('')
   const [batchCount, setBatchCount] = useState(3)
-  const [batchStaggerSeconds, setBatchStaggerSeconds] = useState(18)
+  const [batchStaggerSeconds, setBatchStaggerSeconds] = useState(22)
   const [batchQueue, setBatchQueue] = useState<BatchCreatedPageTask[]>([])
   const [batchQueueIdx, setBatchQueueIdx] = useState(0)
+  const [autoSubmitMode, setAutoSubmitMode] = useState(true)
+  const [autoRunner, setAutoRunner] = useState<{
+    phase: 'idle' | 'running' | 'paused' | 'syncing' | 'done'
+    currentIdx: number
+    total: number
+    countdownSec: number
+    lastJitterSec: number
+    currentViaLabel: string
+    currentPageName: string
+    bridgeMode: 'bridge' | 'protocol' | null
+  }>({
+    phase: 'idle',
+    currentIdx: 0,
+    total: 0,
+    countdownSec: 0,
+    lastJitterSec: 0,
+    currentViaLabel: '',
+    currentPageName: '',
+    bridgeMode: null,
+  })
+  const runnerTasksRef = useRef<BatchCreatedPageTask[]>([])
+  const runnerStateRef = useRef(autoRunner)
+  runnerStateRef.current = autoRunner
+  const autoRunAfterCreateRef = useRef(true)
+  const autoSyncTimerRef = useRef<number | null>(null)
+  const staggerSecondsRef = useRef(batchStaggerSeconds)
+  staggerSecondsRef.current = batchStaggerSeconds
+  const autoSubmitModeRef = useRef(autoSubmitMode)
+  autoSubmitModeRef.current = autoSubmitMode
   const [warmupTargetPageId, setWarmupTargetPageId] = useState('')
   const [warmupMessage, setWarmupMessage] = useState(VIA_PAGE_TEMPLATES[0].warmupPost)
   const [logViaFilter, setLogViaFilter] = useState('ALL')
@@ -395,6 +432,136 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
     },
   })
 
+  const syncMetaRef = useRef(syncMetaMut)
+  syncMetaRef.current = syncMetaMut
+
+  const activateBatchTaskAtIndex = (
+    tasks: BatchCreatedPageTask[],
+    idx: number,
+    baseStaggerSec: number,
+    prevBridgeMode: 'bridge' | 'protocol' | null = null,
+  ) => {
+    const task = tasks[idx]
+    if (!task) return
+    setBatchQueueIdx(idx)
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      void navigator.clipboard
+        .writeText(`${task.page_name}\n\nTiểu sử: ${task.bio_description}\n\nBài mồi:\n${task.warmup_post_text}`)
+        .catch(() => {})
+    }
+    const targetUrl = withAutoSubmitPageUrl(task.launch_url, autoSubmitModeRef.current)
+    void launchInAssignedChromeProfile(
+      targetUrl,
+      task.browser_profile,
+      task.via_label,
+      task.network_label,
+    ).then((mode) => {
+      runnerStateRef.current = { ...runnerStateRef.current, bridgeMode: mode }
+      setAutoRunner((prev) => ({ ...prev, bridgeMode: mode }))
+    })
+
+    if (idx >= tasks.length - 1) {
+      const syncState = {
+        phase: 'syncing' as const,
+        currentIdx: idx,
+        total: tasks.length,
+        countdownSec: 24,
+        lastJitterSec: 0,
+        currentViaLabel: task.via_label,
+        currentPageName: task.page_name,
+        bridgeMode: prevBridgeMode,
+      }
+      runnerStateRef.current = syncState
+      setAutoRunner(syncState)
+    } else {
+      const rest = computeSafeViaRestSeconds(baseStaggerSec)
+      const nextState = {
+        phase: 'running' as const,
+        currentIdx: idx,
+        total: tasks.length,
+        countdownSec: rest.totalSeconds,
+        lastJitterSec: rest.jitterSeconds,
+        currentViaLabel: task.via_label,
+        currentPageName: task.page_name,
+        bridgeMode: prevBridgeMode,
+      }
+      runnerStateRef.current = nextState
+      setAutoRunner(nextState)
+    }
+  }
+
+  const startWebAutoRunner = (tasks: BatchCreatedPageTask[], baseStaggerSec: number) => {
+    if (!Array.isArray(tasks) || tasks.length === 0) return
+    runnerTasksRef.current = tasks
+    activateBatchTaskAtIndex(tasks, 0, baseStaggerSec, null)
+  }
+
+  const stopWebAutoRunner = () => {
+    const stopped = {
+      phase: 'idle' as const,
+      currentIdx: 0,
+      total: 0,
+      countdownSec: 0,
+      lastJitterSec: 0,
+      currentViaLabel: '',
+      currentPageName: '',
+      bridgeMode: null,
+    }
+    runnerStateRef.current = stopped
+    setAutoRunner(stopped)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (autoSyncTimerRef.current !== null) {
+        window.clearTimeout(autoSyncTimerRef.current)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (autoRunner.phase !== 'running' && autoRunner.phase !== 'syncing') return
+    const timer = window.setInterval(() => {
+      const cur = runnerStateRef.current
+      if (cur.phase === 'paused' || cur.phase === 'idle' || cur.phase === 'done') return
+
+      if (cur.phase === 'syncing') {
+        if (cur.countdownSec > 1) {
+          const next = { ...cur, countdownSec: cur.countdownSec - 1 }
+          runnerStateRef.current = next
+          setAutoRunner(next)
+          return
+        }
+        const doneState = { ...cur, phase: 'done' as const, countdownSec: 0 }
+        runnerStateRef.current = doneState
+        setAutoRunner(doneState)
+        syncMetaRef.current.mutate()
+        setBannerMsg(
+          '🤖 ✅ Hoàn tất chuỗi Full Automatic! Hệ thống đã tự quét đồng bộ Page ID mới từ Meta Graph API (Auto-Cron nền sẽ tiếp tục nuôi bài #2, #3 mỗi 8h).',
+        )
+        return
+      }
+
+      if (cur.countdownSec > 1) {
+        const next = { ...cur, countdownSec: cur.countdownSec - 1 }
+        runnerStateRef.current = next
+        setAutoRunner(next)
+        return
+      }
+
+      const tasks = runnerTasksRef.current
+      const nextIdx = cur.currentIdx + 1
+      if (nextIdx >= tasks.length) {
+        const syncState = { ...cur, phase: 'syncing' as const, countdownSec: 24 }
+        runnerStateRef.current = syncState
+        setAutoRunner(syncState)
+        return
+      }
+      activateBatchTaskAtIndex(tasks, nextIdx, staggerSecondsRef.current, cur.bridgeMode)
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [autoRunner.phase])
+
   const viaCreateLaunchMut = useMutation({
     mutationFn: (payload: {
       via_id: string
@@ -407,6 +574,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
       via_label: string
       network_label: string
       force_override?: boolean
+      auto_submit?: boolean
     }) =>
       api.post<FanpageSummaryResponse & { item: FanpageSummaryItem; launch_url: string }>(
         '/api/v1/facebook-pages/via-create-launch',
@@ -417,18 +585,29 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
       void qc.invalidateQueries({ queryKey: ['pages'] })
       const textToCopy = `${vars.page_name}\n\nTiểu sử: ${vars.bio_description}\n\nBài đăng mồi đầu tiên:\n${vars.warmup_post_text}`
       void navigator.clipboard.writeText(textToCopy)
-      launchInAssignedChromeProfile(
-        res.launch_url || 'https://www.facebook.com/pages/creation/',
+      const isAuto = autoSubmitModeRef.current
+      void launchInAssignedChromeProfile(
+        withAutoSubmitPageUrl(res.launch_url || 'https://www.facebook.com/pages/creation/', isAuto),
         vars.browser_profile || 'Profile 1',
         vars.via_label || 'Via Giữ Page',
         vars.network_label || '',
       )
+      if (isAuto) {
+        if (autoSyncTimerRef.current !== null) {
+          window.clearTimeout(autoSyncTimerRef.current)
+        }
+        autoSyncTimerRef.current = window.setTimeout(() => {
+          syncMetaRef.current.mutate()
+        }, 26_000)
+      }
       setStudioPageName('')
       setForceOverrideQuota(false)
       setBannerMsg(
         isEn
-          ? `🌱 Created & logged Page "${vars.page_name}" under Via "${vars.via_label}" and launched Chrome (${vars.browser_profile}) to auto-fill!`
-          : `🌱 Đã lưu Fanpage «${vars.page_name}» + ghi nhận định mức & lịch sử cho Via «${vars.via_label}», đồng thời mở đúng Hồ sơ Chrome (${vars.browser_profile}) tự điền tạo Page!`,
+          ? `🌱 Created & logged Page "${vars.page_name}" under Via "${vars.via_label}" and launched Chrome (${vars.browser_profile})!`
+          : isAuto
+            ? `🤖 [Full Automatic v2.6] Đã lưu Page «${vars.page_name}» + mở Chrome (${vars.browser_profile}) tự điền & tự bấm Tạo Trang theo nhịp tự nhiên; hệ thống sẽ tự quét Page ID sau 26s!`
+            : `🌱 Đã lưu Fanpage «${vars.page_name}» + ghi nhận định mức cho Via «${vars.via_label}», đã mở Chrome (${vars.browser_profile}) tự điền chờ bạn bấm Tạo Trang!`,
       )
     },
     onError: (err: unknown) => {
@@ -445,6 +624,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
       custom_names: string
       owner_bm_id: string
       stagger_seconds: number
+      auto_submit?: boolean
     }) =>
       api.post<
         FanpageSummaryResponse & {
@@ -459,12 +639,20 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
     onSuccess: (res) => {
       void qc.invalidateQueries({ queryKey: ['facebook-pages-summary'] })
       void qc.invalidateQueries({ queryKey: ['pages'] })
-      setBatchQueue(res.batch_items ?? [])
+      const itemsList = res.batch_items ?? []
+      setBatchQueue(itemsList)
       setBatchQueueIdx(0)
       const warnSuffix = res.quota_warning_message ? ` ${res.quota_warning_message}` : ''
-      setBannerMsg(
-        `⚡ Đã khởi tạo lô ${res.created_count} Fanpage và tự xoay vòng đều ${res.created_count} Via khỏe (1 Via = tối đa 1 Page/đợt). Hãy tải file .bat mở cách quãng ${res.stagger_seconds}s hoặc bấm Mở Tuần Tự từng Via ngay bên dưới!${warnSuffix}`,
-      )
+      if (autoRunAfterCreateRef.current && itemsList.length > 0) {
+        startWebAutoRunner(itemsList, res.stagger_seconds || staggerSecondsRef.current)
+        setBannerMsg(
+          `🤖 Đã khởi tạo lô ${res.created_count} Page & BẮT ĐẦU CHẠY FULL AUTOMATIC (mỗi Via nghỉ an toàn giãn nhịp ${res.stagger_seconds}s + ngẫu nhiên chống quét)!${warnSuffix}`,
+        )
+      } else {
+        setBannerMsg(
+          `⚡ Đã khởi tạo lô ${res.created_count} Fanpage và xoay vòng ${res.created_count} Via khỏe (1 Via = tối đa 1 Page/đợt). Bấm Chạy Full Automatic hoặc tải .bat bên dưới!${warnSuffix}`,
+        )
+      }
     },
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : 'Không đủ Via sạch để tạo lô mới.'
@@ -894,7 +1082,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                   </span>
                 </CardTitle>
                 <p className="mt-0.5 text-xs text-ink-muted">
-                  Tự động xoay vòng 1 Page = 1 Via sạch, chống trùng nội dung (Auto Spin Tên + Tiểu sử + Bài mồi), mở Chrome cách quãng 18s chống Checkpoint và tự cảnh báo nếu Via sắp hoặc đã chạm trần.
+                  Xoay vòng 1 Page = 1 Via sạch, tự Spin Tên/Tiểu sử không trùng, chạy Full Automatic 1 chạm trên Web với khoảng nghỉ giãn nhịp + cộng ngẫu nhiên chống Checkpoint.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
@@ -957,6 +1145,52 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
           </CardHeader>
 
           <CardContent className="space-y-4 p-4">
+            {/* CLEAN AUTOMATION MODE BAR */}
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-surface-muted/40 px-3 py-2 text-xs">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-bold text-ink">Chế độ thao tác trên Chrome:</span>
+                <button
+                  type="button"
+                  onClick={() => setAutoSubmitMode(true)}
+                  className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-bold transition ${
+                    autoSubmitMode
+                      ? 'border-emerald-500 bg-emerald-600 text-white shadow-xs'
+                      : 'border-line bg-surface text-ink hover:border-emerald-500/40'
+                  }`}
+                >
+                  <Bot className="h-3.5 w-3.5" />
+                  <span>🤖 Full Automatic (Tự điền + Tự bấm Tạo &amp; Hoàn tất)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAutoSubmitMode(false)}
+                  className={`rounded-lg border px-2.5 py-1 text-[11px] font-bold transition ${
+                    !autoSubmitMode
+                      ? 'border-sky-500 bg-sky-600 text-white shadow-xs'
+                      : 'border-line bg-surface text-ink hover:border-sky-500/40'
+                  }`}
+                >
+                  <span>👀 Bán tự động (Tự điền, chờ bấm tay)</span>
+                </button>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                <button
+                  type="button"
+                  onClick={downloadWindowsChromeLauncherBat}
+                  className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 font-bold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+                  title="Chạy 1 lần duy nhất để bật Cầu nối ngầm 127.0.0.1:17890 mở đa Chrome không hiện hộp thoại hỏi"
+                >
+                  ⚡ Bật Cầu nối Mở Ngầm (.bat 1 lần)
+                </button>
+                <Link
+                  to="/chrome-extension"
+                  className="rounded border border-line bg-surface px-2 py-1 font-bold text-brand-text hover:underline"
+                >
+                  Cài Extension v2.6 ↗
+                </Link>
+              </div>
+            </div>
+
             {/* TAB 1: AUTO-ROTATING MULTI-VIA BATCH PAGE CREATOR */}
             {studioTab === 'batch' && (
               <div className="space-y-4">
@@ -1011,15 +1245,15 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                       </div>
 
                       <div>
-                        <label className="label text-xs">Giãn cách mở Chrome (giây/Via)</label>
+                        <label className="label text-xs">Khoảng nghỉ an toàn (+ngẫu nhiên 4–12s/Via)</label>
                         <select
                           value={batchStaggerSeconds}
                           onChange={(e) => setBatchStaggerSeconds(Number(e.target.value))}
                           className="input text-xs font-semibold"
                         >
-                          <option value={15}>15 giây / Via (Nhanh)</option>
-                          <option value={18}>18 giây / Via (Khuyến nghị)</option>
-                          <option value={25}>25 giây / Via (Siêu an toàn)</option>
+                          <option value={22}>22s + ngẫu nhiên 4–10s / Via (Khuyên dùng)</option>
+                          <option value={32}>32s + ngẫu nhiên 5–12s / Via (Siêu an toàn)</option>
+                          <option value={45}>45s + ngẫu nhiên 5–12s / Via (Nuôi kỹ tự nhiên)</option>
                         </select>
                       </div>
 
@@ -1078,7 +1312,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                             Cấu hình Proxy Via ↗
                           </Link>
                           <Link to="/chrome-extension" className="underline hover:opacity-80">
-                            Tải Bộ Extension v2.5 ↗
+                            Tải Bộ Extension v2.6 ↗
                           </Link>
                         </span>
                       </div>
@@ -1086,12 +1320,13 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
 
                     <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                       <span className="text-[11px] text-ink-muted">
-                        💡 Khi chạy xong nhớ vào bấm <strong>🔄 Đồng bộ Fanpage từ Meta</strong> để hệ thống tự ghép <code>Page ID</code> thật vào từng Page vừa tạo.
+                        🛡️ Nghỉ giãn nhịp <strong>{batchStaggerSeconds}s + random 4–12s</strong> giữa mỗi Via · Tự dừng ngay nếu FB hỏi xác minh · Tự quét <code>Page ID</code> sau khi xong.
                       </span>
                       <Button
                         size="sm"
                         disabled={eligibleBatchVias.length === 0 || viaBatchCreateMut.isPending}
-                        onClick={() =>
+                        onClick={() => {
+                          autoRunAfterCreateRef.current = true
                           viaBatchCreateMut.mutate({
                             count: batchCount,
                             niche_key: batchNicheKey,
@@ -1099,15 +1334,18 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                             custom_names: batchCustomNames,
                             owner_bm_id: studioBmId || String(allBms[0]?.id || ''),
                             stagger_seconds: batchStaggerSeconds,
+                            auto_submit: autoSubmitMode,
                           })
-                        }
-                        className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 font-bold"
+                        }}
+                        className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 font-bold shadow-xs"
                       >
-                        <Sparkles className="h-3.5 w-3.5" />
+                        {autoSubmitMode ? <Bot className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5" />}
                         <span>
                           {viaBatchCreateMut.isPending
-                            ? 'Đang xoay vòng Via & tạo lô...'
-                            : `🚀 Khởi Tạo Lô ${Math.min(batchCount, eligibleBatchVias.length)} Page & Xoay Vòng ${Math.min(batchCount, eligibleBatchVias.length)} Via Sạch`}
+                            ? 'Đang tạo lô & khởi chạy Auto...'
+                            : autoSubmitMode
+                              ? `🤖 Tạo & Chạy Full Automatic (${Math.min(batchCount, eligibleBatchVias.length)} Page)`
+                              : `🚀 Khởi Tạo Lô ${Math.min(batchCount, eligibleBatchVias.length)} Page (Bán tự động)`}
                         </span>
                       </Button>
                     </div>
@@ -1171,19 +1409,126 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                   </div>
                 </div>
 
-                {/* POST-CREATION BATCH EXECUTION QUEUE */}
+                {/* POST-CREATION BATCH EXECUTION QUEUE & LIVE AUTO-RUNNER */}
                 {batchQueue.length > 0 && (
                   <div className="space-y-3 rounded-xl border-2 border-emerald-500/50 bg-emerald-500/5 p-3.5">
+                    {autoRunner.phase !== 'idle' && (
+                      <div className="space-y-2 rounded-xl border border-emerald-500/50 bg-surface p-3 shadow-xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-2 text-xs">
+                            <Bot className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                            <span className="font-extrabold text-ink">
+                              {autoRunner.phase === 'running' &&
+                                `🤖 Đang chạy Automatic (${autoRunner.currentIdx + 1}/${autoRunner.total}) · Đang mở: ${autoRunner.currentViaLabel}`}
+                              {autoRunner.phase === 'paused' &&
+                                `⏸️ Đã tạm dừng ở Via ${autoRunner.currentIdx + 1}/${autoRunner.total} (${autoRunner.currentViaLabel})`}
+                              {autoRunner.phase === 'syncing' &&
+                                `🔄 Đã mở đủ ${autoRunner.total}/${autoRunner.total} Via — Đang đợi ${autoRunner.countdownSec}s rồi tự đồng bộ Page ID từ Meta...`}
+                              {autoRunner.phase === 'done' &&
+                                `✅ Hoàn tất tự động ${autoRunner.total}/${autoRunner.total} Via & đã kích hoạt đồng bộ Meta!`}
+                            </span>
+                            {autoRunner.phase === 'running' && (
+                              <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 font-mono text-[11px] font-bold text-amber-700 dark:text-amber-300">
+                                ⏳ Nghỉ an toàn {autoRunner.countdownSec}s (+{autoRunner.lastJitterSec}s ngẫu nhiên)
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {autoRunner.phase === 'running' && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const p = { ...runnerStateRef.current, phase: 'paused' as const }
+                                    runnerStateRef.current = p
+                                    setAutoRunner(p)
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/15 px-2.5 py-1 text-[11px] font-bold text-amber-700 hover:bg-amber-500/25 dark:text-amber-300"
+                                >
+                                  <Pause className="h-3 w-3" />
+                                  <span>Tạm dừng</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const tasks = runnerTasksRef.current
+                                    const nextIdx = runnerStateRef.current.currentIdx + 1
+                                    if (nextIdx < tasks.length) {
+                                      activateBatchTaskAtIndex(tasks, nextIdx, staggerSecondsRef.current, runnerStateRef.current.bridgeMode)
+                                    }
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded-md border border-emerald-500/40 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-bold text-emerald-700 hover:bg-emerald-500/25 dark:text-emerald-300"
+                                >
+                                  <SkipForward className="h-3 w-3" />
+                                  <span>Mở ngay Via kế</span>
+                                </button>
+                              </>
+                            )}
+                            {autoRunner.phase === 'paused' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const r = { ...runnerStateRef.current, phase: 'running' as const }
+                                  runnerStateRef.current = r
+                                  setAutoRunner(r)
+                                }}
+                                className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-700"
+                              >
+                                <Play className="h-3 w-3" />
+                                <span>Tiếp tục</span>
+                              </button>
+                            )}
+                            {(autoRunner.phase === 'running' || autoRunner.phase === 'paused' || autoRunner.phase === 'syncing') && (
+                              <button
+                                type="button"
+                                onClick={stopWebAutoRunner}
+                                className="inline-flex items-center gap-1 rounded-md border border-rose-500/40 bg-rose-500/10 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-500/20 dark:text-rose-300"
+                              >
+                                <Square className="h-3 w-3" />
+                                <span>Dừng Auto</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="h-2 w-full overflow-hidden rounded-full bg-surface-muted">
+                          <div
+                            className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+                            style={{
+                              width: `${autoRunner.total > 0 ? Math.round(((autoRunner.currentIdx + 1) / autoRunner.total) * 100) : 0}%`,
+                            }}
+                          />
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-ink-muted">
+                          <span>Page hiện tại: <strong className="text-ink">{autoRunner.currentPageName}</strong></span>
+                          <span>
+                            {autoRunner.bridgeMode === 'bridge'
+                              ? '⚡ Đang mở qua Cầu nối ngầm 127.0.0.1:17890 (0 hộp thoại hỏi)'
+                              : autoRunner.bridgeMode === 'protocol'
+                                ? '🔗 Đang mở qua adsops-chrome:// (khuyên chạy .bat Cầu nối 1 lần để 0 popup)'
+                                : '🚀 Đang kết nối trình duyệt Chrome Profile...'}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
                         <div className="text-xs font-extrabold text-emerald-800 dark:text-emerald-200">
-                          🎯 Hàng đợi Khởi chạy Lô {batchQueue.length} Page đã lưu vĩnh viễn vào Hệ thống
+                          🎯 Hàng đợi {batchQueue.length} Page đã lưu vào Hệ thống
                         </div>
                         <p className="text-[11px] text-ink-muted">
-                          Cách 1 (Nhanh nhất): Tải file <code>.bat</code> để Windows tự mở từng Chrome Via cách nhau {batchStaggerSeconds} giây · Cách 2: Bấm nút Mở Tuần Tự từng Via bên phải.
+                          Bấm <strong>🤖 Chạy Full Automatic</strong> để Web tự mở từng Via giãn nhịp ({batchStaggerSeconds}s + ngẫu nhiên), Extension v2.6 tự bấm Tạo Trang và tự quét Page ID sau khi xong.
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => startWebAutoRunner(batchQueue, batchStaggerSeconds)}
+                          className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 font-bold"
+                        >
+                          <Bot className="h-3.5 w-3.5" />
+                          <span>🤖 Chạy Full Automatic ({batchQueue.length} Via)</span>
+                        </Button>
                         <Button
                           size="sm"
                           variant="secondary"
@@ -1199,41 +1544,41 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                           title="Tự vẽ bộ Avatar 800x800 + Cover 1640x624 khác mã Hash cho từng Page trong lô"
                         >
                           <ImageIcon className="h-3.5 w-3.5" />
-                          <span>🎨 Tải Bộ Ảnh Độc Bản ({batchQueue.length} Page)</span>
+                          <span>🎨 Bộ Ảnh Độc Bản</span>
                         </Button>
                         <Button
                           size="sm"
                           variant="secondary"
-                          onClick={() => downloadBatchPageCreationBat(batchQueue, batchStaggerSeconds)}
-                          className="gap-1.5 border-emerald-500/40 bg-surface font-bold text-emerald-700 dark:text-emerald-300"
+                          onClick={() => downloadBatchPageCreationBat(batchQueue, batchStaggerSeconds, autoSubmitMode)}
+                          className="gap-1.5 border-line bg-surface font-semibold text-ink"
                         >
-                          <span>📥 Tải File Mở Tự Động Cách {batchStaggerSeconds}s ({batchQueue.length} Via .bat)</span>
+                          <span>📥 Dự phòng .bat</span>
                         </Button>
                         <Button
                           size="sm"
+                          variant="secondary"
                           onClick={() => {
                             const task = batchQueue[batchQueueIdx % batchQueue.length]
                             if (!task) return
                             void navigator.clipboard.writeText(
                               `${task.page_name}\n\nTiểu sử: ${task.bio_description}\n\nBài mồi:\n${task.warmup_post_text}`,
                             )
-                            launchInAssignedChromeProfile(
-                              task.launch_url,
+                            void launchInAssignedChromeProfile(
+                              withAutoSubmitPageUrl(task.launch_url, autoSubmitMode),
                               task.browser_profile,
                               task.via_label,
                               task.network_label,
                             )
                             setBatchQueueIdx((prev) => (prev + 1 < batchQueue.length ? prev + 1 : 0))
                             setBannerMsg(
-                              `🚀 Đã mở [${task.batch_index}/${task.batch_size}] Via «${task.via_label}» (${task.browser_profile}) với Tên & Tiểu sử tự điền cho Page «${task.page_name}»!`,
+                              `🚀 Đã mở lẻ [${task.batch_index}/${task.batch_size}] Via «${task.via_label}» (${task.browser_profile}) cho Page «${task.page_name}»!`,
                             )
                           }}
-                          className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 font-bold"
+                          className="gap-1.5 bg-surface font-semibold text-ink"
                         >
                           <Globe className="h-3.5 w-3.5" />
                           <span>
-                            ▶️ Mở Via Tiếp Theo ({(batchQueueIdx % batchQueue.length) + 1}/{batchQueue.length}:{' '}
-                            {batchQueue[batchQueueIdx % batchQueue.length]?.via_label})
+                            ▶️ Mở Lẻ ({(batchQueueIdx % batchQueue.length) + 1}/{batchQueue.length})
                           </span>
                         </Button>
                       </div>
@@ -1257,8 +1602,8 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                               type="button"
                               onClick={() => {
                                 void navigator.clipboard.writeText(`${task.page_name}\n${task.bio_description}`)
-                                launchInAssignedChromeProfile(
-                                  task.launch_url,
+                                void launchInAssignedChromeProfile(
+                                  withAutoSubmitPageUrl(task.launch_url, autoSubmitMode),
                                   task.browser_profile,
                                   task.via_label,
                                   task.network_label,
@@ -1506,7 +1851,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
 
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                     <span className="text-[11px] text-ink-muted">
-                      💡 Hệ thống sẽ: (1) Lưu Page &amp; Nhật ký Via vào PostgreSQL, (2) Mở đúng Chrome của Via đã chọn tại trang Tạo Page và (3) Extension v2.5 tự điền Tên + Hạng mục + Tiểu sử.
+                      💡 Hệ thống sẽ: (1) Lưu Page &amp; Nhật ký Via, (2) Mở đúng Chrome của Via đã chọn và (3) {autoSubmitMode ? 'Extension v2.6 tự điền + tự bấm Tạo Trang giãn nhịp an toàn (tự quét Page ID sau 26s).' : 'Extension v2.6 tự điền sẵn Tên + Tiểu sử chờ bạn kiểm tra & bấm Tạo Trang.'}
                     </span>
                     <div className="flex flex-wrap items-center gap-2">
                     <Button
@@ -1544,6 +1889,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                           via_label: chosenVia?.label || 'Tài Khoản Chính',
                           network_label: chosenVia?.network_label || '',
                           force_override: forceOverrideQuota,
+                          auto_submit: autoSubmitMode,
                         })
                       }}
                       className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 font-bold"
@@ -1554,7 +1900,9 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                           ? 'Đang lưu & khởi chạy...'
                           : isBlockedQuota && !forceOverrideQuota
                             ? '🔒 Đang khóa an toàn (Hãy đổi Via sạch hoặc tick xác nhận)'
-                            : '🚀 Lưu Hệ Thống & Mở Chrome Via Tự Điền Tạo Page'}
+                            : autoSubmitMode
+                              ? '🤖 Lưu Hệ Thống & Chạy Full Automatic Trên Chrome Via'
+                              : '🚀 Lưu Hệ Thống & Mở Chrome Via Tự Điền (Chờ Bấm Tay)'}
                       </span>
                     </Button>
                     </div>

@@ -4096,6 +4096,7 @@ def create_page_via_profile_and_log(
         "owner_bm_name": bm_obj.name if bm_obj else "",
         "owner_bm_external_id": bm_obj.external_id if bm_obj else "",
         "quota_override": force_override,
+        "auto_submit": bool(payload.get("auto_submit", True)),
         "last_synced_at": now_iso,
     }
     ctx.audit.record(
@@ -4125,11 +4126,13 @@ def create_page_via_profile_and_log(
     ctx.commit()
     summary_data = _build_pages_summary(ctx.session, ctx.workspace_id, include_archived=False)
     created_item = next((i for i in summary_data["items"] if i["id"] == str(pg.id)), None)
+    auto_submit = bool(payload.get("auto_submit", True))
     creation_url = (
         f"https://www.facebook.com/pages/creation/"
         f"?adsops_page_name={quote(page_name)}"
         f"&adsops_page_cat={quote(category)}"
         f"&adsops_page_bio={quote(bio_description[:250])}"
+        f"&adsops_auto_submit={'1' if auto_submit else '0'}"
     )
     return {
         "item": created_item,
@@ -4279,10 +4282,11 @@ def batch_create_pages_auto_rotate_vias(
     requested_count = min(20, requested_count)
 
     try:
-        stagger_seconds = int(payload.get("stagger_seconds") or 18)
+        stagger_seconds = int(payload.get("stagger_seconds") or 22)
     except Exception:
-        stagger_seconds = 18
-    stagger_seconds = max(10, min(60, stagger_seconds))
+        stagger_seconds = 22
+    stagger_seconds = max(18, min(120, stagger_seconds))
+    auto_submit = bool(payload.get("auto_submit", True))
 
     niche_key = str(payload.get("niche_key") or "beauty_spa").strip()
     brand_prefix = str(payload.get("brand_prefix") or "").strip()[:80]
@@ -4388,6 +4392,7 @@ def batch_create_pages_auto_rotate_vias(
                 "batch_index": idx + 1,
                 "batch_size": total_in_batch,
                 "quota_override": force_override and vq.get("quota_status") not in ("SAFE", "NEAR_LIMIT"),
+                "auto_submit": auto_submit,
                 "last_synced_at": now_iso,
             },
         )
@@ -4413,6 +4418,7 @@ def batch_create_pages_auto_rotate_vias(
             f"&adsops_page_cat={quote(p_cat)}"
             f"&adsops_page_bio={quote(p_bio[:250])}"
             f"&adsops_batch_step={idx + 1}of{total_in_batch}"
+            f"&adsops_auto_submit={'1' if auto_submit else '0'}"
         )
         batch_items.append(
             {

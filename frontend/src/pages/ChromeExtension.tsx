@@ -291,14 +291,14 @@ export default function ChromeExtension() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-3xl space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="info">Tiện ích Google Chrome chính thức · v2.5 Pro (Anti-Passkey + Auto Tạo Page)</Badge>
+              <Badge tone="info">Tiện ích Google Chrome chính thức · v2.6 Pro (Full Auto-Pilot Tạo Page + Anti-Passkey)</Badge>
               <Badge tone="positive">Manifest V3 · Chặn &amp; Tự Xoá Passkey 1 Chạm + 2FA Tự Điền + Khóa WebRTC</Badge>
             </div>
             <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-ink">
               Trung tâm Tiện ích Google Chrome («AdsOps Companion Pro»)
             </h1>
             <p className="text-sm leading-relaxed text-ink-muted">
-              Đóng gói riêng file <code>.zip</code> cho từng Hồ sơ Chrome của Via: tích hợp sẵn <strong>Danh sách TKQC &amp; Dư nợ thật</strong>, <strong>Bộ lấy mã 2FA 6 số &amp; Tự điền vào Facebook</strong>, <strong>Khóa chống rò rỉ IP thật qua WebRTC</strong>, <strong>Xuất/Nạp Cookie &amp; Bắt Token EAAB</strong> <strong>Tự điền Tạo Fanpage giãn nhịp chống Checkpoint</strong> cùng <strong>Thanh HUD cảnh báo Lớp Via</strong>.
+              Đóng gói riêng file <code>.zip</code> cho từng Hồ sơ Chrome của Via: tích hợp sẵn <strong>Danh sách TKQC &amp; Dư nợ thật</strong>, <strong>Bộ lấy mã 2FA 6 số &amp; Tự điền vào Facebook</strong>, <strong>Khóa chống rò rỉ IP thật qua WebRTC</strong>, <strong>Xuất/Nạp Cookie &amp; Bắt Token EAAB</strong> <strong>Full Auto-Pilot Tạo Fanpage giãn nhịp an toàn (tự bấm + tự dừng nếu gặp Checkpoint/CAPTCHA)</strong> cùng <strong>Thanh HUD cảnh báo Lớp Via</strong>.
             </p>
           </div>
 
@@ -317,7 +317,7 @@ export default function ChromeExtension() {
               }
             >
               <Download className="mr-1.5 h-4 w-4" aria-hidden="true" />
-              <span>Tải Gói Tiện Ích v2.5 (.zip) Cho {selectedViaLabel}</span>
+              <span>Tải Gói Tiện Ích v2.6 (.zip) Cho {selectedViaLabel}</span>
             </Button>
             {vias.length > 0 && (
               <Button
@@ -370,17 +370,17 @@ export default function ChromeExtension() {
                   })
                   downloadAllViasExtensionsBundleZip(specs)
                 }}
-                title="Đóng gói sẵn thư mục AdsOps Companion v2.5 riêng cho từng Via vào chung 1 file .zip để cài nhanh hàng loạt"
+                title="Đóng gói sẵn thư mục AdsOps Companion v2.6 riêng cho từng Via vào chung 1 file .zip để cài nhanh hàng loạt"
               >
                 <Layers className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                <span>📦 Tải Trọn Bộ v2.5 Cho Tất Cả {vias.length} Via (.zip)</span>
+                <span>📦 Tải Trọn Bộ v2.6 Cho Tất Cả {vias.length} Via (.zip)</span>
               </Button>
             )}
             <Button
               type="button"
               variant="secondary"
               onClick={downloadWindowsChromeLauncherBat}
-              title="Chạy 1 lần trên máy Windows để kích hoạt giao thức mở đúng cửa sổ Chrome Profile từ trên Web"
+              title="Chạy 1 lần trên máy Windows để kích hoạt Cầu nối ngầm 127.0.0.1:17890 & adsops-chrome:// mở đa Chrome không hiện popup hỏi"
             >
               <Terminal className="mr-1.5 h-4 w-4" aria-hidden="true" />
               <span>Cài Đặt Tự Động Mở Chrome (.bat)</span>
@@ -700,7 +700,7 @@ export default function ChromeExtension() {
                     AO
                   </span>
                   <div>
-                    <div className="text-xs font-extrabold text-ink">AdsOps Companion v2.5 Pro (Anti-Passkey + Auto Tạo Page)</div>
+                    <div className="text-xs font-extrabold text-ink">AdsOps Companion v2.6 Pro (Full Auto-Pilot + Anti-Passkey)</div>
                     <div className="text-[10px] text-ink-muted">
                       Hồ sơ: {shortFolder} · Via: {selectedViaLabel} (
                       {viaTier === 'vault' ? '🛡️ Via Tổng' : viaTier === 'standby' ? '🌱 Dự Phòng' : '🚀 Lên Camp'})

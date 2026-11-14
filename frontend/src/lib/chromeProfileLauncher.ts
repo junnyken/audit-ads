@@ -305,6 +305,35 @@ export function downloadSwitchyOmegaConfig(rawProxy: string, viaLabel?: string):
   return true
 }
 
+export function withAutoSubmitPageUrl(rawUrl: string, autoSubmit: boolean): string {
+  const base = rawUrl && rawUrl.trim() ? rawUrl.trim() : 'https://www.facebook.com/pages/creation/'
+  try {
+    const u = new URL(base)
+    u.searchParams.set('adsops_auto_submit', autoSubmit ? '1' : '0')
+    return u.toString()
+  } catch {
+    const clean = base.replace(/([?&])adsops_auto_submit=[01]/g, '')
+    const sep = clean.includes('?') ? '&' : '?'
+    return `${clean}${sep}adsops_auto_submit=${autoSubmit ? '1' : '0'}`
+  }
+}
+
+export function computeSafeViaRestSeconds(baseStaggerSeconds: number): {
+  totalSeconds: number
+  baseSeconds: number
+  jitterSeconds: number
+} {
+  const baseSeconds = Math.max(18, Math.min(120, Math.round(baseStaggerSeconds || 22)))
+  const minJitter = baseSeconds > 25 ? 5 : 4
+  const jitterSpan = baseSeconds > 25 ? 8 : 7
+  const jitterSeconds = minJitter + Math.floor(Math.random() * jitterSpan)
+  return {
+    totalSeconds: baseSeconds + jitterSeconds,
+    baseSeconds,
+    jitterSeconds,
+  }
+}
+
 export function buildAdsOpsChromeProtocolUrl(
   targetUrl: string,
   browserProfileLabel?: string | null,
@@ -321,12 +350,12 @@ export function buildAdsOpsChromeProtocolUrl(
   return `adsops-chrome://open?${params.toString()}`
 }
 
-export function launchInAssignedChromeProfile(
+export async function launchInAssignedChromeProfile(
   targetUrl: string,
   browserProfileLabel?: string | null,
   viaLabel?: string | null,
   proxyLabel?: string | null,
-): void {
+): Promise<'bridge' | 'protocol'> {
   const profileDir = resolveChromeProfileDirectory(browserProfileLabel, viaLabel)
   const nameHint = (browserProfileLabel || viaLabel || '').trim()
   const cleanProxy = (proxyLabel || '').trim()
@@ -335,39 +364,38 @@ export function launchInAssignedChromeProfile(
     void navigator.clipboard.writeText(targetUrl).catch(() => {})
   }
 
-  void (async () => {
-    try {
-      const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 1500)
-      const resp = await fetch('http://127.0.0.1:17890/open', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          profile: profileDir,
-          name: nameHint,
-          proxy: cleanProxy,
-          url: targetUrl,
-        }),
-        signal: controller.signal,
-      })
-      clearTimeout(timer)
-      if (resp.ok) {
-        return
-      }
-    } catch {
-      // Fallback to adsops-chrome:// protocol
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 1400)
+    const resp = await fetch('http://127.0.0.1:17890/open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        profile: profileDir,
+        name: nameHint,
+        proxy: cleanProxy,
+        url: targetUrl,
+      }),
+      signal: controller.signal,
+    })
+    clearTimeout(timer)
+    if (resp.ok) {
+      return 'bridge'
     }
+  } catch {
+    // Fallback to adsops-chrome:// protocol
+  }
 
-    const protocolUrl = buildAdsOpsChromeProtocolUrl(targetUrl, browserProfileLabel, viaLabel, cleanProxy)
-    const anchor = document.createElement('a')
-    anchor.href = protocolUrl
-    anchor.style.display = 'none'
-    document.body.appendChild(anchor)
-    anchor.click()
-    setTimeout(() => {
-      anchor.remove()
-    }, 300)
-  })()
+  const protocolUrl = buildAdsOpsChromeProtocolUrl(targetUrl, browserProfileLabel, viaLabel, cleanProxy)
+  const anchor = document.createElement('a')
+  anchor.href = protocolUrl
+  anchor.style.display = 'none'
+  document.body.appendChild(anchor)
+  anchor.click()
+  setTimeout(() => {
+    anchor.remove()
+  }, 300)
+  return 'protocol'
 }
 
 export function downloadWindowsChromeLauncherBat(): void {
@@ -387,6 +415,7 @@ export function downloadWindowsChromeLauncherBat(): void {
     '    if ($k -eq "profile" -and $v) { $profileDir = $v }',
     '    elseif ($k -eq "url" -and $v) { $targetUrl = $v }',
     '  }',
+    '  if (-not ($profileDir -match "^[a-zA-Z0-9 _.-]+$")) { $profileDir = "Default" }',
     '  if (-not ($targetUrl -match "^https://")) { exit 0 }',
     '  $chromePaths = @(',
     '    (Join-Path $env:ProgramFiles "Google\\Chrome\\Application\\chrome.exe"),',
@@ -402,7 +431,111 @@ export function downloadWindowsChromeLauncherBat(): void {
     '} catch {}',
   ]
 
+  const bridgePsLines = [
+    '$listener = New-Object System.Net.HttpListener',
+    '$listener.Prefixes.Add("http://127.0.0.1:17890/")',
+    'try { $listener.Start() } catch { exit 0 }',
+    'function Find-ChromeExe {',
+    '  $paths = @(',
+    '    (Join-Path $env:ProgramFiles "Google\\Chrome\\Application\\chrome.exe"),',
+    '    (Join-Path ${env:ProgramFiles(x86)} "Google\\Chrome\\Application\\chrome.exe"),',
+    '    (Join-Path $env:LOCALAPPDATA "Google\\Chrome\\Application\\chrome.exe")',
+    '  )',
+    '  return ($paths | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1)',
+    '}',
+    'function Send-Json([System.Net.HttpListenerResponse]$res, [int]$code, [string]$jsonText) {',
+    '  $res.StatusCode = $code',
+    '  $res.ContentType = "application/json; charset=utf-8"',
+    '  $res.Headers["Access-Control-Allow-Origin"] = "*"',
+    '  $res.Headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"',
+    '  $res.Headers["Access-Control-Allow-Headers"] = "Content-Type"',
+    '  $res.Headers["Access-Control-Allow-Private-Network"] = "true"',
+    '  $bytes = [Text.Encoding]::UTF8.GetBytes($jsonText)',
+    '  $res.ContentLength64 = $bytes.Length',
+    '  $res.OutputStream.Write($bytes, 0, $bytes.Length)',
+    '  $res.OutputStream.Close()',
+    '}',
+    'while ($listener.IsListening) {',
+    '  try {',
+    '    $ctx = $listener.GetContext()',
+    '    $req = $ctx.Request',
+    '    $res = $ctx.Response',
+    '    if ($req.HttpMethod -eq "OPTIONS") {',
+    '      $res.StatusCode = 204',
+    '      $res.Headers["Access-Control-Allow-Origin"] = "*"',
+    '      $res.Headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"',
+    '      $res.Headers["Access-Control-Allow-Headers"] = "Content-Type"',
+    '      $res.Headers["Access-Control-Allow-Private-Network"] = "true"',
+    '      $res.OutputStream.Close()',
+    '      continue',
+    '    }',
+    '    $path = $req.Url.AbsolutePath.TrimEnd("/")',
+    '    if ($path -eq "/health" -and $req.HttpMethod -eq "GET") {',
+    `      Send-Json $res 200 '{"ok":true,"version":"2.6.0"}'`,
+    '      continue',
+    '    }',
+    '    if ($path -eq "/chrome-profiles" -and $req.HttpMethod -eq "GET") {',
+    '      $lsPath = Join-Path $env:LOCALAPPDATA "Google\\Chrome\\User Data\\Local State"',
+    '      $outList = @()',
+    '      if (Test-Path $lsPath) {',
+    '        try {',
+    '          $rawLs = [IO.File]::ReadAllText($lsPath, [Text.Encoding]::UTF8) | ConvertFrom-Json',
+    '          $cache = $rawLs.profile.info_cache',
+    '          if ($cache) {',
+    '            foreach ($prop in $cache.PSObject.Properties) {',
+    '              $folder = [string]$prop.Name',
+    '              $info = $prop.Value',
+    '              $pName = [string]$info.name',
+    '              $pEmail = [string]$info.user_name',
+    '              $pGaia = [string]$info.gaia_name',
+    '              $lbl = "Chrome - $folder"',
+    '              if ($pName) { $lbl += " - $pName" }',
+    '              if ($pEmail) { $lbl += " ($pEmail)" }',
+    '              $outList += @{ folder = $folder; name = $pName; email = $pEmail; gaia_name = $pGaia; label = $lbl }',
+    '            }',
+    '          }',
+    '        } catch {}',
+    '      }',
+    '      $payload = @{ ok = $true; profiles = $outList } | ConvertTo-Json -Depth 4 -Compress',
+    '      Send-Json $res 200 $payload',
+    '      continue',
+    '    }',
+    '    if ($path -eq "/open" -and $req.HttpMethod -eq "POST") {',
+    '      $sr = New-Object System.IO.StreamReader($req.InputStream, [Text.Encoding]::UTF8)',
+    '      $bodyText = $sr.ReadToEnd()',
+    '      $sr.Close()',
+    '      $data = $bodyText | ConvertFrom-Json',
+    '      $prof = [string]$data.profile',
+    '      if (-not ($prof -match "^[a-zA-Z0-9 _.-]+$")) { $prof = "Default" }',
+    '      $targetUrl = [string]$data.url',
+    '      if (-not ($targetUrl -match "^https://")) {',
+    `        Send-Json $res 400 '{"ok":false,"error":"Invalid target URL"}'`,
+    '        continue',
+    '      }',
+    '      $chromeExe = Find-ChromeExe',
+    '      if ($chromeExe) {',
+    '        Start-Process -FilePath $chromeExe -ArgumentList @("--profile-directory=$prof", $targetUrl)',
+    '      } else {',
+    '        Start-Process "chrome.exe" -ArgumentList @("--profile-directory=$prof", $targetUrl)',
+    '      }',
+    `      Send-Json $res 200 '{"ok":true}'`,
+    '      continue',
+    '    }',
+    `    Send-Json $res 404 '{"ok":false}'`,
+    '  } catch {}',
+    '}',
+  ]
+
+  const vbsLines = [
+    'Set sh = CreateObject("WScript.Shell")',
+    'psPath = sh.ExpandEnvironmentStrings("%LOCALAPPDATA%\\AdsOps\\adsops_local_bridge.ps1")',
+    'q = Chr(34)',
+    'sh.Run "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File " & q & psPath & q, 0, False',
+  ]
+
   const encodedPs = btoa(unescape(encodeURIComponent(psScriptLines.join('\r\n'))))
+  const encodedBridge = btoa(unescape(encodeURIComponent(bridgePsLines.join('\r\n'))))
+  const encodedVbs = btoa(unescape(encodeURIComponent(vbsLines.join('\r\n'))))
 
   const batContent = [
     '@echo off',
@@ -410,11 +543,18 @@ export function downloadWindowsChromeLauncherBat(): void {
     'set "ADSOPS_DIR=%LOCALAPPDATA%\\AdsOps"',
     'if not exist "%ADSOPS_DIR%" mkdir "%ADSOPS_DIR%"',
     'set "PS_FILE=%ADSOPS_DIR%\\open_chrome_profile.ps1"',
+    'set "BRIDGE_PS=%ADSOPS_DIR%\\adsops_local_bridge.ps1"',
+    'set "BRIDGE_VBS=%ADSOPS_DIR%\\start_adsops_bridge.vbs"',
     `powershell -NoProfile -ExecutionPolicy Bypass -Command "[IO.File]::WriteAllText('%PS_FILE%', [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedPs}')))"`,
+    `powershell -NoProfile -ExecutionPolicy Bypass -Command "[IO.File]::WriteAllText('%BRIDGE_PS%', [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedBridge}')))"`,
+    `powershell -NoProfile -ExecutionPolicy Bypass -Command "[IO.File]::WriteAllText('%BRIDGE_VBS%', [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedVbs}')))"`,
     'reg add "HKCU\\Software\\Classes\\adsops-chrome" /ve /d "URL:AdsOps Chrome Profile Launcher" /f >nul',
     'reg add "HKCU\\Software\\Classes\\adsops-chrome" /v "URL Protocol" /d "" /f >nul',
     'reg add "HKCU\\Software\\Classes\\adsops-chrome\\shell\\open\\command" /ve /d "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \\"%PS_FILE%\\" \\"%%1\\"" /f >nul',
-    'echo [THANH CONG] Da cai dat xong!',
+    'reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "AdsOpsChromeBridge" /t REG_SZ /d "wscript.exe \\"%BRIDGE_VBS%\\"" /f >nul',
+    'wscript.exe "%BRIDGE_VBS%"',
+    'echo [THANH CONG] Da cai dat Giao thuc adsops-chrome:// va Cau noi ngam 127.0.0.1:17890!',
+    'echo Bay gio ban co the bam "Chay Full Automatic" truc tiep tren Web ma khong bi hoi xac nhan!',
     'pause',
   ].join('\r\n')
 
@@ -526,9 +666,13 @@ export interface BatchChromePageTask {
   launch_url: string
 }
 
-export function downloadBatchPageCreationBat(tasks: BatchChromePageTask[], staggerSeconds = 18): void {
+export function downloadBatchPageCreationBat(
+  tasks: BatchChromePageTask[],
+  staggerSeconds = 22,
+  autoSubmit = true,
+): void {
   if (!Array.isArray(tasks) || tasks.length === 0) return
-  const safeStagger = Math.max(10, Math.min(60, Math.round(staggerSeconds)))
+  const safeStagger = Math.max(18, Math.min(120, Math.round(staggerSeconds)))
   const lines: string[] = [
     '@echo off',
     'chcp 65001 >nul',
@@ -553,13 +697,18 @@ export function downloadBatchPageCreationBat(tasks: BatchChromePageTask[], stagg
     const safeVia = String(task.via_label || 'Via').replace(/["%^&|<>]/g, '')
     const safePage = String(task.page_name || 'Fanpage').replace(/["%^&|<>]/g, '')
     const safeProf = String(profileDir || 'Default').replace(/"/g, '')
-    const safeUrl = String(task.launch_url || 'https://www.facebook.com/pages/creation/').replace(/%/g, '%%')
+    const targetLaunchUrl = withAutoSubmitPageUrl(
+      String(task.launch_url || 'https://www.facebook.com/pages/creation/'),
+      autoSubmit,
+    )
+    const safeUrl = targetLaunchUrl.replace(/%/g, '%%')
+    const waitSec = safeStagger + ((idx * 3 + 5) % 8)
 
     lines.push(`echo [${idx + 1}/${tasks.length}] Mo Via: ${safeVia} (${safeProf}) -^> Page: ${safePage}`)
     lines.push(`start "" "%CHROME_EXE%" --profile-directory="${safeProf}" "${safeUrl}"`)
     if (idx < tasks.length - 1) {
-      lines.push(`echo   ^> Dang cho ${safeStagger} giay chong mo dong loat...`)
-      lines.push(`timeout /t ${safeStagger} /nobreak >nul`)
+      lines.push(`echo   ^> Dang nghi an toan ${waitSec} giay chong mo dong loat...`)
+      lines.push(`timeout /t ${waitSec} /nobreak >nul`)
     }
     lines.push('')
   })
@@ -612,9 +761,9 @@ export function buildExtensionFilesForVia(
       ? `AdsOps Companion Pro · ${profileDir} · Proxy ${parsed!.host}:${parsed!.port}`
       : `AdsOps Companion Pro · ${profileDir} (${viaName})`,
     short_name: 'AdsOps Companion Pro',
-    version: '2.5.0',
+    version: '2.6.0',
     description:
-      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.5 Pro: Chặn & Tự Xoá Passkey, Sinh mã 2FA 6 số tự điền, Khóa rò rỉ WebRTC IP, Xuất/Nhập Cookie, Bắt Token EAAB Tự điền Tạo Fanpage giãn nhịp và HUD cảnh báo Lớp Via.',
+      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.6 Pro: Full Auto-Pilot Tạo Fanpage giãn nhịp an toàn + dừng khẩn cấp khi gặp Checkpoint/CAPTCHA, Chặn & Tự Xoá Passkey, 2FA, WebRTC Lock, Cookie & EAAB Token.',
     permissions: [
       'proxy',
       'privacy',
@@ -672,7 +821,7 @@ export function buildExtensionFilesForVia(
 
   // Runs in MAIN world at document_start BEFORE Facebook's scripts load:
   // Completely blocks Windows Hello / WebAuthn / Passkey popup from ever appearing!
-  const passkeyShieldJs = `// AdsOps Companion Pro v2.5 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
+  const passkeyShieldJs = `// AdsOps Companion Pro v2.6 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
 (function() {
   try {
     if (window.PublicKeyCredential) {
@@ -842,7 +991,7 @@ chrome.webRequest.onAuthRequired.addListener(
   <div class="header">
     <div class="brand">
       <span class="logo">AO</span>
-      <span>AdsOps Companion v2.5 Pro</span>
+      <span>AdsOps Companion v2.6 Pro</span>
     </div>
     <span id="proxy-badge" class="status-pill">MẠNG GỐC</span>
   </div>
@@ -1392,7 +1541,7 @@ refreshIp();
 tickOtp();`
 
   const readmeTxt = [
-    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.5 PRO - ANTI-PASSKEY + AUTO PAGE)',
+    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.6 PRO - FULL AUTO PAGE + ANTI-PASSKEY)',
     '===================================================================================',
     'Bước 1: Giải nén file .zip này ra một thư mục cố định (ví dụ: Desktop\\AdsOps-Chrome-Extension).',
     'Bước 2: Mở trình duyệt Google Chrome của Via -> gõ vào thanh địa chỉ: chrome://extensions',
@@ -1401,7 +1550,7 @@ tickOtp();`
     'Bước 5: Bấm biểu tượng mảnh ghép trên góc phải Chrome -> Bấm nút Ghim (Pin) cạnh "AdsOps Companion Pro".',
   ].join('\r\n')
 
-  const contentJs = `// AdsOps Companion Pro v2.5 — Auto-Detect & 1-Click Auto-Delete Passkey + Billing Scanner + Floating HUD
+  const contentJs = `// AdsOps Companion Pro v2.6 — Full Auto-Pilot Page Creator + Safety Guard + Anti-Passkey + HUD
 (function() {
   let lastSyncedAct = "";
   let autoDeletePasskeyTriggered = false;
@@ -1604,8 +1753,160 @@ tickOtp();`
     }
   }
   let pageCreateAutoFilled = false;
+  let pageAutoPilotHalted = false;
+  let pageWizardPending = false;
+  let lastWizardClickAt = 0;
+
+  function randDelay(minMs, maxMs) {
+    return minMs + Math.floor(Math.random() * Math.max(1, maxMs - minMs + 1));
+  }
+
+  function setHudPageStatus(msg, color) {
+    const hudStatus = document.getElementById("adsops-hud-passkey-status");
+    if (hudStatus) {
+      hudStatus.textContent = msg;
+      hudStatus.style.color = color || "#34d399";
+    }
+  }
+
+  function detectSafetyChallenge() {
+    const href = (window.location.href || "").toLowerCase();
+    if (
+      href.includes("/checkpoint") ||
+      href.includes("/challenge") ||
+      href.includes("two_step_verification") ||
+      href.includes("/recover") ||
+      href.includes("captcha")
+    ) {
+      return "URL xác minh/checkpoint";
+    }
+    const captchaIframe = document.querySelector(
+      'iframe[src*="captcha"], iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[src*="turnstile"], iframe[src*="arkoselabs"]',
+    );
+    if (captchaIframe) {
+      return "CAPTCHA";
+    }
+    const txt = (document.body ? document.body.innerText : "").toLowerCase();
+    const blockPhrases = [
+      "xác minh bạn là con người",
+      "verify you are human",
+      "bạn đã tạo quá nhiều trang",
+      "you have created too many pages",
+      "bạn hiện không thể tạo",
+      "bạn không thể tạo trang",
+      "you can't create a page right now",
+      "tài khoản của bạn tạm thời bị chặn",
+      "your account is temporarily restricted",
+    ];
+    for (const phrase of blockPhrases) {
+      if (txt.includes(phrase)) {
+        return phrase;
+      }
+    }
+    return "";
+  }
+
+  function haltAutoPilotForSafety(reason) {
+    pageAutoPilotHalted = true;
+    try {
+      sessionStorage.removeItem("adsops_autopilot_until");
+    } catch (e) {}
+    setHudPageStatus("🛑 Cảnh báo FB (" + reason + ") — Đã tự dừng Auto để bảo vệ Via!", "#fca5a5");
+  }
+
+  function findVisiblePageButtons() {
+    return Array.from(document.querySelectorAll('div[role="button"], button, a[role="button"]')).filter((b) => {
+      if (b.closest("#adsops-floating-hud")) return false;
+      const rect = b.getBoundingClientRect();
+      return rect.width > 16 && rect.height > 12;
+    });
+  }
+
+  function handlePageOnboardingWizard() {
+    if (pageAutoPilotHalted || pageWizardPending) return;
+    let until = 0;
+    let startedAt = 0;
+    let clicks = 0;
+    let batchStep = "";
+    try {
+      until = Number(sessionStorage.getItem("adsops_autopilot_until") || "0");
+      startedAt = Number(sessionStorage.getItem("adsops_autopilot_started_at") || "0");
+      clicks = Number(sessionStorage.getItem("adsops_autopilot_clicks") || "0");
+      batchStep = sessionStorage.getItem("adsops_autopilot_batch") || "";
+    } catch (e) {}
+    if (!until || Date.now() > until) return;
+
+    const challenge = detectSafetyChallenge();
+    if (challenge) {
+      haltAutoPilotForSafety(challenge);
+      return;
+    }
+
+    if (clicks >= 6) {
+      try { sessionStorage.removeItem("adsops_autopilot_until"); } catch (e) {}
+      setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "✅ Đã tạo Fanpage & xong các bước tự động!", "#34d399");
+      return;
+    }
+
+    const urlLower = (window.location.href || "").toLowerCase();
+    const bodyLower = (document.body ? document.body.innerText : "").toLowerCase();
+    const isOnboarding =
+      urlLower.includes("/pages/creation") ||
+      bodyLower.includes("hoàn tất thiết lập trang") ||
+      bodyLower.includes("finish setting up your page") ||
+      bodyLower.includes("tùy chỉnh trang") ||
+      bodyLower.includes("customize your page") ||
+      bodyLower.includes("xây dựng đối tượng") ||
+      bodyLower.includes("build your page audience") ||
+      bodyLower.includes("mời bạn bè") ||
+      bodyLower.includes("invite friends") ||
+      bodyLower.includes("kết nối whatsapp") ||
+      bodyLower.includes("connect whatsapp");
+
+    if (!isOnboarding && startedAt && Date.now() - startedAt > 10000) {
+      try { sessionStorage.removeItem("adsops_autopilot_until"); } catch (e) {}
+      setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "✅ Đã tạo & hoàn tất Fanpage tự động!", "#34d399");
+      return;
+    }
+
+    if (Date.now() - lastWizardClickAt < 3600) return;
+
+    const btns = findVisiblePageButtons();
+    const matchBtnByWords = (words) =>
+      btns.find((b) => {
+        if (b.disabled || b.getAttribute("aria-disabled") === "true") return false;
+        const txt = ((b.getAttribute("aria-label") || "") + " " + (b.textContent || "")).trim().toLowerCase();
+        return words.some((w) => txt === w || txt.startsWith(w + " "));
+      });
+
+    const skipBtn = matchBtnByWords(["bỏ qua", "skip", "lúc khác", "not now"]);
+    const nextOrDoneBtn = matchBtnByWords(["xong", "done", "hoàn tất", "finish", "tiếp", "next"]);
+    const targetBtn = skipBtn || (isOnboarding ? nextOrDoneBtn : null);
+    if (!targetBtn) return;
+
+    pageWizardPending = true;
+    const waitMs = randDelay(450, 1250);
+    setTimeout(() => {
+      pageWizardPending = false;
+      if (pageAutoPilotHalted) return;
+      const ch2 = detectSafetyChallenge();
+      if (ch2) {
+        haltAutoPilotForSafety(ch2);
+        return;
+      }
+      targetBtn.style.outline = "2px solid #38bdf8";
+      targetBtn.click();
+      lastWizardClickAt = Date.now();
+      const nextCount = clicks + 1;
+      try {
+        sessionStorage.setItem("adsops_autopilot_clicks", String(nextCount));
+      } catch (e) {}
+      setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto] Đã qua bước thiết lập #" + nextCount + "...", "#38bdf8");
+    }, waitMs);
+  }
+
   function handlePageCreationDom() {
-    if (pageCreateAutoFilled) return;
+    if (pageAutoPilotHalted || pageCreateAutoFilled) return;
     const url = window.location.href;
     if (!url.includes("/pages/creation") && !url.includes("adsops_page_name=")) return;
     try {
@@ -1614,7 +1915,14 @@ tickOtp();`
       const pCat = u.searchParams.get("adsops_page_cat") || "";
       const pBio = u.searchParams.get("adsops_page_bio") || "";
       const batchStep = u.searchParams.get("adsops_batch_step") || "";
+      const autoSubmit = u.searchParams.get("adsops_auto_submit") === "1";
       if (!pName && !pCat && !pBio) return;
+
+      const challenge = detectSafetyChallenge();
+      if (challenge) {
+        haltAutoPilotForSafety(challenge);
+        return;
+      }
 
       const setNativeValue = (el, val) => {
         if (!el || !val) return false;
@@ -1651,39 +1959,87 @@ tickOtp();`
       if (!nameEl && !catEl && !bioEl) return;
       pageCreateAutoFilled = true;
 
+      const tName = randDelay(650, 1150);
+      const tCat = tName + randDelay(950, 1550);
+      const tCatOpt = randDelay(750, 1200);
+      const tBio = tCat + tCatOpt + randDelay(1100, 1750);
+      const tFinal = tBio + randDelay(1900, 2850);
+
+      if (autoSubmit) {
+        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.6] Đang nhập tự nhiên theo nhịp người thật...", "#38bdf8");
+      }
+
       if (pName && nameEl && !nameEl.value) {
-        setTimeout(() => setNativeValue(nameEl, pName), 350);
+        setTimeout(() => {
+          if (!pageAutoPilotHalted) setNativeValue(nameEl, pName);
+        }, tName);
       }
       if (pCat && catEl && !catEl.value) {
         const cleanCat = pCat.split("(")[0].trim();
         setTimeout(() => {
+          if (pageAutoPilotHalted) return;
           setNativeValue(catEl, cleanCat);
           setTimeout(() => {
+            if (pageAutoPilotHalted) return;
             const opt = document.querySelector('ul[role="listbox"] li, div[role="listbox"] div[role="option"], li[role="option"]');
             if (opt) opt.click();
-          }, 550);
-        }, 850);
+          }, tCatOpt);
+        }, tCat);
       }
       if (pBio && bioEl && !bioEl.value) {
-        setTimeout(() => setNativeValue(bioEl, pBio), 1400);
+        setTimeout(() => {
+          if (!pageAutoPilotHalted) setNativeValue(bioEl, pBio);
+        }, tBio);
       }
 
-      setTimeout(() => {
-        const submitBtns = Array.from(document.querySelectorAll('div[role="button"], button'));
+      const tryAutoClickCreate = (allowRetry) => {
+        if (pageAutoPilotHalted) return;
+        const chSubmit = detectSafetyChallenge();
+        if (chSubmit) {
+          haltAutoPilotForSafety(chSubmit);
+          return;
+        }
+        const submitBtns = findVisiblePageButtons();
         const createBtn = submitBtns.find((b) => {
           const txt = ((b.getAttribute("aria-label") || "") + " " + (b.textContent || "")).trim().toLowerCase();
           return txt === "tạo trang" || txt === "create page";
         });
-        if (createBtn) {
-          createBtn.style.outline = "3px solid #10b981";
-          createBtn.style.boxShadow = "0 0 18px rgba(16,185,129,0.75)";
+        if (!createBtn) {
+          setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "⚠️ Không tìm thấy nút Tạo Trang — Hãy kiểm tra thủ công", "#fcd34d");
+          return;
         }
-        const hudStatus = document.getElementById("adsops-hud-passkey-status");
-        if (hudStatus) {
-          hudStatus.textContent = (batchStep ? "[Lô " + batchStep + "] " : "") + "🌱 Đã tự điền chuẩn kỹ thuật! Kiểm tra 1s rồi bấm Tạo Trang";
-          hudStatus.style.color = "#34d399";
+        createBtn.style.outline = "3px solid #10b981";
+        createBtn.style.boxShadow = "0 0 18px rgba(16,185,129,0.75)";
+        if (!autoSubmit) {
+          setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🌱 Đã tự điền chuẩn kỹ thuật! Kiểm tra 1s rồi bấm Tạo Trang", "#34d399");
+          return;
         }
-      }, 1750);
+
+        const isDisabled = Boolean(createBtn.disabled) || createBtn.getAttribute("aria-disabled") === "true";
+        if (isDisabled) {
+          if (allowRetry) {
+            const retryOpt = document.querySelector('ul[role="listbox"] li, div[role="listbox"] div[role="option"], li[role="option"]');
+            if (retryOpt) retryOpt.click();
+            setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "⏳ Đợi Facebook xác nhận Tên & Hạng mục...", "#fcd34d");
+            setTimeout(() => tryAutoClickCreate(false), 2600);
+          } else {
+            setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "⚠️ Nút Tạo Trang chưa sáng (Tên bị trùng/chờ duyệt) — Kiểm tra tay giúp nhé", "#fcd34d");
+          }
+          return;
+        }
+
+        lastWizardClickAt = Date.now();
+        try {
+          sessionStorage.setItem("adsops_autopilot_until", String(Date.now() + 90000));
+          sessionStorage.setItem("adsops_autopilot_started_at", String(Date.now()));
+          sessionStorage.setItem("adsops_autopilot_clicks", "0");
+          sessionStorage.setItem("adsops_autopilot_batch", batchStep || "");
+        } catch (e) {}
+        createBtn.click();
+        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.6] Đã bấm Tạo Trang — Đang hoàn tất bước phụ...", "#38bdf8");
+      };
+
+      setTimeout(() => tryAutoClickCreate(true), tFinal);
     } catch (e) {}
   }
 
@@ -1691,10 +2047,12 @@ tickOtp();`
     injectFloatingHud();
     handlePasskeyDom();
     handlePageCreationDom();
+    handlePageOnboardingWizard();
   }, 900);
   setInterval(() => {
     scanBillingDom();
     handlePageCreationDom();
+    handlePageOnboardingWizard();
   }, 2200);
 })();`
 
@@ -1732,7 +2090,7 @@ export function downloadChromeExtensionZip(
   const url = URL.createObjectURL(zipBlob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `AdsOps-Chrome-Extension-v2.5-${slug}.zip`
+  a.download = `AdsOps-Chrome-Extension-v2.6-${slug}.zip`
   document.body.appendChild(a)
   a.click()
   a.remove()
@@ -1752,12 +2110,12 @@ export function downloadAllViasExtensionsBundleZip(items: ViaExtensionBundleSpec
   if (!Array.isArray(items) || items.length === 0) return
   const allFiles: Array<{ name: string; content: string | Uint8Array }> = []
   const guideLines: string[] = [
-    'TRON BO TIEN ICH ADSOPS COMPANION v2.5 PRO CHO TOAN BO DAN VIA',
+    'TRON BO TIEN ICH ADSOPS COMPANION v2.6 PRO CHO TOAN BO DAN VIA',
     '================================================================',
     `Tong so thu muc Extension da dong goi: ${items.length} Via`,
     '',
     'Cach cai nhanh:',
-    '1. Giai nen file .zip nay ra mot thu muc co dinh (VD: Desktop\AdsOps-Extensions-v2.5).',
+    '1. Giai nen file .zip nay ra mot thu muc co dinh (VD: Desktop\AdsOps-Extensions-v2.6).',
     '2. Mo Chrome cua tung Via -> chrome://extensions -> Bat Developer mode -> Load unpacked -> chon dung thu muc ten cua Via do ben duoi:',
     '',
   ]
@@ -1788,7 +2146,7 @@ export function downloadAllViasExtensionsBundleZip(items: ViaExtensionBundleSpec
   const url = URL.createObjectURL(zipBlob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `AdsOps-Tron-Bo-Extension-v2.5-${items.length}Via.zip`
+  a.download = `AdsOps-Tron-Bo-Extension-v2.6-${items.length}Via.zip`
   document.body.appendChild(a)
   a.click()
   a.remove()
