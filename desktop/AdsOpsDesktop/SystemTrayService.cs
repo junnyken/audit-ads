@@ -52,7 +52,7 @@ internal sealed class SystemTrayService : IDisposable
         _trayIcon = new NotifyIcon
         {
             Icon = _customIcon,
-            Text = "AdsOps Desktop Pro v2.0 — Sẵn sàng",
+            Text = "AdsOps Desktop Pro v2.1 — Sẵn sàng",
             ContextMenuStrip = _menu,
             Visible = true,
         };
@@ -64,7 +64,7 @@ internal sealed class SystemTrayService : IDisposable
     {
         _menu.Items.Clear();
 
-        var openItem = new ToolStripMenuItem("Mở AdsOps Desktop Pro v2.0");
+        var openItem = new ToolStripMenuItem("Mở AdsOps Desktop Pro v2.1");
         openItem.Font = new Font(_menu.Font, FontStyle.Bold);
         openItem.Click += (_, _) => _onShowWindow();
         _menu.Items.Add(openItem);
@@ -137,7 +137,7 @@ internal sealed class SystemTrayService : IDisposable
         var statusSuffix = queue.Phase == QueuePhase.Running
             ? $"Đang chạy {queue.CurrentIndex}/{queue.TotalCount}"
             : isLoggedIn ? $"{vias.Count} Via sẵn sàng" : "Chờ đăng nhập";
-        var text = $"AdsOps Desktop Pro v2.0 — {statusSuffix}";
+        var text = $"AdsOps Desktop Pro v2.1 — {statusSuffix}";
         _trayIcon.Text = text.Length > 63 ? text[..63] : text;
     }
 
@@ -173,6 +173,17 @@ internal sealed class SystemTrayService : IDisposable
         {
             Title = "Chọn file Két sao lưu (.adsopsvault)",
             Filter = "AdsOps Encrypted Vault (*.adsopsvault)|*.adsopsvault|All files (*.*)|*.*",
+        };
+        return dlg.ShowDialog() == DialogResult.OK ? dlg.FileName : null;
+    }
+
+    public static string? ShowSaveCsvDialog(string defaultFileName)
+    {
+        using var dlg = new SaveFileDialog
+        {
+            Title = "Xuất báo cáo Excel CSV (UTF-8)",
+            Filter = "CSV UTF-8 (*.csv)|*.csv|All files (*.*)|*.*",
+            FileName = defaultFileName,
         };
         return dlg.ShowDialog() == DialogResult.OK ? dlg.FileName : null;
     }

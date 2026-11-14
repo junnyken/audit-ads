@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
 
 namespace AdsOpsDesktop;
 
@@ -121,6 +123,43 @@ internal sealed partial class MainWindow
         twoCol3.Children.Add(profBox);
         twoCol3.Children.Add(proxyBox);
         root.Children.Add(twoCol3);
+
+        var proxyDupHint = new TextBlock
+        {
+            Text = "",
+            FontFamily = ThemeTokens.UiFont,
+            FontSize = 12,
+            Foreground = ThemeTokens.WarningText,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 6, 0, 0),
+            Visibility = Visibility.Collapsed,
+        };
+        void RefreshProxyDupWarning()
+        {
+            var hostPort = AutomationQueueEngine.ExtractProxyHostPort(tbProxy.Text);
+            if (string.IsNullOrWhiteSpace(hostPort))
+            {
+                proxyDupHint.Visibility = Visibility.Collapsed;
+                return;
+            }
+            var collisions = _vias.Where(v =>
+                !string.Equals(v.ViaId, existing?.ViaId, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(AutomationQueueEngine.ExtractProxyHostPort(v.NetworkLabel), hostPort, StringComparison.OrdinalIgnoreCase))
+                .Select(v => v.Label)
+                .ToList();
+            if (collisions.Count > 0)
+            {
+                proxyDupHint.Text = $"⚠ Cảnh báo trùng IP Proxy ({hostPort}) với Via khác: {string.Join(", ", collisions)}. Dễ gây Checkpoint chéo khi mở nhiều Profile!";
+                proxyDupHint.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                proxyDupHint.Visibility = Visibility.Collapsed;
+            }
+        }
+        tbProxy.TextChanged += (_, _) => RefreshProxyDupWarning();
+        RefreshProxyDupWarning();
+        root.Children.Add(proxyDupHint);
 
         // Warmup baseline + Status
         var twoCol4 = new Grid { Margin = new Thickness(0, 8, 0, 0) };
@@ -632,5 +671,593 @@ internal sealed partial class MainWindow
         });
         sp.Children.Add(element);
         return sp;
+    }
+
+    private void OpenBulkImportViasDialog()
+    {
+        var dlg = new Window
+        {
+            Title = "Nhập Hàng Loạt Via (Auto DPAPI + Chia Chrome Profile)",
+            Width = 920,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            ResizeMode = ResizeMode.NoResize,
+            Background = ThemeTokens.BgCanvas,
+            Foreground = ThemeTokens.TextPrimary,
+            ShowInTaskbar = false,
+        };
+        ThemeTokens.ApplyDarkTitleBar(dlg);
+
+        var root = new StackPanel { Margin = new Thickness(20) };
+
+        root.Children.Add(new Border
+        {
+            Background = ThemeTokens.InfoBg,
+            BorderBrush = ThemeTokens.InfoBorder,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(12, 9, 12, 9),
+            Margin = new Thickness(0, 0, 0, 12),
+            Child = new TextBlock
+            {
+                Text = "Hỗ trợ dán định dạng UID|Pass|2FA|Cookie|Mail|Proxy hoặc Tên|UID|2FA|Cookie|Proxy. Trường Mật khẩu (Pass) và Mail sẽ bị lọc bỏ 100% trước khi đẩy lên Cloud; Cookie & 2FA chỉ lưu mã hóa DPAPI tại máy Windows này.",
+                FontFamily = ThemeTokens.UiFont,
+                FontSize = 12,
+                Foreground = ThemeTokens.TextSecondary,
+                TextWrapping = TextWrapping.Wrap,
+            },
+        });
+
+        var optGrid = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+        optGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        optGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+        optGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        optGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+        optGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var tbPrefix = UiComponents.CreateTextBox("Via Nhập", "VD: Via Camp VN");
+        var cbTier = UiComponents.CreateComboBox(new[]
+        {
+            new ComboBoxItem { Content = "Via Lên Camp (camp)", Tag = "camp" },
+            new ComboBoxItem { Content = "Via Trữ / Cầm BM (vault)", Tag = "vault" },
+            new ComboBoxItem { Content = "Via Dự phòng (standby)", Tag = "standby" },
+        });
+        var cbWarmup = UiComponents.CreateComboBox(new[]
+        {
+            new ComboBoxItem { Content = "Khóa Ngâm 72h mới hôm nay", Tag = "now" },
+            new ComboBoxItem { Content = "Đã Trust (>7 ngày)", Tag = "clear" },
+        });
+
+        var pBox = BuildLabeledBox("Tiền tố tên Via (khi thiếu tên)", tbPrefix);
+        var tBox = BuildLabeledBox("Nhóm mặc định", cbTier);
+        var wBox = BuildLabeledBox("Chế độ Ngâm thiết bị", cbWarmup);
+        Grid.SetColumn(pBox, 0);
+        Grid.SetColumn(tBox, 2);
+        Grid.SetColumn(wBox, 4);
+        optGrid.Children.Add(pBox);
+        optGrid.Children.Add(tBox);
+        optGrid.Children.Add(wBox);
+        root.Children.Add(optGrid);
+
+        var chkAutoProfile = UiComponents.CreateCheckBox("Tự động chia Chrome Profile chưa sử dụng (Profile 1, Profile 2...) để tránh chồng chéo phiên", true);
+        chkAutoProfile.Margin = new Thickness(0, 0, 0, 10);
+        root.Children.Add(chkAutoProfile);
+
+        var rawHeaderRow = new Grid { Margin = new Thickness(0, 0, 0, 4) };
+        rawHeaderRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        rawHeaderRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        rawHeaderRow.Children.Add(new TextBlock
+        {
+            Text = "Danh sách Via thô (mỗi Via 1 dòng, ngăn cách bằng dấu | hoặc Tab)",
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = ThemeTokens.TextSecondary,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+
+        var tbRaw = UiComponents.CreateTextBox("", "100089123456789|MatKhauAnToanBiLoc|JBSWY3DPEHPK3PXP|c_user=100089123456789; xs=abc...|103.1.2.3:8080:user:pass", multiline: true, height: 120);
+        tbRaw.FontFamily = ThemeTokens.MonoFont;
+
+        var pasteBtn = UiComponents.CreateButton("Dán từ Clipboard", ButtonVariant.Secondary, FluentIcons.Upload, compact: true, onClick: (_, _) =>
+        {
+            try
+            {
+                if (Clipboard.ContainsText()) tbRaw.Text = Clipboard.GetText();
+            }
+            catch { }
+        });
+        Grid.SetColumn(pasteBtn, 1);
+        rawHeaderRow.Children.Add(pasteBtn);
+        root.Children.Add(rawHeaderRow);
+        root.Children.Add(tbRaw);
+
+        var previewSummaryTb = new TextBlock
+        {
+            Text = "Dán danh sách vào ô trên để xem trước bản tách cột...",
+            FontFamily = ThemeTokens.UiFont,
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = ThemeTokens.AccentText,
+            Margin = new Thickness(0, 10, 0, 6),
+        };
+        root.Children.Add(previewSummaryTb);
+
+        var previewHost = new StackPanel();
+        var previewScroll = new ScrollViewer
+        {
+            MaxHeight = 200,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Content = previewHost,
+        };
+        var previewCard = UiComponents.CreateCard(previewScroll, new Thickness(8), ThemeTokens.BgSurfaceElevated, ThemeTokens.BorderDefault);
+        root.Children.Add(previewCard);
+
+        var statusTb = new TextBlock
+        {
+            Text = "",
+            FontSize = 12,
+            Foreground = ThemeTokens.WarningText,
+            Margin = new Thickness(0, 8, 0, 0),
+            TextWrapping = TextWrapping.Wrap,
+            Visibility = Visibility.Collapsed,
+        };
+        root.Children.Add(statusTb);
+
+        Button importBtn = null!;
+        ViaBulkParseSummary currentSummary = new(new List<ParsedBulkViaRow>(), new HashSet<string>(), 0, 0);
+
+        void RefreshPreview()
+        {
+            var tierTag = (cbTier.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "camp";
+            var wmTag = (cbWarmup.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "now";
+            var wmIso = wmTag == "now" ? DateTimeOffset.UtcNow.ToString("O") : "";
+            currentSummary = ViaBulkImportParser.ParseBulkText(
+                tbRaw.Text,
+                tbPrefix.Text,
+                tierTag,
+                _vias,
+                chkAutoProfile.IsChecked == true,
+                wmIso);
+
+            previewHost.Children.Clear();
+            var rows = currentSummary.Rows;
+            if (rows.Count == 0)
+            {
+                previewSummaryTb.Text = "Chưa có dòng dữ liệu nào.";
+                previewSummaryTb.Foreground = ThemeTokens.TextMuted;
+                importBtn.IsEnabled = false;
+                return;
+            }
+
+            var validRows = rows.Where(r => r.HasValidPayload || !string.IsNullOrWhiteSpace(r.ExternalReferenceId)).ToList();
+            var dupCount = currentSummary.DuplicateProxyHosts.Count;
+            previewSummaryTb.Text = $"Phân tích {rows.Count} dòng • Hợp lệ: {validRows.Count} Via • 2FA: {rows.Count(r => !string.IsNullOrWhiteSpace(r.TwoFaSecret))} • Cookie: {rows.Count(r => !string.IsNullOrWhiteSpace(r.CookieRaw))}"
+                + (dupCount > 0 ? $" • ⚠ {dupCount} IP Proxy bị trùng" : "");
+            previewSummaryTb.Foreground = dupCount > 0 ? ThemeTokens.WarningText : ThemeTokens.SuccessText;
+            importBtn.IsEnabled = validRows.Count > 0;
+
+            foreach (var r in rows.Take(60))
+            {
+                var rowGrid = new Grid { Margin = new Thickness(0, 3, 0, 3) };
+                rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(32) });
+                rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.2, GridUnitType.Star) });
+                rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(135) });
+                rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(95) });
+                rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(85) });
+                rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.3, GridUnitType.Star) });
+
+                rowGrid.Children.Add(new TextBlock { Text = $"#{r.RowNumber}", FontFamily = ThemeTokens.MonoFont, FontSize = 12, Foreground = ThemeTokens.TextMuted, VerticalAlignment = VerticalAlignment.Center });
+
+                var lblTb = new TextBlock { Text = $"{r.Label} ({r.AssignedProfile})", FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = ThemeTokens.TextPrimary, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
+                Grid.SetColumn(lblTb, 1);
+                rowGrid.Children.Add(lblTb);
+
+                var uidTb = new TextBlock { Text = string.IsNullOrWhiteSpace(r.ExternalReferenceId) ? "UID: —" : r.ExternalReferenceId, FontFamily = ThemeTokens.MonoFont, FontSize = 11, Foreground = ThemeTokens.TextSecondary, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+                Grid.SetColumn(uidTb, 2);
+                rowGrid.Children.Add(uidTb);
+
+                var tfaTb = new TextBlock { Text = string.IsNullOrWhiteSpace(r.TwoFaSecret) ? "Không 2FA" : "2FA OK", FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = string.IsNullOrWhiteSpace(r.TwoFaSecret) ? ThemeTokens.TextMuted : ThemeTokens.SuccessText, VerticalAlignment = VerticalAlignment.Center };
+                Grid.SetColumn(tfaTb, 3);
+                rowGrid.Children.Add(tfaTb);
+
+                var ckTb = new TextBlock { Text = string.IsNullOrWhiteSpace(r.CookieRaw) ? "No Cookie" : "Cookie OK", FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = string.IsNullOrWhiteSpace(r.CookieRaw) ? ThemeTokens.TextMuted : ThemeTokens.AccentText, VerticalAlignment = VerticalAlignment.Center };
+                Grid.SetColumn(ckTb, 4);
+                rowGrid.Children.Add(ckTb);
+
+                var prxText = string.IsNullOrWhiteSpace(r.ProxyHostPort) ? "Không Proxy" : r.ProxyHostPort;
+                if (!string.IsNullOrWhiteSpace(r.DuplicateProxyWarning)) prxText = $"⚠ {r.DuplicateProxyWarning}";
+                else if (r.StrippedSecretsCount > 0) prxText += $" (đã lọc {r.StrippedSecretsCount} pass/mail)";
+                var prxTb = new TextBlock { Text = prxText, FontSize = 11, Foreground = !string.IsNullOrWhiteSpace(r.DuplicateProxyWarning) ? ThemeTokens.WarningText : ThemeTokens.TextSecondary, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+                Grid.SetColumn(prxTb, 5);
+                rowGrid.Children.Add(prxTb);
+
+                previewHost.Children.Add(new Border
+                {
+                    BorderBrush = ThemeTokens.BorderSubtle,
+                    BorderThickness = new Thickness(0, 0, 0, 1),
+                    Padding = new Thickness(4, 3, 4, 3),
+                    Child = rowGrid,
+                });
+            }
+            if (rows.Count > 60)
+            {
+                previewHost.Children.Add(new TextBlock
+                {
+                    Text = $"... và {rows.Count - 60} dòng nữa sẽ được nhập cùng lúc.",
+                    FontSize = 12,
+                    Foreground = ThemeTokens.TextMuted,
+                    Margin = new Thickness(4, 6, 4, 2),
+                });
+            }
+        }
+
+        var btnRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
+        var cancelBtn = UiComponents.CreateButton("Hủy", ButtonVariant.Secondary, onClick: (_, _) => dlg.Close());
+        cancelBtn.Margin = new Thickness(0, 0, 10, 0);
+
+        importBtn = UiComponents.CreateButton("Nhập lên Cloud & Cất Két DPAPI", ButtonVariant.Primary, FluentIcons.CheckCircle, onClick: async (_, _) =>
+        {
+            var targets = currentSummary.Rows.Where(r => r.HasValidPayload || !string.IsNullOrWhiteSpace(r.ExternalReferenceId)).ToList();
+            if (targets.Count == 0) return;
+
+            var ok = UiComponents.ShowConfirmActionDialog(
+                dlg,
+                $"Xác nhận Nhập Lô {targets.Count} Via",
+                $"Chuẩn bị tạo {targets.Count} Via trên Cloud, tự động gán Chrome Profile và mã hóa DPAPI cho toàn bộ Cookie / 2FA tại máy Windows này.",
+                new (string, string)[]
+                {
+                    ("Số lượng nhập:", $"{targets.Count} Via"),
+                    ("Số Via có 2FA / Cookie:", $"{targets.Count(x => !string.IsNullOrWhiteSpace(x.TwoFaSecret))} 2FA / {targets.Count(x => !string.IsNullOrWhiteSpace(x.CookieRaw))} Cookie"),
+                    ("Trùng IP Proxy cảnh báo:", currentSummary.DuplicateProxyHosts.Count > 0 ? string.Join(", ", currentSummary.DuplicateProxyHosts) : "Không phát hiện"),
+                },
+                "Pass và Email thô (nếu có trong dòng nhập) đã bị loại bỏ hoàn toàn trước khi gửi Cloud.");
+            if (!ok) return;
+
+            importBtn.IsEnabled = false;
+            cancelBtn.IsEnabled = false;
+            statusTb.Visibility = Visibility.Visible;
+            int created = 0;
+            int failed = 0;
+
+            foreach (var r in targets)
+            {
+                statusTb.Foreground = ThemeTokens.AccentText;
+                statusTb.Text = $"Đang nhập {created + failed + 1}/{targets.Count}: {r.Label} ({r.AssignedProfile})...";
+                try
+                {
+                    var payload = new PersonalAccountUpsertRequestDto
+                    {
+                        Label = r.Label,
+                        DisplayName = r.Label,
+                        ExternalReferenceId = string.IsNullOrWhiteSpace(r.ExternalReferenceId) ? null : r.ExternalReferenceId,
+                        Status = "active",
+                        BrowserProfileLabel = r.AssignedProfile,
+                        NetworkLabel = r.ProxyRaw,
+                        VaultReference = (!string.IsNullOrWhiteSpace(r.TwoFaSecret) || !string.IsNullOrWhiteSpace(r.CookieRaw))
+                            ? "Két DPAPI Local (Bulk)"
+                            : "",
+                        Notes = r.CleanNotes,
+                    };
+                    var saved = await _api.CreatePersonalAccountAsync(payload);
+                    LocalSecretVaultStore.Default.Upsert(
+                        saved.Id,
+                        saved.Label,
+                        r.AssignedProfile,
+                        r.CookieRaw,
+                        r.TwoFaSecret,
+                        allowOverwriteEmpty: false);
+                    created++;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    AppendLog($"Nhập Lô dòng #{r.RowNumber} ({r.Label}) lỗi: {ex.Message}");
+                }
+            }
+
+            AppendLog($"Nhập Lô hoàn tất: thành công {created}/{targets.Count} Via" + (failed > 0 ? $", lỗi {failed}." : "."));
+            await SyncCloudAsync(silent: false);
+            dlg.DialogResult = true;
+        });
+
+        tbRaw.TextChanged += (_, _) => RefreshPreview();
+        tbPrefix.TextChanged += (_, _) => RefreshPreview();
+        cbTier.SelectionChanged += (_, _) => RefreshPreview();
+        cbWarmup.SelectionChanged += (_, _) => RefreshPreview();
+        chkAutoProfile.Checked += (_, _) => RefreshPreview();
+        chkAutoProfile.Unchecked += (_, _) => RefreshPreview();
+        RefreshPreview();
+
+        btnRow.Children.Add(cancelBtn);
+        btnRow.Children.Add(importBtn);
+        root.Children.Add(btnRow);
+
+        dlg.Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 760, Content = root };
+        dlg.ShowDialog();
+    }
+
+    private sealed record CommandPaletteItem(
+        string Category,
+        string Title,
+        string Subtitle,
+        string Badge,
+        string SearchText,
+        Action Execute,
+        Action? Copy2Fa = null);
+
+    private void OpenCommandPaletteDialog()
+    {
+        var dlg = new Window
+        {
+            Title = "Bảng Lệnh Nhanh (Ctrl+K)",
+            Width = 660,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            ResizeMode = ResizeMode.NoResize,
+            Background = ThemeTokens.BgCanvas,
+            Foreground = ThemeTokens.TextPrimary,
+            ShowInTaskbar = false,
+        };
+        ThemeTokens.ApplyDarkTitleBar(dlg);
+
+        var allItems = new List<CommandPaletteItem>();
+        var loggedIn = !string.IsNullOrWhiteSpace(_config.GetJwt());
+
+        void AddNavCmd(AppView view, string shortcut, string title, string desc)
+        {
+            allItems.Add(new CommandPaletteItem(
+                "ĐIỀU HƯỚNG",
+                title,
+                desc,
+                shortcut,
+                $"nav {title} {desc} {shortcut}",
+                () => { dlg.Close(); SwitchView(view); }));
+        }
+
+        AddNavCmd(AppView.Overview, "Ctrl+1", "Tổng quan vận hành", "KPI đa Via, cảnh báo hệ thống & hàng đợi");
+        AddNavCmd(AppView.Vias, "Ctrl+2", "Quản lý Đa Via", "Danh sách Via, Chrome Profile, Proxy & 2FA");
+        AddNavCmd(AppView.Automation, "Ctrl+3", "Trung tâm Tự động hóa", "Tạo Page theo nhịp an toàn & Đảo Ấm Cookie");
+        AddNavCmd(AppView.PagesBm, "Ctrl+4", "Fanpage & Business Manager", "Quản lý Fanpage, nuôi lô & xuất CSV");
+        AddNavCmd(AppView.AdAccounts, "Ctrl+5", "Tài khoản Quảng cáo", "Bảng TKQC, số dư, ngưỡng & xuất CSV");
+        AddNavCmd(AppView.HealthTokens, "Ctrl+6", "Sức khỏe TKQC, Token & Pre-flight", "Kiểm tra Meta Token, đánh giá sức khỏe & chấm điểm chiến dịch");
+        AddNavCmd(AppView.Settings, "Ctrl+7", "Két khóa DPAPI & Cài đặt", "Kết nối Cloud, sao lưu két & Extension");
+
+        allItems.Add(new CommandPaletteItem(
+            "THAO TÁC",
+            "Đồng bộ Cloud & Extension ngay",
+            "Kéo dữ liệu mới nhất từ AdsOps Cloud (phím tắt F5)",
+            "F5",
+            "sync dong bo cloud refresh",
+            () => { dlg.Close(); _ = SyncCloudAsync(silent: false); }));
+
+        if (loggedIn)
+        {
+            allItems.Add(new CommandPaletteItem(
+                "THAO TÁC",
+                "Nhập Lô nhiều Via từ Clipboard",
+                "Dán hàng loạt định dạng UID|Pass|2FA|Cookie|Mail|Proxy",
+                "Ctrl+B",
+                "bulk import nhap lo via",
+                () => { dlg.Close(); OpenBulkImportViasDialog(); }));
+
+            allItems.Add(new CommandPaletteItem(
+                "THAO TÁC",
+                "Thêm 1 Via mới",
+                "Tạo hồ sơ Via mới trên Cloud & Két DPAPI Local",
+                "Ctrl+N",
+                "add them via moi",
+                () => { dlg.Close(); OpenViaEditorDialog(null); }));
+
+            var dueCount = _vias.Count(v => v.NeedsKeepAlive);
+            if (dueCount > 0)
+            {
+                allItems.Add(new CommandPaletteItem(
+                    "THAO TÁC",
+                    $"Chạy Đảo Ấm An Toàn ({dueCount} Via đến hạn)",
+                    "Xếp hàng đợi đọc Newsfeed/Notifications giãn cách trên Proxy tĩnh",
+                    "Warmup",
+                    "dao am keep alive warmup",
+                    () => { dlg.Close(); StartKeepAliveDueQueue(requireConfirm: true); }));
+            }
+        }
+
+        allItems.Add(new CommandPaletteItem(
+            "THAO TÁC",
+            "Cấp lại Extension Companion v2.9.2 cho toàn bộ Via",
+            "Đồng bộ code Extension v2.9.2 & Proxy vào thư mục Profile của từng Via",
+            "Ext v2.9.2",
+            "provision extension cap lai 2.9.2",
+            () => { dlg.Close(); ProvisionAllViaExtensions(silent: false); }));
+
+        var now = DateTimeOffset.UtcNow;
+        foreach (var v in _vias)
+        {
+            var secret = !string.IsNullOrWhiteSpace(v.TwoFaSecret)
+                ? v.TwoFaSecret
+                : LocalSecretVaultStore.Default.Find(v.ViaId, v.ProfileDir, v.Label).TwoFaSecret;
+            var totp = TotpService.ComputeTotp(secret, now);
+            var badge = totp.Valid ? $"2FA {totp.FormattedCode}" : "Mở Chrome";
+            var viaRef = v;
+
+            allItems.Add(new CommandPaletteItem(
+                "VIA",
+                $"{viaRef.Label} • {viaRef.ProfileDir}",
+                $"UID: {viaRef.ExternalReferenceId ?? "—"} • Proxy: {(string.IsNullOrWhiteSpace(viaRef.NetworkLabel) ? "Không" : viaRef.NetworkLabel)}",
+                badge,
+                $"{viaRef.Label} {viaRef.ProfileDir} {viaRef.ExternalReferenceId} {viaRef.NetworkLabel} {viaRef.ViaTier}",
+                () => { dlg.Close(); LaunchViaChromeSafe(viaRef, "https://www.facebook.com/"); },
+                totp.Valid ? () => { CopyViaTotpToClipboard(viaRef, showBalloon: true); dlg.Close(); } : null));
+        }
+
+        var root = new StackPanel { Margin = new Thickness(16) };
+        var tbSearch = UiComponents.CreateTextBox("", "Gõ tên Via, UID, Profile, lệnh (VD: Đảo ấm, Sức khỏe, Nhập lô)...");
+        root.Children.Add(tbSearch);
+
+        var listHost = new StackPanel { Margin = new Thickness(0, 10, 0, 8) };
+        var listScroll = new ScrollViewer
+        {
+            MaxHeight = 360,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Content = listHost,
+        };
+        root.Children.Add(listScroll);
+
+        root.Children.Add(new TextBlock
+        {
+            Text = "↑ / ↓: chọn dòng   •   Enter: mở / thực thi   •   Ctrl+C: chép 2FA của Via đang chọn   •   Esc: đóng",
+            FontFamily = ThemeTokens.UiFont,
+            FontSize = 11,
+            Foreground = ThemeTokens.TextMuted,
+        });
+
+        var filtered = new List<CommandPaletteItem>();
+        var rowBorders = new List<Border>();
+        int selectedIdx = 0;
+
+        void UpdateSelectionHighlight()
+        {
+            for (int i = 0; i < rowBorders.Count; i++)
+            {
+                var isSel = i == selectedIdx;
+                rowBorders[i].Background = isSel ? ThemeTokens.BgNavActive : ThemeTokens.BgSurfaceElevated;
+                rowBorders[i].BorderBrush = isSel ? ThemeTokens.InfoBorder : ThemeTokens.BorderSubtle;
+            }
+            if (selectedIdx >= 0 && selectedIdx < rowBorders.Count)
+            {
+                rowBorders[selectedIdx].BringIntoView();
+            }
+        }
+
+        void RenderList()
+        {
+            listHost.Children.Clear();
+            rowBorders.Clear();
+            var q = (tbSearch.Text ?? "").Trim();
+            filtered = string.IsNullOrEmpty(q)
+                ? allItems.Take(25).ToList()
+                : allItems.Where(x => x.SearchText.Contains(q, StringComparison.OrdinalIgnoreCase) || x.Title.Contains(q, StringComparison.OrdinalIgnoreCase)).Take(25).ToList();
+
+            if (filtered.Count == 0)
+            {
+                selectedIdx = -1;
+                listHost.Children.Add(new TextBlock
+                {
+                    Text = "Không tìm thấy Via hoặc lệnh phù hợp.",
+                    FontSize = 13,
+                    Foreground = ThemeTokens.TextMuted,
+                    Margin = new Thickness(8, 18, 8, 18),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                });
+                return;
+            }
+
+            if (selectedIdx < 0 || selectedIdx >= filtered.Count) selectedIdx = 0;
+
+            for (int i = 0; i < filtered.Count; i++)
+            {
+                var item = filtered[i];
+                var idx = i;
+
+                var g = new Grid();
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(86) });
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var catPill = UiComponents.CreateBadgePill(
+                    item.Category,
+                    item.Category == "VIA" ? ThemeTokens.AccentText : ThemeTokens.TextSecondary,
+                    item.Category == "VIA" ? ThemeTokens.InfoBg : ThemeTokens.BgSurface,
+                    ThemeTokens.BorderSubtle);
+                g.Children.Add(catPill);
+
+                var mid = new StackPanel { Margin = new Thickness(8, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
+                mid.Children.Add(new TextBlock { Text = item.Title, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = ThemeTokens.TextPrimary, TextTrimming = TextTrimming.CharacterEllipsis });
+                mid.Children.Add(new TextBlock { Text = item.Subtitle, FontSize = 11, Foreground = ThemeTokens.TextMuted, TextTrimming = TextTrimming.CharacterEllipsis });
+                Grid.SetColumn(mid, 1);
+                g.Children.Add(mid);
+
+                var rightSp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                if (item.Copy2Fa != null)
+                {
+                    var cpBtn = UiComponents.CreateButton("Copy 2FA", ButtonVariant.Secondary, compact: true, onClick: (s, args) =>
+                    {
+                        args.Handled = true;
+                        item.Copy2Fa();
+                    });
+                    cpBtn.Margin = new Thickness(0, 0, 6, 0);
+                    rightSp.Children.Add(cpBtn);
+                }
+                rightSp.Children.Add(UiComponents.CreateBadgePill(item.Badge, ThemeTokens.TextPrimary, ThemeTokens.BgSurface, ThemeTokens.BorderDefault));
+                Grid.SetColumn(rightSp, 2);
+                g.Children.Add(rightSp);
+
+                var card = new Border
+                {
+                    Background = ThemeTokens.BgSurfaceElevated,
+                    BorderBrush = ThemeTokens.BorderSubtle,
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(8),
+                    Padding = new Thickness(10, 7, 10, 7),
+                    Margin = new Thickness(0, 0, 0, 6),
+                    Cursor = Cursors.Hand,
+                    Child = g,
+                };
+                card.MouseLeftButtonUp += (_, _) => item.Execute();
+                card.MouseEnter += (_, _) => { selectedIdx = idx; UpdateSelectionHighlight(); };
+                rowBorders.Add(card);
+                listHost.Children.Add(card);
+            }
+
+            UpdateSelectionHighlight();
+        }
+
+        tbSearch.TextChanged += (_, _) => { selectedIdx = 0; RenderList(); };
+        dlg.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Escape)
+            {
+                e.Handled = true;
+                dlg.Close();
+            }
+            else if (e.Key == Key.Down && filtered.Count > 0)
+            {
+                e.Handled = true;
+                selectedIdx = (selectedIdx + 1) % filtered.Count;
+                UpdateSelectionHighlight();
+            }
+            else if (e.Key == Key.Up && filtered.Count > 0)
+            {
+                e.Handled = true;
+                selectedIdx = (selectedIdx - 1 + filtered.Count) % filtered.Count;
+                UpdateSelectionHighlight();
+            }
+            else if (e.Key == Key.Enter && selectedIdx >= 0 && selectedIdx < filtered.Count)
+            {
+                e.Handled = true;
+                filtered[selectedIdx].Execute();
+            }
+            else if (e.Key == Key.C && Keyboard.Modifiers == ModifierKeys.Control && tbSearch.SelectionLength == 0 && selectedIdx >= 0 && selectedIdx < filtered.Count)
+            {
+                var cp = filtered[selectedIdx].Copy2Fa;
+                if (cp != null)
+                {
+                    e.Handled = true;
+                    cp();
+                }
+            }
+        };
+
+        dlg.Loaded += (_, _) =>
+        {
+            RenderList();
+            tbSearch.Focus();
+        };
+
+        dlg.Content = root;
+        dlg.ShowDialog();
     }
 }

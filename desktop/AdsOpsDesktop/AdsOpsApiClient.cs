@@ -38,7 +38,7 @@ public sealed class AdsOpsApiClient : IDisposable
     private HttpRequestMessage BuildRequest(HttpMethod method, string relativePath, object? body = null)
     {
         var req = new HttpRequestMessage(method, _baseUrl + relativePath);
-        req.Headers.TryAddWithoutValidation("X-AdsOps-Client", "2.0.0");
+        req.Headers.TryAddWithoutValidation("X-AdsOps-Client", "2.1.0");
         req.Headers.TryAddWithoutValidation("X-AdsOps-Source", "desktop");
         if (!string.IsNullOrWhiteSpace(_token))
         {
@@ -219,6 +219,28 @@ public sealed class AdsOpsApiClient : IDisposable
             "/api/v1/facebook-pages/browser-event",
             payload,
             ct);
+
+    public Task<List<MetaConnectionDto>> ListMetaConnectionsAsync(CancellationToken ct = default) =>
+        SendJsonAsync<List<MetaConnectionDto>>(HttpMethod.Get, "/api/v1/meta-connections", null, ct);
+
+    public Task<MetaConnectionDto> CheckMetaConnectionCapabilityAsync(string id, CancellationToken ct = default) =>
+        SendJsonAsync<MetaConnectionDto>(HttpMethod.Post, $"/api/v1/meta-connections/{Uri.EscapeDataString(id)}/check-capability", new { }, ct);
+
+    public Task<HealthSummaryDto> GetAccountHealthSummaryAsync(CancellationToken ct = default) =>
+        SendJsonAsync<HealthSummaryDto>(HttpMethod.Get, "/api/v1/account-health/summary", null, ct);
+
+    public Task<PagedAccountHealthDto> ListAccountHealthAsync(int pageSize = 100, CancellationToken ct = default) =>
+        SendJsonAsync<PagedAccountHealthDto>(
+            HttpMethod.Get,
+            $"/api/v1/account-health?page=1&page_size={pageSize}&sort=health_severity&sort_direction=desc",
+            null,
+            ct);
+
+    public Task<PagedCampaignDraftsDto> ListCampaignDraftsAsync(int pageSize = 25, CancellationToken ct = default) =>
+        SendJsonAsync<PagedCampaignDraftsDto>(HttpMethod.Get, $"/api/v1/campaign-drafts?page=1&page_size={pageSize}", null, ct);
+
+    public Task<JsonElement> EvaluateCampaignDraftAsync(string draftId, CancellationToken ct = default) =>
+        SendJsonAsync<JsonElement>(HttpMethod.Post, $"/api/v1/campaign-drafts/{Uri.EscapeDataString(draftId)}/evaluate", new { }, ct);
 
     public void Dispose() => _http.Dispose();
 }

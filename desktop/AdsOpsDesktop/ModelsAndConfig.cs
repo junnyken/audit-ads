@@ -1118,3 +1118,373 @@ public static class ProtocolRegistrar
         return true;
     }
 }
+
+public sealed class MetaConnectionDto
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+    [JsonPropertyName("label")] public string Label { get; set; } = "";
+    [JsonPropertyName("environment")] public string Environment { get; set; } = "";
+    [JsonPropertyName("status")] public string Status { get; set; } = "";
+    [JsonPropertyName("token_configured")] public bool TokenConfigured { get; set; }
+    [JsonPropertyName("reader_source")] public string ReaderSource { get; set; } = "";
+    [JsonPropertyName("business_manager_reference")] public string? BusinessManagerReference { get; set; }
+    [JsonPropertyName("business_manager_source")] public string BusinessManagerSource { get; set; } = "";
+    [JsonPropertyName("last_capability_check_at")] public string? LastCapabilityCheckAt { get; set; }
+}
+
+public sealed class HealthSummaryDto
+{
+    [JsonPropertyName("total_active")] public int TotalActive { get; set; }
+    [JsonPropertyName("critical")] public int Critical { get; set; }
+    [JsonPropertyName("warning")] public int Warning { get; set; }
+    [JsonPropertyName("attention_needed")] public int AttentionNeeded { get; set; }
+    [JsonPropertyName("unknown")] public int Unknown { get; set; }
+    [JsonPropertyName("clear_signals")] public int ClearSignals { get; set; }
+    [JsonPropertyName("stale_data")] public int StaleData { get; set; }
+}
+
+public sealed class AccountHealthRowDto
+{
+    [JsonPropertyName("ad_account_id")] public string AdAccountId { get; set; } = "";
+    [JsonPropertyName("display_name")] public string DisplayName { get; set; } = "";
+    [JsonPropertyName("external_account_id")] public string? ExternalAccountId { get; set; }
+    [JsonPropertyName("business_manager_name")] public string? BusinessManagerName { get; set; }
+    [JsonPropertyName("personal_account_reference_label")] public string? PersonalAccountReferenceLabel { get; set; }
+    [JsonPropertyName("account_status")] public string AccountStatus { get; set; } = "";
+    [JsonPropertyName("readiness_status")] public string ReadinessStatus { get; set; } = "";
+    [JsonPropertyName("health_status")] public string HealthStatus { get; set; } = "";
+    [JsonPropertyName("freshness_status")] public string FreshnessStatus { get; set; } = "";
+    [JsonPropertyName("open_critical_count")] public int OpenCriticalCount { get; set; }
+    [JsonPropertyName("open_warning_count")] public int OpenWarningCount { get; set; }
+    [JsonPropertyName("open_attention_count")] public int OpenAttentionCount { get; set; }
+    [JsonPropertyName("last_evaluated_at")] public string? LastEvaluatedAt { get; set; }
+    [JsonPropertyName("top_reason")] public JsonElement? TopReason { get; set; }
+
+    public string GetTopReasonText()
+    {
+        if (!TopReason.HasValue || TopReason.Value.ValueKind != JsonValueKind.Object) return "—";
+        var obj = TopReason.Value;
+        foreach (var prop in new[] { "title", "rule_name", "summary", "why_it_matters", "signal_key" })
+        {
+            if (obj.TryGetProperty(prop, out var val) && val.ValueKind == JsonValueKind.String)
+            {
+                var txt = val.GetString();
+                if (!string.IsNullOrWhiteSpace(txt)) return txt.Trim();
+            }
+        }
+        return "—";
+    }
+}
+
+public sealed class PagedAccountHealthDto
+{
+    [JsonPropertyName("items")] public List<AccountHealthRowDto> Items { get; set; } = new();
+    [JsonPropertyName("total")] public int Total { get; set; }
+}
+
+public sealed class CampaignDraftDto
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+    [JsonPropertyName("ad_account_id")] public string? AdAccountId { get; set; }
+    [JsonPropertyName("account_display_name")] public string? AccountDisplayName { get; set; }
+    [JsonPropertyName("title")] public string Title { get; set; } = "";
+    [JsonPropertyName("objective")] public string? Objective { get; set; }
+    [JsonPropertyName("draft_status")] public string DraftStatus { get; set; } = "";
+    [JsonPropertyName("open_blocking_count")] public int OpenBlockingCount { get; set; }
+    [JsonPropertyName("open_warning_count")] public int OpenWarningCount { get; set; }
+    [JsonPropertyName("last_evaluated_at")] public string? LastEvaluatedAt { get; set; }
+}
+
+public sealed class PagedCampaignDraftsDto
+{
+    [JsonPropertyName("items")] public List<CampaignDraftDto> Items { get; set; } = new();
+    [JsonPropertyName("total")] public int Total { get; set; }
+}
+
+public sealed record ParsedBulkViaRow(
+    int RowNumber,
+    string RawLine,
+    string Label,
+    string ExternalReferenceId,
+    string TwoFaSecret,
+    string CookieRaw,
+    string ProxyRaw,
+    string ProxyHostPort,
+    string AssignedProfile,
+    string RoleTier,
+    string WarmupStartIso,
+    string CleanNotes,
+    int StrippedSecretsCount,
+    string DuplicateProxyWarning,
+    bool HasValidPayload);
+
+public sealed record ViaBulkParseSummary(
+    List<ParsedBulkViaRow> Rows,
+    HashSet<string> DuplicateProxyHosts,
+    int SkippedEmptyCount,
+    int WarningCount);
+
+/// <summary>
+/// Parses multi-line Via lists (UID|Pass|2FA|Cookie|Mail|Proxy) while stripping passwords/emails from Cloud fields.
+/// </summary>
+public static class ViaBulkImportParser
+{
+    private static readonly Regex UidRx = new(@"^\d{8,22}$", RegexOptions.Compiled);
+    private static readonly Regex CookieUidRx = new(@"(?:^|[;\s])c_user=(\d{6,22})\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex TwoFaPrefixRx = new(@"^(?:2fa|secret|otp)\s*[:=]\s*", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex PureBase32Rx = new(@"^[A-Z2-7]{16,64}$", RegexOptions.Compiled);
+
+    private static bool TryExtractTwoFa(string token, out string normalized)
+    {
+        normalized = "";
+        if (string.IsNullOrWhiteSpace(token)) return false;
+        var hasPrefix = TwoFaPrefixRx.IsMatch(token.Trim());
+        var t = TwoFaPrefixRx.Replace(token.Trim(), "");
+        t = t.Replace("-", "", StringComparison.Ordinal).Replace(" ", "", StringComparison.Ordinal);
+        // Reject CamelCase passwords (e.g., MatKhauBiMat...) unless explicitly prefixed with 2fa:/secret:
+        if (!hasPrefix && t.Any(char.IsUpper) && t.Any(char.IsLower)) return false;
+        t = TotpService.NormalizeBase32Secret(t);
+        if (!PureBase32Rx.IsMatch(t)) return false;
+        if (!TotpService.ComputeTotp(t).Valid) return false;
+        normalized = t;
+        return true;
+    }
+
+    public static ViaBulkParseSummary ParseBulkText(
+        string? rawText,
+        string labelPrefix,
+        string defaultTier,
+        IReadOnlyList<ViaWorkspaceEntry>? existingVias,
+        bool autoAssignProfile,
+        string warmupStartIso = "")
+    {
+        var prefix = string.IsNullOrWhiteSpace(labelPrefix) ? "Via Nhập" : labelPrefix.Trim();
+        var tier = (defaultTier ?? "").Trim().ToLowerInvariant() switch
+        {
+            "vault" or "hold" => "vault",
+            "standby" => "standby",
+            _ => "camp",
+        };
+
+        var usedProfiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var existingProxyCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        if (existingVias != null)
+        {
+            foreach (var v in existingVias)
+            {
+                var pd = ExtensionProvisioner.ResolveProfileDirectory(v.BrowserProfileLabel, v.Label);
+                if (!string.IsNullOrWhiteSpace(pd)) usedProfiles.Add(pd);
+                var hp = AutomationQueueEngine.ExtractProxyHostPort(v.NetworkLabel);
+                if (!string.IsNullOrWhiteSpace(hp))
+                {
+                    existingProxyCounts[hp] = existingProxyCounts.GetValueOrDefault(hp) + 1;
+                }
+            }
+        }
+
+        var draftRows = new List<ParsedBulkViaRow>();
+        var batchProxyCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        int skippedEmpty = 0;
+        int nextProfileNum = 1;
+
+        string AllocateNextProfile()
+        {
+            if (!autoAssignProfile) return "Default";
+            while (nextProfileNum <= 999)
+            {
+                var candidate = $"Profile {nextProfileNum}";
+                nextProfileNum++;
+                if (!usedProfiles.Contains(candidate))
+                {
+                    usedProfiles.Add(candidate);
+                    return candidate;
+                }
+            }
+            return "Default";
+        }
+
+        var lines = (rawText ?? "").Replace("\r\n", "\n").Split('\n');
+        int validSeq = 0;
+        foreach (var rawLine in lines)
+        {
+            var trimmedLine = rawLine.Trim();
+            if (string.IsNullOrWhiteSpace(trimmedLine))
+            {
+                skippedEmpty++;
+                continue;
+            }
+
+            var cols = trimmedLine.Contains('|')
+                ? trimmedLine.Split('|')
+                : trimmedLine.Contains('\t')
+                    ? trimmedLine.Split('\t')
+                    : new[] { trimmedLine };
+
+            string uid = "";
+            string twoFa = "";
+            string cookie = "";
+            string proxy = "";
+            string explicitLabel = "";
+            int strippedSecrets = 0;
+
+            for (int c = 0; c < cols.Length; c++)
+            {
+                var tok = cols[c].Trim();
+                if (string.IsNullOrEmpty(tok)) continue;
+
+                if (tok.Contains("c_user=", StringComparison.OrdinalIgnoreCase) ||
+                    (tok.Contains("xs=", StringComparison.OrdinalIgnoreCase) && tok.Contains(';')))
+                {
+                    cookie = tok;
+                    if (string.IsNullOrEmpty(uid))
+                    {
+                        var cm = CookieUidRx.Match(tok);
+                        if (cm.Success) uid = cm.Groups[1].Value;
+                    }
+                    continue;
+                }
+
+                if (ExtensionProvisioner.ParseProxy(tok) != null)
+                {
+                    proxy = tok;
+                    continue;
+                }
+
+                if (TryExtractTwoFa(tok, out var norm2Fa))
+                {
+                    twoFa = norm2Fa;
+                    continue;
+                }
+
+                if (UidRx.IsMatch(tok))
+                {
+                    if (string.IsNullOrEmpty(uid)) uid = tok;
+                    else strippedSecrets++;
+                    continue;
+                }
+
+                if (tok.Contains('@'))
+                {
+                    strippedSecrets++;
+                    continue;
+                }
+
+                // First non-secret column may be a friendly Via label; later plain columns are treated as passwords/emails and stripped.
+                if (c == 0 && string.IsNullOrEmpty(explicitLabel) && !tok.Contains(' '))
+                {
+                    // Could be single-token name or non-numeric username; allow with spaces if user wrote a readable Via name
+                    explicitLabel = tok;
+                }
+                else if (c == 0 && string.IsNullOrEmpty(explicitLabel))
+                {
+                    explicitLabel = tok;
+                }
+                else
+                {
+                    strippedSecrets++;
+                }
+            }
+
+            validSeq++;
+            var finalLabel = !string.IsNullOrEmpty(explicitLabel)
+                ? explicitLabel
+                : !string.IsNullOrEmpty(uid)
+                    ? $"{prefix} {uid[^Math.Min(4, uid.Length)..]}"
+                    : $"{prefix} {validSeq:00}";
+
+            var prof = AllocateNextProfile();
+            var hp = AutomationQueueEngine.ExtractProxyHostPort(proxy);
+            if (!string.IsNullOrEmpty(hp))
+            {
+                batchProxyCounts[hp] = batchProxyCounts.GetValueOrDefault(hp) + 1;
+            }
+
+            var cleanNotes = ViaMetadataParser.BuildNotes("", tier, warmupStartIso ?? "");
+            var hasPayload = !string.IsNullOrEmpty(uid) || !string.IsNullOrEmpty(cookie) || !string.IsNullOrEmpty(twoFa) || !string.IsNullOrEmpty(proxy);
+            draftRows.Add(new ParsedBulkViaRow(
+                validSeq,
+                trimmedLine,
+                finalLabel,
+                uid,
+                twoFa,
+                cookie,
+                proxy,
+                hp,
+                prof,
+                tier,
+                warmupStartIso ?? "",
+                cleanNotes,
+                strippedSecrets,
+                "",
+                hasPayload));
+        }
+
+        // Second pass: mark duplicate proxy IPs against existing Vias and within this batch
+        var dupHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var finalRows = new List<ParsedBulkViaRow>(draftRows.Count);
+        int warningCount = 0;
+
+        foreach (var r in draftRows)
+        {
+            string warn = "";
+            if (!string.IsNullOrEmpty(r.ProxyHostPort))
+            {
+                var exCount = existingProxyCounts.GetValueOrDefault(r.ProxyHostPort);
+                var bCount = batchProxyCounts.GetValueOrDefault(r.ProxyHostPort);
+                if (exCount > 0 && bCount > 1)
+                    warn = $"⚠️ Trùng Proxy {r.ProxyHostPort} (đã có {exCount} Via + {bCount} dòng trong lô)";
+                else if (exCount > 0)
+                    warn = $"⚠️ Trùng Proxy {r.ProxyHostPort} (đang dùng bởi {exCount} Via trên Cloud)";
+                else if (bCount > 1)
+                    warn = $"⚠️ Trùng Proxy {r.ProxyHostPort} ({bCount} dòng trong lô này)";
+
+                if (!string.IsNullOrEmpty(warn))
+                {
+                    dupHosts.Add(r.ProxyHostPort);
+                    warningCount++;
+                }
+            }
+            finalRows.Add(r with { DuplicateProxyWarning = warn });
+        }
+
+        return new ViaBulkParseSummary(finalRows, dupHosts, skippedEmpty, warningCount);
+    }
+}
+
+/// <summary>
+/// RFC 4180 UTF-8-with-BOM CSV builder with Excel formula-injection neutralization.
+/// </summary>
+public static class CsvExporter
+{
+    public static string EscapeCell(string? raw)
+    {
+        var s = (raw ?? "").Replace("\0", "", StringComparison.Ordinal);
+        if (s.Length > 0 && (s[0] == '=' || s[0] == '+' || s[0] == '-' || s[0] == '@' || s[0] == '\t' || s[0] == '\r'))
+        {
+            s = "'" + s;
+        }
+        if (s.IndexOfAny(new[] { ',', '"', '\r', '\n' }) >= 0)
+        {
+            return "\"" + s.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
+        }
+        return s;
+    }
+
+    public static byte[] BuildCsvBytes(IReadOnlyList<string> headers, IEnumerable<IReadOnlyList<string?>> rows)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine(string.Join(",", headers.Select(EscapeCell)));
+        foreach (var row in rows)
+        {
+            sb.AppendLine(string.Join(",", row.Select(EscapeCell)));
+        }
+        var utf8Bom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
+        var preamble = utf8Bom.GetPreamble();
+        var body = utf8Bom.GetBytes(sb.ToString());
+        var result = new byte[preamble.Length + body.Length];
+        Buffer.BlockCopy(preamble, 0, result, 0, preamble.Length);
+        Buffer.BlockCopy(body, 0, result, preamble.Length, body.Length);
+        return result;
+    }
+}

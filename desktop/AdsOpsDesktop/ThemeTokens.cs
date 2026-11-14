@@ -8,7 +8,7 @@ using System.Windows.Media;
 namespace AdsOpsDesktop;
 
 /// <summary>
-/// Semantic Design Tokens for AdsOps Desktop Pro v2.0 (Slate Dark UI, WCAG AA >= 4.5:1 verified).
+/// Semantic Design Tokens for AdsOps Desktop Pro v2.1 (Slate Dark UI, WCAG AA >= 4.5:1 verified).
 /// </summary>
 internal static class ThemeTokens
 {
@@ -203,4 +203,8 @@ internal static class FluentIcons
     public const string ChevronDown = "\uE70D";
     public const string FolderOpen = "\uE838";
     public const string ShieldCheck = "\uE83D";
+    public const string Download = "\uE896";
+    public const string Upload = "\uE898";
+    public const string Lightning = "\uE945";
+    public const string Diagnostic = "\uE9D9";
 }

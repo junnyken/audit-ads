@@ -609,12 +609,12 @@ export default function FacebookAccounts() {
               </span>
             )}
             <a
-              href="/downloads/AdsOps-Desktop-Pro-v2.0.zip"
+              href="/downloads/AdsOps-Desktop-Pro-v2.1.zip"
               download
               className="inline-flex h-9 items-center gap-1 rounded-md border border-indigo-500/45 bg-indigo-500/15 px-3 text-xs font-bold text-indigo-700 hover:bg-indigo-500/25 dark:text-indigo-300"
-              title="Tải App Windows AdsOps Desktop Pro v2.0 (Cầu nối 2 chiều + Két Cookie DPAPI + Extension v2.9.1)"
+              title="Tải App Windows AdsOps Desktop Pro v2.1 (Cầu nối 2 chiều + Két Cookie DPAPI + Extension v2.9.2)"
             >
-              💻 Tải App Windows v2.0 (.zip)
+              💻 Tải App Windows v2.1 (.zip)
             </a>
             <Button
               type="button"

@@ -614,7 +614,7 @@ export function downloadWindowsChromeLauncherBat(): void {
     '    }',
     '    $path = $req.Url.AbsolutePath.TrimEnd("/")',
     '    if ($path -eq "/health" -and $req.HttpMethod -eq "GET") {',
-    `      Send-Json $res 200 '{"ok":true,"version":"2.9.1"}'`,
+    `      Send-Json $res 200 '{"ok":true,"version":"2.9.2"}'`,
     '      continue',
     '    }',
     '    if ($path -eq "/chrome-profiles" -and $req.HttpMethod -eq "GET") {',
@@ -905,9 +905,9 @@ export function buildExtensionFilesForVia(
       ? `AdsOps Companion Pro · ${profileDir} · Proxy ${parsed!.host}:${parsed!.port}`
       : `AdsOps Companion Pro · ${profileDir} (${viaName})`,
     short_name: 'AdsOps Companion Pro',
-    version: '2.9.1',
+    version: '2.9.2',
     description:
-      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.9.1 Pro: Đảo Ấm Cookie Sinh Học Đa Lộ Trình + Tự Dừng Nếu Văng Cookie, Full Auto-Pilot Tạo Fanpage giãn nhịp an toàn + Checkpoint Guard, Anti-Passkey, 2FA, WebRTC Lock & EAAB Token.',
+      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.9.2 Pro: Đảo Ấm Cookie Sinh Học Đa Lộ Trình + Tự Dừng Nếu Văng Cookie, Full Auto-Pilot Tạo Fanpage giãn nhịp an toàn + Checkpoint Guard, Anti-Passkey, 2FA, WebRTC Lock & EAAB Token.',
     permissions: [
       'proxy',
       'privacy',
@@ -966,7 +966,7 @@ export function buildExtensionFilesForVia(
 
   // Runs in MAIN world at document_start BEFORE Facebook's scripts load:
   // Completely blocks Windows Hello / WebAuthn / Passkey popup from ever appearing!
-  const passkeyShieldJs = `// AdsOps Companion Pro v2.9.1 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
+  const passkeyShieldJs = `// AdsOps Companion Pro v2.9.2 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
 (function() {
   try {
     if (window.PublicKeyCredential) {
@@ -1184,6 +1184,71 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === "ADSOPS_GET_LOCAL_TOTP") {
+    const computeLocalTotp = async (rawSecret) => {
+      const clean = String(rawSecret || "").toUpperCase().replace(/[^A-Z2-7]/g, "");
+      if (clean.length < 8) return null;
+      let bits = "";
+      for (let i = 0; i < clean.length; i++) {
+        const val = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567".indexOf(clean[i]);
+        if (val >= 0) bits += val.toString(2).padStart(5, "0");
+      }
+      const bytes = new Uint8Array(Math.floor(bits.length / 8));
+      for (let i = 0; i < bytes.length; i++) {
+        bytes[i] = parseInt(bits.slice(i * 8, i * 8 + 8), 2);
+      }
+      if (!bytes.length) return null;
+      const nowSec = Math.floor(Date.now() / 1000);
+      const counter = Math.floor(nowSec / 30);
+      const rem = 30 - (nowSec % 30);
+      const buf = new ArrayBuffer(8);
+      const view = new DataView(buf);
+      view.setUint32(0, Math.floor(counter / 0x100000000), false);
+      view.setUint32(4, counter >>> 0, false);
+      const key = await crypto.subtle.importKey("raw", bytes.buffer, { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
+      const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, buf));
+      const offset = sig[sig.length - 1] & 0x0f;
+      const bin = ((sig[offset] & 0x7f) << 24) | ((sig[offset + 1] & 0xff) << 16) | ((sig[offset + 2] & 0xff) << 8) | (sig[offset + 3] & 0xff);
+      const code = String(bin % 1000000).padStart(6, "0");
+      return { ok: true, source: "local", code, formatted: code.slice(0, 3) + " " + code.slice(3), seconds_remaining: rem };
+    };
+
+    chrome.storage.local.get(["viaId", "viaName", "profileCode", "twoFaSecret"], async (st) => {
+      void chrome.runtime.lastError;
+      const fallbackState = typeof DEFAULT_STATE !== "undefined" ? DEFAULT_STATE : {};
+      const viaId = (st && st.viaId) || fallbackState.viaId || "";
+      const viaName = (st && st.viaName) || fallbackState.viaName || "";
+      const profileCode = (st && st.profileCode) || fallbackState.profileCode || "";
+      const localSecret = (st && st.twoFaSecret) || fallbackState.twoFaSecret || "";
+
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 1500);
+        const qs = new URLSearchParams({ via_id: viaId, profile: profileCode, name: viaName }).toString();
+        const resp = await fetch("http://127.0.0.1:17890/totp?" + qs, { signal: ctrl.signal });
+        clearTimeout(timer);
+        if (resp.ok) {
+          const data = await resp.json().catch(() => null);
+          if (data && data.ok && data.found && data.code) {
+            try { sendResponse({ ok: true, source: "desktop", code: data.code, formatted: data.formatted, seconds_remaining: data.seconds_remaining }); } catch (e) {}
+            return;
+          }
+        }
+      } catch (e) {}
+
+      try {
+        const localRes = await computeLocalTotp(localSecret);
+        if (localRes) {
+          try { sendResponse(localRes); } catch (e) {}
+          return;
+        }
+      } catch (e) {}
+
+      try { sendResponse({ ok: false, error: "Chua co Secret 2FA trong Ket Local hoac Extension." }); } catch (e) {}
+    });
+    return true;
+  }
+
   if (msg.type === "ADSOPS_REPORT_BROWSER_EVENT") {
     const rawPayload = msg.payload && typeof msg.payload === "object" ? msg.payload : {};
     chrome.storage.local.get(["viaId", "viaName", "profileCode", "viaTier"], (st) => {
@@ -1268,7 +1333,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   <div class="header">
     <div class="brand">
       <span class="logo">AO</span>
-      <span>AdsOps Companion v2.9.1 Pro</span>
+      <span>AdsOps Companion v2.9.2 Pro</span>
     </div>
     <span id="proxy-badge" class="status-pill">MẠNG GỐC</span>
   </div>
@@ -1368,15 +1433,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     <div id="acc-list" class="acc-list"></div>
   </div>
 
-  <!-- SECTION 4: COOKIE EXPORT/IMPORT, KEEP-ALIVE v2.9.1 & TOKEN EXTRACTOR -->
+  <!-- SECTION 4: COOKIE EXPORT/IMPORT, KEEP-ALIVE v2.9.2 & TOKEN EXTRACTOR -->
   <details class="card" style="cursor:pointer;">
-    <summary class="section-title" style="margin-bottom:0;">4. 🍪 Cookie · ☕ Đảo Ấm v2.9.1 &amp; ⚡ Bắt Token EAAB</summary>
+    <summary class="section-title" style="margin-bottom:0;">4. 🍪 Cookie · ☕ Đảo Ấm v2.9.2 &amp; ⚡ Bắt Token EAAB</summary>
     <div style="margin-top:8px;">
       <div class="btn-row" style="margin-top:0; margin-bottom:6px;">
         <button id="btn-export-cookie" type="button" class="btn btn-primary">🍪 Chép Cookie FB</button>
         <button id="btn-extract-token" type="button" class="btn btn-emerald">⚡ Bắt Token EAAB</button>
       </div>
-      <button id="btn-run-keepalive" type="button" class="btn" style="width:100%;margin-bottom:6px;border-color:rgba(245,158,11,0.55);color:#fcd34d;">☕ Đảo Ấm Cookie Như Người Thật (v2.9.1)</button>
+      <button id="btn-run-keepalive" type="button" class="btn" style="width:100%;margin-bottom:6px;border-color:rgba(245,158,11,0.55);color:#fcd34d;">☕ Đảo Ấm Cookie Như Người Thật (v2.9.2)</button>
       <div id="ka-last-status" style="margin-bottom:6px; font-size:10px; color:#94a3b8;"></div>
       <textarea id="cookie-box" rows="2" class="mono" placeholder="Dán Cookie JSON hoặc c_user=...; xs=... vào đây để đăng nhập Via không cần mật khẩu"></textarea>
       <div class="btn-row">
@@ -1509,11 +1574,39 @@ async function computeTotp(secret) {
   return String(bin % 1000000).padStart(6, "0");
 }
 
+let _desktopTotpCache = null;
+let _lastDesktopTotpFetch = 0;
+
 async function tickOtp() {
   const sec = (twofaInput?.value || "").trim();
   const rem = 30 - (Math.floor(Date.now() / 1000) % 30);
   if (otpTimerEl) otpTimerEl.textContent = rem + "s";
   if (!sec) {
+    const nowMs = Date.now();
+    if (!_desktopTotpCache || nowMs - _lastDesktopTotpFetch > 5000) {
+      _lastDesktopTotpFetch = nowMs;
+      try {
+        const qs = new URLSearchParams({
+          via_id: typeof currentViaId !== "undefined" ? currentViaId : "",
+          profile: (typeof profileInput !== "undefined" ? profileInput?.value : "") || "",
+          name: (typeof viaInput !== "undefined" ? viaInput?.value : "") || ""
+        }).toString();
+        const r = await fetch("http://127.0.0.1:17890/totp?" + qs);
+        if (r.ok) {
+          const d = await r.json();
+          if (d && d.ok && d.found && d.code) {
+            _desktopTotpCache = { code: d.code, formatted: d.formatted, fetchedAt: nowMs, rem: d.seconds_remaining || rem };
+          }
+        }
+      } catch (e) {}
+    }
+    if (_desktopTotpCache && nowMs - _desktopTotpCache.fetchedAt < 25000) {
+      currentOtpRaw = _desktopTotpCache.code;
+      if (otpCodeEl) otpCodeEl.textContent = _desktopTotpCache.formatted || currentOtpRaw;
+      const calcRem = Math.max(1, _desktopTotpCache.rem - Math.floor((nowMs - _desktopTotpCache.fetchedAt) / 1000));
+      if (otpTimerEl) otpTimerEl.textContent = calcRem + "s (Két)";
+      return;
+    }
     currentOtpRaw = "";
     if (otpCodeEl) otpCodeEl.textContent = "Chưa gắn 2FA";
     return;
@@ -1977,7 +2070,7 @@ refreshIp();
 tickOtp();`
 
   const readmeTxt = [
-    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.9.1 PRO - FULL AUTO PAGE + ANTI-PASSKEY)',
+    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.9.2 PRO - FULL AUTO PAGE + ANTI-PASSKEY)',
     '===================================================================================',
     'Bước 1: Giải nén file .zip này ra một thư mục cố định (ví dụ: Desktop\\AdsOps-Chrome-Extension).',
     'Bước 2: Mở trình duyệt Google Chrome của Via -> gõ vào thanh địa chỉ: chrome://extensions',
@@ -1986,7 +2079,7 @@ tickOtp();`
     'Bước 5: Bấm biểu tượng mảnh ghép trên góc phải Chrome -> Bấm nút Ghim (Pin) cạnh "AdsOps Companion Pro".',
   ].join('\r\n')
 
-  const contentJs = `// AdsOps Companion Pro v2.9.1 — Full Auto-Pilot Page Creator + Safety Guard + Anti-Passkey + HUD
+  const contentJs = `// AdsOps Companion Pro v2.9.2 — Full Auto-Pilot Page Creator + Safety Guard + Anti-Passkey + HUD
 (function() {
   let lastSyncedAct = "";
   let autoDeletePasskeyTriggered = false;
@@ -2379,7 +2472,7 @@ tickOtp();`
       if (!avFile || pageAutoPilotHalted) return;
       assignFileToInput(fileInputs[0], avFile);
       lastMediaAttachedAt = Date.now();
-      setHudPageStatus("🖼️ [Auto v2.9.1] Đã tự gắn Avatar độc bản (chống trùng Hash)...", "#38bdf8");
+      setHudPageStatus("🖼️ [Auto v2.9.2] Đã tự gắn Avatar độc bản (chống trùng Hash)...", "#38bdf8");
 
       if (fileInputs.length > 1) {
         setTimeout(() => {
@@ -2388,7 +2481,7 @@ tickOtp();`
             if (!cvFile || pageAutoPilotHalted) return;
             assignFileToInput(fileInputs[1], cvFile);
             lastMediaAttachedAt = Date.now();
-            setHudPageStatus("🖼️ [Auto v2.9.1] Đã tự gắn đủ Avatar + Cover độc bản!", "#34d399");
+            setHudPageStatus("🖼️ [Auto v2.9.2] Đã tự gắn đủ Avatar + Cover độc bản!", "#34d399");
           });
         }, randDelay(950, 1550));
       }
@@ -2628,7 +2721,7 @@ tickOtp();`
       const waitMs = randDelay(stopMeta.minMs, stopMeta.maxMs);
 
       const reader = startBiometricReadingLoop(
-        "☕ [Đảo Ấm v2.9.1 · Bước " + (idx + 1) + "/" + steps.length + "] Đang đọc " + stopMeta.label + " tự nhiên (" + Math.round(waitMs / 1000) + "s)..."
+        "☕ [Đảo Ấm v2.9.2 · Bước " + (idx + 1) + "/" + steps.length + "] Đang đọc " + stopMeta.label + " tự nhiên (" + Math.round(waitMs / 1000) + "s)..."
       );
 
       setTimeout(() => {
@@ -2663,7 +2756,7 @@ tickOtp();`
             route_summary: summary,
             duration_sec: Math.max(15, Math.round((Date.now() - (Number(session.startedAt) || Date.now())) / 1000)),
           });
-          setHudPageStatus("☕ [v2.9.1] Đã đảo ấm sinh học hoàn tất (" + summary + ")!", "#34d399");
+          setHudPageStatus("☕ [v2.9.2] Đã đảo ấm sinh học hoàn tất (" + summary + ")!", "#34d399");
           if (session.autoClose) {
             scheduleSafeTabAutoClose(randDelay(7500, 10500));
           }
@@ -2698,7 +2791,7 @@ tickOtp();`
           return;
         }
         const waitMs = randDelay(12500, 17500);
-        const reader = startBiometricReadingLoop("🌿 [Auto v2.9.1] Đang đọc lướt Newsfeed sinh học " + Math.round(waitMs / 1000) + "s trước khi tạo Page...");
+        const reader = startBiometricReadingLoop("🌿 [Auto v2.9.2] Đang đọc lướt Newsfeed sinh học " + Math.round(waitMs / 1000) + "s trước khi tạo Page...");
         setTimeout(() => {
           reader.stop();
           if (pageAutoPilotHalted) return;
@@ -3001,7 +3094,7 @@ tickOtp();`
       const tFinal = tBio + randDelay(1900, 2850);
 
       if (autoSubmit) {
-        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9.1] Đang nhập tự nhiên theo nhịp người thật...", "#38bdf8");
+        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9.2] Đang nhập tự nhiên theo nhịp người thật...", "#38bdf8");
       }
 
       if (pName && nameEl && !nameEl.value) {
@@ -3089,22 +3182,114 @@ tickOtp();`
           sessionStorage.setItem("adsops_media_uploaded", "0");
         } catch (e) {}
         createBtn.click();
-        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9.1] Đã bấm Tạo Trang — Đang hoàn tất bước phụ...", "#38bdf8");
+        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9.2] Đã bấm Tạo Trang — Đang hoàn tất bước phụ...", "#38bdf8");
       };
 
       setTimeout(() => tryAutoClickCreate(true), tFinal);
     } catch (e) {}
   }
 
+  // v2.9.2: User-clicked 1-tap 6-digit 2FA autofill from Desktop DPAPI Vault / local secret (strictly blocked on CAPTCHA pages)
+  function handleTwoFactorAssistDom() {
+    try {
+      const url = (window.location.href || "").toLowerCase();
+      const bodyText = (document.body ? document.body.innerText : "").toLowerCase();
+
+      if (
+        document.querySelector('iframe[src*="captcha"], iframe[src*="turnstile"], iframe[src*="hcaptcha"], [id*="captcha"], [class*="captcha"]') ||
+        bodyText.includes("captcha") ||
+        bodyText.includes("verify you are human") ||
+        bodyText.includes("xác minh bạn là con người")
+      ) {
+        return;
+      }
+
+      const is2faScreen =
+        url.includes("two_step_verification") ||
+        url.includes("approvals_code") ||
+        url.includes("checkpoint") ||
+        bodyText.includes("mã đăng nhập") ||
+        bodyText.includes("ứng dụng xác thực") ||
+        bodyText.includes("authentication app") ||
+        bodyText.includes("6-digit") ||
+        bodyText.includes("6 chữ số");
+      if (!is2faScreen) return;
+
+      const findCodeInput = () => {
+        const direct = document.querySelector('input[name="approvals_code"], input[autocomplete="one-time-code"]');
+        if (direct && direct.offsetParent !== null && !direct.disabled && !direct.readOnly) return direct;
+        const candidates = Array.from(document.querySelectorAll('input[type="text"], input[type="tel"], input[type="number"], input:not([type])'));
+        return candidates.find((el) => {
+          if (!el || el.offsetParent === null || el.disabled || el.readOnly) return false;
+          const nm = ((el.name || "") + " " + (el.id || "") + " " + (el.placeholder || "") + " " + (el.getAttribute("aria-label") || "")).toLowerCase();
+          if (nm.includes("email") || nm.includes("pass") || nm.includes("search") || nm.includes("tìm")) return false;
+          return nm.includes("code") || nm.includes("mã") || nm.includes("2fa") || nm.includes("otp") || el.maxLength === 6 || el.maxLength === 8 || candidates.length === 1;
+        }) || null;
+      };
+
+      const inputEl = findCodeInput();
+      if (!inputEl) return;
+      if (document.getElementById("adsops-2fa-fill-btn")) return;
+
+      const btn = document.createElement("button");
+      btn.id = "adsops-2fa-fill-btn";
+      btn.type = "button";
+      btn.textContent = "🔑 Điền nhanh 2FA 6 số";
+      btn.style.cssText =
+        "margin-top:8px;margin-bottom:4px;display:inline-flex;align-items:center;gap:6px;" +
+        "padding:7px 14px;border-radius:8px;border:1px solid #3b82f6;background:#1d4ed8;" +
+        "color:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;" +
+        "font-size:12px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.28);z-index:99999;";
+
+      btn.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        btn.disabled = true;
+        btn.textContent = "⏳ Đang lấy mã 2FA...";
+        chrome.runtime.sendMessage({ type: "ADSOPS_GET_LOCAL_TOTP" }, (res) => {
+          void chrome.runtime.lastError;
+          btn.disabled = false;
+          if (!res || !res.ok || !res.code) {
+            btn.style.background = "#b45309";
+            btn.style.borderColor = "#f59e0b";
+            btn.textContent = "⚠️ Chưa có Secret 2FA (mở App Win để gắn)";
+            return;
+          }
+          try {
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+            if (setter) setter.call(inputEl, res.code);
+            else inputEl.value = res.code;
+            inputEl.focus();
+            inputEl.dispatchEvent(new Event("input", { bubbles: true }));
+            inputEl.dispatchEvent(new Event("change", { bubbles: true }));
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(res.code).catch(() => {});
+            }
+            btn.style.background = "#047857";
+            btn.style.borderColor = "#10b981";
+            btn.textContent = "✅ Đã điền " + (res.formatted || res.code) + " (" + (res.seconds_remaining || 30) + "s)";
+          } catch (e) {
+            btn.textContent = "Mã: " + res.code;
+          }
+        });
+      });
+
+      const host = inputEl.parentElement && inputEl.parentElement.parentElement ? inputEl.parentElement.parentElement : (inputEl.parentElement || document.body);
+      host.appendChild(btn);
+    } catch (e) {}
+  }
+
   setTimeout(() => {
     injectFloatingHud();
     handlePasskeyDom();
+    handleTwoFactorAssistDom();
     handleSessionWarmupAndKeepAlive();
     handlePageCreationDom();
     handlePageOnboardingWizard();
   }, 900);
   setInterval(() => {
     scanBillingDom();
+    handleTwoFactorAssistDom();
     handleSessionWarmupAndKeepAlive();
     handlePageCreationDom();
     handlePageOnboardingWizard();
@@ -3147,7 +3332,7 @@ export function downloadChromeExtensionZip(
   const url = URL.createObjectURL(zipBlob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `AdsOps-Chrome-Extension-v2.9.1-${slug}.zip`
+  a.download = `AdsOps-Chrome-Extension-v2.9.2-${slug}.zip`
   document.body.appendChild(a)
   a.click()
   a.remove()
@@ -3168,12 +3353,12 @@ export function downloadAllViasExtensionsBundleZip(items: ViaExtensionBundleSpec
   if (!Array.isArray(items) || items.length === 0) return
   const allFiles: Array<{ name: string; content: string | Uint8Array }> = []
   const guideLines: string[] = [
-    'TRON BO TIEN ICH ADSOPS COMPANION v2.9.1 PRO CHO TOAN BO DAN VIA',
+    'TRON BO TIEN ICH ADSOPS COMPANION v2.9.2 PRO CHO TOAN BO DAN VIA',
     '================================================================',
     `Tong so thu muc Extension da dong goi: ${items.length} Via`,
     '',
     'Cach cai nhanh:',
-    '1. Giai nen file .zip nay ra mot thu muc co dinh (VD: Desktop\AdsOps-Extensions-v2.9.1).',
+    '1. Giai nen file .zip nay ra mot thu muc co dinh (VD: Desktop\AdsOps-Extensions-v2.9.2).',
     '2. Mo Chrome cua tung Via -> chrome://extensions -> Bat Developer mode -> Load unpacked -> chon dung thu muc ten cua Via do ben duoi:',
     '',
   ]
@@ -3205,7 +3390,7 @@ export function downloadAllViasExtensionsBundleZip(items: ViaExtensionBundleSpec
   const url = URL.createObjectURL(zipBlob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `AdsOps-Tron-Bo-Extension-v2.9.1-${items.length}Via.zip`
+  a.download = `AdsOps-Tron-Bo-Extension-v2.9.2-${items.length}Via.zip`
   document.body.appendChild(a)
   a.click()
   a.remove()

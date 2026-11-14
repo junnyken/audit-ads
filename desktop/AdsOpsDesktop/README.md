@@ -1,15 +1,15 @@
-# AdsOps Desktop Pro v2.0 (`AdsOpsDesktop.exe`)
+# AdsOps Desktop Pro v2.1
 
-Native `.NET 8.0-windows` WPF + System Tray companion suite for AdsOps:
-- **Slate Dark UX/UI** (`ThemeTokens.cs` + `UiComponents.cs`): unified `Segoe Fluent Icons`, WCAG AA `>= 4.5:1` contrast, Windows 11 dark DWM titlebar, tabular right-aligned numbers, honest `—` / `Chưa kiểm` states, Write-Safe confirmation modals
-- **6-View Multi-Via & Auto Hub**: `Tổng quan` (KPIs & Actionable Alerts), `Quản lý Đa Via` (Multi-select bulk tools + live 6-digit 2FA OTP copy), `Tự động hóa` (Batch Page Queue runner + Local Daytime/Proxy/IP Cluster guards + Cloud Cron/Telegram), `Fanpage & BM` (Claim BM / Warmup / Check Live), `Tài khoản QC` (Tabular metrics + 1-click Ads Manager), `Két khóa & Cài đặt`
-- **Local Zero-Admin Bridge (`127.0.0.1:17890`)**: `/health` (`2.0.0`), `/totp` live 6-digit code lookup, `/local-vault/*`, `/open`, `/browser-event`, plus auto-retirement of legacy `.bat` bridge scripts
-- **100% Local DPAPI Vault (`local_secrets_dpapi.json`) & AES-256-GCM Backups (`.adsopsvault`)**: stores raw Cookies & 2FA seeds solely on Windows DPAPI
-- **Embedded `AdsOps Companion Pro v2.9.1`** Extension provisioner + Dynamic System Tray with 1-click Copy 2FA Code per Via
+Ứng dụng Windows bản địa (.NET 8 WPF Dark Mode) thay thế Bridge EXE cũ, cung cấp **Local Bridge + Chrome Launcher + Két DPAPI Local + Hàng đợi Tự động hóa đa Via + Giám sát Sức khỏe & Token**:
+
+- **Quản lý Đa Via & Nhập Lô Hàng Loạt (`Ctrl+B`)**: Tách cột `UID|Pass|2FA|Cookie|Mail|Proxy`, tự động lọc bỏ Pass & Mail trước khi đẩy Cloud, lưu Cookie/2FA 100% cục bộ bằng Windows DPAPI, tự chia `Profile N` chưa trùng và cảnh báo trùng IP Proxy.
+- **Két DPAPI Local & Extension Companion `v2.9.2`**: Truyền Cookie & Proxy riêng từng Via, điền nhanh 2FA 6 số **chủ động bằng nút bấm** từ `127.0.0.1:17890/totp` (chỉ hoạt động trên màn hình nhập mã xác thực hợp lệ, tuyệt đối không vượt CAPTCHA).
+- **Sức khỏe TKQC, Meta Token & Pre-flight Hub (`Ctrl+6`)**: Kiểm tra capability Meta Token, xem trạng thái Critical/Warning/Clear từng TKQC, chấm điểm Pre-flight chiến dịch nháp và xuất báo cáo CSV chuẩn Excel UTF-8 BOM.
+- **Bảng Lệnh Nhanh (`Ctrl+K` / `Ctrl+P`) & Phím tắt**: Điều hướng `Ctrl+1..7`, `Ctrl+B` Nhập lô, `Ctrl+N` Thêm Via, `F5` Đồng bộ Cloud, chạy nền System Tray.
 
 ## Build & Self-Test
 
 ```powershell
-dotnet publish AdsOpsDesktop.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:DebugType=none -o ..\Release
-..\Release\AdsOpsDesktop.exe --self-test
+dotnet publish c:\Users\trieunt\Documents\Tool\audit-ads\desktop\AdsOpsDesktop\AdsOpsDesktop.csproj -c Release -r win-x64 --self-contained true -o c:\Users\trieunt\Documents\Tool\audit-ads\desktop\Release -p:PublishSingleFile=true
+c:\Users\trieunt\Documents\Tool\audit-ads\desktop\Release\AdsOpsDesktop.exe --self-test
 ```

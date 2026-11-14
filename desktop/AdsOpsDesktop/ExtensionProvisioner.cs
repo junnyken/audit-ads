@@ -14,7 +14,7 @@ namespace AdsOpsDesktop;
 
 public sealed class ExtensionTemplateBundle
 {
-    [JsonPropertyName("version")] public string Version { get; set; } = "2.9.1";
+    [JsonPropertyName("version")] public string Version { get; set; } = "2.9.2";
     [JsonPropertyName("description")] public string Description { get; set; } = "";
     [JsonPropertyName("passkey_shield_js")] public string PasskeyShieldJs { get; set; } = "";
     [JsonPropertyName("background_js_after_default_state")] public string BackgroundJsAfterDefaultState { get; set; } = "";
@@ -88,7 +88,7 @@ public static class ExtensionProvisioner
         }
 
         _cachedBundle = JsonSerializer.Deserialize<ExtensionTemplateBundle>(jsonText)
-            ?? throw new InvalidDataException("Không thể đọc dữ liệu template Extension v2.9.1.");
+            ?? throw new InvalidDataException("Không thể đọc dữ liệu template Extension v2.9.2.");
         return _cachedBundle;
     }
 
@@ -306,7 +306,7 @@ public static class ExtensionProvisioner
         File.WriteAllText(Path.Combine(targetDir, "popup.js"), popupJsBody, utf8NoBom);
         File.WriteAllText(
             Path.Combine(targetDir, "HUONG-DAN-CAI-DAT.txt"),
-            $"ADSOPS COMPANION v{tpl.Version} (AUTO-PROVISIONED BY ADSOPS DESKTOP PRO v2.0)\r\n" +
+            $"ADSOPS COMPANION v{tpl.Version} (AUTO-PROVISIONED BY ADSOPS DESKTOP PRO v2.1)\r\n" +
             $"Via: {displayViaName}\r\nChrome Profile: {profileDir}\r\nProxy: {(hasProxy ? parsedProxy!.CompactRaw : "Direct")}\r\n" +
             $"TKQC kem theo: {accountsList.Count}\r\n" +
             "Co the nap thu cong qua chrome://extensions -> Load unpacked tai thu muc nay, hoac de AdsOps Desktop Pro nap tu dong.\r\n",

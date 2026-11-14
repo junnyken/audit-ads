@@ -105,7 +105,7 @@ internal static class Program
                 "c_user=10001; xs=secret_xs",
                 "JBSWY3DPEHPK3PXP");
 
-            // 1. ExtensionProvisioner 7-file output + version 2.9.1 + real AdAccount & DEFAULT_VIA_META injection
+            // 1. ExtensionProvisioner 7-file output + version 2.9.2 + real AdAccount & DEFAULT_VIA_META injection
             var via = new ViaWorkspaceEntry
             {
                 ViaId = "11111111-2222-3333-4444-555555555555",
@@ -135,15 +135,15 @@ internal static class Program
             }
             using (var mfDoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(extDir, "manifest.json"))))
             {
-                if (mfDoc.RootElement.GetProperty("version").GetString() != "2.9.1")
-                    throw new InvalidOperationException("Manifest version is not 2.9.1");
+                if (mfDoc.RootElement.GetProperty("version").GetString() != "2.9.2")
+                    throw new InvalidOperationException("Manifest version is not 2.9.2");
             }
             var bgText = File.ReadAllText(Path.Combine(extDir, "background.js"));
             if (!bgText.Contains("ADSOPS_REPORT_BROWSER_EVENT", StringComparison.Ordinal) ||
                 !bgText.Contains("11111111-2222-3333-4444-555555555555", StringComparison.Ordinal) ||
                 !bgText.Contains("act_999888777", StringComparison.Ordinal))
             {
-                throw new InvalidOperationException("background.js missing v2.9.1 bridge, viaId, or bundled account");
+                throw new InvalidOperationException("background.js missing v2.9.2 bridge, viaId, or bundled account");
             }
             var popupText = File.ReadAllText(Path.Combine(extDir, "popup.js"));
             if (!popupText.Contains("act_999888777", StringComparison.Ordinal) ||
@@ -231,8 +231,8 @@ internal static class Program
             healthResp.EnsureSuccessStatusCode();
             var healthBody = await healthResp.Content.ReadAsStringAsync();
             if (!healthBody.Contains("\"app\":\"AdsOpsDesktop\"", StringComparison.Ordinal) ||
-                !healthBody.Contains("\"version\":\"2.0.0\"", StringComparison.Ordinal) ||
-                !healthBody.Contains("\"extVersion\":\"2.9.1\"", StringComparison.Ordinal))
+                !healthBody.Contains("\"version\":\"2.1.0\"", StringComparison.Ordinal) ||
+                !healthBody.Contains("\"extVersion\":\"2.9.2\"", StringComparison.Ordinal))
             {
                 throw new InvalidOperationException($"Unexpected /health response: {healthBody}");
             }
@@ -368,7 +368,70 @@ internal static class Program
                     throw new InvalidOperationException($"WCAG AA contrast failure for {pair.Name}: {pair.Ratio}:1 < 4.5:1");
             }
 
-            Console.WriteLine("ADSOPS_DESKTOP_V20_SELFTEST_100_PASS");
+            // 10. Extension v2.9.2 template verification (2FA bridge + click-to-fill, no auto-submit)
+            var extTpl = ExtensionProvisioner.LoadTemplates();
+            if (extTpl.Version != "2.9.2" ||
+                !extTpl.BackgroundJsAfterDefaultState.Contains("ADSOPS_GET_LOCAL_TOTP", StringComparison.Ordinal) ||
+                !extTpl.ContentJs.Contains("handleTwoFactorAssistDom", StringComparison.Ordinal) ||
+                !extTpl.PopupJsAfterDefaults.Contains("_desktopTotpCache", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Extension template bundle missing v2.9.2 2FA /totp helpers");
+            }
+
+            // 11. ViaBulkImportParser (Pass/Mail secret stripping + auto Profile N + duplicate Proxy warning)
+            var bulkText = string.Join("\n", new[]
+            {
+                "100089123456789|MatKhauBiMatKhongGuiCloud|JBSWY3DPEHPK3PXP|c_user=100089123456789; xs=abc123|via_mail@example.com|103.10.20.30:8080:u1:p1",
+                "Via Test 2|100089123456790|MZXW6YTBOI5W2===|c_user=100089123456790; xs=def456|103.10.20.30:8080:u2:p2",
+            });
+            var bulkSummary = ViaBulkImportParser.ParseBulkText(
+                bulkText,
+                "Via Camp",
+                "camp",
+                new List<ViaWorkspaceEntry>
+                {
+                    new() { ViaId = "existing-1", Label = "Existing", BrowserProfileLabel = "Profile 1", ProfileDir = "Profile 1", NetworkLabel = "10.0.0.1:8080" },
+                },
+                autoAssignProfile: true);
+            if (bulkSummary.Rows.Count != 2)
+                throw new InvalidOperationException($"Expected 2 bulk rows, got {bulkSummary.Rows.Count}");
+            var b0 = bulkSummary.Rows[0];
+            var b1 = bulkSummary.Rows[1];
+            if (b0.ExternalReferenceId != "100089123456789" ||
+                b0.TwoFaSecret != "JBSWY3DPEHPK3PXP" ||
+                !b0.CookieRaw.Contains("c_user=100089123456789", StringComparison.Ordinal) ||
+                b0.CleanNotes.Contains("MatKhauBiMatKhongGuiCloud", StringComparison.Ordinal) ||
+                b0.CleanNotes.Contains("via_mail@example.com", StringComparison.Ordinal) ||
+                b0.StrippedSecretsCount < 2 ||
+                b0.AssignedProfile != "Profile 2" ||
+                b1.AssignedProfile != "Profile 3" ||
+                !bulkSummary.DuplicateProxyHosts.Contains("103.10.20.30:8080") ||
+                string.IsNullOrWhiteSpace(b0.DuplicateProxyWarning) ||
+                string.IsNullOrWhiteSpace(b1.DuplicateProxyWarning))
+            {
+                throw new InvalidOperationException("ViaBulkImportParser failed secret-stripping / profile / duplicate proxy checks");
+            }
+
+            // 12. CsvExporter UTF-8 BOM + Excel formula injection protection
+            var csvBytes = CsvExporter.BuildCsvBytes(
+                new[] { "Tên Via", "Công thức" },
+                new[]
+                {
+                    new string?[] { "Via \"Alpha\", số 1", "=CMD('calc')" },
+                    new string?[] { "+123", "@SUM(A1)" },
+                });
+            if (csvBytes.Length < 4 || csvBytes[0] != 0xEF || csvBytes[1] != 0xBB || csvBytes[2] != 0xBF)
+                throw new InvalidOperationException("CsvExporter missing UTF-8 BOM");
+            var csvText = System.Text.Encoding.UTF8.GetString(csvBytes, 3, csvBytes.Length - 3);
+            if (!csvText.Contains("\"Via \"\"Alpha\"\", số 1\"", StringComparison.Ordinal) ||
+                !csvText.Contains("'=CMD('calc')", StringComparison.Ordinal) ||
+                !csvText.Contains("'+123", StringComparison.Ordinal) ||
+                !csvText.Contains("'@SUM(A1)", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"CsvExporter output unexpected: {csvText}");
+            }
+
+            Console.WriteLine("ADSOPS_DESKTOP_V21_SELFTEST_100_PASS");
             return 0;
         }
         finally

@@ -125,7 +125,7 @@ public sealed class LocalBridgeServer : IDisposable
                     {
                         holder.Kill(entireProcessTree: true);
                         holder.WaitForExit(1500);
-                        log($"♻️ Đã tự động thay thế Cầu nối .bat cũ ({pname} PID {pid}) trên cổng {port} bằng AdsOps Desktop Pro v2.0.");
+                        log($"♻️ Đã tự động thay thế Cầu nối .bat cũ ({pname} PID {pid}) trên cổng {port} bằng AdsOps Desktop Pro v2.1.");
                         retiredAny = true;
                     }
                 }
@@ -198,7 +198,7 @@ public sealed class LocalBridgeServer : IDisposable
                     {
                         ok = true,
                         app = "AdsOpsDesktop",
-                        version = "2.0.0",
+                        version = "2.1.0",
                         extVersion = tpl.Version,
                         port = BoundPort,
                     });

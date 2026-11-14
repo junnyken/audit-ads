@@ -43,6 +43,7 @@ internal sealed partial class MainWindow
                 AppView.Automation => BuildAutomationView(),
                 AppView.PagesBm => BuildPagesBmView(),
                 AppView.AdAccounts => BuildAdAccountsView(),
+                AppView.HealthTokens => BuildHealthTokensView(),
                 AppView.Settings => BuildSettingsView(),
                 _ => BuildOverviewView(),
             };
@@ -506,6 +507,14 @@ internal sealed partial class MainWindow
         searchRow.Children.Add(searchBox);
 
         var rightHeaderBtns = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(10, 0, 0, 0) };
+        var bulkImportBtn = UiComponents.CreateButton("Nhập Lô Via", ButtonVariant.Secondary, FluentIcons.Download, onClick: (_, _) => OpenBulkImportViasDialog(), tooltip: "Dán danh sách nhiều Via cùng lúc (Ctrl+B)");
+        bulkImportBtn.Margin = new Thickness(0, 0, 8, 0);
+        rightHeaderBtns.Children.Add(bulkImportBtn);
+
+        var exportViasBtn = UiComponents.CreateButton("Xuất CSV", ButtonVariant.Secondary, FluentIcons.Upload, onClick: (_, _) => ExportViasCsv(), tooltip: "Xuất danh sách Via ra file CSV chuẩn Excel UTF-8 (KHÔNG gồm Cookie/2FA thô)");
+        exportViasBtn.Margin = new Thickness(0, 0, 8, 0);
+        rightHeaderBtns.Children.Add(exportViasBtn);
+
         var selectAllBtn = UiComponents.CreateButton("Chọn tất cả hiển thị", ButtonVariant.Secondary, onClick: (_, _) =>
         {
             var visibleIds = FilterVias().Select(x => x.ViaId).ToList();
@@ -1246,6 +1255,8 @@ internal sealed partial class MainWindow
         topSearch.Children.Add(sb);
 
         var rBtns = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(10, 0, 0, 0) };
+        var exportPagesBtn = UiComponents.CreateButton("Xuất CSV", ButtonVariant.Secondary, FluentIcons.Upload, onClick: (_, _) => ExportPagesCsv(), tooltip: "Xuất danh sách Fanpage ra CSV chuẩn Excel UTF-8");
+        exportPagesBtn.Margin = new Thickness(0, 0, 8, 0);
         var syncPagesBtn = UiComponents.CreateButton("Đồng bộ Page Meta", ButtonVariant.Secondary, FluentIcons.Sync, onClick: async (_, _) => await RunMetaPageSyncAsync());
         syncPagesBtn.Margin = new Thickness(0, 0, 8, 0);
         var batchWarmBtn = UiComponents.CreateButton("Nuôi lô (Max 10)", ButtonVariant.Success, FluentIcons.Send, onClick: async (_, _) =>
@@ -1265,6 +1276,7 @@ internal sealed partial class MainWindow
             }
             catch (Exception ex) { AppendLog($"Lỗi nuôi lô Page: {ex.Message}"); }
         });
+        rBtns.Children.Add(exportPagesBtn);
         rBtns.Children.Add(syncPagesBtn);
         rBtns.Children.Add(batchWarmBtn);
         Grid.SetColumn(rBtns, 1);
@@ -1488,6 +1500,9 @@ internal sealed partial class MainWindow
         sb.TextChanged += (_, _) => { _adSearch = sb.Text; RefreshAdsList(); };
         topRow.Children.Add(sb);
 
+        var adTopBtns = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(10, 0, 0, 0) };
+        var exportAdsBtn = UiComponents.CreateButton("Xuất CSV", ButtonVariant.Secondary, FluentIcons.Upload, onClick: (_, _) => ExportAdAccountsCsv(), tooltip: "Xuất bảng Tài khoản QC (Số dư / Ngưỡng / Giới hạn) ra CSV");
+        exportAdsBtn.Margin = new Thickness(0, 0, 8, 0);
         var qSyncBtn = UiComponents.CreateButton("Quick Sync Meta", ButtonVariant.Primary, FluentIcons.Sync, onClick: async (_, _) =>
         {
             try
@@ -1498,9 +1513,10 @@ internal sealed partial class MainWindow
             }
             catch (Exception ex) { AppendLog($"Lỗi Quick Sync: {ex.Message}"); }
         });
-        qSyncBtn.Margin = new Thickness(10, 0, 0, 0);
-        Grid.SetColumn(qSyncBtn, 1);
-        topRow.Children.Add(qSyncBtn);
+        adTopBtns.Children.Add(exportAdsBtn);
+        adTopBtns.Children.Add(qSyncBtn);
+        Grid.SetColumn(adTopBtns, 1);
+        topRow.Children.Add(adTopBtns);
         bar.Children.Add(topRow);
 
         var chips = new WrapPanel();
@@ -1663,8 +1679,479 @@ internal sealed partial class MainWindow
         return raw.Trim();
     }
 
+    private void LaunchAdsManagerByExternalId(string? externalAccountId, string? preferredViaId = null, string? preferredViaLabel = null)
+    {
+        var via = (!string.IsNullOrWhiteSpace(preferredViaId) ? _vias.FirstOrDefault(v => string.Equals(v.ViaId, preferredViaId, StringComparison.OrdinalIgnoreCase)) : null)
+                  ?? (!string.IsNullOrWhiteSpace(preferredViaLabel) ? _vias.FirstOrDefault(v => string.Equals(v.Label, preferredViaLabel, StringComparison.OrdinalIgnoreCase)) : null)
+                  ?? _vias.FirstOrDefault();
+        if (via == null)
+        {
+            MessageBox.Show(this, "Chưa có Via nào trong hệ thống để mở Chrome.", "Thiếu Via", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        var cleanId = (externalAccountId ?? "").Replace("act_", "", StringComparison.OrdinalIgnoreCase);
+        LaunchViaChromeSafe(via, $"https://adsmanager.facebook.com/adsmanager/manage/campaigns?act={Uri.EscapeDataString(cleanId)}");
+    }
+
+    private void ExportViasCsv()
+    {
+        var headers = new[] { "Ten_Via", "UID_Facebook", "Chrome_Profile", "Nhom", "Ngam_Thiet_Bi", "Proxy_IP", "Trang_Thai_Proxy", "So_Page", "Can_Dao_Am", "Trang_Thai_2FA", "Cookie_DPAPI", "Ghi_Chu" };
+        var rows = _vias.Select(v =>
+        {
+            var sec = LocalSecretVaultStore.Default.Find(v.ViaId, v.ProfileDir, v.Label);
+            var has2Fa = !string.IsNullOrWhiteSpace(v.TwoFaSecret) || !string.IsNullOrWhiteSpace(sec.TwoFaSecret);
+            var hasCookie = !string.IsNullOrWhiteSpace(sec.CookieRaw);
+            return new string?[]
+            {
+                v.Label,
+                v.ExternalReferenceId,
+                v.ProfileDir,
+                v.RoleTier,
+                v.WarmupLabel,
+                AutomationQueueEngine.ExtractProxyHostPort(v.NetworkLabel),
+                v.ProxyLastStatus,
+                v.HoldingPagesCount.ToString(),
+                v.NeedsKeepAlive ? "Cần Đảo Ấm" : "Ổn định",
+                has2Fa ? "Đã gắn 2FA" : "Chưa có",
+                hasCookie ? "Đã lưu DPAPI" : "Chưa có",
+                v.CleanNotes,
+            };
+        });
+        ExportCsvWithDialog($"adsops-vias-{DateTime.Now:yyyyMMdd-HHmm}.csv", headers, rows, "Danh sách Via");
+    }
+
+    private void ExportPagesCsv()
+    {
+        var items = _pagesSummary?.Items ?? new();
+        var headers = new[] { "Ten_Fanpage", "Page_ID", "Trang_Thai", "Hang_Muc", "Followers", "BM_So_Huu", "Via_Cam", "Chrome_Profile", "Bai_Nuoi", "Ads_Ready", "URL" };
+        var rows = items.Select(p => new string?[]
+        {
+            p.Name,
+            p.ExternalPageId,
+            p.HealthStatus,
+            p.Category,
+            (p.FollowersCount ?? p.FanCount)?.ToString() ?? "",
+            p.OwnerBmName,
+            p.HolderLabel,
+            p.HolderBrowserProfile,
+            p.WarmupPostsCount.ToString(),
+            p.AdsReady ? "Sẵn sàng" : (p.SoakRemainingHours > 0 ? $"Ngâm {p.SoakRemainingHours:0}h" : "Chưa đạt"),
+            p.Url,
+        });
+        ExportCsvWithDialog($"adsops-fanpages-{DateTime.Now:yyyyMMdd-HHmm}.csv", headers, rows, "Fanpage");
+    }
+
+    private void ExportAdAccountsCsv()
+    {
+        var headers = new[] { "Ten_TKQC", "Account_ID", "Trang_Thai", "Tien_Te", "So_Du", "Nguong_Billing", "Gioi_Han_Ngay", "Business_Manager", "Via_Cam", "The_Thanh_Toan" };
+        var rows = _adAccounts.Select(a => new string?[]
+        {
+            a.DisplayName,
+            string.IsNullOrWhiteSpace(a.ExternalAccountId) ? "" : $"act_{a.ExternalAccountId.Replace("act_", "", StringComparison.OrdinalIgnoreCase)}",
+            a.Status,
+            a.Currency,
+            AdAccountBillingMetaDto.AsOptionalString(a.BillingMeta?.BalanceRaw) ?? AdAccountBillingMetaDto.AsOptionalString(a.SpendPeriods?.BalanceRaw) ?? "",
+            AdAccountBillingMetaDto.AsOptionalString(a.BillingMeta?.BillingThresholdRaw) ?? "",
+            AdAccountBillingMetaDto.AsOptionalString(a.BillingMeta?.MetaDailyLimitRaw) ?? "",
+            a.BusinessManagerName,
+            a.FacebookIdentities.Count > 0 ? string.Join("; ", a.FacebookIdentities.Select(x => x.Label)) : "",
+            a.BillingMeta?.PaymentCardDisplay ?? "",
+        });
+        ExportCsvWithDialog($"adsops-ad-accounts-{DateTime.Now:yyyyMMdd-HHmm}.csv", headers, rows, "Tài khoản Quảng cáo");
+    }
+
+    private void ExportHealthCsv()
+    {
+        var headers = new[] { "Ten_TKQC", "Account_ID", "BM", "Via_Cam", "Suc_Khoe", "Readiness", "Critical", "Warning", "Attention", "Nguyen_Nhan_Chinh", "Cap_Nhat" };
+        var rows = _accountHealthRows.Select(r => new string?[]
+        {
+            r.DisplayName,
+            string.IsNullOrWhiteSpace(r.ExternalAccountId) ? "" : $"act_{r.ExternalAccountId.Replace("act_", "", StringComparison.OrdinalIgnoreCase)}",
+            r.BusinessManagerName,
+            r.PersonalAccountReferenceLabel,
+            r.HealthStatus,
+            r.ReadinessStatus,
+            r.OpenCriticalCount.ToString(),
+            r.OpenWarningCount.ToString(),
+            r.OpenAttentionCount.ToString(),
+            r.GetTopReasonText(),
+            r.LastEvaluatedAt,
+        });
+        ExportCsvWithDialog($"adsops-account-health-{DateTime.Now:yyyyMMdd-HHmm}.csv", headers, rows, "Sức khỏe TKQC");
+    }
+
     // ------------------------------------------------------------------------
-    // VIEW 6: KÉT KHÓA & CÀI ĐẶT (SETTINGS & DPAPI VAULT)
+    // VIEW 6: SỨC KHỎE TKQC, META TOKEN & PRE-FLIGHT HUB
+    // ------------------------------------------------------------------------
+    private UIElement BuildHealthTokensView()
+    {
+        var stack = new StackPanel();
+
+        // Row 1: KPI summary strip
+        var kpiGrid = new Grid { Margin = new Thickness(0, 0, 0, 14) };
+        for (int i = 0; i < 4; i++)
+        {
+            if (i > 0) kpiGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+            kpiGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        }
+
+        var crit = _healthSummary?.Critical ?? 0;
+        var warn = _healthSummary?.Warning ?? 0;
+        var clear = _healthSummary?.ClearSignals ?? 0;
+        var activeTkqc = _healthSummary?.TotalActive ?? _accountHealthRows.Count;
+        var tokenOk = _metaConnections.Count(c => c.TokenConfigured);
+
+        var c1 = UiComponents.CreateMetricCard("Nguy kịch (Critical)", crit.ToString(), $"{warn} Warning • {_healthSummary?.AttentionNeeded ?? 0} cần chú ý", FluentIcons.Warning, crit > 0 ? ThemeTokens.DangerText : ThemeTokens.SuccessText, out _, out _);
+        var c2 = UiComponents.CreateMetricCard("TKQC Sạch Tín hiệu", clear.ToString(), $"Tổng {activeTkqc} TKQC đang theo dõi", FluentIcons.ShieldCheck, ThemeTokens.SuccessText, out _, out _);
+        var c3 = UiComponents.CreateMetricCard("Meta Token Kết Nối", tokenOk.ToString(), $"{_metaConnections.Count} kết nối ({_healthSummary?.StaleData ?? 0} dữ liệu cũ)", FluentIcons.ShieldKey, tokenOk > 0 ? ThemeTokens.AccentText : ThemeTokens.WarningText, out _, out _);
+        var c4 = UiComponents.CreateMetricCard("Pre-flight Drafts", _campaignDrafts.Count.ToString(), $"{_campaignDrafts.Count(d => d.OpenBlockingCount > 0)} nháp bị chặn", FluentIcons.Diagnostic, _campaignDrafts.Any(d => d.OpenBlockingCount > 0) ? ThemeTokens.WarningText : ThemeTokens.AccentText, out _, out _);
+
+        Grid.SetColumn(c1, 0);
+        Grid.SetColumn(c2, 2);
+        Grid.SetColumn(c3, 4);
+        Grid.SetColumn(c4, 6);
+        kpiGrid.Children.Add(c1);
+        kpiGrid.Children.Add(c2);
+        kpiGrid.Children.Add(c3);
+        kpiGrid.Children.Add(c4);
+        stack.Children.Add(kpiGrid);
+
+        // Section 2: Meta Connections & Quick Sync
+        stack.Children.Add(BuildMetaConnectionsCard());
+
+        // Section 3: Account Health filterable rows + CSV export
+        stack.Children.Add(BuildAccountHealthCard());
+
+        // Section 4: Pre-flight Campaign Drafts
+        stack.Children.Add(BuildCampaignDraftsCard());
+
+        return stack;
+    }
+
+    private Border BuildMetaConnectionsCard()
+    {
+        var box = new StackPanel();
+        var hdr = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+        hdr.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        hdr.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var titleCol = new StackPanel();
+        titleCol.Children.Add(new TextBlock { Text = "Kết nối Meta Graph API & Token Hệ thống", FontSize = 15, FontWeight = FontWeights.Bold, Foreground = ThemeTokens.TextPrimary });
+        titleCol.Children.Add(new TextBlock { Text = "Kiểm tra nhanh khả năng đọc của Meta Token và kích hoạt Quick Sync lấy số liệu TKQC/BM mới nhất.", FontSize = 12, Foreground = ThemeTokens.TextMuted, Margin = new Thickness(0, 2, 0, 0) });
+        hdr.Children.Add(titleCol);
+
+        var qSyncBtn = UiComponents.CreateButton("Quick Sync Meta", ButtonVariant.Primary, FluentIcons.Sync, compact: true, onClick: async (_, _) =>
+        {
+            try
+            {
+                var r = await _api.QuickSyncMetaAsync();
+                AppendLog($"Quick Sync Meta: {r.Message ?? "Hoàn tất"}");
+                await SyncCloudAsync(silent: false);
+            }
+            catch (Exception ex) { AppendLog($"Lỗi Quick Sync Meta: {ex.Message}"); }
+        });
+        Grid.SetColumn(qSyncBtn, 1);
+        hdr.Children.Add(qSyncBtn);
+        box.Children.Add(hdr);
+
+        if (_metaConnections.Count == 0)
+        {
+            box.Children.Add(new TextBlock
+            {
+                Text = "Chưa có Meta Connection hoặc tài khoản hiện tại chưa có quyền xem cấu hình Token (Owner).",
+                FontSize = 13,
+                Foreground = ThemeTokens.TextMuted,
+                Margin = new Thickness(0, 4, 0, 2),
+            });
+        }
+        else
+        {
+            foreach (var conn in _metaConnections)
+            {
+                var row = new Grid { Margin = new Thickness(0, 4, 0, 4) };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.4, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var left = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                left.Children.Add(new TextBlock { Text = conn.Label, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = ThemeTokens.TextPrimary });
+                left.Children.Add(new TextBlock { Text = $"Môi trường: {conn.Environment} • Nguồn: {conn.ReaderSource} • BM: {(string.IsNullOrWhiteSpace(conn.BusinessManagerReference) ? "Chưa gắn" : conn.BusinessManagerReference)}", FontSize = 11, Foreground = ThemeTokens.TextMuted, TextTrimming = TextTrimming.CharacterEllipsis });
+                row.Children.Add(left);
+
+                var tokPill = UiComponents.CreateBadgePill(
+                    conn.TokenConfigured ? $"TOKEN: {conn.Status.ToUpperInvariant()}" : "CHƯA CÓ TOKEN",
+                    conn.TokenConfigured ? ThemeTokens.SuccessText : ThemeTokens.WarningText,
+                    conn.TokenConfigured ? ThemeTokens.SuccessBg : ThemeTokens.WarningBg,
+                    conn.TokenConfigured ? ThemeTokens.SuccessBorder : ThemeTokens.WarningBorder);
+                Grid.SetColumn(tokPill, 1);
+                row.Children.Add(tokPill);
+
+                var lastChk = new TextBlock
+                {
+                    Text = string.IsNullOrWhiteSpace(conn.LastCapabilityCheckAt) ? "Chưa kiểm tra gần đây" : $"Kiểm tra: {conn.LastCapabilityCheckAt}",
+                    FontSize = 12,
+                    Foreground = ThemeTokens.TextSecondary,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                };
+                Grid.SetColumn(lastChk, 2);
+                row.Children.Add(lastChk);
+
+                var cid = conn.Id;
+                var clbl = conn.Label;
+                var chkBtn = UiComponents.CreateButton("Kiểm tra Token", ButtonVariant.Secondary, FluentIcons.Diagnostic, compact: true, onClick: async (_, _) =>
+                {
+                    try
+                    {
+                        var updated = await _api.CheckMetaConnectionCapabilityAsync(cid);
+                        AppendLog($"Đã kiểm tra Token '{clbl}': trạng thái = {updated.Status}.");
+                        await SyncCloudAsync(silent: false);
+                    }
+                    catch (Exception ex)
+                    {
+                        AppendLog($"Lỗi kiểm tra Token '{clbl}': {ex.Message}");
+                    }
+                });
+                Grid.SetColumn(chkBtn, 3);
+                row.Children.Add(chkBtn);
+
+                box.Children.Add(new Border
+                {
+                    Background = ThemeTokens.BgSurfaceElevated,
+                    BorderBrush = ThemeTokens.BorderSubtle,
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(8),
+                    Padding = new Thickness(12, 8, 12, 8),
+                    Margin = new Thickness(0, 0, 0, 6),
+                    Child = row,
+                });
+            }
+        }
+
+        var card = UiComponents.CreateCard(box, new Thickness(14));
+        card.Margin = new Thickness(0, 0, 0, 14);
+        return card;
+    }
+
+    private UIElement BuildAccountHealthCard()
+    {
+        var box = new StackPanel();
+        var listHost = new StackPanel();
+
+        static (Brush Fg, Brush Bg, Brush Bd) ResolveHealthColors(string? status)
+        {
+            var s = (status ?? "").Trim().ToLowerInvariant();
+            if (s is "critical" or "blocked" or "fail" or "failed")
+                return (ThemeTokens.DangerText, ThemeTokens.DangerBg, ThemeTokens.DangerBorder);
+            if (s is "warning" or "attention" or "attention_needed" or "needs_attention")
+                return (ThemeTokens.WarningText, ThemeTokens.WarningBg, ThemeTokens.WarningBorder);
+            if (s is "healthy" or "clear" or "ready" or "pass" or "passed" or "ok")
+                return (ThemeTokens.SuccessText, ThemeTokens.SuccessBg, ThemeTokens.SuccessBorder);
+            return (ThemeTokens.TextSecondary, ThemeTokens.BgSurfaceElevated, ThemeTokens.BorderSubtle);
+        }
+
+        void RefreshHealthList()
+        {
+            listHost.Children.Clear();
+            var q = (_healthSearch ?? "").Trim();
+            var filtered = _accountHealthRows.Where(r =>
+            {
+                var hs = (r.HealthStatus ?? "").Trim().ToLowerInvariant();
+                var matchTab = _healthFilter switch
+                {
+                    "critical" => hs == "critical" || r.OpenCriticalCount > 0,
+                    "warning" => hs is "warning" or "attention_needed" || r.OpenWarningCount > 0 || r.OpenAttentionCount > 0,
+                    "healthy" => hs is "healthy" or "clear",
+                    _ => true,
+                };
+                if (!matchTab) return false;
+                if (string.IsNullOrEmpty(q)) return true;
+                return r.DisplayName.Contains(q, StringComparison.OrdinalIgnoreCase)
+                    || (r.ExternalAccountId ?? "").Contains(q, StringComparison.OrdinalIgnoreCase)
+                    || (r.BusinessManagerName ?? "").Contains(q, StringComparison.OrdinalIgnoreCase)
+                    || (r.PersonalAccountReferenceLabel ?? "").Contains(q, StringComparison.OrdinalIgnoreCase)
+                    || r.GetTopReasonText().Contains(q, StringComparison.OrdinalIgnoreCase);
+            }).ToList();
+
+            if (filtered.Count == 0)
+            {
+                listHost.Children.Add(new TextBlock
+                {
+                    Text = _accountHealthRows.Count == 0
+                        ? "Chưa có báo cáo sức khỏe TKQC nào từ Backend."
+                        : "Không có TKQC nào khớp bộ lọc hiện tại.",
+                    FontSize = 13,
+                    Foreground = ThemeTokens.TextMuted,
+                    Margin = new Thickness(0, 8, 0, 8),
+                });
+                return;
+            }
+
+            foreach (var r in filtered)
+            {
+                var g = new Grid { MinHeight = 46 };
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.5, GridUnitType.Star) });
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.6, GridUnitType.Star) });
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var c0 = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+                c0.Children.Add(new TextBlock { Text = string.IsNullOrWhiteSpace(r.DisplayName) ? (r.ExternalAccountId ?? r.AdAccountId) : r.DisplayName, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = ThemeTokens.TextPrimary, TextTrimming = TextTrimming.CharacterEllipsis });
+                c0.Children.Add(new TextBlock { Text = $"act_{r.ExternalAccountId} • BM: {r.BusinessManagerName ?? "—"} • Via: {r.PersonalAccountReferenceLabel ?? "—"}", FontSize = 11, Foreground = ThemeTokens.TextMuted, TextTrimming = TextTrimming.CharacterEllipsis });
+                g.Children.Add(c0);
+
+                var (hFg, hBg, hBd) = ResolveHealthColors(r.HealthStatus);
+                var hPill = UiComponents.CreateBadgePill(string.IsNullOrWhiteSpace(r.HealthStatus) ? "UNKNOWN" : r.HealthStatus.ToUpperInvariant(), hFg, hBg, hBd);
+                Grid.SetColumn(hPill, 1);
+                g.Children.Add(hPill);
+
+                var (rdFg, rdBg, rdBd) = ResolveHealthColors(r.ReadinessStatus);
+                var rdPill = UiComponents.CreateBadgePill(string.IsNullOrWhiteSpace(r.ReadinessStatus) ? "—" : r.ReadinessStatus.ToUpperInvariant(), rdFg, rdBg, rdBd);
+                Grid.SetColumn(rdPill, 2);
+                g.Children.Add(rdPill);
+
+                var c3 = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 10, 0) };
+                c3.Children.Add(new TextBlock { Text = r.GetTopReasonText(), FontSize = 12, Foreground = ThemeTokens.TextPrimary, TextTrimming = TextTrimming.CharacterEllipsis });
+                c3.Children.Add(new TextBlock { Text = $"Crit: {r.OpenCriticalCount} • Warn: {r.OpenWarningCount} • Attn: {r.OpenAttentionCount}", FontFamily = ThemeTokens.MonoFont, FontSize = 11, Foreground = ThemeTokens.TextMuted });
+                Grid.SetColumn(c3, 3);
+                g.Children.Add(c3);
+
+                var extId = r.ExternalAccountId;
+                var viaHint = r.PersonalAccountReferenceLabel;
+                var adsBtn = UiComponents.CreateButton("Ads Manager", ButtonVariant.Secondary, FluentIcons.RocketLaunch, compact: true, onClick: (_, _) => LaunchAdsManagerByExternalId(extId, preferredViaLabel: viaHint));
+                Grid.SetColumn(adsBtn, 4);
+                g.Children.Add(adsBtn);
+
+                listHost.Children.Add(new Border
+                {
+                    Background = ThemeTokens.BgSurfaceElevated,
+                    BorderBrush = ThemeTokens.BorderSubtle,
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(8),
+                    Padding = new Thickness(12, 8, 12, 8),
+                    Margin = new Thickness(0, 0, 0, 6),
+                    Child = g,
+                });
+            }
+        }
+
+        var topRow = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+        topRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        topRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var sb = UiComponents.CreateTextBox(_healthSearch, "Tìm tên TKQC, act_ID, BM, Via hoặc lý do cảnh báo...");
+        sb.TextChanged += (_, _) => { _healthSearch = sb.Text; RefreshHealthList(); };
+        topRow.Children.Add(sb);
+
+        var exportHealthBtn = UiComponents.CreateButton("Xuất CSV Sức khỏe", ButtonVariant.Secondary, FluentIcons.Upload, compact: true, onClick: (_, _) => ExportHealthCsv());
+        exportHealthBtn.Margin = new Thickness(10, 0, 0, 0);
+        Grid.SetColumn(exportHealthBtn, 1);
+        topRow.Children.Add(exportHealthBtn);
+        box.Children.Add(topRow);
+
+        var chips = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
+        void AddHChip(string key, string lbl) => chips.Children.Add(UiComponents.CreateFilterChip(lbl, _healthFilter == key, (_, _) => { _healthFilter = key; RenderCurrentView(); }));
+        AddHChip("all", $"Tất cả ({_accountHealthRows.Count})");
+        AddHChip("critical", $"Critical ({_accountHealthRows.Count(x => string.Equals(x.HealthStatus, "critical", StringComparison.OrdinalIgnoreCase) || x.OpenCriticalCount > 0)})");
+        AddHChip("warning", $"Warning/Attn ({_accountHealthRows.Count(x => string.Equals(x.HealthStatus, "warning", StringComparison.OrdinalIgnoreCase) || string.Equals(x.HealthStatus, "attention_needed", StringComparison.OrdinalIgnoreCase) || x.OpenWarningCount > 0 || x.OpenAttentionCount > 0)})");
+        AddHChip("healthy", $"Sạch tín hiệu ({_accountHealthRows.Count(x => string.Equals(x.HealthStatus, "healthy", StringComparison.OrdinalIgnoreCase) || string.Equals(x.HealthStatus, "clear", StringComparison.OrdinalIgnoreCase))})");
+        box.Children.Add(chips);
+        box.Children.Add(listHost);
+
+        RefreshHealthList();
+        var card = UiComponents.CreateCard(box, new Thickness(14));
+        card.Margin = new Thickness(0, 0, 0, 14);
+        return card;
+    }
+
+    private Border BuildCampaignDraftsCard()
+    {
+        var box = new StackPanel();
+        box.Children.Add(new TextBlock { Text = "Kiểm tra Pre-flight Chiến dịch Nháp", FontSize = 15, FontWeight = FontWeights.Bold, Foreground = ThemeTokens.TextPrimary });
+        box.Children.Add(new TextBlock { Text = "Đánh giá nhanh rủi ro chặn/cảnh báo trước khi lên Camp trên Ads Manager.", FontSize = 12, Foreground = ThemeTokens.TextMuted, Margin = new Thickness(0, 2, 0, 10) });
+
+        if (_campaignDrafts.Count == 0)
+        {
+            box.Children.Add(new TextBlock
+            {
+                Text = "Chưa có chiến dịch nháp (Campaign Draft) nào được tạo trong Workspace.",
+                FontSize = 13,
+                Foreground = ThemeTokens.TextMuted,
+            });
+        }
+        else
+        {
+            foreach (var d in _campaignDrafts)
+            {
+                var row = new Grid();
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.6, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(130) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var c0 = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                c0.Children.Add(new TextBlock { Text = string.IsNullOrWhiteSpace(d.Title) ? d.Id : d.Title, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = ThemeTokens.TextPrimary, TextTrimming = TextTrimming.CharacterEllipsis });
+                c0.Children.Add(new TextBlock { Text = $"TKQC: {d.AccountDisplayName ?? d.AdAccountId ?? "—"} • Mục tiêu: {d.Objective ?? "—"}", FontSize = 11, Foreground = ThemeTokens.TextMuted, TextTrimming = TextTrimming.CharacterEllipsis });
+                row.Children.Add(c0);
+
+                var hasBlock = d.OpenBlockingCount > 0;
+                var stPill = UiComponents.CreateBadgePill(
+                    string.IsNullOrWhiteSpace(d.DraftStatus) ? "DRAFT" : d.DraftStatus.ToUpperInvariant(),
+                    hasBlock ? ThemeTokens.DangerText : (d.OpenWarningCount > 0 ? ThemeTokens.WarningText : ThemeTokens.SuccessText),
+                    hasBlock ? ThemeTokens.DangerBg : (d.OpenWarningCount > 0 ? ThemeTokens.WarningBg : ThemeTokens.SuccessBg),
+                    hasBlock ? ThemeTokens.DangerBorder : (d.OpenWarningCount > 0 ? ThemeTokens.WarningBorder : ThemeTokens.SuccessBorder));
+                Grid.SetColumn(stPill, 1);
+                row.Children.Add(stPill);
+
+                var cntTb = new TextBlock
+                {
+                    Text = $"Chặn: {d.OpenBlockingCount} • Cảnh báo: {d.OpenWarningCount}",
+                    FontFamily = ThemeTokens.MonoFont,
+                    FontSize = 12,
+                    Foreground = hasBlock ? ThemeTokens.DangerText : ThemeTokens.TextSecondary,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                Grid.SetColumn(cntTb, 2);
+                row.Children.Add(cntTb);
+
+                var draftId = d.Id;
+                var draftTitle = d.Title;
+                var evalBtn = UiComponents.CreateButton("Chấm điểm lại", ButtonVariant.Secondary, FluentIcons.Play, compact: true, onClick: async (_, _) =>
+                {
+                    try
+                    {
+                        await _api.EvaluateCampaignDraftAsync(draftId);
+                        AppendLog($"Đã chấm điểm Pre-flight cho chiến dịch '{draftTitle}'.");
+                        await SyncCloudAsync(silent: false);
+                    }
+                    catch (Exception ex)
+                    {
+                        AppendLog($"Lỗi chấm điểm Pre-flight '{draftTitle}': {ex.Message}");
+                    }
+                });
+                Grid.SetColumn(evalBtn, 3);
+                row.Children.Add(evalBtn);
+
+                box.Children.Add(new Border
+                {
+                    Background = ThemeTokens.BgSurfaceElevated,
+                    BorderBrush = ThemeTokens.BorderSubtle,
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(8),
+                    Padding = new Thickness(12, 8, 12, 8),
+                    Margin = new Thickness(0, 0, 0, 6),
+                    Child = row,
+                });
+            }
+        }
+
+        return UiComponents.CreateCard(box, new Thickness(14));
+    }
+
+    // ------------------------------------------------------------------------
+    // VIEW 7: KÉT KHÓA & CÀI ĐẶT (SETTINGS & DPAPI VAULT)
     // ------------------------------------------------------------------------
     private UIElement BuildSettingsView()
     {

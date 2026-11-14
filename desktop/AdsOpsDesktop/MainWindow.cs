@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 
@@ -18,6 +19,7 @@ internal enum AppView
     Automation,
     PagesBm,
     AdAccounts,
+    HealthTokens,
     Settings,
 }
 
@@ -79,6 +81,10 @@ internal sealed partial class MainWindow : Window
     private AlertSummaryDto? _alertSummary;
     private List<AlertItemDto> _alerts = new();
     private AutomationCronStatusDto? _cronStatus;
+    private List<MetaConnectionDto> _metaConnections = new();
+    private HealthSummaryDto? _healthSummary;
+    private List<AccountHealthRowDto> _accountHealthRows = new();
+    private List<CampaignDraftDto> _campaignDrafts = new();
 
     private bool _isBusy;
     private bool _hasLoadedOnce;
@@ -96,6 +102,9 @@ internal sealed partial class MainWindow : Window
 
     private string _adSearch = "";
     private string _adFilter = "all";
+
+    private string _healthSearch = "";
+    private string _healthFilter = "all";
 
     // Batch Page creation state preserved across tab switches
     private string _batchNicheKey = PageNicheTemplates.All[0].Key;
@@ -131,7 +140,7 @@ internal sealed partial class MainWindow : Window
             AppendLog);
         _queue.SnapshotChanged += OnQueueSnapshotChanged;
 
-        Title = "AdsOps Desktop Pro v2.0";
+        Title = "AdsOps Desktop Pro v2.1";
         Width = 1320;
         Height = 840;
         MinWidth = 1040;
@@ -144,6 +153,7 @@ internal sealed partial class MainWindow : Window
 
         BuildShellLayout();
         InitTray();
+        PreviewKeyDown += OnMainWindowPreviewKeyDown;
 
         _uiTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _uiTimer.Tick += (_, _) => OnUiSecondTick();
@@ -242,7 +252,7 @@ internal sealed partial class MainWindow : Window
         });
         brandText.Children.Add(new TextBlock
         {
-            Text = "Desktop Suite v2.0",
+            Text = "Desktop Suite v2.1",
             FontFamily = ThemeTokens.UiFont,
             FontSize = 12,
             Foreground = ThemeTokens.TextMuted,
@@ -257,6 +267,7 @@ internal sealed partial class MainWindow : Window
         AddNavButton(navStack, AppView.Automation, "Tự động hóa", FluentIcons.Play);
         AddNavButton(navStack, AppView.PagesBm, "Fanpage & BM", FluentIcons.Page);
         AddNavButton(navStack, AppView.AdAccounts, "Tài khoản QC", FluentIcons.Chart);
+        AddNavButton(navStack, AppView.HealthTokens, "Sức khỏe & Token", FluentIcons.Diagnostic);
         AddNavButton(navStack, AppView.Settings, "Két khóa & Cài đặt", FluentIcons.Settings);
         Grid.SetRow(navStack, 1);
         grid.Children.Add(navStack);
@@ -630,7 +641,7 @@ internal sealed partial class MainWindow : Window
 
     private async Task OnWindowLoadedAsync()
     {
-        AppendLog("Khởi động AdsOps Desktop Pro v2.0 (WPF Dark UI + DPAPI Vault + Local TOTP).");
+        AppendLog("Khởi động AdsOps Desktop Pro v2.1 (WPF Dark UI + DPAPI Vault + Local TOTP).");
         _chromeProfiles = ExtensionProvisioner.ReadLocalChromeProfiles();
         AppendLog($"Phát hiện {_chromeProfiles.Count} Chrome Profile trên máy Windows.");
 
@@ -669,7 +680,7 @@ internal sealed partial class MainWindow : Window
                 OnBridgeVaultGetAsync);
             _bridge.Start();
             var tpl = ExtensionProvisioner.LoadTemplates();
-            AppendLog($"Local Bridge v2.0 đang lắng nghe tại http://127.0.0.1:{_bridge.BoundPort} (Ext v{tpl.Version}).");
+            AppendLog($"Local Bridge v2.1 đang lắng nghe tại http://127.0.0.1:{_bridge.BoundPort} (Ext v{tpl.Version}).");
         }
         catch (Exception ex)
         {
@@ -783,6 +794,16 @@ internal sealed partial class MainWindow : Window
         SetBusy(true);
         try
         {
+            async Task<T> TryFetchAsync<T>(Func<Task<T>> call, T fallback, string label)
+            {
+                try { return await call(); }
+                catch (Exception ex)
+                {
+                    AppendLog($"Bỏ qua {label} (tùy chọn): {ex.Message}");
+                    return fallback;
+                }
+            }
+
             var userTask = _api.GetCurrentUserAsync();
             var accountsTask = _api.ListPersonalAccountsAsync();
             var bmsTask = _api.ListBusinessManagersAsync();
@@ -791,8 +812,14 @@ internal sealed partial class MainWindow : Window
             var alertSumTask = _api.GetAlertsSummaryAsync();
             var alertsTask = _api.ListAlertsAsync(25);
             var cronTask = _api.GetAutomationCronStatusAsync();
+            var metaConnTask = TryFetchAsync(() => _api.ListMetaConnectionsAsync(), new List<MetaConnectionDto>(), "Meta Connections");
+            var healthSumTask = TryFetchAsync(() => _api.GetAccountHealthSummaryAsync(), new HealthSummaryDto(), "Tóm tắt sức khỏe TKQC");
+            var healthRowsTask = TryFetchAsync(() => _api.ListAccountHealthAsync(100), new PagedAccountHealthDto(), "Sức khỏe TKQC");
+            var draftsTask = TryFetchAsync(() => _api.ListCampaignDraftsAsync(25), new PagedCampaignDraftsDto(), "Pre-flight Campaign Drafts");
 
-            await Task.WhenAll(userTask, accountsTask, bmsTask, adAccsTask, pagesTask, alertSumTask, alertsTask, cronTask);
+            await Task.WhenAll(
+                userTask, accountsTask, bmsTask, adAccsTask, pagesTask, alertSumTask, alertsTask, cronTask,
+                metaConnTask, healthSumTask, healthRowsTask, draftsTask);
 
             _currentUser = userTask.Result;
             _bms = bmsTask.Result.Items ?? new();
@@ -801,6 +828,10 @@ internal sealed partial class MainWindow : Window
             _alertSummary = alertSumTask.Result;
             _alerts = alertsTask.Result.Items ?? new();
             _cronStatus = cronTask.Result;
+            _metaConnections = metaConnTask.Result;
+            _healthSummary = healthSumTask.Result;
+            _accountHealthRows = healthRowsTask.Result.Items ?? new();
+            _campaignDrafts = draftsTask.Result.Items ?? new();
 
             RebuildViaWorkspaceList(accountsTask.Result.Items ?? new());
             ProvisionAllViaExtensions(silent: true);
@@ -809,7 +840,7 @@ internal sealed partial class MainWindow : Window
             _errorBanner.Visibility = Visibility.Collapsed;
             _hasLoadedOnce = true;
             _lastSyncedAtLocal = DateTime.Now;
-            AppendLog($"Đồng bộ Cloud xong: {_vias.Count} Via, {_pagesSummary?.Items.Count ?? 0} Fanpage, {_adAccounts.Count} TKQC, {_alerts.Count} cảnh báo.");
+            AppendLog($"Đồng bộ Cloud xong: {_vias.Count} Via, {_pagesSummary?.Items.Count ?? 0} Fanpage, {_adAccounts.Count} TKQC, {_accountHealthRows.Count} đánh giá sức khỏe, {_alerts.Count} cảnh báo.");
         }
         catch (Exception ex)
         {
@@ -1258,6 +1289,8 @@ internal sealed partial class MainWindow : Window
         var alertTotal = (_alertSummary?.OpenCritical ?? 0) + (_alertSummary?.OpenWarning ?? 0);
         SetNavBadge(AppView.Overview, alertTotal > 0 ? alertTotal.ToString() : "");
         SetNavBadge(AppView.Automation, _queueSnapshot.Phase == QueuePhase.Running ? "RUN" : "");
+        var healthAlertTotal = (_healthSummary?.Critical ?? 0) + (_healthSummary?.Warning ?? 0) + (_healthSummary?.AttentionNeeded ?? 0);
+        SetNavBadge(AppView.HealthTokens, healthAlertTotal > 0 ? healthAlertTotal.ToString() : "");
 
         (_headerTitle.Text, _headerSubtitle.Text) = _activeView switch
         {
@@ -1266,14 +1299,23 @@ internal sealed partial class MainWindow : Window
             AppView.Automation => ("Trung tâm Tự động hóa", BuildSyncSubtitle("Tạo Page theo nhịp an toàn, Đảo Ấm đa Via & Cloud Cron")),
             AppView.PagesBm => ("Fanpage & Business Manager", BuildSyncSubtitle($"{_pagesSummary?.Items.Count ?? 0} Fanpage • {_bms.Count} BM")),
             AppView.AdAccounts => ("Tài khoản Quảng cáo", BuildSyncSubtitle($"{_adAccounts.Count} TKQC liên kết • Số liệu căn lề Tabular chính xác")),
+            AppView.HealthTokens => ("Sức khỏe TKQC, Meta Token & Pre-flight", BuildSyncSubtitle($"{_metaConnections.Count} Meta Token • {_accountHealthRows.Count} đánh giá sức khỏe • {_campaignDrafts.Count} nháp Pre-flight")),
             AppView.Settings => ("Két khóa DPAPI & Cài đặt", BuildSyncSubtitle("Kết nối Cloud, Két sao lưu AES-256-GCM (.adsopsvault) & Hệ thống")),
             _ => ("AdsOps Desktop Pro", ""),
         };
 
         _headerActionsPanel.Children.Clear();
+        var cmdBtn = UiComponents.CreateButton("Lệnh nhanh (Ctrl+K)", ButtonVariant.Secondary, FluentIcons.Lightning, onClick: (_, _) => OpenCommandPaletteDialog(), tooltip: "Bảng tìm nhanh Via / Copy 2FA / Điều hướng (Ctrl+K hoặc Ctrl+P)");
+        cmdBtn.Margin = new Thickness(0, 0, 8, 0);
+        _headerActionsPanel.Children.Add(cmdBtn);
+
         if (isLoggedIn)
         {
-            var addViaBtn = UiComponents.CreateButton("Thêm Via", ButtonVariant.Primary, FluentIcons.Add, onClick: (_, _) => OpenViaEditorDialog(null));
+            var bulkBtn = UiComponents.CreateButton("Nhập Lô", ButtonVariant.Secondary, FluentIcons.Download, onClick: (_, _) => OpenBulkImportViasDialog(), tooltip: "Nhập danh sách nhiều Via từ Clipboard (Ctrl+B)");
+            bulkBtn.Margin = new Thickness(0, 0, 8, 0);
+            _headerActionsPanel.Children.Add(bulkBtn);
+
+            var addViaBtn = UiComponents.CreateButton("Thêm Via", ButtonVariant.Primary, FluentIcons.Add, onClick: (_, _) => OpenViaEditorDialog(null), tooltip: "Thêm 1 Via mới (Ctrl+N)");
             addViaBtn.Margin = new Thickness(0, 0, 8, 0);
             _headerActionsPanel.Children.Add(addViaBtn);
 
@@ -1285,7 +1327,7 @@ internal sealed partial class MainWindow : Window
             }
         }
 
-        var syncBtn = UiComponents.CreateButton("Đồng bộ", ButtonVariant.Secondary, FluentIcons.Sync, onClick: async (_, _) => await SyncCloudAsync(silent: false));
+        var syncBtn = UiComponents.CreateButton("Đồng bộ", ButtonVariant.Secondary, FluentIcons.Sync, onClick: async (_, _) => await SyncCloudAsync(silent: false), tooltip: "Đồng bộ dữ liệu từ AdsOps Cloud (F5)");
         syncBtn.IsEnabled = !_isBusy;
         _headerActionsPanel.Children.Add(syncBtn);
     }
@@ -1339,13 +1381,95 @@ internal sealed partial class MainWindow : Window
         Activate();
     }
 
+    private void OnMainWindowPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.F5 && Keyboard.Modifiers == ModifierKeys.None)
+        {
+            e.Handled = true;
+            _ = SyncCloudAsync(silent: false);
+            return;
+        }
+
+        if (Keyboard.Modifiers != ModifierKeys.Control) return;
+
+        switch (e.Key)
+        {
+            case Key.K:
+            case Key.P:
+                e.Handled = true;
+                OpenCommandPaletteDialog();
+                break;
+            case Key.B:
+                e.Handled = true;
+                if (!string.IsNullOrWhiteSpace(_config.GetJwt())) OpenBulkImportViasDialog();
+                else SwitchView(AppView.Settings);
+                break;
+            case Key.N:
+                e.Handled = true;
+                if (!string.IsNullOrWhiteSpace(_config.GetJwt())) OpenViaEditorDialog(null);
+                else SwitchView(AppView.Settings);
+                break;
+            case Key.D1:
+                e.Handled = true;
+                SwitchView(AppView.Overview);
+                break;
+            case Key.D2:
+                e.Handled = true;
+                SwitchView(AppView.Vias);
+                break;
+            case Key.D3:
+                e.Handled = true;
+                SwitchView(AppView.Automation);
+                break;
+            case Key.D4:
+                e.Handled = true;
+                SwitchView(AppView.PagesBm);
+                break;
+            case Key.D5:
+                e.Handled = true;
+                SwitchView(AppView.AdAccounts);
+                break;
+            case Key.D6:
+                e.Handled = true;
+                SwitchView(AppView.HealthTokens);
+                break;
+            case Key.D7:
+                e.Handled = true;
+                SwitchView(AppView.Settings);
+                break;
+        }
+    }
+
+    private void ExportCsvWithDialog(
+        string defaultFileName,
+        IReadOnlyList<string> headers,
+        IEnumerable<IReadOnlyList<string?>> rows,
+        string reportLabel)
+    {
+        var path = SystemTrayService.ShowSaveCsvDialog(defaultFileName);
+        if (string.IsNullOrWhiteSpace(path)) return;
+
+        try
+        {
+            var bytes = CsvExporter.BuildCsvBytes(headers, rows);
+            File.WriteAllBytes(path, bytes);
+            AppendLog($"Đã xuất báo cáo {reportLabel} (UTF-8 Excel): {path}");
+            _tray?.ShowBalloon("Xuất CSV thành công", $"Đã lưu {Path.GetFileName(path)}");
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Lỗi xuất CSV {reportLabel}: {ex.Message}");
+            MessageBox.Show(this, $"Không thể lưu file CSV: {ex.Message}", "Lỗi xuất CSV", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
     private void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
         if (_allowExit) return;
         e.Cancel = true;
         Hide();
         ShowInTaskbar = false;
-        _tray?.ShowBalloon("AdsOps Desktop Pro v2.0", "Ứng dụng đang chạy ngầm tại Khay hệ thống (Local Bridge vẫn bật).");
+        _tray?.ShowBalloon("AdsOps Desktop Pro v2.1", "Ứng dụng đang chạy ngầm tại Khay hệ thống (Local Bridge vẫn bật).");
     }
 
     public void ExitApplicationCleanly()
