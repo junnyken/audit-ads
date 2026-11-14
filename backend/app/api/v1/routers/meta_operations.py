@@ -3519,6 +3519,8 @@ def _build_pages_summary(
     warmup_by_via: dict[str, int] = {}
     last_act_by_via: dict[str, str] = {}
     last_human_via_act_dt: dict[str, datetime] = {}
+    last_keepalive_at_by_via: dict[str, str] = {}
+    last_keepalive_route_by_via: dict[str, str] = {}
     via_activity_logs: list[dict[str, Any]] = []
 
     for row in reversed(all_page_audit_rows):
@@ -3574,6 +3576,13 @@ def _build_pages_summary(
         if row.action in ("page.via_created", "page.warmup_posted", "page.via_keepalive") and via_id_str and row_dt:
             if via_id_str not in last_human_via_act_dt or row_dt > last_human_via_act_dt[via_id_str]:
                 last_human_via_act_dt[via_id_str] = row_dt
+        if row.action == "page.via_keepalive" and via_id_str and row_dt:
+            ka_iso = row_dt.isoformat()
+            if via_id_str not in last_keepalive_at_by_via or ka_iso >= last_keepalive_at_by_via[via_id_str]:
+                last_keepalive_at_by_via[via_id_str] = ka_iso
+                route_str = str((meta or {}).get("route_summary") or (meta or {}).get("note") or "").strip()
+                if route_str:
+                    last_keepalive_route_by_via[via_id_str] = route_str[:180]
 
         if row.action == "page.via_created" and via_id_str and row_dt:
             if via_id_str not in last_created_dt_by_via or row_dt > last_created_dt_by_via[via_id_str]:
@@ -3607,8 +3616,11 @@ def _build_pages_summary(
                     action_label = "🛡️ Phân quyền BM & Via giữ Page"
                     detail_txt = f"Cập nhật cấu hình cách ly Page «{page_name_str}» cho {via_label_str}"
             elif row.action == "page.via_keepalive":
-                action_label = "☕ Lướt ấm Cookie giữ Via tự nhiên"
-                detail_txt = str(meta.get("note") or f"Via «{via_label_str}» vừa chạy phiên lướt Newsfeed/Thông báo giữ Cookie tự nhiên trên {browser_prof_str}")
+                action_label = "☕ Đảo ấm sinh học giữ Cookie Via"
+                detail_txt = str(
+                    meta.get("note")
+                    or f"Via «{via_label_str}» vừa chạy phiên đảo ấm sinh học trên {browser_prof_str}"
+                )
             else:
                 action_label = "🔄 Đồng bộ & Quét sức khỏe Page"
                 detail_txt = f"Kiểm tra trạng thái Live Page «{page_name_str}» ({meta.get('health_status') or 'LIVE'})"
@@ -3693,6 +3705,23 @@ def _build_pages_summary(
         else:
             q_status = "SAFE"
 
+        base_human_dt = (
+            last_human_via_act_dt.get(vid_s)
+            or (
+                v_ident.created_at.replace(tzinfo=UTC)
+                if v_ident.created_at and v_ident.created_at.tzinfo is None
+                else v_ident.created_at
+            )
+            or now_utc
+        )
+        idle_days_raw = max(0.0, (now_utc - base_human_dt).total_seconds() / 86400.0)
+        seed_mod = sum(ord(ch) for ch in (vid_s or v_ident.label or "via")) % 11
+        keepalive_interval_days = (
+            round(2.5 + (seed_mod / 10.0) * 1.1, 1)
+            if is_veteran
+            else round(3.0 + (seed_mod / 10.0) * 1.5, 1)
+        )
+
         via_quotas.append(
             {
                 "via_id": vid_s,
@@ -3715,44 +3744,11 @@ def _build_pages_summary(
                 "warning_reasons": warning_reasons,
                 "quota_status": q_status,
                 "last_activity_at": last_act_by_via.get(vid_s) or (v_ident.updated_at.isoformat() if v_ident.updated_at else None),
-                "idle_days": round(
-                    max(
-                        0.0,
-                        (
-                            now_utc
-                            - (
-                                last_human_via_act_dt.get(vid_s)
-                                or (
-                                    v_ident.created_at.replace(tzinfo=UTC)
-                                    if v_ident.created_at and v_ident.created_at.tzinfo is None
-                                    else v_ident.created_at
-                                )
-                                or now_utc
-                            )
-                        ).total_seconds()
-                        / 86400.0,
-                    ),
-                    1,
-                ),
-                "needs_keepalive": bool(
-                    max(
-                        0.0,
-                        (
-                            now_utc
-                            - (
-                                last_human_via_act_dt.get(vid_s)
-                                or (
-                                    v_ident.created_at.replace(tzinfo=UTC)
-                                    if v_ident.created_at and v_ident.created_at.tzinfo is None
-                                    else v_ident.created_at
-                                )
-                                or now_utc
-                            )
-                        ).total_seconds()
-                        / 86400.0,
-                    )
-                    >= 3.0
-                ),
+                "idle_days": round(idle_days_raw, 1),
+                "keepalive_interval_days": keepalive_interval_days,
+                "needs_keepalive": bool(idle_days_raw >= keepalive_interval_days),
+                "last_keepalive_at": last_keepalive_at_by_via.get(vid_s),
+                "last_keepalive_route": last_keepalive_route_by_via.get(vid_s),
             }
         )
 
@@ -4812,6 +4808,25 @@ def claim_page_to_business_manager(
     }
 
 
+def _parse_keepalive_entry(src: dict[str, Any]) -> dict[str, Any]:
+    raw_dur = src.get("duration_sec")
+    dur_val = 0
+    if raw_dur is not None and str(raw_dur).strip() != "":
+        try:
+            dur_val = max(0, min(300, int(float(raw_dur))))
+        except (TypeError, ValueError):
+            dur_val = 0
+    return {
+        "via_id": str(src.get("via_id") or "").strip()[:80],
+        "via_label": str(src.get("via_label") or "Via Quản trị").strip()[:120],
+        "browser_profile": str(src.get("browser_profile") or "Chrome Profile").strip()[:120],
+        "via_tier": str(src.get("via_tier") or "standard_via").strip()[:40],
+        "route_summary": str(src.get("route_summary") or "").strip()[:180],
+        "duration_sec": dur_val,
+        "note": str(src.get("note") or "").strip()[:240],
+    }
+
+
 @pages_router.post("/via-keepalive-log")
 def log_via_keepalive_activity(
     ctx: WriteCtx,
@@ -4819,30 +4834,24 @@ def log_via_keepalive_activity(
 ) -> dict[str, Any]:
     body = payload or {}
     raw_vias = body.get("vias")
-    entries: list[dict[str, str]] = []
+    entries: list[dict[str, Any]] = []
     if isinstance(raw_vias, list):
         for item in raw_vias[:30]:
             if isinstance(item, dict):
-                entries.append(
-                    {
-                        "via_id": str(item.get("via_id") or "").strip()[:80],
-                        "via_label": str(item.get("via_label") or "Via Quản trị").strip()[:120],
-                        "browser_profile": str(item.get("browser_profile") or "Chrome Profile").strip()[:120],
-                        "note": str(item.get("note") or "").strip()[:240],
-                    }
-                )
+                entries.append(_parse_keepalive_entry(item))
     if not entries:
-        entries.append(
-            {
-                "via_id": str(body.get("via_id") or "").strip()[:80],
-                "via_label": str(body.get("via_label") or "Via Quản trị").strip()[:120],
-                "browser_profile": str(body.get("browser_profile") or "Chrome Profile").strip()[:120],
-                "note": str(body.get("note") or "").strip()[:240],
-            }
-        )
+        entries.append(_parse_keepalive_entry(body))
 
     now_iso = datetime.now(UTC).isoformat()
     for ent in entries:
+        route_s = str(ent["route_summary"] or "")
+        dur_sec = int(ent["duration_sec"] or 0)
+        if route_s:
+            dur_part = f" • ~{dur_sec}s" if dur_sec > 0 else ""
+            default_note = f"Đảo ấm sinh học v2.8 ({route_s}{dur_part}) trên {ent['browser_profile']}"
+        else:
+            default_note = f"Lướt ấm Cookie thụ động (Newsfeed & Thông báo) trên {ent['browser_profile']}"
+
         ctx.audit.record(
             action="page.via_keepalive",
             entity_type="page",
@@ -4851,11 +4860,13 @@ def log_via_keepalive_activity(
                 "via_id": ent["via_id"],
                 "via_label": ent["via_label"],
                 "browser_profile": ent["browser_profile"],
+                "via_tier": ent["via_tier"],
+                "route_summary": route_s,
+                "duration_sec": dur_sec,
                 "page_name": f"Phiên giữ Via ({ent['via_label']})",
                 "category": "Keep-Alive Cookie",
-                "mode": "PASSIVE_SCROLL_KEEPALIVE",
-                "note": ent["note"]
-                or f"Lướt ấm Cookie thụ động (Newsfeed & Thông báo) trên {ent['browser_profile']}",
+                "mode": "HUMAN_BIOMETRIC_KEEPALIVE_V28",
+                "note": ent["note"] or default_note,
                 "recorded_at": now_iso,
             },
         )

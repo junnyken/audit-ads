@@ -40,6 +40,7 @@ import {
   downloadUniquePageMediaZip,
   downloadWindowsChromeLauncherBat,
   launchInAssignedChromeProfile,
+  planHumanKeepAliveRoute,
   withAutoSubmitPageUrl,
   type BatchChromePageTask,
 } from '../lib/chromeProfileLauncher'
@@ -121,7 +122,10 @@ export interface ViaQuotaItem {
   quota_status: 'SAFE' | 'NEAR_LIMIT' | 'COOLDOWN' | 'LIMIT_REACHED'
   last_activity_at: string | null
   idle_days?: number
+  keepalive_interval_days?: number
   needs_keepalive?: boolean
+  last_keepalive_at?: string | null
+  last_keepalive_route?: string | null
 }
 
 export interface QuotaAlertsSummary {
@@ -631,7 +635,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
         phase: 'syncing' as const,
         currentIdx: idx,
         total: tasks.length,
-        countdownSec: isKeepAlive ? 18 : warmupBeforeCreateRef.current ? 40 : 24,
+        countdownSec: isKeepAlive ? 32 : warmupBeforeCreateRef.current ? 40 : 24,
         lastJitterSec: 0,
         currentViaLabel: task.via_label,
         currentPageName: task.page_name,
@@ -710,6 +714,60 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
     setAutoRunner(stopped)
   }
 
+  const launchHumanKeepAliveForVias = (picked: ViaQuotaItem[]) => {
+    if (!Array.isArray(picked) || picked.length === 0) return
+    const now = new Date()
+    const totalMins = now.getHours() * 60 + now.getMinutes()
+    if (totalMins < 8 * 60 || totalMins > 22 * 60 + 30) {
+      const ok = window.confirm(
+        '🌙 Hiện đang ngoài khung giờ sinh hoạt tự nhiên (08:00–22:30). Đảo ấm đêm khuya kém tự nhiên hơn ban ngày — bạn vẫn muốn chạy ngay chứ?',
+      )
+      if (!ok) return
+    }
+
+    const plans = picked.map((v) => planHumanKeepAliveRoute(v.via_tier))
+    const tasks: BatchCreatedPageTask[] = picked.map((v, idx) => ({
+      page_id: `keepalive-${v.via_id}`,
+      page_name: `Đảo ấm v2.8 (${v.label} · ${plans[idx].routeSummary})`,
+      category: 'Keep-Alive Cookie',
+      bio_description: `Đảo ấm sinh học (${plans[idx].routeSummary} • ~${plans[idx].estimatedSeconds}s)`,
+      warmup_post_text: '',
+      via_id: v.via_id,
+      via_label: v.label,
+      browser_profile: v.browser_profile,
+      network_label: v.network_label,
+      launch_url: buildViaKeepAliveUrl({
+        autoCloseTab,
+        viaLabel: v.label,
+        viaTier: v.via_tier,
+        routeSteps: plans[idx].steps,
+      }),
+      batch_index: idx + 1,
+      batch_size: picked.length,
+    }))
+
+    void api
+      .post('/api/v1/facebook-pages/via-keepalive-log', {
+        vias: picked.map((v, idx) => ({
+          via_id: v.via_id,
+          via_label: v.label,
+          browser_profile: v.browser_profile,
+          via_tier: v.via_tier,
+          route_summary: plans[idx].routeSummary,
+          duration_sec: plans[idx].estimatedSeconds,
+        })),
+      })
+      .then(() => qc.invalidateQueries({ queryKey: ['facebook-pages-summary'] }))
+      .catch(() => {})
+
+    const spacingSec =
+      picked.length === 1 ? 18 : Math.max(48, Math.min(batchStaggerSeconds, 75))
+    startWebAutoRunner(tasks, spacingSec, true)
+    setBannerMsg(
+      `☕ Bắt đầu Đảo Ấm Sinh Học v2.8 cho ${picked.length} Via (đa lộ trình Newsfeed / Thông báo / Trang / Business Suite BM + giữ nguyên tab nếu văng Cookie)!`,
+    )
+  }
+
   useEffect(() => {
     return () => {
       if (autoSyncTimerRef.current !== null) {
@@ -741,15 +799,16 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
         } else {
           syncMetaRef.current.mutate()
           setBannerMsg(
-            '🤖 ✅ Hoàn tất chuỗi Full Automatic v2.7! Hệ thống đã tự quét đồng bộ Page ID mới + gom Page về BM qua Meta Graph API.',
+            '🤖 ✅ Hoàn tất chuỗi Full Automatic v2.8! Hệ thống đã tự quét đồng bộ Page ID mới + gom Page về BM qua Meta Graph API.',
           )
         }
         return
       }
 
-      if (!cur.isKeepAliveRun && staggerSecondsRef.current >= 900) {
-        const hr = new Date().getHours()
-        const isNight = hr < 8 || hr >= 22
+      if ((!cur.isKeepAliveRun && staggerSecondsRef.current >= 900) || (cur.isKeepAliveRun && cur.total >= 3)) {
+        const nowClock = new Date()
+        const totalMins = nowClock.getHours() * 60 + nowClock.getMinutes()
+        const isNight = totalMins < 8 * 60 || totalMins > 22 * 60 + 30
         if (isNight) {
           if (!cur.nightPaused) {
             const np = { ...cur, nightPaused: true }
@@ -778,7 +837,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
         const syncState = {
           ...cur,
           phase: 'syncing' as const,
-          countdownSec: cur.isKeepAliveRun ? 18 : warmupBeforeCreateRef.current ? 40 : 24,
+          countdownSec: cur.isKeepAliveRun ? 32 : warmupBeforeCreateRef.current ? 40 : 24,
         }
         runnerStateRef.current = syncState
         setAutoRunner(syncState)
@@ -842,7 +901,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
         isEn
           ? `🌱 Created & logged Page "${vars.page_name}" under Via "${vars.via_label}" and launched Chrome (${vars.browser_profile})!`
           : isAuto
-            ? `🤖 [Full Automatic v2.7] Đã lưu Page «${vars.page_name}» + mở Chrome (${vars.browser_profile}) ${useWarmup ? 'lướt ấm 15s rồi ' : ''}tự điền, gắn ảnh độc bản & tạo Page tự nhiên!`
+            ? `🤖 [Full Automatic v2.8] Đã lưu Page «${vars.page_name}» + mở Chrome (${vars.browser_profile}) ${useWarmup ? 'lướt ấm 15s rồi ' : ''}tự điền, gắn ảnh độc bản & tạo Page tự nhiên!`
             : `🌱 Đã lưu Fanpage «${vars.page_name}» + ghi nhận định mức cho Via «${vars.via_label}», đã mở Chrome (${vars.browser_profile}) tự điền chờ bạn bấm Tạo Trang!`,
       )
     },
@@ -1439,18 +1498,18 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                   to="/chrome-extension"
                   className="rounded border border-line bg-surface px-2 py-1 font-bold text-brand-text hover:underline"
                 >
-                  Cài Extension v2.7 ↗
+                  Cài Extension v2.8 ↗
                 </Link>
               </div>
             </div>
 
-            {/* V2.7 PRO SAFETY TOGGLES & COOKIE KEEP-ALIVE */}
+            {/* V2.8 PRO SAFETY TOGGLES & COOKIE KEEP-ALIVE */}
             {(() => {
               const idleVias = viaQuotas.filter((v) => v.needs_keepalive)
               return (
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-[11px]">
                   <div className="flex flex-wrap items-center gap-2.5">
-                    <span className="font-extrabold text-emerald-700 dark:text-emerald-300">✨ Bảo vệ v2.7 Pro:</span>
+                    <span className="font-extrabold text-emerald-700 dark:text-emerald-300">✨ Bảo vệ v2.8 Pro:</span>
                     <label className="inline-flex cursor-pointer items-center gap-1.5 font-semibold text-ink">
                       <input
                         type="checkbox"
@@ -1493,42 +1552,14 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                     disabled={viaQuotas.length === 0 || autoRunner.phase === 'running' || autoRunner.phase === 'syncing'}
                     onClick={() => {
                       const picked = (idleVias.length > 0 ? idleVias : viaQuotas.slice(0, 8)).slice(0, 12)
-                      if (picked.length === 0) return
-                      const tasks: BatchCreatedPageTask[] = picked.map((v, idx) => ({
-                        page_id: `keepalive-${v.via_id}`,
-                        page_name: `Lướt ấm Cookie (${v.label})`,
-                        category: 'Keep-Alive Cookie',
-                        bio_description: 'Lướt Newsfeed & Thông báo tự nhiên giữ session Via',
-                        warmup_post_text: '',
-                        via_id: v.via_id,
-                        via_label: v.label,
-                        browser_profile: v.browser_profile,
-                        network_label: v.network_label,
-                        launch_url: buildViaKeepAliveUrl({ autoCloseTab, viaLabel: v.label }),
-                        batch_index: idx + 1,
-                        batch_size: picked.length,
-                      }))
-                      void api
-                        .post('/api/v1/facebook-pages/via-keepalive-log', {
-                          vias: picked.map((v) => ({
-                            via_id: v.via_id,
-                            via_label: v.label,
-                            browser_profile: v.browser_profile,
-                          })),
-                        })
-                        .then(() => qc.invalidateQueries({ queryKey: ['facebook-pages-summary'] }))
-                        .catch(() => {})
-                      startWebAutoRunner(tasks, Math.min(batchStaggerSeconds, 45), true)
-                      setBannerMsg(
-                        `☕ Bắt đầu Đảo Ấm Cookie thụ động cho ${picked.length} Via (lướt Newsfeed + Thông báo tự nhiên, tự dừng nếu gặp xác minh)!`,
-                      )
+                      launchHumanKeepAliveForVias(picked)
                     }}
                     className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/45 bg-amber-500/15 px-2.5 py-1 text-[11px] font-bold text-amber-800 hover:bg-amber-500/25 disabled:opacity-50 dark:text-amber-200"
-                    title="Lướt Newsfeed + Thông báo thụ động định kỳ 3–5 ngày/lần cho dàn Via để giữ Cookie tươi tự nhiên (không bấm Like/Story ảo)"
+                    title="Đảo Ấm Sinh Học v2.8 (chu kỳ lệch pha 2.5–4.5 ngày): đa lộ trình Newsfeed / Thông báo / Quản lý Trang / Business Suite BM, giữ nguyên tab nếu văng Cookie"
                   >
                     <Coffee className="h-3.5 w-3.5" />
                     <span>
-                      ☕ Đảo Ấm Cookie ({idleVias.length > 0 ? `${idleVias.length} Via nghỉ ≥3 ngày` : `${viaQuotas.length} Via`})
+                      ☕ Đảo Ấm Sinh Học v2.8 ({idleVias.length > 0 ? `${idleVias.length} Via cần ấm` : `${Math.min(viaQuotas.length, 8)} Via`})
                     </span>
                   </button>
                 </div>
@@ -1550,7 +1581,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                         `🛡️ Đang kiểm tra Proxy sống (${autoRunner.currentIdx + 1}/${autoRunner.total}) cho Via ${autoRunner.currentViaLabel}...`}
                       {!autoRunner.checkingProxy &&
                         autoRunner.nightPaused &&
-                        `🌙 Tạm nghỉ khung giờ đêm 22:00–08:00 (Via ${autoRunner.currentIdx + 1}/${autoRunner.total}) — Tự chạy tiếp lúc 08:00 sáng`}
+                        `🌙 Tạm nghỉ khung giờ đêm 22:30–08:00 (Via ${autoRunner.currentIdx + 1}/${autoRunner.total}) — Tự chạy tiếp lúc 08:00 sáng`}
                       {!autoRunner.checkingProxy &&
                         !autoRunner.nightPaused &&
                         autoRunner.phase === 'running' &&
@@ -1787,7 +1818,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                             Cấu hình Proxy Via ↗
                           </Link>
                           <Link to="/chrome-extension" className="underline hover:opacity-80">
-                            Tải Bộ Extension v2.7 ↗
+                            Tải Bộ Extension v2.8 ↗
                           </Link>
                         </span>
                       </div>
@@ -1874,13 +1905,28 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                                 </span>
                               )}
                             </div>
-                            <div className="mt-0.5 flex flex-wrap items-center justify-between gap-1 font-mono text-[10px] text-ink-muted">
+                            <div className="mt-0.5 flex flex-wrap items-center justify-between gap-1.5 font-mono text-[10px] text-ink-muted">
                               <span>💻 {vq.browser_profile} · Hôm nay {vq.created_today_count}/{vq.daily_limit} · Tuần {vq.created_7d_count}/{vq.weekly_limit}</span>
-                              {vq.needs_keepalive && (
-                                <span className="font-sans font-bold text-amber-700 dark:text-amber-300">
-                                  ☕ Nghỉ {vq.idle_days}d — Nên đảo ấm
-                                </span>
-                              )}
+                              <span className="inline-flex items-center gap-1.5">
+                                {vq.needs_keepalive ? (
+                                  <span className="font-sans font-bold text-amber-700 dark:text-amber-300">
+                                    ☕ Nghỉ {vq.idle_days}d/{vq.keepalive_interval_days ?? 3}d — Nên đảo ấm
+                                  </span>
+                                ) : vq.last_keepalive_route ? (
+                                  <span className="font-sans text-emerald-700 dark:text-emerald-300" title={vq.last_keepalive_route}>
+                                    ☕ Ấm: {vq.last_keepalive_route.slice(0, 34)}{vq.last_keepalive_route.length > 34 ? '…' : ''}
+                                  </span>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  disabled={autoRunner.phase === 'running' || autoRunner.phase === 'syncing'}
+                                  onClick={() => launchHumanKeepAliveForVias([vq])}
+                                  className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 font-sans text-[10px] font-bold text-amber-800 hover:bg-amber-500/20 disabled:opacity-50 dark:text-amber-200"
+                                  title="Đảo ấm sinh học riêng cho Via này (đa lộ trình + tự giữ tab nếu văng Cookie)"
+                                >
+                                  ☕ Đảo ấm
+                                </button>
+                              </span>
                             </div>
                           </div>
                         )
@@ -1898,7 +1944,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                           🎯 Hàng đợi {batchQueue.length} Page đã lưu vào Hệ thống
                         </div>
                         <p className="text-[11px] text-ink-muted">
-                          Bấm <strong>🤖 Chạy Full Automatic</strong> để Web tự mở từng Via giãn nhịp ({batchStaggerSeconds}s + ngẫu nhiên), Extension v2.7 tự bấm Tạo Trang và tự quét Page ID sau khi xong.
+                          Bấm <strong>🤖 Chạy Full Automatic</strong> để Web tự mở từng Via giãn nhịp ({batchStaggerSeconds}s + ngẫu nhiên), Extension v2.8 tự bấm Tạo Trang và tự quét Page ID sau khi xong.
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
@@ -2242,7 +2288,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
 
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                     <span className="text-[11px] text-ink-muted">
-                      💡 Hệ thống sẽ: (1) Lưu Page &amp; Nhật ký Via, (2) Mở đúng Chrome của Via đã chọn và (3) {autoSubmitMode ? 'Extension v2.7 tự điền + tự bấm Tạo Trang giãn nhịp an toàn (tự quét Page ID sau 26s).' : 'Extension v2.7 tự điền sẵn Tên + Tiểu sử chờ bạn kiểm tra & bấm Tạo Trang.'}
+                      💡 Hệ thống sẽ: (1) Lưu Page &amp; Nhật ký Via, (2) Mở đúng Chrome của Via đã chọn và (3) {autoSubmitMode ? 'Extension v2.8 tự điền + tự bấm Tạo Trang giãn nhịp an toàn (tự quét Page ID sau 26s).' : 'Extension v2.8 tự điền sẵn Tên + Tiểu sử chờ bạn kiểm tra & bấm Tạo Trang.'}
                     </span>
                     <div className="flex flex-wrap items-center gap-2">
                     <Button

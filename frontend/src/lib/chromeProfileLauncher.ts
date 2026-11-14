@@ -352,10 +352,64 @@ export function withAutoSubmitPageUrl(
   }
 }
 
-export function buildViaKeepAliveUrl(opts?: { autoCloseTab?: boolean; viaLabel?: string }): string {
+export interface HumanKeepAlivePlan {
+  steps: string[]
+  routeSummary: string
+  estimatedSeconds: number
+  normalizedTier: 'vault' | 'standard'
+}
+
+const KEEPALIVE_STOP_META: Record<string, { label: string; sec: number }> = {
+  feed: { label: 'Newsfeed', sec: 14 },
+  notif: { label: 'Thông báo', sec: 10 },
+  pages: { label: 'Quản lý Trang', sec: 10 },
+  profile: { label: 'Trang cá nhân', sec: 9 },
+  biz: { label: 'Business Suite (BM)', sec: 14 },
+}
+
+export function planHumanKeepAliveRoute(viaTier?: string): HumanKeepAlivePlan {
+  const isVault = viaTier === 'vault' || viaTier === 'veteran_xmdt'
+  const pool = ['notif', 'pages', 'profile']
+  for (let i = pool.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1))
+    const tmp = pool[i]
+    pool[i] = pool[j]
+    pool[j] = tmp
+  }
+  let steps: string[]
+  if (isVault) {
+    const sec = pool[0]
+    steps = Math.random() < 0.65 ? ['feed', sec, 'biz'] : ['feed', 'biz', sec]
+  } else {
+    const count = Math.random() < 0.55 ? 1 : 2
+    steps = ['feed', ...pool.slice(0, count)]
+  }
+  const routeSummary = steps.map((s) => KEEPALIVE_STOP_META[s]?.label || s).join(' → ')
+  const estimatedSeconds = steps.reduce((acc, s) => acc + (KEEPALIVE_STOP_META[s]?.sec || 10), 0)
+  return {
+    steps,
+    routeSummary,
+    estimatedSeconds,
+    normalizedTier: isVault ? 'vault' : 'standard',
+  }
+}
+
+export function buildViaKeepAliveUrl(opts?: {
+  autoCloseTab?: boolean
+  viaLabel?: string
+  viaTier?: string
+  routeSteps?: string[]
+}): string {
+  const normalizedTier = opts?.viaTier === 'vault' || opts?.viaTier === 'veteran_xmdt' ? 'vault' : 'standard'
+  const steps =
+    Array.isArray(opts?.routeSteps) && opts!.routeSteps.length >= 2
+      ? opts!.routeSteps
+      : planHumanKeepAliveRoute(opts?.viaTier).steps
   const params = new URLSearchParams({
     adsops_keepalive_session: '1',
     adsops_auto_close: opts?.autoCloseTab === false ? '0' : '1',
+    adsops_via_tier: normalizedTier,
+    adsops_ka_route: steps.join(','),
   })
   if (opts?.viaLabel?.trim()) {
     params.set('adsops_via_label', opts.viaLabel.trim().slice(0, 60))
@@ -524,7 +578,7 @@ export function downloadWindowsChromeLauncherBat(): void {
     '    }',
     '    $path = $req.Url.AbsolutePath.TrimEnd("/")',
     '    if ($path -eq "/health" -and $req.HttpMethod -eq "GET") {',
-    `      Send-Json $res 200 '{"ok":true,"version":"2.7.0"}'`,
+    `      Send-Json $res 200 '{"ok":true,"version":"2.8.0"}'`,
     '      continue',
     '    }',
     '    if ($path -eq "/chrome-profiles" -and $req.HttpMethod -eq "GET") {',
@@ -814,9 +868,9 @@ export function buildExtensionFilesForVia(
       ? `AdsOps Companion Pro · ${profileDir} · Proxy ${parsed!.host}:${parsed!.port}`
       : `AdsOps Companion Pro · ${profileDir} (${viaName})`,
     short_name: 'AdsOps Companion Pro',
-    version: '2.7.0',
+    version: '2.8.0',
     description:
-      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.7 Pro: Full Auto-Pilot Tạo Fanpage giãn nhịp an toàn + dừng khẩn cấp khi gặp Checkpoint/CAPTCHA, Chặn & Tự Xoá Passkey, 2FA, WebRTC Lock, Cookie & EAAB Token.',
+      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.8 Pro: Đảo Ấm Cookie Sinh Học Đa Lộ Trình + Tự Dừng Nếu Văng Cookie, Full Auto-Pilot Tạo Fanpage giãn nhịp an toàn + Checkpoint Guard, Anti-Passkey, 2FA, WebRTC Lock & EAAB Token.',
     permissions: [
       'proxy',
       'privacy',
@@ -874,7 +928,7 @@ export function buildExtensionFilesForVia(
 
   // Runs in MAIN world at document_start BEFORE Facebook's scripts load:
   // Completely blocks Windows Hello / WebAuthn / Passkey popup from ever appearing!
-  const passkeyShieldJs = `// AdsOps Companion Pro v2.7 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
+  const passkeyShieldJs = `// AdsOps Companion Pro v2.8 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
 (function() {
   try {
     if (window.PublicKeyCredential) {
@@ -987,12 +1041,107 @@ chrome.webRequest.onAuthRequired.addListener(
   ["blocking"]
 );
 
+chrome.tabs.onRemoved.addListener((tabId) => {
+  try {
+    chrome.storage.local.remove("adsops_ka_tab_" + tabId, () => {
+      void chrome.runtime.lastError;
+    });
+  } catch (e) {}
+});
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg && msg.type === "ADSOPS_CLOSE_CURRENT_TAB" && sender && sender.tab && typeof sender.tab.id === "number") {
-    chrome.tabs.remove(sender.tab.id, () => {
+  if (!msg || typeof msg.type !== "string") return;
+  const tabId = sender && sender.tab && typeof sender.tab.id === "number" ? sender.tab.id : null;
+  const kaKey = tabId !== null ? "adsops_ka_tab_" + tabId : null;
+
+  if (msg.type === "ADSOPS_CLOSE_CURRENT_TAB" && tabId !== null) {
+    if (kaKey) {
+      chrome.storage.local.remove(kaKey, () => {
+        void chrome.runtime.lastError;
+      });
+    }
+    chrome.tabs.remove(tabId, () => {
       void chrome.runtime.lastError;
       try { sendResponse({ ok: true }); } catch (e) {}
     });
+    return true;
+  }
+
+  if (msg.type === "ADSOPS_KEEPALIVE_START" && kaKey) {
+    const session = {
+      steps: Array.isArray(msg.steps) && msg.steps.length ? msg.steps : ["feed", "notif"],
+      stepIdx: 0,
+      autoClose: Boolean(msg.autoClose),
+      viaTier: msg.viaTier || "standard",
+      viaLabel: msg.viaLabel || "",
+      routeSummary: msg.routeSummary || "",
+      startedAt: Date.now(),
+      expiresAt: Date.now() + 240000
+    };
+    const obj = {};
+    obj[kaKey] = session;
+    chrome.storage.local.set(obj, () => {
+      void chrome.runtime.lastError;
+      try { sendResponse({ ok: true, session: session }); } catch (e) {}
+    });
+    return true;
+  }
+
+  if (msg.type === "ADSOPS_KEEPALIVE_SYNC" && kaKey) {
+    chrome.storage.local.get([kaKey], (res) => {
+      void chrome.runtime.lastError;
+      const s = res ? res[kaKey] : null;
+      if (!s || !s.expiresAt || Date.now() > Number(s.expiresAt)) {
+        chrome.storage.local.remove(kaKey, () => {
+          void chrome.runtime.lastError;
+        });
+        try { sendResponse({ active: false }); } catch (e) {}
+        return;
+      }
+      try { sendResponse({ active: true, session: s }); } catch (e) {}
+    });
+    return true;
+  }
+
+  if (msg.type === "ADSOPS_KEEPALIVE_ADVANCE" && kaKey) {
+    chrome.storage.local.get([kaKey], (res) => {
+      void chrome.runtime.lastError;
+      const s = res ? res[kaKey] : null;
+      if (!s) {
+        try { sendResponse({ ok: false }); } catch (e) {}
+        return;
+      }
+      s.stepIdx = (Number(s.stepIdx) || 0) + 1;
+      s.expiresAt = Date.now() + 180000;
+      const obj = {};
+      obj[kaKey] = s;
+      chrome.storage.local.set(obj, () => {
+        void chrome.runtime.lastError;
+        try { sendResponse({ ok: true, session: s }); } catch (e) {}
+      });
+    });
+    return true;
+  }
+
+  if (msg.type === "ADSOPS_KEEPALIVE_CLEAR") {
+    const finalize = () => {
+      if (msg.lastStatus && typeof msg.lastStatus === "object") {
+        chrome.storage.local.set({ lastKeepAliveStatus: msg.lastStatus }, () => {
+          void chrome.runtime.lastError;
+          try { sendResponse({ ok: true }); } catch (e) {}
+        });
+      } else {
+        try { sendResponse({ ok: true }); } catch (e) {}
+      }
+    };
+    if (kaKey) {
+      chrome.storage.local.remove(kaKey, () => {
+        void chrome.runtime.lastError;
+        finalize();
+      });
+    } else {
+      finalize();
+    }
     return true;
   }
 });
@@ -1054,7 +1203,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   <div class="header">
     <div class="brand">
       <span class="logo">AO</span>
-      <span>AdsOps Companion v2.7 Pro</span>
+      <span>AdsOps Companion v2.8 Pro</span>
     </div>
     <span id="proxy-badge" class="status-pill">MẠNG GỐC</span>
   </div>
@@ -1154,14 +1303,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     <div id="acc-list" class="acc-list"></div>
   </div>
 
-  <!-- SECTION 4: COOKIE EXPORT/IMPORT & TOKEN EXTRACTOR -->
+  <!-- SECTION 4: COOKIE EXPORT/IMPORT, KEEP-ALIVE v2.8 & TOKEN EXTRACTOR -->
   <details class="card" style="cursor:pointer;">
-    <summary class="section-title" style="margin-bottom:0;">4. 🍪 Xuất/Nhập Cookie &amp; ⚡ Bắt Token EAAB (Chống CP 956)</summary>
+    <summary class="section-title" style="margin-bottom:0;">4. 🍪 Cookie · ☕ Đảo Ấm v2.8 &amp; ⚡ Bắt Token EAAB</summary>
     <div style="margin-top:8px;">
       <div class="btn-row" style="margin-top:0; margin-bottom:6px;">
         <button id="btn-export-cookie" type="button" class="btn btn-primary">🍪 Chép Cookie FB</button>
         <button id="btn-extract-token" type="button" class="btn btn-emerald">⚡ Bắt Token EAAB</button>
       </div>
+      <button id="btn-run-keepalive" type="button" class="btn" style="width:100%;margin-bottom:6px;border-color:rgba(245,158,11,0.55);color:#fcd34d;">☕ Đảo Ấm Cookie Như Người Thật (v2.8)</button>
+      <div id="ka-last-status" style="margin-bottom:6px; font-size:10px; color:#94a3b8;"></div>
       <textarea id="cookie-box" rows="2" class="mono" placeholder="Dán Cookie JSON hoặc c_user=...; xs=... vào đây để đăng nhập Via không cần mật khẩu"></textarea>
       <div class="btn-row">
         <button id="btn-import-cookie" type="button" class="btn">📥 Nạp Cookie vào Chrome này</button>
@@ -1517,7 +1668,7 @@ function flashSaved() {
 renderAccounts(DEFAULT_ACCOUNTS);
 
 if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
-  chrome.storage.local.get(["viaName", "profileCode", "viaTier", "twoFaSecret", "passkeyStatus", "proxyRaw", "proxyEnabled", "accounts"], (res) => {
+  chrome.storage.local.get(["viaName", "profileCode", "viaTier", "twoFaSecret", "passkeyStatus", "proxyRaw", "proxyEnabled", "accounts", "lastKeepAliveStatus"], (res) => {
     if (viaInput) viaInput.value = res.viaName || "${viaName.replace(/"/g, '\\"')}";
     if (profileInput) profileInput.value = res.profileCode || "${profileDir.replace(/"/g, '\\"')}";
     if (tierSelect) tierSelect.value = res.viaTier || "${viaTier}";
@@ -1532,6 +1683,20 @@ if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
         passkeyBadge.className = "badge badge-ok";
       }
     }
+    const kaEl = document.getElementById("ka-last-status");
+    if (kaEl && res.lastKeepAliveStatus) {
+      const st = res.lastKeepAliveStatus;
+      if (st.state === "LOGGED_OUT") {
+        kaEl.textContent = "⚠️ Cảnh báo: Via bị văng phiên đăng nhập — cần Nạp Cookie / Điền 2FA!";
+        kaEl.style.color = "#fda4af";
+      } else if (st.state === "CHALLENGE") {
+        kaEl.textContent = "🛑 Tạm dừng đảo ấm do xác minh (" + (st.detail || "Checkpoint") + ")";
+        kaEl.style.color = "#fda4af";
+      } else if (st.state === "OK") {
+        kaEl.textContent = "☕ Đã đảo ấm: " + (st.routeSummary || "Cookie khỏe");
+        kaEl.style.color = "#6ee7b7";
+      }
+    }
     updateBadge(Boolean(res.proxyEnabled), res.proxyRaw || "");
     if (Array.isArray(res.accounts) && res.accounts.length > 0) {
       renderAccounts(res.accounts);
@@ -1539,6 +1704,14 @@ if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
     tickOtp();
   });
 }
+
+document.getElementById("btn-run-keepalive")?.addEventListener("click", () => {
+  const tier = (tierSelect?.value === "vault") ? "vault" : "standard";
+  const viaNm = (viaInput?.value || "Via").trim().slice(0, 50);
+  chrome.tabs?.create({
+    url: "https://www.facebook.com/?adsops_keepalive_session=1&adsops_auto_close=0&adsops_via_tier=" + encodeURIComponent(tier) + "&adsops_via_label=" + encodeURIComponent(viaNm)
+  });
+});
 
 document.getElementById("btn-save-enable")?.addEventListener("click", () => {
   const raw = (proxyInput?.value || "").trim();
@@ -1604,7 +1777,7 @@ refreshIp();
 tickOtp();`
 
   const readmeTxt = [
-    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.7 PRO - FULL AUTO PAGE + ANTI-PASSKEY)',
+    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.8 PRO - FULL AUTO PAGE + ANTI-PASSKEY)',
     '===================================================================================',
     'Bước 1: Giải nén file .zip này ra một thư mục cố định (ví dụ: Desktop\\AdsOps-Chrome-Extension).',
     'Bước 2: Mở trình duyệt Google Chrome của Via -> gõ vào thanh địa chỉ: chrome://extensions',
@@ -1613,7 +1786,7 @@ tickOtp();`
     'Bước 5: Bấm biểu tượng mảnh ghép trên góc phải Chrome -> Bấm nút Ghim (Pin) cạnh "AdsOps Companion Pro".',
   ].join('\r\n')
 
-  const contentJs = `// AdsOps Companion Pro v2.7 — Full Auto-Pilot Page Creator + Safety Guard + Anti-Passkey + HUD
+  const contentJs = `// AdsOps Companion Pro v2.8 — Full Auto-Pilot Page Creator + Safety Guard + Anti-Passkey + HUD
 (function() {
   let lastSyncedAct = "";
   let autoDeletePasskeyTriggered = false;
@@ -1822,6 +1995,7 @@ tickOtp();`
   let autoCloseScheduled = false;
   let autoCloseCancelled = false;
   let warmupStarted = false;
+  let keepAliveSyncChecked = false;
   let mediaUploadAttempted = false;
   let lastMediaAttachedAt = 0;
 
@@ -1839,7 +2013,7 @@ tickOtp();`
 
   function scheduleSafeTabAutoClose(delayMs) {
     if (pageAutoPilotHalted || autoCloseCancelled || autoCloseScheduled) return;
-    if (detectSafetyChallenge()) return;
+    if (detectSafetyChallenge() || detectLoggedOutSession()) return;
     autoCloseScheduled = true;
     const hud = document.getElementById("adsops-floating-hud");
     if (hud && !document.getElementById("adsops-hud-keep-tab")) {
@@ -1865,7 +2039,7 @@ tickOtp();`
     setHudPageStatus("🧹 Xong an toàn — Tự đóng Tab sau " + secLeft + "s (bấm Giữ tab nếu cần)", "#34d399");
     setTimeout(() => {
       if (pageAutoPilotHalted || autoCloseCancelled) return;
-      if (detectSafetyChallenge()) return;
+      if (detectSafetyChallenge() || detectLoggedOutSession()) return;
       if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
         chrome.runtime.sendMessage({ type: "ADSOPS_CLOSE_CURRENT_TAB" });
       }
@@ -2005,7 +2179,7 @@ tickOtp();`
       if (!avFile || pageAutoPilotHalted) return;
       assignFileToInput(fileInputs[0], avFile);
       lastMediaAttachedAt = Date.now();
-      setHudPageStatus("🖼️ [Auto v2.7] Đã tự gắn Avatar độc bản (chống trùng Hash)...", "#38bdf8");
+      setHudPageStatus("🖼️ [Auto v2.8] Đã tự gắn Avatar độc bản (chống trùng Hash)...", "#38bdf8");
 
       if (fileInputs.length > 1) {
         setTimeout(() => {
@@ -2014,11 +2188,184 @@ tickOtp();`
             if (!cvFile || pageAutoPilotHalted) return;
             assignFileToInput(fileInputs[1], cvFile);
             lastMediaAttachedAt = Date.now();
-            setHudPageStatus("🖼️ [Auto v2.7] Đã tự gắn đủ Avatar + Cover độc bản!", "#34d399");
+            setHudPageStatus("🖼️ [Auto v2.8] Đã tự gắn đủ Avatar + Cover độc bản!", "#34d399");
           });
         }, randDelay(950, 1550));
       }
     });
+  }
+
+  function detectLoggedOutSession() {
+    const path = (window.location.pathname || "").toLowerCase();
+    if (/^\\/login(?:\\.php|\\/|$)/.test(path) || path.startsWith("/recover")) {
+      return "Màn hình đăng nhập (văng Cookie)";
+    }
+    const hasPass = Boolean(document.querySelector('input[name="pass"][type="password"]'));
+    const hasLoginForm = Boolean(
+      document.querySelector('form#login_form, #loginform, button[name="login"], input[name="email"]'),
+    );
+    if (hasPass && hasLoginForm) {
+      return "Form đăng nhập FB (cần nạp lại Cookie / 2FA)";
+    }
+    return "";
+  }
+
+  function clearKeepAliveSessionBg(lastStatus) {
+    if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+      try {
+        chrome.runtime.sendMessage({ type: "ADSOPS_KEEPALIVE_CLEAR", lastStatus: lastStatus || null }, () => {
+          void chrome.runtime.lastError;
+        });
+      } catch (e) {}
+    }
+  }
+
+  function haltForLoggedOutCookie(reason) {
+    pageAutoPilotHalted = true;
+    autoCloseCancelled = true;
+    try {
+      sessionStorage.removeItem("adsops_autopilot_until");
+    } catch (e) {}
+    clearKeepAliveSessionBg({ state: "LOGGED_OUT", detail: reason, at: new Date().toISOString() });
+    setHudPageStatus("⚠️ [Văng Cookie] " + reason + " — Đã giữ nguyên Tab để bạn Nạp Cookie / Điền 2FA!", "#fbbf24");
+  }
+
+  function startBiometricReadingLoop(statusLabel) {
+    setHudPageStatus(statusLabel, "#38bdf8");
+    let stopped = false;
+    let timerId = null;
+    let downCount = 0;
+
+    const tick = () => {
+      if (stopped || pageAutoPilotHalted) return;
+      const chLoop = detectSafetyChallenge();
+      if (chLoop) {
+        stopped = true;
+        haltAutoPilotForSafety(chLoop);
+        return;
+      }
+      const loLoop = detectLoggedOutSession();
+      if (loLoop) {
+        stopped = true;
+        haltForLoggedOutCookie(loLoop);
+        return;
+      }
+
+      let delta;
+      let nextWait;
+      if (downCount >= 2 && Math.random() < 0.22) {
+        delta = -randDelay(85, 165);
+        nextWait = randDelay(2600, 4600);
+        downCount = 0;
+      } else if (Math.random() < 0.42) {
+        delta = randDelay(145, 265);
+        nextWait = randDelay(1800, 3100);
+        downCount += 1;
+      } else {
+        delta = randDelay(230, 450);
+        nextWait = randDelay(3900, 7600);
+        downCount += 1;
+      }
+
+      try {
+        window.scrollBy({ top: delta, behavior: "smooth" });
+      } catch (e) {
+        window.scrollBy(0, delta);
+      }
+      timerId = setTimeout(tick, nextWait);
+    };
+
+    timerId = setTimeout(tick, randDelay(1200, 2300));
+    return {
+      stop: () => {
+        stopped = true;
+        if (timerId) clearTimeout(timerId);
+      },
+    };
+  }
+
+  const KA_STOPS = {
+    feed: { label: "Newsfeed", url: "https://www.facebook.com/", minMs: 11000, maxMs: 16000 },
+    notif: { label: "Thông báo", url: "https://www.facebook.com/notifications", minMs: 7500, maxMs: 11500 },
+    pages: { label: "Quản lý Trang", url: "https://www.facebook.com/pages/?category=your_pages", minMs: 7500, maxMs: 11500 },
+    profile: { label: "Trang cá nhân", url: "https://www.facebook.com/me", minMs: 7000, maxMs: 10500 },
+    biz: { label: "Business Suite (BM)", url: "https://business.facebook.com/latest/home", minMs: 11500, maxMs: 15500 },
+  };
+
+  function pickFallbackKeepAliveSteps(tier) {
+    const pool = ["notif", "pages", "profile"];
+    for (let i = pool.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = pool[i];
+      pool[i] = pool[j];
+      pool[j] = tmp;
+    }
+    if (tier === "vault" || tier === "veteran_xmdt") {
+      return Math.random() < 0.65 ? ["feed", pool[0], "biz"] : ["feed", "biz", pool[0]];
+    }
+    return Math.random() < 0.55 ? ["feed", pool[0]] : ["feed", pool[0], pool[1]];
+  }
+
+  function runKeepAliveStep(session) {
+    if (!session || pageAutoPilotHalted) return;
+    setTimeout(() => {
+      if (pageAutoPilotHalted) return;
+      const chInit = detectSafetyChallenge();
+      if (chInit) {
+        haltAutoPilotForSafety(chInit);
+        return;
+      }
+      const loInit = detectLoggedOutSession();
+      if (loInit) {
+        haltForLoggedOutCookie(loInit);
+        return;
+      }
+
+      const steps = Array.isArray(session.steps) && session.steps.length ? session.steps : ["feed", "notif"];
+      const idx = Math.max(0, Math.min(steps.length - 1, Number(session.stepIdx) || 0));
+      const code = steps[idx] || "feed";
+      const stopMeta = KA_STOPS[code] || KA_STOPS.feed;
+      const waitMs = randDelay(stopMeta.minMs, stopMeta.maxMs);
+
+      const reader = startBiometricReadingLoop(
+        "☕ [Đảo Ấm v2.8 · Bước " + (idx + 1) + "/" + steps.length + "] Đang đọc " + stopMeta.label + " tự nhiên (" + Math.round(waitMs / 1000) + "s)..."
+      );
+
+      setTimeout(() => {
+        reader.stop();
+        if (pageAutoPilotHalted) return;
+        const chEnd = detectSafetyChallenge();
+        if (chEnd) {
+          haltAutoPilotForSafety(chEnd);
+          return;
+        }
+        const loEnd = detectLoggedOutSession();
+        if (loEnd) {
+          haltForLoggedOutCookie(loEnd);
+          return;
+        }
+
+        if (idx + 1 < steps.length) {
+          const nextCode = steps[idx + 1];
+          const nextMeta = KA_STOPS[nextCode] || KA_STOPS.notif;
+          if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+            chrome.runtime.sendMessage({ type: "ADSOPS_KEEPALIVE_ADVANCE" }, () => {
+              void chrome.runtime.lastError;
+              window.location.href = nextMeta.url;
+            });
+          } else {
+            window.location.href = nextMeta.url;
+          }
+        } else {
+          const summary = session.routeSummary || "Cookie khỏe";
+          clearKeepAliveSessionBg({ state: "OK", routeSummary: summary, at: new Date().toISOString() });
+          setHudPageStatus("☕ [v2.8] Đã đảo ấm sinh học hoàn tất (" + summary + ")!", "#34d399");
+          if (session.autoClose) {
+            scheduleSafeTabAutoClose(randDelay(7500, 10500));
+          }
+        }
+      }, waitMs);
+    }, 950);
   }
 
   function handleSessionWarmupAndKeepAlive() {
@@ -2031,99 +2378,94 @@ tickOtp();`
     }
     const isWarmupToCreate = urlObj.searchParams.get("adsops_warmup_to_create") === "1";
     const isKeepAliveStart = urlObj.searchParams.get("adsops_keepalive_session") === "1";
-    let keepAlivePhase = "";
-    try {
-      keepAlivePhase = sessionStorage.getItem("adsops_keepalive_phase") || "";
-    } catch (e) {}
-
-    if (!isWarmupToCreate && !isKeepAliveStart && keepAlivePhase !== "notif") return;
-
-    warmupStarted = true;
-    const chInit = detectSafetyChallenge();
-    if (chInit) {
-      haltAutoPilotForSafety(chInit);
-      return;
-    }
-
-    const startPassiveScrollLoop = (statusLabel) => {
-      setHudPageStatus(statusLabel, "#38bdf8");
-      const scTimer = setInterval(() => {
-        if (pageAutoPilotHalted) {
-          clearInterval(scTimer);
-          return;
-        }
-        const chLoop = detectSafetyChallenge();
-        if (chLoop) {
-          clearInterval(scTimer);
-          haltAutoPilotForSafety(chLoop);
-          return;
-        }
-        try {
-          window.scrollBy({ top: randDelay(220, 460), behavior: "smooth" });
-        } catch (e) {
-          window.scrollBy(0, 320);
-        }
-      }, randDelay(2500, 3600));
-      return scTimer;
-    };
 
     if (isWarmupToCreate) {
-      const waitMs = randDelay(12500, 17500);
-      const scTimer = startPassiveScrollLoop("🌿 [Auto v2.7] Đang lướt ấm Newsfeed " + Math.round(waitMs / 1000) + "s trước khi tạo Page...");
+      warmupStarted = true;
       setTimeout(() => {
-        clearInterval(scTimer);
         if (pageAutoPilotHalted) return;
-        const chEnd = detectSafetyChallenge();
-        if (chEnd) {
-          haltAutoPilotForSafety(chEnd);
+        const chInit = detectSafetyChallenge();
+        if (chInit) {
+          haltAutoPilotForSafety(chInit);
           return;
         }
-        urlObj.searchParams.delete("adsops_warmup_to_create");
-        window.location.href = window.location.origin + "/pages/creation/?" + urlObj.searchParams.toString();
-      }, waitMs);
+        const loInit = detectLoggedOutSession();
+        if (loInit) {
+          haltForLoggedOutCookie(loInit);
+          return;
+        }
+        const waitMs = randDelay(12500, 17500);
+        const reader = startBiometricReadingLoop("🌿 [Auto v2.8] Đang đọc lướt Newsfeed sinh học " + Math.round(waitMs / 1000) + "s trước khi tạo Page...");
+        setTimeout(() => {
+          reader.stop();
+          if (pageAutoPilotHalted) return;
+          const chEnd = detectSafetyChallenge();
+          if (chEnd) {
+            haltAutoPilotForSafety(chEnd);
+            return;
+          }
+          const loEnd = detectLoggedOutSession();
+          if (loEnd) {
+            haltForLoggedOutCookie(loEnd);
+            return;
+          }
+          urlObj.searchParams.delete("adsops_warmup_to_create");
+          window.location.href = window.location.origin + "/pages/creation/?" + urlObj.searchParams.toString();
+        }, waitMs);
+      }, 900);
       return;
     }
 
     if (isKeepAliveStart) {
-      const wantClose = urlObj.searchParams.get("adsops_auto_close") || "1";
-      try {
-        sessionStorage.setItem("adsops_keepalive_close", wantClose);
-        sessionStorage.setItem("adsops_keepalive_phase", "notif");
-      } catch (e) {}
-      const waitMs = randDelay(12000, 16000);
-      const scTimer = startPassiveScrollLoop("☕ [Keep-Alive] Đang đảo ấm Newsfeed tự nhiên (" + Math.round(waitMs / 1000) + "s)...");
-      setTimeout(() => {
-        clearInterval(scTimer);
-        if (pageAutoPilotHalted) return;
-        const chEnd = detectSafetyChallenge();
-        if (chEnd) {
-          haltAutoPilotForSafety(chEnd);
-          return;
-        }
-        window.location.href = window.location.origin + "/notifications";
-      }, waitMs);
+      warmupStarted = true;
+      const wantClose = urlObj.searchParams.get("adsops_auto_close") !== "0";
+      const viaTier = urlObj.searchParams.get("adsops_via_tier") || "standard";
+      const viaLabel = urlObj.searchParams.get("adsops_via_label") || "";
+      const rawRoute = (urlObj.searchParams.get("adsops_ka_route") || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter((k) => Boolean(KA_STOPS[k]));
+      const steps = rawRoute.length >= 2 ? rawRoute : pickFallbackKeepAliveSteps(viaTier);
+      const routeSummary = steps.map((k) => (KA_STOPS[k] ? KA_STOPS[k].label : k)).join(" → ");
+      const localSession = {
+        steps: steps,
+        stepIdx: 0,
+        autoClose: wantClose,
+        viaTier: viaTier,
+        viaLabel: viaLabel,
+        routeSummary: routeSummary,
+      };
+      if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage(
+          {
+            type: "ADSOPS_KEEPALIVE_START",
+            steps: steps,
+            autoClose: wantClose,
+            viaTier: viaTier,
+            viaLabel: viaLabel,
+            routeSummary: routeSummary,
+          },
+          (res) => {
+            void chrome.runtime.lastError;
+            runKeepAliveStep((res && res.session) || localSession);
+          },
+        );
+      } else {
+        runKeepAliveStep(localSession);
+      }
       return;
     }
 
-    if (keepAlivePhase === "notif") {
-      try { sessionStorage.removeItem("adsops_keepalive_phase"); } catch (e) {}
-      const waitMs = randDelay(7000, 10000);
-      const scTimer = startPassiveScrollLoop("☕ [Keep-Alive] Đang lướt xem Thông báo giữ Cookie tự nhiên...");
-      setTimeout(() => {
-        clearInterval(scTimer);
-        if (pageAutoPilotHalted) return;
-        const chEnd = detectSafetyChallenge();
-        if (chEnd) {
-          haltAutoPilotForSafety(chEnd);
-          return;
-        }
-        setHudPageStatus("☕ Đã đảo ấm Cookie Via hoàn tất!", "#34d399");
-        let closePref = "1";
-        try { closePref = sessionStorage.getItem("adsops_keepalive_close") || "1"; } catch (e) {}
-        if (closePref === "1") {
-          scheduleSafeTabAutoClose(randDelay(8000, 10500));
-        }
-      }, waitMs);
+    if (!keepAliveSyncChecked && typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+      keepAliveSyncChecked = true;
+      try {
+        chrome.runtime.sendMessage({ type: "ADSOPS_KEEPALIVE_SYNC" }, (res) => {
+          void chrome.runtime.lastError;
+          if (res && res.active && res.session && !warmupStarted && !pageAutoPilotHalted) {
+            warmupStarted = true;
+            runKeepAliveStep(res.session);
+          }
+        });
+      } catch (e) {}
     }
   }
 
@@ -2166,9 +2508,11 @@ tickOtp();`
 
   function haltAutoPilotForSafety(reason) {
     pageAutoPilotHalted = true;
+    autoCloseCancelled = true;
     try {
       sessionStorage.removeItem("adsops_autopilot_until");
     } catch (e) {}
+    clearKeepAliveSessionBg({ state: "CHALLENGE", detail: reason, at: new Date().toISOString() });
     setHudPageStatus("🛑 Cảnh báo FB (" + reason + ") — Đã tự dừng Auto để bảo vệ Via!", "#fca5a5");
   }
 
@@ -2340,7 +2684,7 @@ tickOtp();`
       const tFinal = tBio + randDelay(1900, 2850);
 
       if (autoSubmit) {
-        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.7] Đang nhập tự nhiên theo nhịp người thật...", "#38bdf8");
+        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.8] Đang nhập tự nhiên theo nhịp người thật...", "#38bdf8");
       }
 
       if (pName && nameEl && !nameEl.value) {
@@ -2415,7 +2759,7 @@ tickOtp();`
           sessionStorage.setItem("adsops_media_uploaded", "0");
         } catch (e) {}
         createBtn.click();
-        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.7] Đã bấm Tạo Trang — Đang hoàn tất bước phụ...", "#38bdf8");
+        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.8] Đã bấm Tạo Trang — Đang hoàn tất bước phụ...", "#38bdf8");
       };
 
       setTimeout(() => tryAutoClickCreate(true), tFinal);
@@ -2471,7 +2815,7 @@ export function downloadChromeExtensionZip(
   const url = URL.createObjectURL(zipBlob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `AdsOps-Chrome-Extension-v2.7-${slug}.zip`
+  a.download = `AdsOps-Chrome-Extension-v2.8-${slug}.zip`
   document.body.appendChild(a)
   a.click()
   a.remove()
@@ -2491,12 +2835,12 @@ export function downloadAllViasExtensionsBundleZip(items: ViaExtensionBundleSpec
   if (!Array.isArray(items) || items.length === 0) return
   const allFiles: Array<{ name: string; content: string | Uint8Array }> = []
   const guideLines: string[] = [
-    'TRON BO TIEN ICH ADSOPS COMPANION v2.7 PRO CHO TOAN BO DAN VIA',
+    'TRON BO TIEN ICH ADSOPS COMPANION v2.8 PRO CHO TOAN BO DAN VIA',
     '================================================================',
     `Tong so thu muc Extension da dong goi: ${items.length} Via`,
     '',
     'Cach cai nhanh:',
-    '1. Giai nen file .zip nay ra mot thu muc co dinh (VD: Desktop\AdsOps-Extensions-v2.7).',
+    '1. Giai nen file .zip nay ra mot thu muc co dinh (VD: Desktop\AdsOps-Extensions-v2.8).',
     '2. Mo Chrome cua tung Via -> chrome://extensions -> Bat Developer mode -> Load unpacked -> chon dung thu muc ten cua Via do ben duoi:',
     '',
   ]
@@ -2527,7 +2871,7 @@ export function downloadAllViasExtensionsBundleZip(items: ViaExtensionBundleSpec
   const url = URL.createObjectURL(zipBlob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `AdsOps-Tron-Bo-Extension-v2.7-${items.length}Via.zip`
+  a.download = `AdsOps-Tron-Bo-Extension-v2.8-${items.length}Via.zip`
   document.body.appendChild(a)
   a.click()
   a.remove()
