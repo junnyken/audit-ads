@@ -38,7 +38,7 @@ public sealed class AdsOpsApiClient : IDisposable
     private HttpRequestMessage BuildRequest(HttpMethod method, string relativePath, object? body = null)
     {
         var req = new HttpRequestMessage(method, _baseUrl + relativePath);
-        req.Headers.TryAddWithoutValidation("X-AdsOps-Client", "2.2.0");
+        req.Headers.TryAddWithoutValidation("X-AdsOps-Client", DesktopAppInfo.Version);
         req.Headers.TryAddWithoutValidation("X-AdsOps-Source", "desktop");
         if (!string.IsNullOrWhiteSpace(_token))
         {
@@ -172,7 +172,13 @@ public sealed class AdsOpsApiClient : IDisposable
             ct);
 
     public Task<ProxyBatchCheckResponseDto> CheckProxyBatchAsync(CancellationToken ct = default) =>
-        SendJsonAsync<ProxyBatchCheckResponseDto>(HttpMethod.Post, "/api/v1/proxies/check-batch", new { }, ct);
+        SendJsonAsync<ProxyBatchCheckResponseDto>(HttpMethod.Post, "/api/v1/proxies/check-batch", null, ct);
+
+    public async Task<Dictionary<string, ProxyCheckResultDto>> GetProxyHealthMapAsync(CancellationToken ct = default)
+    {
+        var res = await SendJsonAsync<ProxyHealthMapResponseDto>(HttpMethod.Get, "/api/v1/proxies/health-map", null, ct);
+        return res.HealthMap;
+    }
 
     public Task<AlertSummaryDto> GetAlertsSummaryAsync(CancellationToken ct = default) =>
         SendJsonAsync<AlertSummaryDto>(HttpMethod.Get, "/api/v1/alerts/summary", null, ct);
@@ -319,6 +325,188 @@ public sealed class AdsOpsApiClient : IDisposable
 
     public Task<RevokeSessionResultDto> LogoutOtherDevicesAsync(CancellationToken ct = default) =>
         SendJsonAsync<RevokeSessionResultDto>(HttpMethod.Post, "/api/v1/security/sessions/logout-other-devices", null, ct);
+
+    // ---------- Group 1: Extension Billing Auto-Sync ----------
+    public Task<BillingSyncResponseDto> SyncBillingFromExtensionAsync(BillingSyncRequestDto payload, CancellationToken ct = default)
+    {
+        var body = new Dictionary<string, object?>
+        {
+            ["external_account_id"] = payload.ExternalAccountId?.Trim() ?? string.Empty,
+        };
+        if (!string.IsNullOrWhiteSpace(payload.BillingThresholdRaw)) body["billing_threshold_raw"] = payload.BillingThresholdRaw.Trim();
+        if (!string.IsNullOrWhiteSpace(payload.NextBillDate)) body["next_bill_date"] = payload.NextBillDate.Trim();
+        if (!string.IsNullOrWhiteSpace(payload.MetaDailyLimitRaw)) body["meta_daily_limit_raw"] = payload.MetaDailyLimitRaw.Trim();
+        if (!string.IsNullOrWhiteSpace(payload.PaymentCardDisplay)) body["payment_card_display"] = payload.PaymentCardDisplay.Trim();
+        if (!string.IsNullOrWhiteSpace(payload.BalanceRaw)) body["balance_raw"] = payload.BalanceRaw.Trim();
+        return SendJsonAsync<BillingSyncResponseDto>(HttpMethod.Post, "/api/v1/ad-accounts/sync-billing-from-extension", body, ct);
+    }
+
+    // ---------- Group 3: Readiness Board, Health Signals & Live Audit Logs ----------
+    public Task<PagedResponse<HealthSignalDto>> ListAccountHealthSignalsAsync(string adAccountId, CancellationToken ct = default) =>
+        SendJsonAsync<PagedResponse<HealthSignalDto>>(
+            HttpMethod.Get,
+            $"/api/v1/ad-accounts/{Uri.EscapeDataString(adAccountId)}/health/signals?include_historical=true&page_size=100",
+            null,
+            ct);
+
+    public Task<JsonElement> RecalculateAccountHealthAsync(string adAccountId, CancellationToken ct = default) =>
+        SendJsonAsync<JsonElement>(
+            HttpMethod.Post,
+            $"/api/v1/ad-accounts/{Uri.EscapeDataString(adAccountId)}/health/recalculate",
+            null,
+            ct);
+
+    public Task<JsonElement> AcknowledgeHealthSignalAsync(string signalId, string note, CancellationToken ct = default) =>
+        SendJsonAsync<JsonElement>(
+            HttpMethod.Post,
+            $"/api/v1/account-health/signals/{Uri.EscapeDataString(signalId)}/acknowledge",
+            new { note = note.Trim() },
+            ct);
+
+    public Task<JsonElement> ResolveHealthSignalAsync(string signalId, string reason, CancellationToken ct = default) =>
+        SendJsonAsync<JsonElement>(
+            HttpMethod.Post,
+            $"/api/v1/account-health/signals/{Uri.EscapeDataString(signalId)}/resolve",
+            new { reason = reason.Trim() },
+            ct);
+
+    public Task<ReadinessSummaryDto> GetReadinessSummaryAsync(CancellationToken ct = default) =>
+        SendJsonAsync<ReadinessSummaryDto>(HttpMethod.Get, "/api/v1/ad-accounts/readiness/summary", null, ct);
+
+    public Task<ReadinessBoardDto> GetReadinessBoardAsync(int pageSize = 200, CancellationToken ct = default) =>
+        SendJsonAsync<ReadinessBoardDto>(HttpMethod.Get, $"/api/v1/ad-accounts/readiness/board?page_size={pageSize}", null, ct);
+
+    public Task<JsonElement> RecalculateAccountReadinessAsync(string adAccountId, CancellationToken ct = default) =>
+        SendJsonAsync<JsonElement>(
+            HttpMethod.Post,
+            $"/api/v1/ad-accounts/{Uri.EscapeDataString(adAccountId)}/readiness/recalculate",
+            null,
+            ct);
+
+    public Task<PagedResponse<AuditLogEntryDto>> ListAuditLogsAsync(int page = 1, int pageSize = 50, CancellationToken ct = default) =>
+        SendJsonAsync<PagedResponse<AuditLogEntryDto>>(
+            HttpMethod.Get,
+            $"/api/v1/audit-logs?page={page}&page_size={pageSize}",
+            null,
+            ct);
+
+    // ---------- Group 4: Business Managers, Pixels, Domain SEO, Client Retainers & Team ----------
+    public Task<BusinessManagerItemDto> CreateBusinessManagerAsync(
+        string name,
+        string? externalId,
+        string status,
+        string? country,
+        string? currency,
+        string notes,
+        CancellationToken ct = default) =>
+        SendJsonAsync<BusinessManagerItemDto>(
+            HttpMethod.Post,
+            "/api/v1/business-managers",
+            new
+            {
+                name = name.Trim(),
+                external_id = string.IsNullOrWhiteSpace(externalId) ? null : externalId.Trim(),
+                status = string.IsNullOrWhiteSpace(status) ? "unknown" : status.Trim().ToLowerInvariant(),
+                country = string.IsNullOrWhiteSpace(country) ? null : country.Trim().ToUpperInvariant(),
+                currency = string.IsNullOrWhiteSpace(currency) ? null : currency.Trim().ToUpperInvariant(),
+                notes = notes.Trim(),
+            },
+            ct);
+
+    public Task<PagedResponse<PixelDto>> ListPixelsAsync(int pageSize = 100, CancellationToken ct = default) =>
+        SendJsonAsync<PagedResponse<PixelDto>>(HttpMethod.Get, $"/api/v1/pixels?page=1&page_size={pageSize}", null, ct);
+
+    public Task<PixelDto> CreatePixelAsync(
+        string name,
+        string? externalPixelId,
+        string status,
+        string notes,
+        CancellationToken ct = default) =>
+        SendJsonAsync<PixelDto>(
+            HttpMethod.Post,
+            "/api/v1/pixels",
+            new
+            {
+                name = name.Trim(),
+                external_pixel_id = string.IsNullOrWhiteSpace(externalPixelId) ? null : externalPixelId.Trim(),
+                status = string.IsNullOrWhiteSpace(status) ? "unknown" : status.Trim().ToLowerInvariant(),
+                notes = notes.Trim(),
+            },
+            ct);
+
+    public Task<DomainSeoConfigDto> GetDomainSeoConfigAsync(CancellationToken ct = default) =>
+        SendJsonAsync<DomainSeoConfigDto>(HttpMethod.Get, "/api/v1/domain-seo/config", null, ct);
+
+    public Task<DomainSeoConfigDto> SaveDomainSeoConfigAsync(string customDomain, CancellationToken ct = default) =>
+        SendJsonAsync<DomainSeoConfigDto>(
+            HttpMethod.Post,
+            "/api/v1/domain-seo/config",
+            new { custom_domain = customDomain.Trim() },
+            ct);
+
+    public Task<ClientRetainersOverviewDto> GetClientRetainersAsync(CancellationToken ct = default) =>
+        SendJsonAsync<ClientRetainersOverviewDto>(HttpMethod.Get, "/api/v1/client-retainers", null, ct);
+
+    public Task<ClientRetainersOverviewDto> UpsertClientRetainerAsync(object payload, CancellationToken ct = default) =>
+        SendJsonAsync<ClientRetainersOverviewDto>(HttpMethod.Post, "/api/v1/client-retainers", payload, ct);
+
+    public Task<ClientRetainersOverviewDto> DeleteClientRetainerAsync(string retainerId, CancellationToken ct = default) =>
+        SendJsonAsync<ClientRetainersOverviewDto>(
+            HttpMethod.Delete,
+            $"/api/v1/client-retainers/{Uri.EscapeDataString(retainerId)}",
+            null,
+            ct);
+
+    public Task<TeamSummaryDto> GetTeamSummaryAsync(CancellationToken ct = default) =>
+        SendJsonAsync<TeamSummaryDto>(HttpMethod.Get, "/api/v1/team/summary", null, ct);
+
+    public Task<List<TeamMemberDto>> ListTeamMembersAsync(CancellationToken ct = default) =>
+        SendJsonAsync<List<TeamMemberDto>>(HttpMethod.Get, "/api/v1/team/members", null, ct);
+
+    public Task<List<TeamInvitationDto>> ListTeamInvitationsAsync(CancellationToken ct = default) =>
+        SendJsonAsync<List<TeamInvitationDto>>(HttpMethod.Get, "/api/v1/team/invitations", null, ct);
+
+    public Task<TeamInvitationCreateResponseDto> CreateTeamInvitationAsync(string email, string role, CancellationToken ct = default) =>
+        SendJsonAsync<TeamInvitationCreateResponseDto>(
+            HttpMethod.Post,
+            "/api/v1/team/invitations",
+            new { email = email.Trim(), role = role.Trim().ToLowerInvariant() },
+            ct);
+
+    public Task<TeamMemberDto> ChangeTeamMemberRoleAsync(string memberId, string role, CancellationToken ct = default) =>
+        SendJsonAsync<TeamMemberDto>(
+            HttpMethod.Patch,
+            $"/api/v1/team/members/{Uri.EscapeDataString(memberId)}/role",
+            new { role = role.Trim().ToLowerInvariant() },
+            ct);
+
+    public Task<TeamMemberDto> SuspendTeamMemberAsync(string memberId, string reason, CancellationToken ct = default) =>
+        SendJsonAsync<TeamMemberDto>(
+            HttpMethod.Post,
+            $"/api/v1/team/members/{Uri.EscapeDataString(memberId)}/suspend",
+            new { reason = reason.Trim() },
+            ct);
+
+    public Task<TeamMemberDto> UnsuspendTeamMemberAsync(string memberId, CancellationToken ct = default) =>
+        SendJsonAsync<TeamMemberDto>(
+            HttpMethod.Post,
+            $"/api/v1/team/members/{Uri.EscapeDataString(memberId)}/unsuspend",
+            null,
+            ct);
+
+    public Task<TeamInvitationCreateResponseDto> ResendTeamInvitationAsync(string invitationId, CancellationToken ct = default) =>
+        SendJsonAsync<TeamInvitationCreateResponseDto>(
+            HttpMethod.Post,
+            $"/api/v1/team/invitations/{Uri.EscapeDataString(invitationId)}/resend",
+            null,
+            ct);
+
+    public Task<TeamInvitationDto> RevokeTeamInvitationAsync(string invitationId, string reason, CancellationToken ct = default) =>
+        SendJsonAsync<TeamInvitationDto>(
+            HttpMethod.Post,
+            $"/api/v1/team/invitations/{Uri.EscapeDataString(invitationId)}/revoke",
+            new { reason = reason.Trim() },
+            ct);
 
     public void Dispose() => _http.Dispose();
 }

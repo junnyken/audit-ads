@@ -55,6 +55,8 @@ public sealed class LocalBridgeServer : IDisposable
     private readonly Func<LocalVaultSaveRequest, Task<LocalVaultGetResult>> _onVaultSave;
     private readonly Func<string, string, string, Task<LocalVaultGetResult>> _onVaultGet;
     private readonly Func<AutoConnectTokenBridgeRequest, Task<AutoConnectTokenBridgeResponse>> _onAutoConnectToken;
+    private readonly Func<BillingSyncRequestDto, Task<BillingSyncResponseDto>> _onSyncBilling;
+    private readonly Func<TileWindowsRequestDto?, TileWindowsResultDto> _onTileWindows;
     private readonly Action<string> _log;
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -70,7 +72,9 @@ public sealed class LocalBridgeServer : IDisposable
         Action<string> log,
         Func<LocalVaultSaveRequest, Task<LocalVaultGetResult>>? onVaultSave = null,
         Func<string, string, string, Task<LocalVaultGetResult>>? onVaultGet = null,
-        Func<AutoConnectTokenBridgeRequest, Task<AutoConnectTokenBridgeResponse>>? onAutoConnectToken = null)
+        Func<AutoConnectTokenBridgeRequest, Task<AutoConnectTokenBridgeResponse>>? onAutoConnectToken = null,
+        Func<BillingSyncRequestDto, Task<BillingSyncResponseDto>>? onSyncBilling = null,
+        Func<TileWindowsRequestDto?, TileWindowsResultDto>? onTileWindows = null)
     {
         _requestedPort = port;
         _onOpenChrome = onOpenChrome;
@@ -84,6 +88,12 @@ public sealed class LocalBridgeServer : IDisposable
             Ok = false,
             Error = "Auto-connect handler chưa được cấu hình.",
         }));
+        _onSyncBilling = onSyncBilling ?? (_ => Task.FromResult(new BillingSyncResponseDto
+        {
+            Status = "ignored",
+            Reason = "handler_not_configured",
+        }));
+        _onTileWindows = onTileWindows ?? (req => WindowTilerService.TileChromeWindows(req?.Grid, req?.Pids));
     }
 
     public static bool RetireLegacyBridgeHoldingPort(int port, Action<string> log)
@@ -132,7 +142,7 @@ public sealed class LocalBridgeServer : IDisposable
                     {
                         holder.Kill(entireProcessTree: true);
                         holder.WaitForExit(1500);
-                        log($"♻️ Đã tự động thay thế Cầu nối .bat cũ ({pname} PID {pid}) trên cổng {port} bằng AdsOps Desktop Pro v2.2.");
+                        log($"♻️ Đã tự động thay thế Cầu nối .bat cũ ({pname} PID {pid}) trên cổng {port} bằng AdsOps Desktop Pro v2.3.");
                         retiredAny = true;
                     }
                 }
@@ -205,7 +215,7 @@ public sealed class LocalBridgeServer : IDisposable
                     {
                         ok = true,
                         app = "AdsOpsDesktop",
-                        version = "2.2.0",
+                        version = DesktopAppInfo.Version,
                         extVersion = tpl.Version,
                         port = BoundPort,
                     });
@@ -330,6 +340,51 @@ public sealed class LocalBridgeServer : IDisposable
                         active_count = sessions.Count(s => s.Alive),
                         sessions,
                     });
+                    await WriteHttpResponseAsync(stream, 200, "OK", json, ct).ConfigureAwait(false);
+                    return;
+                }
+
+                if (method == "POST" && path == "/sync-billing")
+                {
+                    var reqDto = string.IsNullOrWhiteSpace(bodyText)
+                        ? null
+                        : JsonSerializer.Deserialize<BillingSyncRequestDto>(bodyText, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (reqDto == null || string.IsNullOrWhiteSpace(reqDto.ExternalAccountId))
+                    {
+                        await WriteHttpResponseAsync(
+                            stream,
+                            400,
+                            "Bad Request",
+                            "{\"ok\":false,\"error\":\"Thiếu external_account_id để đồng bộ Billing.\"}",
+                            ct).ConfigureAwait(false);
+                        return;
+                    }
+                    var syncRes = await _onSyncBilling(reqDto).ConfigureAwait(false);
+                    var json = JsonSerializer.Serialize(new
+                    {
+                        ok = string.Equals(syncRes.Status, "synced", StringComparison.OrdinalIgnoreCase),
+                        status = syncRes.Status,
+                        ad_account_id = syncRes.AdAccountId,
+                        updated_fields = syncRes.UpdatedFields,
+                        reason = syncRes.Reason,
+                    });
+                    await WriteHttpResponseAsync(stream, 200, "OK", json, ct).ConfigureAwait(false);
+                    return;
+                }
+
+                if (method == "POST" && path == "/tile-windows")
+                {
+                    TileWindowsRequestDto? reqDto = null;
+                    if (!string.IsNullOrWhiteSpace(bodyText))
+                    {
+                        try
+                        {
+                            reqDto = JsonSerializer.Deserialize<TileWindowsRequestDto>(bodyText, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        }
+                        catch { }
+                    }
+                    var tileRes = _onTileWindows(reqDto);
+                    var json = JsonSerializer.Serialize(tileRes);
                     await WriteHttpResponseAsync(stream, 200, "OK", json, ct).ConfigureAwait(false);
                     return;
                 }

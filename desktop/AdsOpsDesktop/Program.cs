@@ -105,7 +105,7 @@ internal static class Program
                 "c_user=10001; xs=secret_xs",
                 "JBSWY3DPEHPK3PXP");
 
-            // 1. ExtensionProvisioner 7-file output + version 2.9.3 + real AdAccount & DEFAULT_VIA_META injection
+            // 1. ExtensionProvisioner 7-file output + version 2.9.4 + real AdAccount & DEFAULT_VIA_META injection
             var via = new ViaWorkspaceEntry
             {
                 ViaId = "11111111-2222-3333-4444-555555555555",
@@ -135,17 +135,23 @@ internal static class Program
             }
             using (var mfDoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(extDir, "manifest.json"))))
             {
-                if (mfDoc.RootElement.GetProperty("version").GetString() != "2.9.3")
-                    throw new InvalidOperationException("Manifest version is not 2.9.3");
+                if (mfDoc.RootElement.GetProperty("version").GetString() != "2.9.4")
+                    throw new InvalidOperationException("Manifest version is not 2.9.4");
             }
             var bgText = File.ReadAllText(Path.Combine(extDir, "background.js"));
             if (!bgText.Contains("ADSOPS_REPORT_BROWSER_EVENT", StringComparison.Ordinal) ||
+                !bgText.Contains("ADSOPS_SYNC_BILLING", StringComparison.Ordinal) ||
                 !bgText.Contains("11111111-2222-3333-4444-555555555555", StringComparison.Ordinal) ||
                 !bgText.Contains("act_999888777", StringComparison.Ordinal) ||
                 !bgText.Contains("ensureVaultCookiesBootstrapped", StringComparison.Ordinal) ||
                 !bgText.Contains("close_sender_window", StringComparison.Ordinal))
             {
-                throw new InvalidOperationException("background.js missing v2.9.3 bridge, bootstrap, auto-close, viaId, or bundled account");
+                throw new InvalidOperationException("background.js missing v2.9.4 bridge, billing sync, bootstrap, auto-close, viaId, or bundled account");
+            }
+            var contentText = File.ReadAllText(Path.Combine(extDir, "content.js"));
+            if (!contentText.Contains("ADSOPS_SYNC_BILLING", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("content.js missing v2.9.4 ADSOPS_SYNC_BILLING");
             }
             var popupText = File.ReadAllText(Path.Combine(extDir, "popup.js"));
             if (!popupText.Contains("act_999888777", StringComparison.Ordinal) ||
@@ -232,7 +238,21 @@ internal static class Program
                     Id = "via-cloud-1",
                     Label = req.ViaLabel ?? "Via Auto",
                     LinkedBusinessManagers = 2,
-                }));
+                }),
+                req => Task.FromResult(new BillingSyncResponseDto
+                {
+                    Status = "synced",
+                    AdAccountId = "acc-sync-1",
+                    UpdatedFields = new List<string> { "billing_threshold_raw" },
+                }),
+                req => new TileWindowsResultDto
+                {
+                    Ok = true,
+                    Grid = WindowTilerService.ParseGridSpec(req?.Grid).Normalized,
+                    TiledCount = 4,
+                    Screen = "1920x1040",
+                    Message = "Tiled 4 windows",
+                });
             srv.Start();
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
             var baseUrl = $"http://127.0.0.1:{srv.BoundPort}";
@@ -241,8 +261,8 @@ internal static class Program
             healthResp.EnsureSuccessStatusCode();
             var healthBody = await healthResp.Content.ReadAsStringAsync();
             if (!healthBody.Contains("\"app\":\"AdsOpsDesktop\"", StringComparison.Ordinal) ||
-                !healthBody.Contains("\"version\":\"2.2.0\"", StringComparison.Ordinal) ||
-                !healthBody.Contains("\"extVersion\":\"2.9.3\"", StringComparison.Ordinal))
+                !healthBody.Contains("\"version\":\"2.3.0\"", StringComparison.Ordinal) ||
+                !healthBody.Contains("\"extVersion\":\"2.9.4\"", StringComparison.Ordinal))
             {
                 throw new InvalidOperationException($"Unexpected /health response: {healthBody}");
             }
@@ -269,6 +289,28 @@ internal static class Program
             var acOkBody = await acOkResp.Content.ReadAsStringAsync();
             if (!acOkBody.Contains("via-cloud-1", StringComparison.Ordinal))
                 throw new InvalidOperationException($"Unexpected /auto-connect-token response: {acOkBody}");
+
+            var sbBadResp = await http.PostAsync(
+                $"{baseUrl}/sync-billing",
+                new StringContent("{}", Encoding.UTF8, "application/json"));
+            if ((int)sbBadResp.StatusCode != 400)
+                throw new InvalidOperationException($"Expected 400 for empty /sync-billing, got {(int)sbBadResp.StatusCode}");
+
+            var sbOkResp = await http.PostAsync(
+                $"{baseUrl}/sync-billing",
+                new StringContent("{\"external_account_id\":\"123456789\",\"billing_threshold_raw\":\"2000000\"}", Encoding.UTF8, "application/json"));
+            sbOkResp.EnsureSuccessStatusCode();
+            var sbOkBody = await sbOkResp.Content.ReadAsStringAsync();
+            if (!sbOkBody.Contains("\"status\":\"synced\"", StringComparison.Ordinal))
+                throw new InvalidOperationException($"Unexpected /sync-billing response: {sbOkBody}");
+
+            var tileResp = await http.PostAsync(
+                $"{baseUrl}/tile-windows",
+                new StringContent("{\"grid\":\"3×2\"}", Encoding.UTF8, "application/json"));
+            tileResp.EnsureSuccessStatusCode();
+            var tileBody = await tileResp.Content.ReadAsStringAsync();
+            if (!tileBody.Contains("\"grid\":\"3x2\"", StringComparison.Ordinal))
+                throw new InvalidOperationException($"Unexpected /tile-windows response: {tileBody}");
 
             var optReq = new HttpRequestMessage(HttpMethod.Options, $"{baseUrl}/open");
             var optResp = await http.SendAsync(optReq);
@@ -401,18 +443,20 @@ internal static class Program
                     throw new InvalidOperationException($"WCAG AA contrast failure for {pair.Name}: {pair.Ratio}:1 < 4.5:1");
             }
 
-            // 10. Extension v2.9.3 template verification (2FA bridge + cookie bootstrap + keepalive auto-close + cloud token push)
+            // 10. Extension v2.9.4 template verification (2FA bridge + billing sync + cookie bootstrap + keepalive auto-close + cloud token push)
             var extTpl = ExtensionProvisioner.LoadTemplates();
-            if (extTpl.Version != "2.9.3" ||
+            if (extTpl.Version != "2.9.4" ||
                 !extTpl.BackgroundJsAfterDefaultState.Contains("ADSOPS_GET_LOCAL_TOTP", StringComparison.Ordinal) ||
+                !extTpl.BackgroundJsAfterDefaultState.Contains("ADSOPS_SYNC_BILLING", StringComparison.Ordinal) ||
                 !extTpl.BackgroundJsAfterDefaultState.Contains("ensureVaultCookiesBootstrapped", StringComparison.Ordinal) ||
                 !extTpl.BackgroundJsAfterDefaultState.Contains("close_sender_window", StringComparison.Ordinal) ||
+                !extTpl.ContentJs.Contains("ADSOPS_SYNC_BILLING", StringComparison.Ordinal) ||
                 !extTpl.ContentJs.Contains("handleTwoFactorAssistDom", StringComparison.Ordinal) ||
                 !extTpl.PopupHtml.Contains("btn-push-token-cloud", StringComparison.Ordinal) ||
                 !extTpl.PopupJsAfterDefaults.Contains("_desktopTotpCache", StringComparison.Ordinal) ||
                 !extTpl.PopupJsAfterDefaults.Contains("btn-push-token-cloud", StringComparison.Ordinal))
             {
-                throw new InvalidOperationException("Extension template bundle missing v2.9.3 helpers");
+                throw new InvalidOperationException("Extension template bundle missing v2.9.4 helpers");
             }
 
             // 11. ViaBulkImportParser (Pass/Mail secret stripping + auto Profile N + duplicate Proxy warning)
@@ -468,7 +512,7 @@ internal static class Program
                 throw new InvalidOperationException($"CsvExporter output unexpected: {csvText}");
             }
 
-            // 13. v2.2 ChromeSessionTracker + AdAccountSpendPeriodsDto + TelegramDetectedChatDto checks
+            // 13. ChromeSessionTracker + AdAccountSpendPeriodsDto + TelegramDetectedChatDto checks
             var tracker = new ChromeSessionTracker();
             tracker.RecordLaunch(999999, "via-track-1", "Via Tracker", "Profile 9", "https://www.facebook.com/");
             tracker.MarkKeepAliveClosed("via-track-1", "Via Tracker", "Profile 9");
@@ -486,7 +530,34 @@ internal static class Program
             if (chatDto.ChatIdText != "-100987654321" || chatDto.Title != "AdsOps Alerts")
                 throw new InvalidOperationException($"Unexpected chatDto ChatIdText: {chatDto.ChatIdText}");
 
-            Console.WriteLine("ADSOPS_DESKTOP_V22_SELFTEST_100_PASS");
+            // 14. v2.3 Proxy key normalization, WindowTilerService grid parser, SelfUpdateService semver, Group 3/4 DTOs
+            if (DesktopAppInfo.NormalizeProxyKey("103.1.2.3:8080:user:pass") != "http://103.1.2.3:8080" ||
+                DesktopAppInfo.NormalizeProxyKey("socks5://u:p@103.1.2.3:1080") != "socks5://103.1.2.3:1080")
+            {
+                throw new InvalidOperationException("DesktopAppInfo.NormalizeProxyKey mismatch");
+            }
+            var parsedGrid = WindowTilerService.ParseGridSpec("3×2");
+            if (parsedGrid.Cols != 3 || parsedGrid.Rows != 2 || parsedGrid.Normalized != "3x2")
+                throw new InvalidOperationException("WindowTilerService.ParseGridSpec 3x2 failed");
+            if (!SelfUpdateService.IsNewerVersion("2.3.1", "2.3.0") || SelfUpdateService.IsNewerVersion("2.3.0", "2.3.0"))
+                throw new InvalidOperationException("SelfUpdateService.IsNewerVersion failed");
+
+            var rSumDto = JsonSerializer.Deserialize<ReadinessSummaryDto>("{\"total_active\":5,\"operationally_ready\":2,\"ready_with_warnings\":1,\"not_ready\":1,\"unknown\":1,\"archived\":0}")
+                ?? throw new InvalidOperationException("ReadinessSummaryDto null");
+            if (rSumDto.TotalActive != 5 || rSumDto.OperationallyReady != 2)
+                throw new InvalidOperationException("ReadinessSummaryDto field mismatch");
+
+            var retDto = JsonSerializer.Deserialize<ClientRetainersOverviewDto>("{\"items\":[{\"id\":\"r1\",\"contract_code\":\"HD-01\",\"client_name\":\"Khach A\",\"committed_budget_vnd\":100000000,\"spend_mtd_vnd\":40000000,\"pacing_status\":\"ON_TRACK\"}],\"summary\":{\"total_contracts\":1,\"total_committed_vnd\":100000000}}")
+                ?? throw new InvalidOperationException("ClientRetainersOverviewDto null");
+            if (retDto.Items.Count != 1 || retDto.Items[0].ContractCode != "HD-01" || retDto.Summary.TotalCommittedVnd != 100000000)
+                throw new InvalidOperationException("ClientRetainersOverviewDto field mismatch");
+
+            var invResp = JsonSerializer.Deserialize<TeamInvitationCreateResponseDto>("{\"invitation\":{\"id\":\"i1\",\"email_normalized\":\"nv@gmail.com\",\"invited_role\":\"operator\",\"status\":\"pending\"},\"invite_link_token\":\"tok_abc_123\"}")
+                ?? throw new InvalidOperationException("TeamInvitationCreateResponseDto null");
+            if (invResp.InviteLinkToken != "tok_abc_123" || invResp.Invitation.EmailNormalized != "nv@gmail.com")
+                throw new InvalidOperationException("TeamInvitationCreateResponseDto field mismatch");
+
+            Console.WriteLine("ADSOPS_DESKTOP_V23_SELFTEST_100_PASS");
             return 0;
         }
         finally

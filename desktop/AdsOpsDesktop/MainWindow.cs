@@ -20,6 +20,7 @@ internal enum AppView
     PagesBm,
     AdAccounts,
     HealthTokens,
+    WorkspaceOps,
     Settings,
 }
 
@@ -88,6 +89,19 @@ internal sealed partial class MainWindow : Window
     private TelegramBotConfigDto? _telegramConfig;
     private SpendSummaryDto? _spendSummary;
     private List<DeviceSessionDto> _deviceSessions = new();
+    private Dictionary<string, ProxyCheckResultDto> _proxyHealthMap = new(StringComparer.OrdinalIgnoreCase);
+    private ReadinessSummaryDto? _readinessSummary;
+    private ReadinessBoardDto? _readinessBoard;
+    private List<AuditLogEntryDto> _auditLogs = new();
+    private string _auditSearch = "";
+    private List<PixelDto> _pixels = new();
+    private DomainSeoConfigDto? _domainSeoConfig;
+    private ClientRetainersOverviewDto? _retainersOverview;
+    private TeamSummaryDto? _teamSummary;
+    private List<TeamMemberDto> _teamMembers = new();
+    private List<TeamInvitationDto> _teamInvitations = new();
+    private UpdateManifestDto? _latestUpdateManifest;
+    private string _updateStatusText = "Chưa kiểm tra cập nhật trong phiên này.";
 
     private bool _isBusy;
     private bool _hasLoadedOnce;
@@ -143,7 +157,7 @@ internal sealed partial class MainWindow : Window
             AppendLog);
         _queue.SnapshotChanged += OnQueueSnapshotChanged;
 
-        Title = "AdsOps Desktop Pro v2.2";
+        Title = "AdsOps Desktop Pro v2.3";
         Width = 1320;
         Height = 840;
         MinWidth = 1040;
@@ -255,7 +269,7 @@ internal sealed partial class MainWindow : Window
         });
         brandText.Children.Add(new TextBlock
         {
-            Text = "Desktop Suite v2.2",
+            Text = "Desktop Suite v2.3",
             FontFamily = ThemeTokens.UiFont,
             FontSize = 12,
             Foreground = ThemeTokens.TextMuted,
@@ -271,6 +285,7 @@ internal sealed partial class MainWindow : Window
         AddNavButton(navStack, AppView.PagesBm, "Fanpage & BM", FluentIcons.Page);
         AddNavButton(navStack, AppView.AdAccounts, "Tài khoản QC", FluentIcons.Chart);
         AddNavButton(navStack, AppView.HealthTokens, "Sức khỏe & Token", FluentIcons.Diagnostic);
+        AddNavButton(navStack, AppView.WorkspaceOps, "Ngân sách & Team", FluentIcons.ShieldCheck);
         AddNavButton(navStack, AppView.Settings, "Két khóa & Cài đặt", FluentIcons.Settings);
         Grid.SetRow(navStack, 1);
         grid.Children.Add(navStack);
@@ -644,7 +659,7 @@ internal sealed partial class MainWindow : Window
 
     private async Task OnWindowLoadedAsync()
     {
-        AppendLog("Khởi động AdsOps Desktop Pro v2.2 (WPF Dark UI + DPAPI Vault + Local TOTP).");
+        AppendLog("Khởi động AdsOps Desktop Pro v2.3 (WPF Dark UI + DPAPI Vault + Local TOTP + Retainers/Team).");
         _chromeProfiles = ExtensionProvisioner.ReadLocalChromeProfiles();
         AppendLog($"Phát hiện {_chromeProfiles.Count} Chrome Profile trên máy Windows.");
 
@@ -681,10 +696,12 @@ internal sealed partial class MainWindow : Window
                 AppendLog,
                 OnBridgeVaultSaveAsync,
                 OnBridgeVaultGetAsync,
-                OnBridgeAutoConnectTokenAsync);
+                OnBridgeAutoConnectTokenAsync,
+                OnBridgeSyncBillingAsync,
+                OnBridgeTileWindows);
             _bridge.Start();
             var tpl = ExtensionProvisioner.LoadTemplates();
-            AppendLog($"Local Bridge v2.2 đang lắng nghe tại http://127.0.0.1:{_bridge.BoundPort} (Ext v{tpl.Version}).");
+            AppendLog($"Local Bridge v2.3 đang lắng nghe tại http://127.0.0.1:{_bridge.BoundPort} (Ext v{tpl.Version}).");
         }
         catch (Exception ex)
         {
@@ -821,6 +838,62 @@ internal sealed partial class MainWindow : Window
         }
     }
 
+    private async Task<BillingSyncResponseDto> OnBridgeSyncBillingAsync(BillingSyncRequestDto req)
+    {
+        if (string.IsNullOrWhiteSpace(req.ExternalAccountId))
+        {
+            return new BillingSyncResponseDto { Status = "ignored", Reason = "missing_external_account_id" };
+        }
+        if (string.IsNullOrWhiteSpace(_config.GetJwt()))
+        {
+            return new BillingSyncResponseDto { Status = "ignored", Reason = "not_logged_in" };
+        }
+        try
+        {
+            var res = await _api.SyncBillingFromExtensionAsync(req);
+            if (string.Equals(res.Status, "synced", StringComparison.OrdinalIgnoreCase))
+            {
+                var updatedFields = res.UpdatedFields != null && res.UpdatedFields.Count > 0
+                    ? string.Join(", ", res.UpdatedFields)
+                    : "no_changes";
+                _ = Dispatcher.BeginInvoke(() =>
+                {
+                    AppendLog($"Auto-Sync Billing DOM act_{req.ExternalAccountId} ({updatedFields}).");
+                    _ = SyncCloudAsync(silent: true);
+                });
+            }
+            return res;
+        }
+        catch (Exception ex)
+        {
+            _ = Dispatcher.BeginInvoke(() => AppendLog($"Lỗi Auto-Sync Billing từ Extension: {ex.Message}"));
+            return new BillingSyncResponseDto { Status = "error", Reason = ex.Message };
+        }
+    }
+
+    private TileWindowsResultDto OnBridgeTileWindows(TileWindowsRequestDto? req)
+    {
+        var trackedPids = ChromeSessionTracker.Default
+            .GetSnapshot()
+            .Where(s => s.Alive && s.Pid.HasValue)
+            .Select(s => s.Pid!.Value)
+            .Concat(req?.Pids ?? Enumerable.Empty<int>())
+            .Distinct()
+            .ToList();
+        var res = WindowTilerService.TileChromeWindows(req?.Grid, trackedPids);
+        _ = Dispatcher.BeginInvoke(() => AppendLog(res.Message));
+        return res;
+    }
+
+    internal void TileActiveChromeWindows(string gridSpec)
+    {
+        var res = OnBridgeTileWindows(new TileWindowsRequestDto { Grid = gridSpec });
+        if (!res.Ok)
+        {
+            MessageBox.Show(this, res.Message, "Xếp lưới Chrome", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+    }
+
     private Task<int> OnBridgeProvisionAllAsync()
     {
         var tcs = new TaskCompletionSource<int>();
@@ -892,11 +965,23 @@ internal sealed partial class MainWindow : Window
             var telegramTask = TryFetchAsync(() => _api.GetTelegramBotConfigAsync(), new TelegramBotConfigDto(), "Telegram Bot Config");
             var spendSumTask = TryFetchAsync(() => _api.GetSpendSummaryAsync(), new SpendSummaryDto(), "Tổng hợp Chi tiêu");
             var sessionsTask = TryFetchAsync(() => _api.ListMyDeviceSessionsAsync(), new List<DeviceSessionDto>(), "Phiên Thiết bị Cloud");
+            var proxyMapTask = TryFetchAsync(() => _api.GetProxyHealthMapAsync(), new Dictionary<string, ProxyCheckResultDto>(), "Bản đồ Live Proxy");
+            var readinessSumTask = TryFetchAsync(() => _api.GetReadinessSummaryAsync(), new ReadinessSummaryDto(), "Tóm tắt Readiness");
+            var readinessBoardTask = TryFetchAsync(() => _api.GetReadinessBoardAsync(200), new ReadinessBoardDto(), "Readiness Board");
+            var auditTask = TryFetchAsync(() => _api.ListAuditLogsAsync(1, 50), new PagedResponse<AuditLogEntryDto>(), "Live Audit Logs");
+            var pixelsTask = TryFetchAsync(() => _api.ListPixelsAsync(100), new PagedResponse<PixelDto>(), "Meta Pixels");
+            var domainSeoTask = TryFetchAsync(() => _api.GetDomainSeoConfigAsync(), new DomainSeoConfigDto(), "Domain & SEO Config");
+            var retainersTask = TryFetchAsync(() => _api.GetClientRetainersAsync(), new ClientRetainersOverviewDto(), "Client Retainers");
+            var teamSumTask = TryFetchAsync<TeamSummaryDto?>(async () => await _api.GetTeamSummaryAsync(), null, "Team Summary");
+            var teamMemTask = TryFetchAsync(() => _api.ListTeamMembersAsync(), new List<TeamMemberDto>(), "Team Members");
+            var teamInvTask = TryFetchAsync(() => _api.ListTeamInvitationsAsync(), new List<TeamInvitationDto>(), "Team Invitations");
 
             await Task.WhenAll(
                 userTask, accountsTask, bmsTask, adAccsTask, pagesTask, alertSumTask, alertsTask, cronTask,
                 metaConnTask, healthSumTask, healthRowsTask, draftsTask,
-                telegramTask, spendSumTask, sessionsTask);
+                telegramTask, spendSumTask, sessionsTask,
+                proxyMapTask, readinessSumTask, readinessBoardTask, auditTask,
+                pixelsTask, domainSeoTask, retainersTask, teamSumTask, teamMemTask, teamInvTask);
 
             _currentUser = userTask.Result;
             _bms = bmsTask.Result.Items ?? new();
@@ -912,6 +997,16 @@ internal sealed partial class MainWindow : Window
             _telegramConfig = telegramTask.Result;
             _spendSummary = spendSumTask.Result;
             _deviceSessions = sessionsTask.Result;
+            _proxyHealthMap = new Dictionary<string, ProxyCheckResultDto>(proxyMapTask.Result, StringComparer.OrdinalIgnoreCase);
+            _readinessSummary = readinessSumTask.Result;
+            _readinessBoard = readinessBoardTask.Result;
+            _auditLogs = auditTask.Result.Items ?? new();
+            _pixels = pixelsTask.Result.Items ?? new();
+            _domainSeoConfig = domainSeoTask.Result;
+            _retainersOverview = retainersTask.Result;
+            _teamSummary = teamSumTask.Result;
+            _teamMembers = teamMemTask.Result;
+            _teamInvitations = teamInvTask.Result;
 
             RebuildViaWorkspaceList(accountsTask.Result.Items ?? new());
             ProvisionAllViaExtensions(silent: true);
@@ -966,6 +1061,34 @@ internal sealed partial class MainWindow : Window
             // Preserve any previously measured proxy state during silent resyncs
             var old = _vias.FirstOrDefault(v => string.Equals(v.ViaId, r.Id, StringComparison.OrdinalIgnoreCase));
 
+            ProxyCheckResultDto? mappedProxy = null;
+            if (!string.IsNullOrWhiteSpace(r.NetworkLabel))
+            {
+                var normKey = DesktopAppInfo.NormalizeProxyKey(r.NetworkLabel);
+                if (!string.IsNullOrWhiteSpace(normKey))
+                {
+                    _proxyHealthMap.TryGetValue(normKey, out mappedProxy);
+                }
+                if (mappedProxy == null)
+                {
+                    var hp = AutomationQueueEngine.ExtractProxyHostPort(r.NetworkLabel);
+                    if (!string.IsNullOrWhiteSpace(hp))
+                    {
+                        mappedProxy = _proxyHealthMap
+                            .FirstOrDefault(kv =>
+                                kv.Key.Contains(hp, StringComparison.OrdinalIgnoreCase) ||
+                                (!string.IsNullOrWhiteSpace(kv.Value.NormalizedKey) && kv.Value.NormalizedKey.Contains(hp, StringComparison.OrdinalIgnoreCase)))
+                            .Value;
+                    }
+                }
+            }
+
+            var resolvedProxyStatus = string.IsNullOrWhiteSpace(r.NetworkLabel)
+                ? "DIRECT"
+                : mappedProxy != null
+                    ? (string.Equals(mappedProxy.Status, "LIVE", StringComparison.OrdinalIgnoreCase) ? "LIVE" : "DEAD")
+                    : (old?.ProxyLastStatus ?? "UNCHECKED");
+
             var entry = new ViaWorkspaceEntry
             {
                 ViaId = r.Id,
@@ -994,9 +1117,9 @@ internal sealed partial class MainWindow : Window
                 IdleDays = q?.IdleDays ?? 0,
                 KeepAliveIntervalDays = q?.KeepAliveIntervalDays ?? 3.0,
                 NeedsKeepAlive = q?.NeedsKeepAlive ?? false,
-                ProxyLastStatus = string.IsNullOrWhiteSpace(r.NetworkLabel) ? "DIRECT" : (old?.ProxyLastStatus ?? "UNCHECKED"),
-                ProxyLatencyMs = old?.ProxyLatencyMs,
-                ProxyExitIp = old?.ProxyExitIp,
+                ProxyLastStatus = resolvedProxyStatus,
+                ProxyLatencyMs = mappedProxy?.LatencyMs ?? old?.ProxyLatencyMs,
+                ProxyExitIp = mappedProxy?.ExitIp ?? old?.ProxyExitIp,
                 IsSelected = prevSelected.Contains(r.Id),
                 BundledAccounts = matchedAdAccs.Select(BundledExtensionAccountDto.FromApi).ToList(),
             };
@@ -1372,15 +1495,18 @@ internal sealed partial class MainWindow : Window
         SetNavBadge(AppView.Automation, _queueSnapshot.Phase == QueuePhase.Running ? "RUN" : "");
         var healthAlertTotal = (_healthSummary?.Critical ?? 0) + (_healthSummary?.Warning ?? 0) + (_healthSummary?.AttentionNeeded ?? 0);
         SetNavBadge(AppView.HealthTokens, healthAlertTotal > 0 ? healthAlertTotal.ToString() : "");
+        var retainerWarnCount = _retainersOverview?.Items.Count(c => c.PacingStatus is "OVER_BUDGET" or "NEAR_CAP") ?? 0;
+        SetNavBadge(AppView.WorkspaceOps, retainerWarnCount > 0 ? retainerWarnCount.ToString() : "");
 
         (_headerTitle.Text, _headerSubtitle.Text) = _activeView switch
         {
             AppView.Overview => ("Tổng quan vận hành", BuildSyncSubtitle("Bức tranh đa Via, cảnh báo hệ thống & hàng đợi")),
             AppView.Vias => ("Quản lý Đa Via", BuildSyncSubtitle($"{_vias.Count} Via • 2FA local theo thời gian thực • Chế độ mở Chrome cô lập")),
             AppView.Automation => ("Trung tâm Tự động hóa", BuildSyncSubtitle("Tạo Page theo nhịp an toàn, Đảo Ấm đa Via & Cloud Cron")),
-            AppView.PagesBm => ("Fanpage & Business Manager", BuildSyncSubtitle($"{_pagesSummary?.Items.Count ?? 0} Fanpage • {_bms.Count} BM")),
+            AppView.PagesBm => ("Fanpage, BM, Pixel & Domain SEO", BuildSyncSubtitle($"{_pagesSummary?.Items.Count ?? 0} Fanpage • {_bms.Count} BM • {_pixels.Count} Pixel")),
             AppView.AdAccounts => ("Tài khoản Quảng cáo", BuildSyncSubtitle($"{_adAccounts.Count} TKQC liên kết • Số liệu căn lề Tabular chính xác")),
-            AppView.HealthTokens => ("Sức khỏe TKQC, Meta Token & Pre-flight", BuildSyncSubtitle($"{_metaConnections.Count} Meta Token • {_accountHealthRows.Count} đánh giá sức khỏe • {_campaignDrafts.Count} nháp Pre-flight")),
+            AppView.HealthTokens => ("Sức khỏe TKQC, Readiness & Audit Log", BuildSyncSubtitle($"{_metaConnections.Count} Meta Token • {_accountHealthRows.Count} đánh giá • {_readinessBoard?.Rows.Count ?? 0} Readiness")),
+            AppView.WorkspaceOps => ("Ngân sách Hợp đồng (Retainers) & Team", BuildSyncSubtitle($"{_retainersOverview?.Items.Count ?? 0} hợp đồng • {_teamMembers.Count} thành viên")),
             AppView.Settings => ("Két khóa DPAPI & Cài đặt", BuildSyncSubtitle("Kết nối Cloud, Két sao lưu AES-256-GCM (.adsopsvault) & Hệ thống")),
             _ => ("AdsOps Desktop Pro", ""),
         };
@@ -1516,6 +1642,10 @@ internal sealed partial class MainWindow : Window
                 break;
             case Key.D7:
                 e.Handled = true;
+                SwitchView(AppView.WorkspaceOps);
+                break;
+            case Key.D8:
+                e.Handled = true;
                 SwitchView(AppView.Settings);
                 break;
         }
@@ -1550,7 +1680,7 @@ internal sealed partial class MainWindow : Window
         e.Cancel = true;
         Hide();
         ShowInTaskbar = false;
-        _tray?.ShowBalloon("AdsOps Desktop Pro v2.2", "Ứng dụng đang chạy ngầm tại Khay hệ thống (Local Bridge vẫn bật).");
+        _tray?.ShowBalloon("AdsOps Desktop Pro v2.3", "Ứng dụng đang chạy ngầm tại Khay hệ thống (Local Bridge vẫn bật).");
     }
 
     public void ExitApplicationCleanly()

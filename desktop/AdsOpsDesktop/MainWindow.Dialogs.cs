@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -1022,8 +1024,9 @@ internal sealed partial class MainWindow
         AddNavCmd(AppView.Automation, "Ctrl+3", "Trung tâm Tự động hóa", "Tạo Page theo nhịp an toàn & Đảo Ấm Cookie");
         AddNavCmd(AppView.PagesBm, "Ctrl+4", "Fanpage & Business Manager", "Quản lý Fanpage, nuôi lô & xuất CSV");
         AddNavCmd(AppView.AdAccounts, "Ctrl+5", "Tài khoản Quảng cáo", "Bảng TKQC, số dư, ngưỡng & xuất CSV");
-        AddNavCmd(AppView.HealthTokens, "Ctrl+6", "Sức khỏe TKQC, Token & Pre-flight", "Kiểm tra Meta Token, đánh giá sức khỏe & chấm điểm chiến dịch");
-        AddNavCmd(AppView.Settings, "Ctrl+7", "Két khóa DPAPI & Cài đặt", "Kết nối Cloud, sao lưu két & Extension");
+        AddNavCmd(AppView.HealthTokens, "Ctrl+6", "Sức khỏe TKQC, Token & Readiness", "Kiểm tra Meta Token, Readiness Board, Signals & Live Audit");
+        AddNavCmd(AppView.WorkspaceOps, "Ctrl+7", "Ngân sách & Team", "Hợp đồng Client Retainers, ngân sách & quản lý thành viên");
+        AddNavCmd(AppView.Settings, "Ctrl+8", "Két khóa DPAPI & Cài đặt", "Kết nối Cloud, sao lưu két, Tự cập nhật & Extension");
 
         allItems.Add(new CommandPaletteItem(
             "THAO TÁC",
@@ -1059,6 +1062,22 @@ internal sealed partial class MainWindow
                 "token eaab auto connect meta",
                 () => { dlg.Close(); OpenAutoConnectTokenDialog(null); }));
 
+            allItems.Add(new CommandPaletteItem(
+                "THAO TÁC",
+                "Quét Live Proxy toàn bộ Via",
+                "Kiểm tra tình trạng sống/chết tất cả IP Proxy qua POST /proxies/check-batch",
+                "Proxy",
+                "proxy live dead check batch quet",
+                () => { dlg.Close(); _ = RunBatchProxyCheckAsync(); }));
+
+            allItems.Add(new CommandPaletteItem(
+                "THAO TÁC",
+                "Tạo Hợp đồng Client Retainer mới",
+                "Thiết lập ngân sách cam kết, phí Agency & gán danh sách TKQC",
+                "Retainer",
+                "retainer hop dong ngan sach",
+                () => { dlg.Close(); OpenClientRetainerDialog(null); }));
+
             var dueCount = _vias.Count(v => v.NeedsKeepAlive);
             if (dueCount > 0)
             {
@@ -1074,10 +1093,34 @@ internal sealed partial class MainWindow
 
         allItems.Add(new CommandPaletteItem(
             "THAO TÁC",
-            "Cấp lại Extension Companion v2.9.3 cho toàn bộ Via",
-            "Đồng bộ code Extension v2.9.3 & Proxy vào thư mục Profile của từng Via",
-            "Ext v2.9.3",
-            "provision extension cap lai 2.9.3",
+            "Xếp cửa sổ Chrome lưới 2×2",
+            "Tự động chia đều các cửa sổ Chrome đang mở thành lưới 2 cột × 2 hàng",
+            "2×2",
+            "tile window xep luoi chrome 2x2",
+            () => { dlg.Close(); TileActiveChromeWindows("2x2"); }));
+
+        allItems.Add(new CommandPaletteItem(
+            "THAO TÁC",
+            "Xếp cửa sổ Chrome lưới 3×2",
+            "Tự động chia đều các cửa sổ Chrome đang mở thành lưới 3 cột × 2 hàng",
+            "3×2",
+            "tile window xep luoi chrome 3x2",
+            () => { dlg.Close(); TileActiveChromeWindows("3x2"); }));
+
+        allItems.Add(new CommandPaletteItem(
+            "THAO TÁC",
+            "Kiểm tra cập nhật AdsOps Desktop Pro",
+            "Đối chiếu phiên bản mới nhất từ AdsOps-Desktop-Pro-latest.json",
+            "Update",
+            "update cap nhat phien ban",
+            () => { dlg.Close(); _ = CheckForAppUpdatesAsync(); }));
+
+        allItems.Add(new CommandPaletteItem(
+            "THAO TÁC",
+            "Cấp lại Extension Companion v2.9.4 cho toàn bộ Via",
+            "Đồng bộ code Extension v2.9.4 & Proxy vào thư mục Profile của từng Via",
+            "Ext v2.9.4",
+            "provision extension cap lai 2.9.4",
             () => { dlg.Close(); ProvisionAllViaExtensions(silent: false); }));
 
         var now = DateTimeOffset.UtcNow;
@@ -1394,6 +1437,590 @@ internal sealed partial class MainWindow
         row.Children.Add(pasteBtn);
         row.Children.Add(cancel);
         row.Children.Add(okBtn);
+        root.Children.Add(row);
+
+        dlg.Content = root;
+        dlg.ShowDialog();
+    }
+
+    internal void OpenHealthSignalsDialog(AccountHealthRowDto row)
+    {
+        var accTitle = string.IsNullOrWhiteSpace(row.DisplayName) ? $"act_{row.ExternalAccountId}" : row.DisplayName;
+        var dlg = new Window
+        {
+            Title = $"Tín hiệu Sức khỏe • {accTitle}",
+            Width = 760,
+            Height = 580,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            Background = ThemeTokens.BgCanvas,
+            Foreground = ThemeTokens.TextPrimary,
+            ShowInTaskbar = false,
+        };
+        ThemeTokens.ApplyDarkTitleBar(dlg);
+
+        var outer = new Grid { Margin = new Thickness(18) };
+        outer.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        outer.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        outer.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var topInfo = new TextBlock
+        {
+            Text = $"TKQC: {accTitle} (act_{row.ExternalAccountId}) — Trạng thái: {row.HealthStatus.ToUpperInvariant()}",
+            FontSize = 14,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeTokens.TextPrimary,
+            Margin = new Thickness(0, 0, 0, 10),
+        };
+        outer.Children.Add(topInfo);
+
+        var listHost = new StackPanel();
+        var scroll = new ScrollViewer
+        {
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Content = listHost,
+        };
+        Grid.SetRow(scroll, 1);
+        outer.Children.Add(scroll);
+
+        var statusTb = new TextBlock
+        {
+            Text = "Đang tải danh sách tín hiệu sức khỏe...",
+            FontSize = 12,
+            Foreground = ThemeTokens.TextMuted,
+            Margin = new Thickness(0, 8, 0, 0),
+        };
+
+        async Task ReloadSignalsAsync()
+        {
+            statusTb.Foreground = ThemeTokens.TextMuted;
+            statusTb.Text = "Đang tải tín hiệu từ Cloud...";
+            listHost.Children.Clear();
+            try
+            {
+                var paged = await _api.ListAccountHealthSignalsAsync(row.AdAccountId);
+                var items = paged.Items ?? new();
+                if (items.Count == 0)
+                {
+                    listHost.Children.Add(UiComponents.CreateEmptyState(
+                        "Không có tín hiệu sức khỏe nào",
+                        "TKQC này hiện sạch cảnh báo hoặc chưa có đợt tính toán sức khỏe.",
+                        FluentIcons.ShieldCheck));
+                    statusTb.Text = "0 tín hiệu.";
+                    return;
+                }
+
+                statusTb.Text = $"Tìm thấy {items.Count} tín hiệu sức khỏe.";
+                foreach (var sig in items)
+                {
+                    var cardStack = new StackPanel();
+                    var hdrRow = new WrapPanel { Margin = new Thickness(0, 0, 0, 4) };
+                    var titleTb = new TextBlock
+                    {
+                        Text = string.IsNullOrWhiteSpace(sig.RuleName) ? sig.RuleKey : sig.RuleName,
+                        FontSize = 13,
+                        FontWeight = FontWeights.Bold,
+                        Foreground = ThemeTokens.TextPrimary,
+                        Margin = new Thickness(0, 0, 8, 0),
+                        VerticalAlignment = VerticalAlignment.Center,
+                    };
+                    hdrRow.Children.Add(titleTb);
+                    var isCrit = string.Equals(sig.Severity, "critical", StringComparison.OrdinalIgnoreCase);
+                    var sevPill = UiComponents.CreateBadgePill(
+                        sig.Severity.ToUpperInvariant(),
+                        isCrit ? ThemeTokens.DangerText : ThemeTokens.WarningText,
+                        isCrit ? ThemeTokens.DangerBg : ThemeTokens.WarningBg,
+                        isCrit ? ThemeTokens.DangerBorder : ThemeTokens.WarningBorder);
+                    sevPill.Margin = new Thickness(0, 0, 6, 0);
+                    hdrRow.Children.Add(sevPill);
+
+                    var isResolved = string.Equals(sig.Status, "resolved", StringComparison.OrdinalIgnoreCase);
+                    hdrRow.Children.Add(UiComponents.CreateBadgePill(
+                        sig.Status.ToUpperInvariant(),
+                        isResolved ? ThemeTokens.SuccessText : ThemeTokens.AccentText,
+                        isResolved ? ThemeTokens.SuccessBg : ThemeTokens.InfoBg,
+                        isResolved ? ThemeTokens.SuccessBorder : ThemeTokens.InfoBorder));
+                    cardStack.Children.Add(hdrRow);
+
+                    if (!string.IsNullOrWhiteSpace(sig.WhyItMatters))
+                    {
+                        cardStack.Children.Add(new TextBlock
+                        {
+                            Text = sig.WhyItMatters,
+                            FontSize = 12,
+                            Foreground = ThemeTokens.TextSecondary,
+                            TextWrapping = TextWrapping.Wrap,
+                            Margin = new Thickness(0, 2, 0, 2),
+                        });
+                    }
+                    if (!string.IsNullOrWhiteSpace(sig.RecommendedNextStep))
+                    {
+                        cardStack.Children.Add(new TextBlock
+                        {
+                            Text = $"Gợi ý: {sig.RecommendedNextStep}",
+                            FontSize = 12,
+                            Foreground = ThemeTokens.AccentText,
+                            TextWrapping = TextWrapping.Wrap,
+                            Margin = new Thickness(0, 2, 0, 6),
+                        });
+                    }
+                    if (!string.IsNullOrWhiteSpace(sig.AcknowledgementNote) || !string.IsNullOrWhiteSpace(sig.ResolutionReason))
+                    {
+                        cardStack.Children.Add(new TextBlock
+                        {
+                            Text = $"Ghi chú: {sig.AcknowledgementNote ?? sig.ResolutionReason}",
+                            FontSize = 11,
+                            Foreground = ThemeTokens.TextMuted,
+                            TextWrapping = TextWrapping.Wrap,
+                            Margin = new Thickness(0, 0, 0, 6),
+                        });
+                    }
+
+                    if (!isResolved)
+                    {
+                        var actGrid = new Grid();
+                        actGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                        actGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                        actGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                        var noteTb = UiComponents.CreateTextBox("", "Nhập ghi chú ghi nhận / lý do xử lý...");
+                        actGrid.Children.Add(noteTb);
+
+                        var ackBtn = UiComponents.CreateButton("Ghi nhận", ButtonVariant.Secondary, compact: true, onClick: async (_, _) =>
+                        {
+                            var txt = string.IsNullOrWhiteSpace(noteTb.Text) ? "Đã ghi nhận từ Desktop Pro" : noteTb.Text.Trim();
+                            try
+                            {
+                                await _api.AcknowledgeHealthSignalAsync(sig.Id, txt);
+                                AppendLog($"Đã ghi nhận tín hiệu {sig.RuleKey} của {accTitle}.");
+                                await ReloadSignalsAsync();
+                                _ = SyncCloudAsync(silent: true);
+                            }
+                            catch (Exception ex) { statusTb.Foreground = ThemeTokens.DangerText; statusTb.Text = $"Lỗi: {ex.Message}"; }
+                        });
+                        ackBtn.Margin = new Thickness(8, 0, 6, 0);
+                        Grid.SetColumn(ackBtn, 1);
+                        actGrid.Children.Add(ackBtn);
+
+                        var resBtn = UiComponents.CreateButton("Xử lý xong", ButtonVariant.Success, FluentIcons.CheckCircle, compact: true, onClick: async (_, _) =>
+                        {
+                            var txt = string.IsNullOrWhiteSpace(noteTb.Text) ? "Đã khắc phục trên Meta Ads Manager" : noteTb.Text.Trim();
+                            try
+                            {
+                                await _api.ResolveHealthSignalAsync(sig.Id, txt);
+                                AppendLog($"Đã đánh dấu xử lý xong tín hiệu {sig.RuleKey} của {accTitle}.");
+                                await ReloadSignalsAsync();
+                                _ = SyncCloudAsync(silent: true);
+                            }
+                            catch (Exception ex) { statusTb.Foreground = ThemeTokens.DangerText; statusTb.Text = $"Lỗi: {ex.Message}"; }
+                        });
+                        Grid.SetColumn(resBtn, 2);
+                        actGrid.Children.Add(resBtn);
+                        cardStack.Children.Add(actGrid);
+                    }
+
+                    var c = UiComponents.CreateCard(cardStack, new Thickness(12, 10, 12, 10), ThemeTokens.BgSurfaceElevated);
+                    c.Margin = new Thickness(0, 0, 0, 8);
+                    listHost.Children.Add(c);
+                }
+            }
+            catch (Exception ex)
+            {
+                statusTb.Foreground = ThemeTokens.DangerText;
+                statusTb.Text = $"Không thể tải tín hiệu: {ex.Message}";
+            }
+        }
+
+        var footer = new Grid { Margin = new Thickness(0, 10, 0, 0) };
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        footer.Children.Add(statusTb);
+        var closeBtn = UiComponents.CreateButton("Đóng", ButtonVariant.Secondary, onClick: (_, _) => dlg.Close());
+        Grid.SetColumn(closeBtn, 1);
+        footer.Children.Add(closeBtn);
+        Grid.SetRow(footer, 2);
+        outer.Children.Add(footer);
+
+        dlg.Loaded += async (_, _) => await ReloadSignalsAsync();
+        dlg.Content = outer;
+        dlg.ShowDialog();
+    }
+
+    internal void OpenCreateBusinessManagerDialog()
+    {
+        var dlg = new Window
+        {
+            Title = "Thêm Business Manager mới",
+            Width = 480,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            ResizeMode = ResizeMode.NoResize,
+            Background = ThemeTokens.BgCanvas,
+            Foreground = ThemeTokens.TextPrimary,
+            ShowInTaskbar = false,
+        };
+        ThemeTokens.ApplyDarkTitleBar(dlg);
+
+        var root = new StackPanel { Margin = new Thickness(20) };
+        var tbName = UiComponents.CreateTextBox("", "VD: BM Hold Chính #01");
+        var tbExtId = UiComponents.CreateTextBox("", "VD: 123456789012345 (tùy chọn)");
+        var cbStatus = UiComponents.CreateComboBox(new[]
+        {
+            new ComboBoxItem { Content = "Hoạt động (Active)", Tag = "active" },
+            new ComboBoxItem { Content = "Chưa rõ (Unknown)", Tag = "unknown" },
+            new ComboBoxItem { Content = "Hạn chế (Restricted)", Tag = "restricted" },
+        });
+        cbStatus.SelectedIndex = 0;
+        var tbCountry = UiComponents.CreateTextBox("VN", "2 ký tự, VD: VN, US");
+        var tbCurrency = UiComponents.CreateTextBox("VND", "3 ký tự, VD: VND, USD");
+        var tbNotes = UiComponents.CreateTextBox("", "Ghi chú BM / Via cầm BM", multiline: true, height: 64);
+
+        root.Children.Add(BuildLabeledBox("Tên Business Manager *", tbName));
+        root.Children.Add(BuildLabeledBox("External BM ID", tbExtId));
+        root.Children.Add(BuildLabeledBox("Trạng thái", cbStatus));
+        root.Children.Add(BuildLabeledBox("Quốc gia (ISO 2 chữ cái)", tbCountry));
+        root.Children.Add(BuildLabeledBox("Tiền tệ (ISO 3 chữ cái)", tbCurrency));
+        root.Children.Add(BuildLabeledBox("Ghi chú", tbNotes));
+
+        var errTb = new TextBlock { Text = "", Foreground = ThemeTokens.DangerText, FontSize = 12, Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap };
+        root.Children.Add(errTb);
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
+        var cancel = UiComponents.CreateButton("Hủy", ButtonVariant.Secondary, onClick: (_, _) => dlg.Close());
+        cancel.Margin = new Thickness(0, 0, 8, 0);
+        var save = UiComponents.CreateButton("Tạo BM", ButtonVariant.Primary, FluentIcons.Add, onClick: async (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(tbName.Text)) { errTb.Text = "Vui lòng nhập tên Business Manager."; return; }
+            try
+            {
+                var stTag = (cbStatus.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "active";
+                await _api.CreateBusinessManagerAsync(tbName.Text, tbExtId.Text, stTag, tbCountry.Text, tbCurrency.Text, tbNotes.Text);
+                AppendLog($"Đã tạo Business Manager '{tbName.Text.Trim()}'.");
+                await SyncCloudAsync(silent: false);
+                dlg.DialogResult = true;
+            }
+            catch (Exception ex) { errTb.Text = ex.Message; }
+        });
+        row.Children.Add(cancel);
+        row.Children.Add(save);
+        root.Children.Add(row);
+
+        dlg.Content = root;
+        dlg.ShowDialog();
+    }
+
+    internal void OpenCreatePixelDialog()
+    {
+        var dlg = new Window
+        {
+            Title = "Thêm Meta Pixel mới",
+            Width = 460,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            ResizeMode = ResizeMode.NoResize,
+            Background = ThemeTokens.BgCanvas,
+            Foreground = ThemeTokens.TextPrimary,
+            ShowInTaskbar = false,
+        };
+        ThemeTokens.ApplyDarkTitleBar(dlg);
+
+        var root = new StackPanel { Margin = new Thickness(20) };
+        var tbName = UiComponents.CreateTextBox("", "VD: Pixel Landing Spa Q1");
+        var tbExtId = UiComponents.CreateTextBox("", "VD: 987654321098765 (tùy chọn)");
+        var cbStatus = UiComponents.CreateComboBox(new[]
+        {
+            new ComboBoxItem { Content = "Hoạt động (Active)", Tag = "active" },
+            new ComboBoxItem { Content = "Chưa rõ (Unknown)", Tag = "unknown" },
+            new ComboBoxItem { Content = "Vô hiệu (Disabled)", Tag = "disabled" },
+        });
+        cbStatus.SelectedIndex = 0;
+        var tbNotes = UiComponents.CreateTextBox("", "Domain gắn Pixel hoặc chiến dịch", multiline: true, height: 64);
+
+        root.Children.Add(BuildLabeledBox("Tên Meta Pixel *", tbName));
+        root.Children.Add(BuildLabeledBox("Pixel ID (số)", tbExtId));
+        root.Children.Add(BuildLabeledBox("Trạng thái", cbStatus));
+        root.Children.Add(BuildLabeledBox("Ghi chú", tbNotes));
+
+        var errTb = new TextBlock { Text = "", Foreground = ThemeTokens.DangerText, FontSize = 12, Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap };
+        root.Children.Add(errTb);
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
+        var cancel = UiComponents.CreateButton("Hủy", ButtonVariant.Secondary, onClick: (_, _) => dlg.Close());
+        cancel.Margin = new Thickness(0, 0, 8, 0);
+        var save = UiComponents.CreateButton("Lưu Pixel", ButtonVariant.Primary, FluentIcons.Add, onClick: async (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(tbName.Text)) { errTb.Text = "Vui lòng nhập tên Pixel."; return; }
+            try
+            {
+                var stTag = (cbStatus.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "active";
+                await _api.CreatePixelAsync(tbName.Text, tbExtId.Text, stTag, tbNotes.Text);
+                AppendLog($"Đã thêm Meta Pixel '{tbName.Text.Trim()}'.");
+                await SyncCloudAsync(silent: false);
+                dlg.DialogResult = true;
+            }
+            catch (Exception ex) { errTb.Text = ex.Message; }
+        });
+        row.Children.Add(cancel);
+        row.Children.Add(save);
+        root.Children.Add(row);
+
+        dlg.Content = root;
+        dlg.ShowDialog();
+    }
+
+    internal void OpenClientRetainerDialog(ClientRetainerItemDto? existing)
+    {
+        var isEdit = existing != null && !string.IsNullOrWhiteSpace(existing.Id);
+        var dlg = new Window
+        {
+            Title = isEdit ? $"Sửa Hợp đồng Retainer • {existing!.ContractCode}" : "Tạo Hợp đồng Client Retainer mới",
+            Width = 620,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            ResizeMode = ResizeMode.NoResize,
+            Background = ThemeTokens.BgCanvas,
+            Foreground = ThemeTokens.TextPrimary,
+            ShowInTaskbar = false,
+        };
+        ThemeTokens.ApplyDarkTitleBar(dlg);
+
+        var root = new StackPanel { Margin = new Thickness(20) };
+        var tbCode = UiComponents.CreateTextBox(existing?.ContractCode ?? "", "VD: HD-2026-01 (để trống tự sinh)");
+        var tbClient = UiComponents.CreateTextBox(existing?.ClientName ?? "", "Tên Khách hàng / Công ty *");
+        var tbProject = UiComponents.CreateTextBox(existing?.ProjectName ?? "", "Tên Dự án / Nhãn hàng");
+        var tbCycle = UiComponents.CreateTextBox(existing?.BillingCycle ?? $"Tháng {DateTime.Now:MM/yyyy}", "VD: Tháng 11/2026");
+        var tbBudget = UiComponents.CreateTextBox((existing?.CommittedBudgetVnd ?? 100_000_000).ToString(CultureInfo.InvariantCulture), "VND, VD: 100000000");
+        var tbFee = UiComponents.CreateTextBox((existing?.AgencyFeePercent ?? 10.0).ToString(CultureInfo.InvariantCulture), "% Phí Agency");
+        var tbTax = UiComponents.CreateTextBox((existing?.MetaTaxPercent ?? 5.0).ToString(CultureInfo.InvariantCulture), "% Thuế Meta");
+        var tbRate = UiComponents.CreateTextBox((existing?.UsdToVndRate ?? 25400).ToString(CultureInfo.InvariantCulture), "Tỷ giá USD/VND");
+        var tbEmail = UiComponents.CreateTextBox(existing?.ContactEmail ?? "", "Email đối soát khách hàng");
+        var tbNotes = UiComponents.CreateTextBox(existing?.Notes ?? "", "Ghi chú điều khoản hợp đồng", multiline: true, height: 52);
+
+        var twoCol1 = new Grid();
+        twoCol1.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        twoCol1.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+        twoCol1.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var l1 = BuildLabeledBox("Mã Hợp đồng", tbCode);
+        var r1 = BuildLabeledBox("Tên Khách hàng *", tbClient);
+        Grid.SetColumn(r1, 2);
+        twoCol1.Children.Add(l1);
+        twoCol1.Children.Add(r1);
+        root.Children.Add(twoCol1);
+
+        var twoCol2 = new Grid();
+        twoCol2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        twoCol2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+        twoCol2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var l2 = BuildLabeledBox("Tên Dự án", tbProject);
+        var r2 = BuildLabeledBox("Kỳ đối soát", tbCycle);
+        Grid.SetColumn(r2, 2);
+        twoCol2.Children.Add(l2);
+        twoCol2.Children.Add(r2);
+        root.Children.Add(twoCol2);
+
+        var numGrid = new Grid();
+        for (int i = 0; i < 4; i++)
+        {
+            if (i > 0) numGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+            numGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        }
+        var nb = BuildLabeledBox("Cam kết (VNĐ)", tbBudget);
+        var nf = BuildLabeledBox("Phí Agency (%)", tbFee); Grid.SetColumn(nf, 2);
+        var nt = BuildLabeledBox("Thuế Meta (%)", tbTax); Grid.SetColumn(nt, 4);
+        var nr = BuildLabeledBox("Tỷ giá USD", tbRate); Grid.SetColumn(nr, 6);
+        numGrid.Children.Add(nb);
+        numGrid.Children.Add(nf);
+        numGrid.Children.Add(nt);
+        numGrid.Children.Add(nr);
+        root.Children.Add(numGrid);
+
+        root.Children.Add(BuildLabeledBox("Email liên hệ đối soát", tbEmail));
+
+        // Multi-select AdAccounts
+        var selectedAccSet = new HashSet<string>(existing?.AdAccountIds ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        var accCheckBoxes = new List<(string Id, CheckBox Box)>();
+        var accStack = new StackPanel();
+        if (_adAccounts.Count == 0)
+        {
+            accStack.Children.Add(new TextBlock { Text = "Chưa có TKQC nào trong Workspace.", FontSize = 12, Foreground = ThemeTokens.TextMuted });
+        }
+        else
+        {
+            foreach (var acc in _adAccounts)
+            {
+                var cb = UiComponents.CreateCheckBox($"{(string.IsNullOrWhiteSpace(acc.DisplayName) ? acc.ExternalAccountId : acc.DisplayName)} (act_{acc.ExternalAccountId} • {acc.Currency})", selectedAccSet.Contains(acc.Id));
+                cb.Margin = new Thickness(0, 2, 0, 2);
+                accCheckBoxes.Add((acc.Id, cb));
+                accStack.Children.Add(cb);
+            }
+        }
+        var accBorder = new Border
+        {
+            Background = ThemeTokens.BgSurfaceElevated,
+            BorderBrush = ThemeTokens.BorderSubtle,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(8),
+            MaxHeight = 140,
+            Child = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = accStack },
+        };
+        root.Children.Add(BuildLabeledBox($"Gán Tài khoản Quảng cáo ({_adAccounts.Count} TKQC)", accBorder));
+        root.Children.Add(BuildLabeledBox("Ghi chú", tbNotes));
+
+        var errTb = new TextBlock { Text = "", Foreground = ThemeTokens.DangerText, FontSize = 12, Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap };
+        root.Children.Add(errTb);
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
+        var cancel = UiComponents.CreateButton("Hủy", ButtonVariant.Secondary, onClick: (_, _) => dlg.Close());
+        cancel.Margin = new Thickness(0, 0, 8, 0);
+        var save = UiComponents.CreateButton(isEdit ? "Lưu thay đổi" : "Tạo Hợp đồng", ButtonVariant.Primary, FluentIcons.CheckCircle, onClick: async (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(tbClient.Text)) { errTb.Text = "Vui lòng nhập Tên Khách hàng."; return; }
+            long.TryParse(tbBudget.Text.Replace(",", "").Replace(".", "").Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var budget);
+            double.TryParse(tbFee.Text.Replace(",", ".").Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var fee);
+            double.TryParse(tbTax.Text.Replace(",", ".").Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var tax);
+            if (!double.TryParse(tbRate.Text.Replace(",", "").Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var rate) || rate < 1000) rate = 25400;
+            var pickedAccs = accCheckBoxes.Where(x => x.Box.IsChecked == true).Select(x => x.Id).ToList();
+
+            var payload = new Dictionary<string, object?>
+            {
+                ["contract_code"] = tbCode.Text.Trim(),
+                ["client_name"] = tbClient.Text.Trim(),
+                ["project_name"] = tbProject.Text.Trim(),
+                ["contact_email"] = tbEmail.Text.Trim(),
+                ["billing_cycle"] = string.IsNullOrWhiteSpace(tbCycle.Text) ? $"Tháng {DateTime.Now:MM/yyyy}" : tbCycle.Text.Trim(),
+                ["committed_budget_vnd"] = budget,
+                ["agency_fee_percent"] = fee,
+                ["meta_tax_percent"] = tax,
+                ["usd_to_vnd_rate"] = rate,
+                ["notes"] = tbNotes.Text.Trim(),
+                ["ad_account_ids"] = pickedAccs,
+            };
+            if (isEdit) payload["id"] = existing!.Id;
+
+            try
+            {
+                _retainersOverview = await _api.UpsertClientRetainerAsync(payload);
+                AppendLog($"Đã lưu Hợp đồng Retainer '{tbClient.Text.Trim()}'.");
+                RefreshHeaderAndSidebar();
+                RenderCurrentView();
+                dlg.DialogResult = true;
+            }
+            catch (Exception ex) { errTb.Text = ex.Message; }
+        });
+        row.Children.Add(cancel);
+        row.Children.Add(save);
+        root.Children.Add(row);
+
+        dlg.Content = root;
+        dlg.ShowDialog();
+    }
+
+    internal void ShowInviteTokenPopupDialog(string emailLabel, string inviteLinkToken)
+    {
+        var dlg = new Window
+        {
+            Title = "Mã Token Lời mời (Hiển thị 1 lần)",
+            Width = 540,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            ResizeMode = ResizeMode.NoResize,
+            Background = ThemeTokens.BgCanvas,
+            Foreground = ThemeTokens.TextPrimary,
+            ShowInTaskbar = false,
+        };
+        ThemeTokens.ApplyDarkTitleBar(dlg);
+
+        var root = new StackPanel { Margin = new Thickness(20) };
+        root.Children.Add(new TextBlock
+        {
+            Text = $"Đã phát hành lời mời cho '{emailLabel}'. Hãy sao chép token một lần bên dưới để gửi cho nhân sự kích hoạt trên Web:",
+            FontSize = 13,
+            Foreground = ThemeTokens.TextSecondary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 10),
+        });
+
+        var tokTb = UiComponents.CreateTextBox(inviteLinkToken);
+        tokTb.IsReadOnly = true;
+        tokTb.FontFamily = ThemeTokens.MonoFont;
+        root.Children.Add(tokTb);
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
+        var copyBtn = UiComponents.CreateButton("Sao chép Token mời", ButtonVariant.Primary, FluentIcons.Copy, onClick: (_, _) =>
+        {
+            Clipboard.SetText(inviteLinkToken);
+            AppendLog($"Đã chép Invite Token cho {emailLabel}.");
+        });
+        copyBtn.Margin = new Thickness(0, 0, 8, 0);
+        var closeBtn = UiComponents.CreateButton("Đóng", ButtonVariant.Secondary, onClick: (_, _) => dlg.Close());
+        row.Children.Add(copyBtn);
+        row.Children.Add(closeBtn);
+        root.Children.Add(row);
+
+        dlg.Content = root;
+        dlg.ShowDialog();
+    }
+
+    internal void OpenInviteTeamMemberDialog()
+    {
+        var dlg = new Window
+        {
+            Title = "Mời thành viên vào Team Workspace",
+            Width = 480,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            ResizeMode = ResizeMode.NoResize,
+            Background = ThemeTokens.BgCanvas,
+            Foreground = ThemeTokens.TextPrimary,
+            ShowInTaskbar = false,
+        };
+        ThemeTokens.ApplyDarkTitleBar(dlg);
+
+        var root = new StackPanel { Margin = new Thickness(20) };
+        var tbEmail = UiComponents.CreateTextBox("", "nhanvien@gmail.com");
+        var cbRole = UiComponents.CreateComboBox(new[]
+        {
+            new ComboBoxItem { Content = "Operator (Quản lý Via & TKQC)", Tag = "operator" },
+            new ComboBoxItem { Content = "Admin (Quản trị vận hành)", Tag = "admin" },
+            new ComboBoxItem { Content = "Viewer (Chỉ xem báo cáo)", Tag = "viewer" },
+        });
+        cbRole.SelectedIndex = 0;
+
+        root.Children.Add(BuildLabeledBox("Email thành viên *", tbEmail));
+        root.Children.Add(BuildLabeledBox("Vai trò (Role)", cbRole));
+
+        var errTb = new TextBlock { Text = "", Foreground = ThemeTokens.DangerText, FontSize = 12, Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap };
+        root.Children.Add(errTb);
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
+        var cancel = UiComponents.CreateButton("Hủy", ButtonVariant.Secondary, onClick: (_, _) => dlg.Close());
+        cancel.Margin = new Thickness(0, 0, 8, 0);
+        var sendBtn = UiComponents.CreateButton("Tạo lời mời", ButtonVariant.Primary, FluentIcons.Send, onClick: async (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(tbEmail.Text) || !tbEmail.Text.Contains('@'))
+            {
+                errTb.Text = "Vui lòng nhập email hợp lệ.";
+                return;
+            }
+            var role = (cbRole.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "operator";
+            try
+            {
+                var res = await _api.CreateTeamInvitationAsync(tbEmail.Text, role);
+                AppendLog($"Đã tạo lời mời Team cho {tbEmail.Text.Trim()} ({role}).");
+                await SyncCloudAsync(silent: true);
+                dlg.DialogResult = true;
+                ShowInviteTokenPopupDialog(tbEmail.Text.Trim(), res.InviteLinkToken);
+            }
+            catch (Exception ex) { errTb.Text = ex.Message; }
+        });
+        row.Children.Add(cancel);
+        row.Children.Add(sendBtn);
         root.Children.Add(row);
 
         dlg.Content = root;

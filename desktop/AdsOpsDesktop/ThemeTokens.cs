@@ -8,7 +8,7 @@ using System.Windows.Media;
 namespace AdsOpsDesktop;
 
 /// <summary>
-/// Semantic Design Tokens for AdsOps Desktop Pro v2.2 (Slate Dark UI, WCAG AA >= 4.5:1 verified).
+/// Semantic Design Tokens for AdsOps Desktop Pro v2.3 (Slate Dark UI, WCAG AA >= 4.5:1 verified).
 /// </summary>
 internal static class ThemeTokens
 {

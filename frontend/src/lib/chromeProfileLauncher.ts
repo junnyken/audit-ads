@@ -614,7 +614,7 @@ export function downloadWindowsChromeLauncherBat(): void {
     '    }',
     '    $path = $req.Url.AbsolutePath.TrimEnd("/")',
     '    if ($path -eq "/health" -and $req.HttpMethod -eq "GET") {',
-    `      Send-Json $res 200 '{"ok":true,"version":"2.9.3"}'`,
+    `      Send-Json $res 200 '{"ok":true,"version":"2.9.4"}'`,
     '      continue',
     '    }',
     '    if ($path -eq "/chrome-profiles" -and $req.HttpMethod -eq "GET") {',
@@ -905,9 +905,9 @@ export function buildExtensionFilesForVia(
       ? `AdsOps Companion Pro · ${profileDir} · Proxy ${parsed!.host}:${parsed!.port}`
       : `AdsOps Companion Pro · ${profileDir} (${viaName})`,
     short_name: 'AdsOps Companion Pro',
-    version: '2.9.3',
+    version: '2.9.4',
     description:
-      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.9.3 Pro: Đảo Ấm Cookie Sinh Học Đa Lộ Trình + Tự Dừng Nếu Văng Cookie, Full Auto-Pilot Tạo Fanpage giãn nhịp an toàn + Checkpoint Guard, Anti-Passkey, 2FA, WebRTC Lock & EAAB Token.',
+      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.9.4 Pro: Đảo Ấm Cookie Sinh Học Đa Lộ Trình + Tự Dừng Nếu Văng Cookie, Full Auto-Pilot Tạo Fanpage giãn nhịp an toàn + Checkpoint Guard, Anti-Passkey, 2FA, WebRTC Lock & EAAB Token.',
     permissions: [
       'proxy',
       'privacy',
@@ -966,7 +966,7 @@ export function buildExtensionFilesForVia(
 
   // Runs in MAIN world at document_start BEFORE Facebook's scripts load:
   // Completely blocks Windows Hello / WebAuthn / Passkey popup from ever appearing!
-  const passkeyShieldJs = `// AdsOps Companion Pro v2.9.3 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
+  const passkeyShieldJs = `// AdsOps Companion Pro v2.9.4 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
 (function() {
   try {
     if (window.PublicKeyCredential) {
@@ -1382,6 +1382,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === "ADSOPS_SYNC_BILLING") {
+    const rawPayload = msg.payload && typeof msg.payload === "object" ? msg.payload : {};
+    chrome.storage.local.get(["viaId", "viaName", "profileCode"], (st) => {
+      void chrome.runtime.lastError;
+      const body = Object.assign({}, rawPayload, {
+        via_id: rawPayload.via_id || (st && st.viaId) || "",
+        via_label: rawPayload.via_label || (st && st.viaName) || "",
+        browser_profile: rawPayload.browser_profile || (st && st.profileCode) || ""
+      });
+      fetch("http://127.0.0.1:17890/sync-billing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      })
+        .then((r) => r.json().catch(() => ({ ok: r.ok })))
+        .then((d) => {
+          try { sendResponse(d); } catch (e) {}
+        })
+        .catch(() => {
+          try { sendResponse({ ok: false }); } catch (e) {}
+        });
+    });
+    return true;
+  }
+
   if (msg.type === "ADSOPS_REPORT_BROWSER_EVENT") {
     const rawPayload = msg.payload && typeof msg.payload === "object" ? msg.payload : {};
     chrome.storage.local.get(["viaId", "viaName", "profileCode", "viaTier"], (st) => {
@@ -1490,7 +1515,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   <div class="header">
     <div class="brand">
       <span class="logo">AO</span>
-      <span>AdsOps Companion v2.9.3 Pro</span>
+      <span>AdsOps Companion v2.9.4 Pro</span>
     </div>
     <span id="proxy-badge" class="status-pill">MẠNG GỐC</span>
   </div>
@@ -1590,15 +1615,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     <div id="acc-list" class="acc-list"></div>
   </div>
 
-  <!-- SECTION 4: COOKIE EXPORT/IMPORT, KEEP-ALIVE v2.9.3 & TOKEN EXTRACTOR -->
+  <!-- SECTION 4: COOKIE EXPORT/IMPORT, KEEP-ALIVE v2.9.4 & TOKEN EXTRACTOR -->
   <details class="card" style="cursor:pointer;">
-    <summary class="section-title" style="margin-bottom:0;">4. 🍪 Cookie · ☕ Đảo Ấm v2.9.3 &amp; ⚡ Bắt Token EAAB</summary>
+    <summary class="section-title" style="margin-bottom:0;">4. 🍪 Cookie · ☕ Đảo Ấm v2.9.4 &amp; ⚡ Bắt Token EAAB</summary>
     <div style="margin-top:8px;">
       <div class="btn-row" style="margin-top:0; margin-bottom:6px;">
         <button id="btn-export-cookie" type="button" class="btn btn-primary">🍪 Chép Cookie FB</button>
         <button id="btn-extract-token" type="button" class="btn btn-emerald">⚡ Bắt Token EAAB</button>
       </div>
-      <button id="btn-run-keepalive" type="button" class="btn" style="width:100%;margin-bottom:6px;border-color:rgba(245,158,11,0.55);color:#fcd34d;">☕ Đảo Ấm Cookie Như Người Thật (v2.9.3)</button>
+      <button id="btn-run-keepalive" type="button" class="btn" style="width:100%;margin-bottom:6px;border-color:rgba(245,158,11,0.55);color:#fcd34d;">☕ Đảo Ấm Cookie Như Người Thật (v2.9.4)</button>
       <div id="ka-last-status" style="margin-bottom:6px; font-size:10px; color:#94a3b8;"></div>
       <textarea id="cookie-box" rows="2" class="mono" placeholder="Dán Cookie JSON hoặc c_user=...; xs=... vào đây để đăng nhập Via không cần mật khẩu"></textarea>
       <div class="btn-row">
@@ -2310,7 +2335,7 @@ refreshIp();
 tickOtp();`
 
   const readmeTxt = [
-    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.9.3 PRO - FULL AUTO PAGE + ANTI-PASSKEY)',
+    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.9.4 PRO - FULL AUTO PAGE + ANTI-PASSKEY)',
     '===================================================================================',
     'Bước 1: Giải nén file .zip này ra một thư mục cố định (ví dụ: Desktop\\AdsOps-Chrome-Extension).',
     'Bước 2: Mở trình duyệt Google Chrome của Via -> gõ vào thanh địa chỉ: chrome://extensions',
@@ -2319,7 +2344,7 @@ tickOtp();`
     'Bước 5: Bấm biểu tượng mảnh ghép trên góc phải Chrome -> Bấm nút Ghim (Pin) cạnh "AdsOps Companion Pro".',
   ].join('\r\n')
 
-  const contentJs = `// AdsOps Companion Pro v2.9.3 — Full Auto-Pilot Page Creator + Safety Guard + Anti-Passkey + HUD
+  const contentJs = `// AdsOps Companion Pro v2.9.4 — Full Auto-Pilot Page Creator + Safety Guard + Anti-Passkey + HUD
 (function() {
   let lastSyncedAct = "";
   let autoDeletePasskeyTriggered = false;
@@ -2520,6 +2545,20 @@ tickOtp();`
         chrome.storage.local.set({ accounts: updated });
       });
     }
+    if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+      try {
+        chrome.runtime.sendMessage({
+          type: "ADSOPS_SYNC_BILLING",
+          payload: {
+            external_account_id: actId,
+            billing_threshold_raw: threshRaw,
+            next_bill_date: nextDate,
+            meta_daily_limit_raw: dslRaw,
+            payment_card_display: cardDisp
+          }
+        });
+      } catch (e) {}
+    }
   }
   let pageCreateAutoFilled = false;
   let pageAutoPilotHalted = false;
@@ -2712,7 +2751,7 @@ tickOtp();`
       if (!avFile || pageAutoPilotHalted) return;
       assignFileToInput(fileInputs[0], avFile);
       lastMediaAttachedAt = Date.now();
-      setHudPageStatus("🖼️ [Auto v2.9.3] Đã tự gắn Avatar độc bản (chống trùng Hash)...", "#38bdf8");
+      setHudPageStatus("🖼️ [Auto v2.9.4] Đã tự gắn Avatar độc bản (chống trùng Hash)...", "#38bdf8");
 
       if (fileInputs.length > 1) {
         setTimeout(() => {
@@ -2721,7 +2760,7 @@ tickOtp();`
             if (!cvFile || pageAutoPilotHalted) return;
             assignFileToInput(fileInputs[1], cvFile);
             lastMediaAttachedAt = Date.now();
-            setHudPageStatus("🖼️ [Auto v2.9.3] Đã tự gắn đủ Avatar + Cover độc bản!", "#34d399");
+            setHudPageStatus("🖼️ [Auto v2.9.4] Đã tự gắn đủ Avatar + Cover độc bản!", "#34d399");
           });
         }, randDelay(950, 1550));
       }
@@ -2961,7 +3000,7 @@ tickOtp();`
       const waitMs = randDelay(stopMeta.minMs, stopMeta.maxMs);
 
       const reader = startBiometricReadingLoop(
-        "☕ [Đảo Ấm v2.9.3 · Bước " + (idx + 1) + "/" + steps.length + "] Đang đọc " + stopMeta.label + " tự nhiên (" + Math.round(waitMs / 1000) + "s)..."
+        "☕ [Đảo Ấm v2.9.4 · Bước " + (idx + 1) + "/" + steps.length + "] Đang đọc " + stopMeta.label + " tự nhiên (" + Math.round(waitMs / 1000) + "s)..."
       );
 
       setTimeout(() => {
@@ -2996,7 +3035,7 @@ tickOtp();`
             route_summary: summary,
             duration_sec: Math.max(15, Math.round((Date.now() - (Number(session.startedAt) || Date.now())) / 1000)),
           });
-          setHudPageStatus("☕ [v2.9.3] Đã đảo ấm sinh học hoàn tất (" + summary + ")!", "#34d399");
+          setHudPageStatus("☕ [v2.9.4] Đã đảo ấm sinh học hoàn tất (" + summary + ")!", "#34d399");
           if (session.autoClose) {
             scheduleSafeTabAutoClose(randDelay(7500, 10500));
           }
@@ -3031,7 +3070,7 @@ tickOtp();`
           return;
         }
         const waitMs = randDelay(12500, 17500);
-        const reader = startBiometricReadingLoop("🌿 [Auto v2.9.3] Đang đọc lướt Newsfeed sinh học " + Math.round(waitMs / 1000) + "s trước khi tạo Page...");
+        const reader = startBiometricReadingLoop("🌿 [Auto v2.9.4] Đang đọc lướt Newsfeed sinh học " + Math.round(waitMs / 1000) + "s trước khi tạo Page...");
         setTimeout(() => {
           reader.stop();
           if (pageAutoPilotHalted) return;
@@ -3334,7 +3373,7 @@ tickOtp();`
       const tFinal = tBio + randDelay(1900, 2850);
 
       if (autoSubmit) {
-        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9.3] Đang nhập tự nhiên theo nhịp người thật...", "#38bdf8");
+        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9.4] Đang nhập tự nhiên theo nhịp người thật...", "#38bdf8");
       }
 
       if (pName && nameEl && !nameEl.value) {
@@ -3422,14 +3461,14 @@ tickOtp();`
           sessionStorage.setItem("adsops_media_uploaded", "0");
         } catch (e) {}
         createBtn.click();
-        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9.3] Đã bấm Tạo Trang — Đang hoàn tất bước phụ...", "#38bdf8");
+        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9.4] Đã bấm Tạo Trang — Đang hoàn tất bước phụ...", "#38bdf8");
       };
 
       setTimeout(() => tryAutoClickCreate(true), tFinal);
     } catch (e) {}
   }
 
-  // v2.9.3: User-clicked 1-tap 6-digit 2FA autofill from Desktop DPAPI Vault / local secret (strictly blocked on CAPTCHA pages)
+  // v2.9.4: User-clicked 1-tap 6-digit 2FA autofill from Desktop DPAPI Vault / local secret (strictly blocked on CAPTCHA pages)
   function handleTwoFactorAssistDom() {
     try {
       const url = (window.location.href || "").toLowerCase();
@@ -3572,7 +3611,7 @@ export function downloadChromeExtensionZip(
   const url = URL.createObjectURL(zipBlob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `AdsOps-Chrome-Extension-v2.9.3-${slug}.zip`
+  a.download = `AdsOps-Chrome-Extension-v2.9.4-${slug}.zip`
   document.body.appendChild(a)
   a.click()
   a.remove()
@@ -3593,12 +3632,12 @@ export function downloadAllViasExtensionsBundleZip(items: ViaExtensionBundleSpec
   if (!Array.isArray(items) || items.length === 0) return
   const allFiles: Array<{ name: string; content: string | Uint8Array }> = []
   const guideLines: string[] = [
-    'TRON BO TIEN ICH ADSOPS COMPANION v2.9.3 PRO CHO TOAN BO DAN VIA',
+    'TRON BO TIEN ICH ADSOPS COMPANION v2.9.4 PRO CHO TOAN BO DAN VIA',
     '================================================================',
     `Tong so thu muc Extension da dong goi: ${items.length} Via`,
     '',
     'Cach cai nhanh:',
-    '1. Giai nen file .zip nay ra mot thu muc co dinh (VD: Desktop\AdsOps-Extensions-v2.9.3).',
+    '1. Giai nen file .zip nay ra mot thu muc co dinh (VD: Desktop\AdsOps-Extensions-v2.9.4).',
     '2. Mo Chrome cua tung Via -> chrome://extensions -> Bat Developer mode -> Load unpacked -> chon dung thu muc ten cua Via do ben duoi:',
     '',
   ]
@@ -3630,7 +3669,7 @@ export function downloadAllViasExtensionsBundleZip(items: ViaExtensionBundleSpec
   const url = URL.createObjectURL(zipBlob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `AdsOps-Tron-Bo-Extension-v2.9.3-${items.length}Via.zip`
+  a.download = `AdsOps-Tron-Bo-Extension-v2.9.4-${items.length}Via.zip`
   document.body.appendChild(a)
   a.click()
   a.remove()

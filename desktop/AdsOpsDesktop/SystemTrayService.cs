@@ -52,7 +52,7 @@ internal sealed class SystemTrayService : IDisposable
         _trayIcon = new NotifyIcon
         {
             Icon = _customIcon,
-            Text = "AdsOps Desktop Pro v2.2 — Sẵn sàng",
+            Text = "AdsOps Desktop Pro v2.3 — Sẵn sàng",
             ContextMenuStrip = _menu,
             Visible = true,
         };
@@ -64,7 +64,7 @@ internal sealed class SystemTrayService : IDisposable
     {
         _menu.Items.Clear();
 
-        var openItem = new ToolStripMenuItem("Mở AdsOps Desktop Pro v2.2");
+        var openItem = new ToolStripMenuItem("Mở AdsOps Desktop Pro v2.3");
         openItem.Font = new Font(_menu.Font, FontStyle.Bold);
         openItem.Click += (_, _) => _onShowWindow();
         _menu.Items.Add(openItem);
@@ -137,7 +137,7 @@ internal sealed class SystemTrayService : IDisposable
         var statusSuffix = queue.Phase == QueuePhase.Running
             ? $"Đang chạy {queue.CurrentIndex}/{queue.TotalCount}"
             : isLoggedIn ? $"{vias.Count} Via sẵn sàng" : "Chờ đăng nhập";
-        var text = $"AdsOps Desktop Pro v2.2 — {statusSuffix}";
+        var text = $"AdsOps Desktop Pro v2.3 — {statusSuffix}";
         _trayIcon.Text = text.Length > 63 ? text[..63] : text;
     }
 

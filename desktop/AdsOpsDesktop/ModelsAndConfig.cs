@@ -3,12 +3,17 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
+using System.Net.Http;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Web;
 using Microsoft.Win32;
 
@@ -571,12 +576,15 @@ public sealed class FacebookPagesSummaryDto
 
 public sealed class ProxyCheckResultDto
 {
+    [JsonPropertyName("ok")] public bool Ok { get; set; }
     [JsonPropertyName("status")] public string Status { get; set; } = "UNKNOWN";
     [JsonPropertyName("normalized_key")] public string? NormalizedKey { get; set; }
     [JsonPropertyName("exit_ip")] public string? ExitIp { get; set; }
     [JsonPropertyName("country_code")] public string? CountryCode { get; set; }
     [JsonPropertyName("latency_ms")] public int? LatencyMs { get; set; }
     [JsonPropertyName("message")] public string? Message { get; set; }
+    [JsonPropertyName("error_summary")] public string? ErrorSummary { get; set; }
+    [JsonPropertyName("checked_at")] public string? CheckedAt { get; set; }
     [JsonPropertyName("telegram_notified")] public bool TelegramNotified { get; set; }
 }
 
@@ -1790,4 +1798,617 @@ public sealed class ChromeSessionTracker
             StatusText = status,
         };
     }
+}
+
+public static class DesktopAppInfo
+{
+    public const string Version = "2.3.0";
+    public const string DisplayVersion = "v2.3";
+    public const string ExtVersion = "2.9.4";
+    public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
+
+    /// <summary>
+    /// Chuẩn hóa chuỗi proxy thành khóa scheme://host:port viết thường giống parse_proxy_spec trên Backend.
+    /// </summary>
+    public static string NormalizeProxyKey(string? raw)
+    {
+        var clean = (raw ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(clean) || clean.Length > 256) return string.Empty;
+
+        var m4 = Regex.Match(clean, @"^([A-Za-z0-9.\-]+):(\d{1,5}):([^:\s]+):(.+)$");
+        if (m4.Success && int.TryParse(m4.Groups[2].Value, out var p4) && p4 is >= 1 and <= 65535)
+        {
+            return $"http://{m4.Groups[1].Value.ToLowerInvariant()}:{p4}";
+        }
+
+        var m2 = Regex.Match(clean, @"^([A-Za-z0-9.\-]+):(\d{1,5})$");
+        if (m2.Success && int.TryParse(m2.Groups[2].Value, out var p2) && p2 is >= 1 and <= 65535)
+        {
+            return $"http://{m2.Groups[1].Value.ToLowerInvariant()}:{p2}";
+        }
+
+        var mu = Regex.Match(clean, @"^(https?|socks5h?|socks4)://(?:([^:@\s]+)(?::([^@\s]*))?@)?([A-Za-z0-9.\-]+):(\d{1,5})(?:/.*)?$", RegexOptions.IgnoreCase);
+        if (mu.Success && int.TryParse(mu.Groups[5].Value, out var pu) && pu is >= 1 and <= 65535)
+        {
+            return $"{mu.Groups[1].Value.ToLowerInvariant()}://{mu.Groups[4].Value.ToLowerInvariant()}:{pu}";
+        }
+
+        return clean.ToLowerInvariant();
+    }
+}
+
+// ---------- Group 1: Proxy Live Health + Extension Billing Auto-Sync DTOs ----------
+
+public sealed class PagedResponse<T>
+{
+    [JsonPropertyName("items")] public List<T> Items { get; set; } = new();
+    [JsonPropertyName("page")] public int Page { get; set; }
+    [JsonPropertyName("page_size")] public int PageSize { get; set; }
+    [JsonPropertyName("total")] public int Total { get; set; }
+}
+
+public sealed class ProxyHealthMapResponseDto
+{
+    [JsonPropertyName("health_map")] public Dictionary<string, ProxyCheckResultDto> HealthMap { get; set; } = new();
+}
+
+public sealed class BillingSyncRequestDto
+{
+    [JsonPropertyName("external_account_id")] public string ExternalAccountId { get; set; } = string.Empty;
+    [JsonPropertyName("billing_threshold_raw")] public string? BillingThresholdRaw { get; set; }
+    [JsonPropertyName("next_bill_date")] public string? NextBillDate { get; set; }
+    [JsonPropertyName("meta_daily_limit_raw")] public string? MetaDailyLimitRaw { get; set; }
+    [JsonPropertyName("payment_card_display")] public string? PaymentCardDisplay { get; set; }
+    [JsonPropertyName("balance_raw")] public string? BalanceRaw { get; set; }
+    [JsonPropertyName("via_id")] public string? ViaId { get; set; }
+    [JsonPropertyName("via_label")] public string? ViaLabel { get; set; }
+    [JsonPropertyName("browser_profile")] public string? BrowserProfile { get; set; }
+}
+
+public sealed class BillingSyncResponseDto
+{
+    [JsonPropertyName("status")] public string Status { get; set; } = string.Empty;
+    [JsonPropertyName("ad_account_id")] public string? AdAccountId { get; set; }
+    [JsonPropertyName("updated_fields")] public List<string>? UpdatedFields { get; set; }
+    [JsonPropertyName("reason")] public string? Reason { get; set; }
+}
+
+// ---------- Group 2: Native Win32 Chrome Window Grid Tiler + Self-Updater ----------
+
+public sealed class TileWindowsRequestDto
+{
+    [JsonPropertyName("grid")] public string? Grid { get; set; }
+    [JsonPropertyName("pids")] public List<int>? Pids { get; set; }
+}
+
+public sealed class TileWindowsResultDto
+{
+    [JsonPropertyName("ok")] public bool Ok { get; set; }
+    [JsonPropertyName("grid")] public string Grid { get; set; } = "2x2";
+    [JsonPropertyName("tiled_count")] public int TiledCount { get; set; }
+    [JsonPropertyName("screen")] public string Screen { get; set; } = string.Empty;
+    [JsonPropertyName("message")] public string Message { get; set; } = string.Empty;
+    [JsonPropertyName("error")] public string? Error { get; set; }
+}
+
+/// <summary>Sắp xếp các cửa sổ Chrome đang mở thành lưới 2x2 / 3x2 / 2x1 / 3x3 bằng Win32 User32.</summary>
+public static class WindowTilerService
+{
+    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    private const int SwRestore = 9;
+    private const uint SwpNoZOrder = 0x0004;
+    private const uint SwpNoActivate = 0x0010;
+    private const uint SwpShowWindow = 0x0040;
+
+    [DllImport("user32.dll")]
+    private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("user32.dll")]
+    private static extern int GetWindowTextLength(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
+
+    public static (int Cols, int Rows, string Normalized) ParseGridSpec(string? spec)
+    {
+        var clean = (spec ?? "2x2").Trim().ToLowerInvariant().Replace("×", "x");
+        return clean switch
+        {
+            "2x1" => (2, 1, "2x1"),
+            "1x2" => (1, 2, "1x2"),
+            "3x2" => (3, 2, "3x2"),
+            "3x3" => (3, 3, "3x3"),
+            _ => (2, 2, "2x2"),
+        };
+    }
+
+    public static TileWindowsResultDto TileChromeWindows(string? gridSpec, IReadOnlyCollection<int>? prioritizedPids = null)
+    {
+        var (cols, rows, normalized) = ParseGridSpec(gridSpec);
+        var prioritySet = new HashSet<int>(prioritizedPids ?? Array.Empty<int>());
+
+        var chromePids = new HashSet<int>();
+        foreach (var proc in Process.GetProcessesByName("chrome"))
+        {
+            try { chromePids.Add(proc.Id); }
+            catch { }
+            finally { proc.Dispose(); }
+        }
+
+        if (chromePids.Count == 0 && prioritySet.Count == 0)
+        {
+            return new TileWindowsResultDto
+            {
+                Ok = false,
+                Grid = normalized,
+                TiledCount = 0,
+                Message = "Chưa phát hiện cửa sổ Chrome nào đang mở để xếp lưới.",
+                Error = "no_chrome_windows",
+            };
+        }
+
+        var candidates = new List<(IntPtr Handle, int Pid, bool IsPriority)>();
+        EnumWindows((hWnd, lParam) =>
+        {
+            if (!IsWindowVisible(hWnd)) return true;
+            _ = GetWindowThreadProcessId(hWnd, out var pidU);
+            var pid = unchecked((int)pidU);
+            var isPri = prioritySet.Contains(pid);
+            if (!isPri && !chromePids.Contains(pid)) return true;
+            if (GetWindowTextLength(hWnd) <= 0 && !isPri) return true;
+            candidates.Add((hWnd, pid, isPri));
+            return true;
+        }, IntPtr.Zero);
+
+        var ordered = candidates
+            .GroupBy(c => c.Handle)
+            .Select(g => g.First())
+            .OrderByDescending(c => c.IsPriority)
+            .ThenBy(c => c.Pid)
+            .ThenBy(c => c.Handle.ToInt64())
+            .ToList();
+
+        if (ordered.Count == 0)
+        {
+            return new TileWindowsResultDto
+            {
+                Ok = false,
+                Grid = normalized,
+                TiledCount = 0,
+                Message = "Không tìm thấy cửa sổ Chrome hợp lệ (có thể đã thu nhỏ hoàn toàn).",
+                Error = "no_visible_windows",
+            };
+        }
+
+        var screens = System.Windows.Forms.Screen.AllScreens;
+        var primary = System.Windows.Forms.Screen.PrimaryScreen ?? (screens.Length > 0 ? screens[0] : null);
+        System.Drawing.Rectangle area = primary?.WorkingArea ?? new System.Drawing.Rectangle(0, 0, 1920, 1040);
+
+        const int gap = 4;
+        var capacity = cols * rows;
+        var toTile = ordered.Take(capacity).ToList();
+        var cellW = Math.Max(320, (area.Width - gap * (cols + 1)) / cols);
+        var cellH = Math.Max(240, (area.Height - gap * (rows + 1)) / rows);
+
+        var moved = 0;
+        for (var i = 0; i < toTile.Count; i++)
+        {
+            var col = i % cols;
+            var row = i / cols;
+            var x = area.X + gap + col * (cellW + gap);
+            var y = area.Y + gap + row * (cellH + gap);
+            var hWnd = toTile[i].Handle;
+            if (IsIconic(hWnd))
+            {
+                ShowWindow(hWnd, SwRestore);
+            }
+            if (SetWindowPos(hWnd, IntPtr.Zero, x, y, cellW, cellH, SwpNoZOrder | SwpNoActivate | SwpShowWindow))
+            {
+                moved++;
+            }
+        }
+
+        return new TileWindowsResultDto
+        {
+            Ok = moved > 0,
+            Grid = normalized,
+            TiledCount = moved,
+            Screen = $"{area.Width}x{area.Height}",
+            Message = $"Đã xếp {moved}/{ordered.Count} cửa sổ Chrome theo lưới {normalized} ({area.Width}×{area.Height}).",
+        };
+    }
+}
+
+public sealed class UpdateManifestDto
+{
+    [JsonPropertyName("version")] public string Version { get; set; } = string.Empty;
+    [JsonPropertyName("ext_version")] public string ExtVersion { get; set; } = string.Empty;
+    [JsonPropertyName("release_notes")] public string ReleaseNotes { get; set; } = string.Empty;
+    [JsonPropertyName("download_url")] public string DownloadUrl { get; set; } = string.Empty;
+    [JsonPropertyName("sha256")] public string? Sha256 { get; set; }
+    [JsonPropertyName("size_bytes")] public long SizeBytes { get; set; }
+    [JsonPropertyName("published_at")] public string? PublishedAt { get; set; }
+}
+
+public sealed class SelfUpdateCheckResultDto
+{
+    public bool Ok { get; set; }
+    public bool UpdateAvailable { get; set; }
+    public string CurrentVersion { get; set; } = DesktopAppInfo.Version;
+    public string LatestVersion { get; set; } = string.Empty;
+    public UpdateManifestDto? Manifest { get; set; }
+    public string? Error { get; set; }
+}
+
+/// <summary>Kiểm tra manifest phát hành, tải gói ZIP an toàn và chạy script PowerShell tự cập nhật EXE.</summary>
+public static class SelfUpdateService
+{
+    public static bool IsNewerVersion(string? candidate, string current = DesktopAppInfo.Version)
+    {
+        if (string.IsNullOrWhiteSpace(candidate)) return false;
+        static System.Version? ParseClean(string raw)
+        {
+            var s = raw.Trim().TrimStart('v', 'V');
+            var plusIdx = s.IndexOfAny(new[] { '-', '+' });
+            if (plusIdx > 0) s = s[..plusIdx];
+            return System.Version.TryParse(s, out var v) ? v : null;
+        }
+        var cVer = ParseClean(candidate);
+        var curVer = ParseClean(current);
+        if (cVer == null || curVer == null)
+        {
+            return !string.Equals(candidate.Trim().TrimStart('v', 'V'), current.Trim().TrimStart('v', 'V'), StringComparison.OrdinalIgnoreCase);
+        }
+        return cVer > curVer;
+    }
+
+    public static async Task<SelfUpdateCheckResultDto> FetchManifestAsync(HttpClient http, string? manifestUrl = null, CancellationToken ct = default)
+    {
+        var url = string.IsNullOrWhiteSpace(manifestUrl) ? DesktopAppInfo.DefaultManifestUrl : manifestUrl.Trim();
+        try
+        {
+            using var resp = await http.GetAsync(url, ct);
+            var json = await resp.Content.ReadAsStringAsync(ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                return new SelfUpdateCheckResultDto { Ok = false, Error = $"HTTP {(int)resp.StatusCode} khi kiểm tra bản mới." };
+            }
+            var manifest = JsonSerializer.Deserialize<UpdateManifestDto>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            if (manifest == null || string.IsNullOrWhiteSpace(manifest.Version))
+            {
+                return new SelfUpdateCheckResultDto { Ok = false, Error = "Manifest cập nhật thiếu trường version." };
+            }
+            return new SelfUpdateCheckResultDto
+            {
+                Ok = true,
+                UpdateAvailable = IsNewerVersion(manifest.Version, DesktopAppInfo.Version),
+                CurrentVersion = DesktopAppInfo.Version,
+                LatestVersion = manifest.Version,
+                Manifest = manifest,
+            };
+        }
+        catch (Exception ex)
+        {
+            return new SelfUpdateCheckResultDto { Ok = false, Error = ex.Message };
+        }
+    }
+
+    public static async Task<string> DownloadValidateExtractAndSpawnUpdaterAsync(
+        HttpClient http,
+        UpdateManifestDto manifest,
+        int currentPid,
+        string appDir,
+        string exeName = "AdsOpsDesktop.exe",
+        Action<string>? log = null,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(manifest.DownloadUrl))
+        {
+            throw new InvalidOperationException("Manifest thiếu download_url.");
+        }
+
+        var rootTemp = Path.Combine(Path.GetTempPath(), "AdsOpsDesktopUpdate");
+        Directory.CreateDirectory(rootTemp);
+        var stamp = DateTime.UtcNow.Ticks.ToString(CultureInfo.InvariantCulture);
+        var zipPath = Path.Combine(rootTemp, $"update_{stamp}.zip");
+        var stagingDir = Path.Combine(rootTemp, $"staging_{stamp}");
+
+        log?.Invoke($"Đang tải bản cập nhật {manifest.Version}...");
+        var zipBytes = await http.GetByteArrayAsync(manifest.DownloadUrl, ct);
+        if (zipBytes.Length < 100 || zipBytes[0] != 0x50 || zipBytes[1] != 0x4B)
+        {
+            throw new InvalidDataException("Tệp tải về không phải định dạng ZIP hợp lệ (PK header mismatch).");
+        }
+
+        if (!string.IsNullOrWhiteSpace(manifest.Sha256))
+        {
+            var actualHash = Convert.ToHexString(SHA256.HashData(zipBytes)).ToLowerInvariant();
+            if (!string.Equals(actualHash, manifest.Sha256.Trim().ToLowerInvariant(), StringComparison.Ordinal))
+            {
+                throw new InvalidDataException("Mã kiểm tra SHA-256 gói cập nhật không khớp.");
+            }
+        }
+
+        await File.WriteAllBytesAsync(zipPath, zipBytes, ct);
+        Directory.CreateDirectory(stagingDir);
+        ZipFile.ExtractToDirectory(zipPath, stagingDir, overwriteFiles: true);
+
+        var stagedExe = Path.Combine(stagingDir, exeName);
+        if (!File.Exists(stagedExe))
+        {
+            throw new FileNotFoundException($"Gói ZIP thiếu tệp thực thi {exeName}.");
+        }
+
+        var psScriptPath = Path.Combine(rootTemp, "apply_update.ps1");
+        static string EscPs(string s) => s.Replace("'", "''");
+        var psLines = new[]
+        {
+            $"$targetPid = {currentPid}",
+            $"$staging = '{EscPs(stagingDir)}'",
+            $"$dest = '{EscPs(appDir)}'",
+            $"$zip = '{EscPs(zipPath)}'",
+            $"$exe = '{EscPs(Path.Combine(appDir, exeName))}'",
+            "for ($i = 0; $i -lt 60; $i++) {",
+            "  $p = Get-Process -Id $targetPid -ErrorAction SilentlyContinue",
+            "  if (-not $p) { break }",
+            "  Start-Sleep -Milliseconds 500",
+            "}",
+            "Copy-Item -Path (Join-Path $staging '*') -Destination $dest -Recurse -Force",
+            "Remove-Item -Path $staging -Recurse -Force -ErrorAction SilentlyContinue",
+            "Remove-Item -Path $zip -Force -ErrorAction SilentlyContinue",
+            "if (Test-Path $exe) { Start-Process -FilePath $exe }",
+        };
+        await File.WriteAllTextAsync(
+            psScriptPath,
+            string.Join("\r\n", psLines) + "\r\n",
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: true),
+            ct);
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = "powershell.exe",
+            Arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{psScriptPath}\"",
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        Process.Start(psi);
+        log?.Invoke($"Đã sẵn sàng cập nhật v{manifest.Version}, đang khởi động lại ứng dụng...");
+        return stagingDir;
+    }
+}
+
+// ---------- Group 3: Readiness Board, Health Signals & Live Audit Logs ----------
+
+public sealed class HealthSignalDto
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = string.Empty;
+    [JsonPropertyName("ad_account_id")] public string AdAccountId { get; set; } = string.Empty;
+    [JsonPropertyName("rule_key")] public string RuleKey { get; set; } = string.Empty;
+    [JsonPropertyName("rule_version")] public int RuleVersion { get; set; }
+    [JsonPropertyName("signal_key")] public string SignalKey { get; set; } = string.Empty;
+    [JsonPropertyName("category")] public string Category { get; set; } = string.Empty;
+    [JsonPropertyName("severity")] public string Severity { get; set; } = "warning";
+    [JsonPropertyName("status")] public string Status { get; set; } = "open";
+    [JsonPropertyName("source_type")] public string SourceType { get; set; } = string.Empty;
+    [JsonPropertyName("observed_at")] public string? ObservedAt { get; set; }
+    [JsonPropertyName("last_evaluated_at")] public string? LastEvaluatedAt { get; set; }
+    [JsonPropertyName("acknowledgement_note")] public string? AcknowledgementNote { get; set; }
+    [JsonPropertyName("resolution_reason")] public string? ResolutionReason { get; set; }
+    [JsonPropertyName("rule_name")] public string? RuleName { get; set; }
+    [JsonPropertyName("why_it_matters")] public string? WhyItMatters { get; set; }
+    [JsonPropertyName("recommended_next_step")] public string? RecommendedNextStep { get; set; }
+    [JsonPropertyName("resolution_guidance")] public string? ResolutionGuidance { get; set; }
+}
+
+public sealed class ReadinessSummaryDto
+{
+    [JsonPropertyName("total_active")] public int TotalActive { get; set; }
+    [JsonPropertyName("operationally_ready")] public int OperationallyReady { get; set; }
+    [JsonPropertyName("ready_with_warnings")] public int ReadyWithWarnings { get; set; }
+    [JsonPropertyName("not_ready")] public int NotReady { get; set; }
+    [JsonPropertyName("unknown")] public int Unknown { get; set; }
+    [JsonPropertyName("archived")] public int Archived { get; set; }
+}
+
+public sealed class ReadinessReasonDto
+{
+    [JsonPropertyName("code")] public string Code { get; set; } = string.Empty;
+    [JsonPropertyName("message")] public string Message { get; set; } = string.Empty;
+    [JsonPropertyName("severity")] public string Severity { get; set; } = "warning";
+}
+
+public sealed class ReadinessBoardRowDto
+{
+    [JsonPropertyName("ad_account_id")] public string AdAccountId { get; set; } = string.Empty;
+    [JsonPropertyName("display_name")] public string DisplayName { get; set; } = string.Empty;
+    [JsonPropertyName("external_account_id")] public string ExternalAccountId { get; set; } = string.Empty;
+    [JsonPropertyName("readiness_status")] public string ReadinessStatus { get; set; } = "unknown";
+    [JsonPropertyName("status")] public string Status { get; set; } = string.Empty;
+    [JsonPropertyName("required_item_count")] public int RequiredItemCount { get; set; }
+    [JsonPropertyName("completed_item_count")] public int CompletedItemCount { get; set; }
+    [JsonPropertyName("reasons")] public List<ReadinessReasonDto> Reasons { get; set; } = new();
+}
+
+public sealed class ReadinessBoardAccountRefDto
+{
+    [JsonPropertyName("ad_account_id")] public string AdAccountId { get; set; } = string.Empty;
+    [JsonPropertyName("display_name")] public string DisplayName { get; set; } = string.Empty;
+}
+
+public sealed class ReadinessBoardGroupDto
+{
+    [JsonPropertyName("code")] public string Code { get; set; } = string.Empty;
+    [JsonPropertyName("message")] public string Message { get; set; } = string.Empty;
+    [JsonPropertyName("severity")] public string Severity { get; set; } = string.Empty;
+    [JsonPropertyName("accounts")] public List<ReadinessBoardAccountRefDto> Accounts { get; set; } = new();
+}
+
+public sealed class ReadinessBoardDto
+{
+    [JsonPropertyName("rows")] public List<ReadinessBoardRowDto> Rows { get; set; } = new();
+    [JsonPropertyName("groups")] public List<ReadinessBoardGroupDto> Groups { get; set; } = new();
+}
+
+public sealed class AuditLogEntryDto
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = string.Empty;
+    [JsonPropertyName("actor_id")] public string? ActorId { get; set; }
+    [JsonPropertyName("actor_email")] public string? ActorEmail { get; set; }
+    [JsonPropertyName("action")] public string Action { get; set; } = string.Empty;
+    [JsonPropertyName("entity_type")] public string EntityType { get; set; } = string.Empty;
+    [JsonPropertyName("entity_id")] public string EntityId { get; set; } = string.Empty;
+    [JsonPropertyName("request_id")] public string? RequestId { get; set; }
+    [JsonPropertyName("created_at")] public string CreatedAt { get; set; } = string.Empty;
+}
+
+// ---------- Group 4: Pixels, Domain SEO, Client Retainers & Team/Seats ----------
+
+public sealed class PixelDto
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = string.Empty;
+    [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
+    [JsonPropertyName("external_pixel_id")] public string? ExternalPixelId { get; set; }
+    [JsonPropertyName("status")] public string Status { get; set; } = "unknown";
+    [JsonPropertyName("notes")] public string Notes { get; set; } = string.Empty;
+    [JsonPropertyName("created_at")] public string? CreatedAt { get; set; }
+}
+
+public sealed class DomainSeoChecklistItemDto
+{
+    [JsonPropertyName("key")] public string Key { get; set; } = string.Empty;
+    [JsonPropertyName("label")] public string Label { get; set; } = string.Empty;
+    [JsonPropertyName("ready")] public bool Ready { get; set; }
+}
+
+public sealed class DomainSeoConfigDto
+{
+    [JsonPropertyName("custom_domain")] public string CustomDomain { get; set; } = string.Empty;
+    [JsonPropertyName("effective_public_url")] public string EffectivePublicUrl { get; set; } = string.Empty;
+    [JsonPropertyName("default_env_cors_count")] public int DefaultEnvCorsCount { get; set; }
+    [JsonPropertyName("updated_at")] public string? UpdatedAt { get; set; }
+    [JsonPropertyName("seo_checklist")] public List<DomainSeoChecklistItemDto> SeoChecklist { get; set; } = new();
+}
+
+public sealed class RetainerLinkedAccountDto
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = string.Empty;
+    [JsonPropertyName("display_name")] public string DisplayName { get; set; } = string.Empty;
+    [JsonPropertyName("external_account_id")] public string ExternalAccountId { get; set; } = string.Empty;
+    [JsonPropertyName("bm_name")] public string? BmName { get; set; }
+    [JsonPropertyName("status")] public string Status { get; set; } = string.Empty;
+    [JsonPropertyName("currency")] public string Currency { get; set; } = "VND";
+    [JsonPropertyName("payment_card_display")] public string? PaymentCardDisplay { get; set; }
+    [JsonPropertyName("today_vnd")] public long TodayVnd { get; set; }
+    [JsonPropertyName("last_7d_vnd")] public long Last7dVnd { get; set; }
+    [JsonPropertyName("mtd_vnd")] public long MtdVnd { get; set; }
+    [JsonPropertyName("lifetime_vnd")] public long LifetimeVnd { get; set; }
+    [JsonPropertyName("balance_vnd")] public long BalanceVnd { get; set; }
+}
+
+public sealed class ClientRetainerItemDto
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = string.Empty;
+    [JsonPropertyName("contract_code")] public string ContractCode { get; set; } = string.Empty;
+    [JsonPropertyName("client_name")] public string ClientName { get; set; } = string.Empty;
+    [JsonPropertyName("project_name")] public string ProjectName { get; set; } = string.Empty;
+    [JsonPropertyName("contact_email")] public string ContactEmail { get; set; } = string.Empty;
+    [JsonPropertyName("tax_id")] public string TaxId { get; set; } = string.Empty;
+    [JsonPropertyName("billing_cycle")] public string BillingCycle { get; set; } = string.Empty;
+    [JsonPropertyName("committed_budget_vnd")] public long CommittedBudgetVnd { get; set; }
+    [JsonPropertyName("agency_fee_percent")] public double AgencyFeePercent { get; set; }
+    [JsonPropertyName("meta_tax_percent")] public double MetaTaxPercent { get; set; }
+    [JsonPropertyName("usd_to_vnd_rate")] public double UsdToVndRate { get; set; } = 25400;
+    [JsonPropertyName("notes")] public string Notes { get; set; } = string.Empty;
+    [JsonPropertyName("ad_account_ids")] public List<string> AdAccountIds { get; set; } = new();
+    [JsonPropertyName("linked_accounts")] public List<RetainerLinkedAccountDto> LinkedAccounts { get; set; } = new();
+    [JsonPropertyName("account_count")] public int AccountCount { get; set; }
+    [JsonPropertyName("spend_today_vnd")] public long SpendTodayVnd { get; set; }
+    [JsonPropertyName("spend_7d_vnd")] public long Spend7dVnd { get; set; }
+    [JsonPropertyName("spend_mtd_vnd")] public long SpendMtdVnd { get; set; }
+    [JsonPropertyName("spend_lifetime_vnd")] public long SpendLifetimeVnd { get; set; }
+    [JsonPropertyName("unpaid_balance_vnd")] public long UnpaidBalanceVnd { get; set; }
+    [JsonPropertyName("agency_fee_mtd_vnd")] public long AgencyFeeMtdVnd { get; set; }
+    [JsonPropertyName("meta_tax_mtd_vnd")] public long MetaTaxMtdVnd { get; set; }
+    [JsonPropertyName("total_billable_mtd_vnd")] public long TotalBillableMtdVnd { get; set; }
+    [JsonPropertyName("agency_fee_lifetime_vnd")] public long AgencyFeeLifetimeVnd { get; set; }
+    [JsonPropertyName("meta_tax_lifetime_vnd")] public long MetaTaxLifetimeVnd { get; set; }
+    [JsonPropertyName("total_billable_lifetime_vnd")] public long TotalBillableLifetimeVnd { get; set; }
+    [JsonPropertyName("pacing_percent")] public double PacingPercent { get; set; }
+    [JsonPropertyName("pacing_status")] public string PacingStatus { get; set; } = "ON_TRACK";
+    [JsonPropertyName("remaining_budget_vnd")] public long RemainingBudgetVnd { get; set; }
+    [JsonPropertyName("recommended_daily_vnd")] public long RecommendedDailyVnd { get; set; }
+    [JsonPropertyName("updated_at")] public string? UpdatedAt { get; set; }
+}
+
+public sealed class ClientRetainersSummaryDto
+{
+    [JsonPropertyName("total_contracts")] public int TotalContracts { get; set; }
+    [JsonPropertyName("total_committed_vnd")] public long TotalCommittedVnd { get; set; }
+    [JsonPropertyName("total_mtd_spend_vnd")] public long TotalMtdSpendVnd { get; set; }
+    [JsonPropertyName("total_lifetime_spend_vnd")] public long TotalLifetimeSpendVnd { get; set; }
+    [JsonPropertyName("total_unpaid_balance_vnd")] public long TotalUnpaidBalanceVnd { get; set; }
+    [JsonPropertyName("total_settlement_mtd_vnd")] public long TotalSettlementMtdVnd { get; set; }
+    [JsonPropertyName("total_settlement_lifetime_vnd")] public long TotalSettlementLifetimeVnd { get; set; }
+    [JsonPropertyName("days_remaining_in_month")] public int DaysRemainingInMonth { get; set; }
+}
+
+public sealed class ClientRetainersOverviewDto
+{
+    [JsonPropertyName("items")] public List<ClientRetainerItemDto> Items { get; set; } = new();
+    [JsonPropertyName("summary")] public ClientRetainersSummaryDto Summary { get; set; } = new();
+}
+
+public sealed class TeamSummaryDto
+{
+    [JsonPropertyName("seat_limit")] public int? SeatLimit { get; set; }
+    [JsonPropertyName("active_members")] public int ActiveMembers { get; set; }
+    [JsonPropertyName("available_seats")] public int? AvailableSeats { get; set; }
+    [JsonPropertyName("pending_invitations")] public int PendingInvitations { get; set; }
+    [JsonPropertyName("plan_reference")] public string? PlanReference { get; set; }
+}
+
+public sealed class TeamMemberDto
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = string.Empty;
+    [JsonPropertyName("user_id")] public string UserId { get; set; } = string.Empty;
+    [JsonPropertyName("email")] public string Email { get; set; } = string.Empty;
+    [JsonPropertyName("full_name")] public string FullName { get; set; } = string.Empty;
+    [JsonPropertyName("role")] public string Role { get; set; } = "operator";
+    [JsonPropertyName("status")] public string Status { get; set; } = "active";
+    [JsonPropertyName("is_archived")] public bool IsArchived { get; set; }
+    [JsonPropertyName("assigned_business_manager_count")] public int AssignedBusinessManagerCount { get; set; }
+    [JsonPropertyName("assigned_ad_account_count")] public int AssignedAdAccountCount { get; set; }
+    [JsonPropertyName("active_session_count")] public int ActiveSessionCount { get; set; }
+    [JsonPropertyName("created_at")] public string CreatedAt { get; set; } = string.Empty;
+}
+
+public sealed class TeamInvitationDto
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = string.Empty;
+    [JsonPropertyName("email_normalized")] public string EmailNormalized { get; set; } = string.Empty;
+    [JsonPropertyName("invited_role")] public string InvitedRole { get; set; } = "operator";
+    [JsonPropertyName("status")] public string Status { get; set; } = "pending";
+    [JsonPropertyName("token_last_four")] public string? TokenLastFour { get; set; }
+    [JsonPropertyName("expires_at")] public string ExpiresAt { get; set; } = string.Empty;
+    [JsonPropertyName("sent_at")] public string? SentAt { get; set; }
+    [JsonPropertyName("accepted_at")] public string? AcceptedAt { get; set; }
+}
+
+public sealed class TeamInvitationCreateResponseDto
+{
+    [JsonPropertyName("invitation")] public TeamInvitationDto Invitation { get; set; } = new();
+    [JsonPropertyName("invite_link_token")] public string InviteLinkToken { get; set; } = string.Empty;
 }

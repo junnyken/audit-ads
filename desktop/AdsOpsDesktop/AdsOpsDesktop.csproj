@@ -8,12 +8,12 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>AdsOpsDesktop</AssemblyName>
     <RootNamespace>AdsOpsDesktop</RootNamespace>
-    <Version>2.2.0</Version>
-    <AssemblyVersion>2.2.0.0</AssemblyVersion>
-    <FileVersion>2.2.0.0</FileVersion>
+    <Version>2.3.0</Version>
+    <AssemblyVersion>2.3.0.0</AssemblyVersion>
+    <FileVersion>2.3.0.0</FileVersion>
     <Product>AdsOps Desktop Pro</Product>
     <Company>AdsOps</Company>
-    <Description>AdsOps Desktop Pro v2.2 — Auto Cookie Bootstrap v2.9.3, 1-Click Cloud Token EAAB, Active Chrome Session Tracker, Telegram Bot Alerts &amp; Spend Summary</Description>
+    <Description>AdsOps Desktop Pro v2.3 — Batch Proxy Scanner, Extension Billing Auto-Sync v2.9.4, Chrome Grid Tiler, Readiness Board, Retainers &amp; Team Ops</Description>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 
