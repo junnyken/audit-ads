@@ -422,6 +422,19 @@ internal sealed partial class MainWindow
             actions.Children.Add(ackBtn);
         }
 
+        var suppressBtn = UiComponents.CreateButton("Tạm ẩn 24h", ButtonVariant.Subtle, compact: true, tooltip: "Tạm ẩn cảnh báo này trong 24 giờ trên Cloud", onClick: async (_, _) =>
+        {
+            try
+            {
+                await _api.SuppressAlertAsync(al.Id, 24, "Tạm ẩn 24h từ AdsOps Desktop Pro");
+                AppendLog($"Đã tạm ẩn 24h cảnh báo: {al.Title}");
+                await SyncCloudAsync(silent: false);
+            }
+            catch (Exception ex) { AppendLog($"Lỗi tạm ẩn cảnh báo: {ex.Message}"); }
+        });
+        suppressBtn.Margin = new Thickness(0, 0, 6, 0);
+        actions.Children.Add(suppressBtn);
+
         var resBtn = UiComponents.CreateButton("Xử lý xong", ButtonVariant.Success, compact: true, onClick: async (_, _) =>
         {
             var confirm = UiComponents.ShowConfirmActionDialog(
@@ -507,6 +520,10 @@ internal sealed partial class MainWindow
         searchRow.Children.Add(searchBox);
 
         var rightHeaderBtns = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(10, 0, 0, 0) };
+        var tokenBtn = UiComponents.CreateButton("Gắn Token EAAB", ButtonVariant.Secondary, FluentIcons.ShieldKey, onClick: (_, _) => OpenAutoConnectTokenDialog(null), tooltip: "Dán Token EAAB... để tự động kết nối Via, BM & TKQC lên Cloud");
+        tokenBtn.Margin = new Thickness(0, 0, 8, 0);
+        rightHeaderBtns.Children.Add(tokenBtn);
+
         var bulkImportBtn = UiComponents.CreateButton("Nhập Lô Via", ButtonVariant.Secondary, FluentIcons.Download, onClick: (_, _) => OpenBulkImportViasDialog(), tooltip: "Dán danh sách nhiều Via cùng lúc (Ctrl+B)");
         bulkImportBtn.Margin = new Thickness(0, 0, 8, 0);
         rightHeaderBtns.Children.Add(bulkImportBtn);
@@ -1024,9 +1041,11 @@ internal sealed partial class MainWindow
         var chkAutoKa = UiComponents.CreateCheckBox("Tự động chạy Đảo Ấm khi phát hiện Via >3 ngày không hoạt động", _config.AutoKeepAliveScheduler);
         var chkPrePx = UiComponents.CreateCheckBox("Kiểm tra Proxy Live trước khi mở Chrome (Proxy Die tự bỏ qua)", _config.PreCheckProxyBeforeLaunch);
         var chkAutoClose = UiComponents.CreateCheckBox("Tự đóng tab Đảo Ấm sau khi cuộn xong Newsfeed + Thông báo", _config.AutoCloseKeepAliveTab);
+        var chkAutoCloseWin = UiComponents.CreateCheckBox("Tự đóng gọn cửa sổ Chrome của Via ngay khi nhận tín hiệu KEEPALIVE_OK", _config.AutoCloseKeepAliveWindow);
         chkAutoKa.Margin = new Thickness(0, 0, 0, 6);
         chkPrePx.Margin = new Thickness(0, 0, 0, 6);
-        chkAutoClose.Margin = new Thickness(0, 0, 0, 10);
+        chkAutoClose.Margin = new Thickness(0, 0, 0, 6);
+        chkAutoCloseWin.Margin = new Thickness(0, 0, 0, 10);
 
         var guardNums = new Grid { Margin = new Thickness(0, 0, 0, 10) };
         guardNums.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -1054,6 +1073,7 @@ internal sealed partial class MainWindow
             _config.AutoKeepAliveScheduler = chkAutoKa.IsChecked == true;
             _config.PreCheckProxyBeforeLaunch = chkPrePx.IsChecked == true;
             _config.AutoCloseKeepAliveTab = chkAutoClose.IsChecked == true;
+            _config.AutoCloseKeepAliveWindow = chkAutoCloseWin.IsChecked == true;
             if (int.TryParse(tbStartH.Text, out var sh)) _config.AutoKeepAliveStartHour = Math.Clamp(sh, 0, 22);
             if (int.TryParse(tbEndH.Text, out var eh)) _config.AutoKeepAliveEndHour = Math.Clamp(eh, 1, 23);
             if (int.TryParse(tbMaxPerIp.Text, out var mp)) _config.MaxViasPerProxyInBatch = Math.Clamp(mp, 1, 10);
@@ -1068,12 +1088,100 @@ internal sealed partial class MainWindow
         localGuardPanel.Children.Add(chkAutoKa);
         localGuardPanel.Children.Add(chkPrePx);
         localGuardPanel.Children.Add(chkAutoClose);
+        localGuardPanel.Children.Add(chkAutoCloseWin);
         localGuardPanel.Children.Add(guardNums);
         localGuardPanel.Children.Add(localBtns);
 
         var localCard = UiComponents.CreateCard(localGuardPanel);
         localCard.Margin = new Thickness(0, 0, 0, 14);
         rightStack.Children.Add(localCard);
+
+        // Active Chrome Session Tracker Card (PID & RAM)
+        var chromeSessPanel = new StackPanel();
+        var sessHdr = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+        sessHdr.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        sessHdr.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        sessHdr.Children.Add(new TextBlock
+        {
+            Text = "Phiên Chrome Đang Mở (PID & RAM)",
+            FontSize = 15,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeTokens.TextPrimary,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        var refreshSessBtn = UiComponents.CreateButton("Làm mới", ButtonVariant.Subtle, FluentIcons.Sync, compact: true, onClick: (_, _) => RenderCurrentView());
+        Grid.SetColumn(refreshSessBtn, 1);
+        sessHdr.Children.Add(refreshSessBtn);
+        chromeSessPanel.Children.Add(sessHdr);
+
+        var trackedSessions = ChromeSessionTracker.Default.GetSnapshot();
+        if (trackedSessions.Count == 0)
+        {
+            chromeSessPanel.Children.Add(new TextBlock
+            {
+                Text = "Chưa mở phiên Chrome nào từ AdsOps Desktop Pro trong phiên làm việc này.",
+                FontSize = 12,
+                Foreground = ThemeTokens.TextMuted,
+                TextWrapping = TextWrapping.Wrap,
+            });
+        }
+        else
+        {
+            foreach (var s in trackedSessions.Take(8))
+            {
+                var rowGrid = new Grid();
+                rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var metaCol = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+                metaCol.Children.Add(new TextBlock
+                {
+                    Text = $"{s.ViaLabel} • {s.ProfileDir}",
+                    FontSize = 12,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = ThemeTokens.TextPrimary,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                });
+                metaCol.Children.Add(new TextBlock
+                {
+                    Text = $"Mở lúc {s.StartedAt.ToLocalTime():HH:mm:ss} • {s.Url}",
+                    FontFamily = ThemeTokens.MonoFont,
+                    FontSize = 11,
+                    Foreground = ThemeTokens.TextMuted,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                });
+                rowGrid.Children.Add(metaCol);
+
+                var badgeFg = s.KeepAliveClosed ? ThemeTokens.AccentText : s.Alive ? ThemeTokens.SuccessText : ThemeTokens.TextMuted;
+                var badgeBg = s.KeepAliveClosed ? ThemeTokens.InfoBg : s.Alive ? ThemeTokens.SuccessBg : ThemeTokens.BgSurfaceElevated;
+                var badgeBr = s.KeepAliveClosed ? ThemeTokens.InfoBorder : s.Alive ? ThemeTokens.SuccessBorder : ThemeTokens.BorderSubtle;
+                var stBadge = UiComponents.CreateBadgePill(s.StatusText, badgeFg, badgeBg, badgeBr);
+                stBadge.Margin = new Thickness(0, 0, 6, 0);
+                Grid.SetColumn(stBadge, 1);
+                rowGrid.Children.Add(stBadge);
+
+                if (s.Alive && s.Pid.HasValue)
+                {
+                    var closeWinBtn = UiComponents.CreateButton("Đóng cửa sổ", ButtonVariant.Danger, compact: true, onClick: (_, _) =>
+                    {
+                        ChromeSessionTracker.Default.TryCloseSession(s.SessionId, out var msg);
+                        AppendLog(msg);
+                        RenderCurrentView();
+                    });
+                    Grid.SetColumn(closeWinBtn, 2);
+                    rowGrid.Children.Add(closeWinBtn);
+                }
+
+                var rowCard = UiComponents.CreateCard(rowGrid, new Thickness(10, 7, 10, 7), ThemeTokens.BgSurfaceElevated, ThemeTokens.BorderSubtle);
+                rowCard.Margin = new Thickness(0, 0, 0, 6);
+                chromeSessPanel.Children.Add(rowCard);
+            }
+        }
+
+        var chromeSessCard = UiComponents.CreateCard(chromeSessPanel);
+        chromeSessCard.Margin = new Thickness(0, 0, 0, 14);
+        rightStack.Children.Add(chromeSessCard);
 
         // Cloud Cron Config Card
         var cronPanel = new StackPanel();
@@ -1529,6 +1637,37 @@ internal sealed partial class MainWindow
         AddAdChip("disabled", $"Hạn chế / Khác ({_adAccounts.Count(x => !x.Status.Contains("active", StringComparison.OrdinalIgnoreCase))})");
         bar.Children.Add(chips);
 
+        if (_spendSummary != null && _spendSummary.Currencies.Count > 0)
+        {
+            var spendStrip = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
+            foreach (var bucket in _spendSummary.Currencies)
+            {
+                var td = FormatMetricOrDash(bucket.TodayPartialText == "—" ? null : bucket.TodayPartialText, bucket.Currency);
+                var d7 = FormatMetricOrDash(bucket.Last7dText == "—" ? null : bucket.Last7dText, bucket.Currency);
+                var mtd = FormatMetricOrDash(bucket.MtdText == "—" ? null : bucket.MtdText, bucket.Currency);
+                var bPanel = new StackPanel();
+                bPanel.Children.Add(new TextBlock
+                {
+                    Text = $"Tổng chi tiêu {bucket.Currency} ({bucket.AccountsIncluded} TKQC)",
+                    FontSize = 11,
+                    FontWeight = FontWeights.Bold,
+                    Foreground = ThemeTokens.AccentText,
+                });
+                bPanel.Children.Add(new TextBlock
+                {
+                    Text = $"Hôm nay: {td}  •  7 ngày: {d7}  •  Tháng này: {mtd}",
+                    FontFamily = ThemeTokens.MonoFont,
+                    FontSize = 12,
+                    Foreground = ThemeTokens.TextPrimary,
+                    Margin = new Thickness(0, 3, 0, 0),
+                });
+                var bCard = UiComponents.CreateCard(bPanel, new Thickness(12, 8, 12, 8), ThemeTokens.BgSurfaceElevated, ThemeTokens.InfoBorder);
+                bCard.Margin = new Thickness(0, 0, 10, 6);
+                spendStrip.Children.Add(bCard);
+            }
+            stack.Children.Add(spendStrip);
+        }
+
         var card = UiComponents.CreateCard(bar, new Thickness(12));
         card.Margin = new Thickness(0, 0, 0, 12);
         stack.Children.Add(card);
@@ -1562,8 +1701,9 @@ internal sealed partial class MainWindow
         AddHdr(2, "SỐ DƯ", HorizontalAlignment.Right);
         AddHdr(3, "NGƯỠNG", HorizontalAlignment.Right);
         AddHdr(4, "GIỚI HẠN NGÀY", HorizontalAlignment.Right);
-        AddHdr(5, "BM & VIA CẦM");
-        AddHdr(6, "THAO TÁC", HorizontalAlignment.Right);
+        AddHdr(5, "CHI TIÊU (HN / 7D)", HorizontalAlignment.Right);
+        AddHdr(6, "BM & VIA CẦM");
+        AddHdr(7, "THAO TÁC", HorizontalAlignment.Right);
 
         var b = new Border
         {
@@ -1622,15 +1762,51 @@ internal sealed partial class MainWindow
         AddNum(3, thr);
         AddNum(4, lim);
 
-        // Col 5: BM & Linked Via
+        // Col 5: Spend Today / 7D
+        var todayRaw = a.SpendPeriods?.TodayText;
+        var last7dRaw = a.SpendPeriods?.Last7dText;
+        var cSpend = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
+        cSpend.Children.Add(new TextBlock
+        {
+            Text = $"HN: {FormatMetricOrDash(todayRaw, a.Currency)}",
+            FontFamily = ThemeTokens.MonoFont,
+            FontSize = 12,
+            Foreground = string.IsNullOrWhiteSpace(todayRaw) ? ThemeTokens.TextMuted : ThemeTokens.TextPrimary,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        });
+        cSpend.Children.Add(new TextBlock
+        {
+            Text = $"7D: {FormatMetricOrDash(last7dRaw, a.Currency)}",
+            FontFamily = ThemeTokens.MonoFont,
+            FontSize = 11,
+            Foreground = ThemeTokens.TextMuted,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        });
+        Grid.SetColumn(cSpend, 5);
+        g.Children.Add(cSpend);
+
+        // Col 6: BM & Linked Via
         var c5 = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 8, 0) };
         var viaLbl = a.FacebookIdentities.Count > 0 ? string.Join(", ", a.FacebookIdentities.Select(x => x.Label)) : "Chưa gắn Via";
         c5.Children.Add(new TextBlock { Text = string.IsNullOrWhiteSpace(a.BusinessManagerName) ? "Tài khoản Cá nhân / Chưa rõ BM" : a.BusinessManagerName!, FontSize = 12, Foreground = ThemeTokens.TextPrimary, TextTrimming = TextTrimming.CharacterEllipsis });
         c5.Children.Add(new TextBlock { Text = $"Via: {viaLbl} • {a.BillingMeta?.PaymentCardDisplay ?? "—"}", FontSize = 12, Foreground = ThemeTokens.TextMuted, TextTrimming = TextTrimming.CharacterEllipsis });
-        Grid.SetColumn(c5, 5);
+        Grid.SetColumn(c5, 6);
         g.Children.Add(c5);
 
-        // Col 6: Open Ads Manager in Via's Chrome Profile
+        // Col 7: Refresh Spend + Open Ads Manager
+        var actionCol = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+        var refreshSpendBtn = UiComponents.CreateButton("↻", ButtonVariant.Subtle, compact: true, tooltip: "Làm mới số liệu Chi tiêu của TKQC này từ Meta", onClick: async (_, _) =>
+        {
+            try
+            {
+                await _api.RefreshAdAccountSpendAsync(a.Id);
+                AppendLog($"Đã làm mới Chi tiêu TKQC '{a.DisplayName}' (act_{a.ExternalAccountId}).");
+                await SyncCloudAsync(silent: false);
+            }
+            catch (Exception ex) { AppendLog($"Lỗi làm mới Chi tiêu TKQC: {ex.Message}"); }
+        });
+        refreshSpendBtn.Margin = new Thickness(0, 0, 6, 0);
+
         var openAdsBtn = UiComponents.CreateButton("Ads Manager", ButtonVariant.Secondary, FluentIcons.RocketLaunch, compact: true, onClick: (_, _) =>
         {
             var linked = a.FacebookIdentities.FirstOrDefault();
@@ -1644,9 +1820,10 @@ internal sealed partial class MainWindow
             var cleanId = (a.ExternalAccountId ?? "").Replace("act_", "", StringComparison.OrdinalIgnoreCase);
             LaunchViaChromeSafe(via, $"https://adsmanager.facebook.com/adsmanager/manage/campaigns?act={Uri.EscapeDataString(cleanId)}");
         });
-        openAdsBtn.HorizontalAlignment = HorizontalAlignment.Right;
-        Grid.SetColumn(openAdsBtn, 6);
-        g.Children.Add(openAdsBtn);
+        actionCol.Children.Add(refreshSpendBtn);
+        actionCol.Children.Add(openAdsBtn);
+        Grid.SetColumn(actionCol, 7);
+        g.Children.Add(actionCol);
 
         return new Border
         {
@@ -1660,13 +1837,14 @@ internal sealed partial class MainWindow
 
     private static void ConfigureAdColumns(Grid g)
     {
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.4, GridUnitType.Star) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.35, GridUnitType.Star) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(100) });
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(115) });
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(115) });
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.2, GridUnitType.Star) });
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(125) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(105) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.15, GridUnitType.Star) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(162) });
     }
 
     private static string FormatMetricOrDash(string? raw, string currency)
@@ -1743,7 +1921,7 @@ internal sealed partial class MainWindow
 
     private void ExportAdAccountsCsv()
     {
-        var headers = new[] { "Ten_TKQC", "Account_ID", "Trang_Thai", "Tien_Te", "So_Du", "Nguong_Billing", "Gioi_Han_Ngay", "Business_Manager", "Via_Cam", "The_Thanh_Toan" };
+        var headers = new[] { "Ten_TKQC", "Account_ID", "Trang_Thai", "Tien_Te", "So_Du", "Nguong_Billing", "Gioi_Han_Ngay", "Chi_Tieu_Hom_Nay", "Chi_Tieu_7_Ngay", "Chi_Tieu_Thang_Nay", "Business_Manager", "Via_Cam", "The_Thanh_Toan" };
         var rows = _adAccounts.Select(a => new string?[]
         {
             a.DisplayName,
@@ -1753,6 +1931,9 @@ internal sealed partial class MainWindow
             AdAccountBillingMetaDto.AsOptionalString(a.BillingMeta?.BalanceRaw) ?? AdAccountBillingMetaDto.AsOptionalString(a.SpendPeriods?.BalanceRaw) ?? "",
             AdAccountBillingMetaDto.AsOptionalString(a.BillingMeta?.BillingThresholdRaw) ?? "",
             AdAccountBillingMetaDto.AsOptionalString(a.BillingMeta?.MetaDailyLimitRaw) ?? "",
+            a.SpendPeriods?.TodayText ?? "",
+            a.SpendPeriods?.Last7dText ?? "",
+            a.SpendPeriods?.MtdText ?? "",
             a.BusinessManagerName,
             a.FacebookIdentities.Count > 0 ? string.Join("; ", a.FacebookIdentities.Select(x => x.Label)) : "",
             a.BillingMeta?.PaymentCardDisplay ?? "",
@@ -1840,6 +2021,9 @@ internal sealed partial class MainWindow
         titleCol.Children.Add(new TextBlock { Text = "Kiểm tra nhanh khả năng đọc của Meta Token và kích hoạt Quick Sync lấy số liệu TKQC/BM mới nhất.", FontSize = 12, Foreground = ThemeTokens.TextMuted, Margin = new Thickness(0, 2, 0, 0) });
         hdr.Children.Add(titleCol);
 
+        var hdrBtns = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        var addTokBtn = UiComponents.CreateButton("Gắn Token EAAB", ButtonVariant.Secondary, FluentIcons.ShieldKey, compact: true, onClick: (_, _) => OpenAutoConnectTokenDialog(null));
+        addTokBtn.Margin = new Thickness(0, 0, 8, 0);
         var qSyncBtn = UiComponents.CreateButton("Quick Sync Meta", ButtonVariant.Primary, FluentIcons.Sync, compact: true, onClick: async (_, _) =>
         {
             try
@@ -1850,8 +2034,10 @@ internal sealed partial class MainWindow
             }
             catch (Exception ex) { AppendLog($"Lỗi Quick Sync Meta: {ex.Message}"); }
         });
-        Grid.SetColumn(qSyncBtn, 1);
-        hdr.Children.Add(qSyncBtn);
+        hdrBtns.Children.Add(addTokBtn);
+        hdrBtns.Children.Add(qSyncBtn);
+        Grid.SetColumn(hdrBtns, 1);
+        hdr.Children.Add(hdrBtns);
         box.Children.Add(hdr);
 
         if (_metaConnections.Count == 0)
@@ -2237,6 +2423,9 @@ internal sealed partial class MainWindow
                 _api.Configure(_config.BackendBaseUrl, "");
                 _currentUser = null;
                 _vias.Clear();
+                _telegramConfig = null;
+                _spendSummary = null;
+                _deviceSessions.Clear();
                 _hasLoadedOnce = false;
                 RefreshHeaderAndSidebar();
                 RenderCurrentView();
@@ -2306,7 +2495,10 @@ internal sealed partial class MainWindow
             TextWrapping = TextWrapping.Wrap,
         });
 
-        leftStack.Children.Add(UiComponents.CreateCard(osPanel));
+        var osCard = UiComponents.CreateCard(osPanel);
+        osCard.Margin = new Thickness(0, 0, 0, 14);
+        leftStack.Children.Add(osCard);
+        leftStack.Children.Add(BuildTelegramSettingsCard());
         Grid.SetColumn(leftStack, 0);
         cols.Children.Add(leftStack);
 
@@ -2390,11 +2582,331 @@ internal sealed partial class MainWindow
         vaultBtns.Children.Add(impBtn);
         vaultPanel.Children.Add(vaultBtns);
 
-        rightStack.Children.Add(UiComponents.CreateCard(vaultPanel));
+        var vaultCard = UiComponents.CreateCard(vaultPanel);
+        vaultCard.Margin = new Thickness(0, 0, 0, 14);
+        rightStack.Children.Add(vaultCard);
+        rightStack.Children.Add(BuildDeviceSessionsCard());
 
         Grid.SetColumn(rightStack, 2);
         cols.Children.Add(rightStack);
         return cols;
+    }
+
+    private Border BuildTelegramSettingsCard()
+    {
+        var panel = new StackPanel();
+        var hdr = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+        hdr.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        hdr.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        hdr.Children.Add(new TextBlock
+        {
+            Text = "Cấu hình Bot Cảnh báo Telegram Tức thời",
+            FontSize = 15,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeTokens.TextPrimary,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+
+        var tgActive = _telegramConfig?.BotConfigured == true && _telegramConfig.ChatConfigured && _telegramConfig.Enabled;
+        var stBadge = UiComponents.CreateBadgePill(
+            tgActive ? "ĐANG BẬT" : "CHƯA KÍCH HOẠT",
+            tgActive ? ThemeTokens.SuccessText : ThemeTokens.TextMuted,
+            tgActive ? ThemeTokens.SuccessBg : ThemeTokens.BgSurfaceElevated,
+            tgActive ? ThemeTokens.SuccessBorder : ThemeTokens.BorderSubtle);
+        Grid.SetColumn(stBadge, 1);
+        hdr.Children.Add(stBadge);
+        panel.Children.Add(hdr);
+
+        if (string.IsNullOrWhiteSpace(_config.GetJwt()))
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Đăng nhập AdsOps Cloud ở thẻ phía trên để cấu hình Bot Telegram cảnh báo tức thời.",
+                FontSize = 12,
+                Foreground = ThemeTokens.TextMuted,
+                TextWrapping = TextWrapping.Wrap,
+            });
+            return UiComponents.CreateCard(panel);
+        }
+
+        var cfg = _telegramConfig ?? new TelegramBotConfigDto();
+        var currentBotDesc = cfg.BotConfigured
+            ? $"Bot hiện tại: {(string.IsNullOrWhiteSpace(cfg.BotUsername) ? cfg.BotMask : "@" + cfg.BotUsername)} ({cfg.BotMask}) • Chat ID: {(cfg.ChatConfigured ? cfg.ChatIdMasked : "Chưa gắn")}"
+            : "Chưa cấu hình Bot Token Telegram cho Workspace này.";
+        panel.Children.Add(new TextBlock
+        {
+            Text = currentBotDesc,
+            FontSize = 12,
+            Foreground = cfg.BotConfigured ? ThemeTokens.AccentText : ThemeTokens.TextMuted,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 10),
+        });
+
+        var pbBotToken = UiComponents.CreatePasswordBox("");
+        panel.Children.Add(BuildLabeledBox("Bot Token Telegram mới (để trống nếu giữ token cũ)", pbBotToken));
+
+        var tbChatId = UiComponents.CreateTextBox("", "VD: -1001234567890 (để trống nếu giữ Chat ID đã lưu)");
+        panel.Children.Add(BuildLabeledBox("Telegram Chat ID / Nhóm nhận cảnh báo", tbChatId));
+
+        var cbDetectedChats = UiComponents.CreateComboBox(new[]
+        {
+            new ComboBoxItem { Content = "(Nhấn 'Tự dò Nhóm Chat' sau khi nhắn /start cho Bot)", Tag = "" },
+        });
+        cbDetectedChats.SelectionChanged += (_, _) =>
+        {
+            if (cbDetectedChats.SelectedItem is ComboBoxItem item && item.Tag is string cid && !string.IsNullOrWhiteSpace(cid))
+            {
+                tbChatId.Text = cid;
+            }
+        };
+        panel.Children.Add(BuildLabeledBox("Nhóm Telegram dò được gần đây", cbDetectedChats));
+
+        var chkTgEnabled = UiComponents.CreateCheckBox("Bật gửi cảnh báo tức thời qua Telegram", cfg.Enabled);
+        var chkDis = UiComponents.CreateCheckBox("Cảnh báo khi TKQC bị Vô hiệu hóa (Disabled)", cfg.NotifyAdAccountDisabled);
+        var chkBill = UiComponents.CreateCheckBox("Cảnh báo khi Lỗi thanh toán / Thẻ (Billing Failed)", cfg.NotifyBillingFailed);
+        var chkPage = UiComponents.CreateCheckBox("Cảnh báo khi Fanpage bị Hạn chế (Restricted)", cfg.NotifyPageRestricted);
+        var chkRet = UiComponents.CreateCheckBox("Cảnh báo Vượt ngân sách / Retainer Overspend", cfg.NotifyRetainerOverspend);
+        var chkQuiet = UiComponents.CreateCheckBox("Tôn trọng giờ yên tĩnh (Quiet Hours)", cfg.QuietHoursRespect);
+        foreach (var ch in new[] { chkTgEnabled, chkDis, chkBill, chkPage, chkRet, chkQuiet })
+        {
+            ch.Margin = new Thickness(0, 0, 0, 4);
+            panel.Children.Add(ch);
+        }
+
+        var statusTb = new TextBlock { Text = "", FontSize = 12, Foreground = ThemeTokens.AccentText, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 8) };
+        panel.Children.Add(statusTb);
+
+        var btnWrap = new WrapPanel { Margin = new Thickness(0, 2, 0, 0) };
+        var detectBtn = UiComponents.CreateButton("Tự dò Nhóm Chat", ButtonVariant.Secondary, FluentIcons.Search, compact: true, onClick: async (_, _) =>
+        {
+            statusTb.Foreground = ThemeTokens.AccentText;
+            statusTb.Text = "Đang gọi Telegram getUpdates để tìm nhóm vừa chat với Bot...";
+            try
+            {
+                var res = await _api.DetectTelegramChatsAsync(pbBotToken.Password);
+                cbDetectedChats.Items.Clear();
+                if (res.Chats.Count == 0)
+                {
+                    cbDetectedChats.Items.Add(new ComboBoxItem { Content = "(Chưa thấy tin nhắn mới — hãy gõ /start vào nhóm)", Tag = "" });
+                    cbDetectedChats.SelectedIndex = 0;
+                    statusTb.Foreground = ThemeTokens.WarningText;
+                    statusTb.Text = string.IsNullOrWhiteSpace(res.Hint) ? "Chưa tìm thấy nhóm chat gần đây." : res.Hint;
+                    return;
+                }
+                foreach (var c in res.Chats)
+                {
+                    var label = $"{(string.IsNullOrWhiteSpace(c.Title) ? c.Username : c.Title)} [{c.Type}] — {c.ChatIdText}";
+                    cbDetectedChats.Items.Add(new ComboBoxItem { Content = label, Tag = c.ChatIdText });
+                }
+                cbDetectedChats.SelectedIndex = 0;
+                if (string.IsNullOrWhiteSpace(tbChatId.Text)) tbChatId.Text = res.Chats[0].ChatIdText;
+                statusTb.Foreground = ThemeTokens.SuccessText;
+                statusTb.Text = $"Tìm thấy {res.Chats.Count} cuộc trò chuyện. Đã chọn sẵn {res.Chats[0].ChatIdText}.";
+            }
+            catch (Exception ex)
+            {
+                statusTb.Foreground = ThemeTokens.DangerText;
+                statusTb.Text = $"Lỗi dò nhóm Telegram: {ex.Message}";
+            }
+        });
+        detectBtn.Margin = new Thickness(0, 0, 8, 6);
+
+        var saveTgBtn = UiComponents.CreateButton("Lưu Cấu hình Bot", ButtonVariant.Primary, FluentIcons.CheckCircle, compact: true, onClick: async (_, _) =>
+        {
+            statusTb.Foreground = ThemeTokens.AccentText;
+            statusTb.Text = "Đang xác thực & lưu cấu hình Bot Telegram lên Cloud...";
+            try
+            {
+                var body = new Dictionary<string, object>
+                {
+                    ["enabled"] = chkTgEnabled.IsChecked == true,
+                    ["notify_ad_account_disabled"] = chkDis.IsChecked == true,
+                    ["notify_billing_failed"] = chkBill.IsChecked == true,
+                    ["notify_page_restricted"] = chkPage.IsChecked == true,
+                    ["notify_retainer_overspend"] = chkRet.IsChecked == true,
+                    ["quiet_hours_respect"] = chkQuiet.IsChecked == true,
+                };
+                if (!string.IsNullOrWhiteSpace(pbBotToken.Password)) body["bot_token"] = pbBotToken.Password.Trim();
+                if (!string.IsNullOrWhiteSpace(tbChatId.Text)) body["chat_id"] = tbChatId.Text.Trim();
+                _telegramConfig = await _api.SaveTelegramBotConfigAsync(body);
+                AppendLog("Đã lưu cấu hình Bot Cảnh báo Telegram trên Cloud.");
+                RenderCurrentView();
+            }
+            catch (Exception ex)
+            {
+                statusTb.Foreground = ThemeTokens.DangerText;
+                statusTb.Text = $"Lỗi lưu Telegram Bot: {ex.Message}";
+            }
+        });
+        saveTgBtn.Margin = new Thickness(0, 0, 8, 6);
+
+        var testTgBtn = UiComponents.CreateButton("Gửi Tin Test", ButtonVariant.Secondary, FluentIcons.Send, compact: true, onClick: async (_, _) =>
+        {
+            statusTb.Foreground = ThemeTokens.AccentText;
+            statusTb.Text = "Đang gửi tin nhắn thử tới Telegram...";
+            try
+            {
+                await _api.SendTelegramTestWithOverridesAsync(pbBotToken.Password, tbChatId.Text);
+                statusTb.Foreground = ThemeTokens.SuccessText;
+                statusTb.Text = "Đã gửi tin nhắn kiểm tra tới Telegram thành công!";
+                AppendLog("Đã gửi tin nhắn Telegram test thành công.");
+            }
+            catch (Exception ex)
+            {
+                statusTb.Foreground = ThemeTokens.DangerText;
+                statusTb.Text = $"Gửi tin test thất bại: {ex.Message}";
+            }
+        });
+        testTgBtn.Margin = new Thickness(0, 0, 8, 6);
+
+        btnWrap.Children.Add(saveTgBtn);
+        btnWrap.Children.Add(detectBtn);
+        btnWrap.Children.Add(testTgBtn);
+
+        if (cfg.BotConfigured)
+        {
+            var clearTgBtn = UiComponents.CreateButton("Xóa Bot Token", ButtonVariant.Danger, FluentIcons.Delete, compact: true, onClick: async (_, _) =>
+            {
+                try
+                {
+                    _telegramConfig = await _api.SaveTelegramBotConfigAsync(new { clear_bot_token = true, enabled = false });
+                    AppendLog("Đã xóa Bot Token Telegram khỏi Workspace.");
+                    RenderCurrentView();
+                }
+                catch (Exception ex)
+                {
+                    statusTb.Foreground = ThemeTokens.DangerText;
+                    statusTb.Text = $"Lỗi xóa Bot Token: {ex.Message}";
+                }
+            });
+            clearTgBtn.Margin = new Thickness(0, 0, 0, 6);
+            btnWrap.Children.Add(clearTgBtn);
+        }
+
+        panel.Children.Add(btnWrap);
+        return UiComponents.CreateCard(panel);
+    }
+
+    private Border BuildDeviceSessionsCard()
+    {
+        var panel = new StackPanel();
+        var hdr = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+        hdr.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        hdr.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        hdr.Children.Add(new TextBlock
+        {
+            Text = "Phiên Đăng Nhập & Bảo Mật Thiết Bị Cloud",
+            FontSize = 15,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeTokens.TextPrimary,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+
+        var active = _deviceSessions.Where(s => !s.RevokedAt.HasValue).ToList();
+        if (!string.IsNullOrWhiteSpace(_config.GetJwt()) && active.Count > 1)
+        {
+            var logoutOthersBtn = UiComponents.CreateButton("Đăng xuất thiết bị khác", ButtonVariant.Danger, FluentIcons.Lock, compact: true, onClick: async (_, _) =>
+            {
+                var ok = UiComponents.ShowConfirmActionDialog(
+                    this,
+                    "Thu hồi toàn bộ thiết bị khác",
+                    "Đăng xuất tất cả phiên Cloud trên các trình duyệt / máy tính khác?",
+                    new (string, string)[] { ("Phiên hiện tại:", "Giữ nguyên đăng nhập trên App này"), ("Thiết bị khác:", "Bắt buộc đăng nhập lại") },
+                    "Các phiên khác sẽ bị thu hồi ngay lập tức trên máy chủ AdsOps.",
+                    "Đăng xuất thiết bị khác",
+                    isDanger: true);
+                if (!ok) return;
+                try
+                {
+                    var res = await _api.LogoutOtherDevicesAsync();
+                    AppendLog($"Đã thu hồi {res.RevokedCount} phiên thiết bị Cloud khác.");
+                    await SyncCloudAsync(silent: false);
+                }
+                catch (Exception ex) { AppendLog($"Lỗi thu hồi phiên thiết bị khác: {ex.Message}"); }
+            });
+            Grid.SetColumn(logoutOthersBtn, 1);
+            hdr.Children.Add(logoutOthersBtn);
+        }
+        panel.Children.Add(hdr);
+
+        if (string.IsNullOrWhiteSpace(_config.GetJwt()))
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Đăng nhập AdsOps Cloud ở thẻ phía trái để xem và thu hồi các thiết bị đang giữ phiên đăng nhập.",
+                FontSize = 12,
+                Foreground = ThemeTokens.TextMuted,
+                TextWrapping = TextWrapping.Wrap,
+            });
+            return UiComponents.CreateCard(panel);
+        }
+
+        if (active.Count == 0)
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Chưa có dữ liệu phiên thiết bị Cloud (nhấn Đồng bộ Cloud F5 để tải lại).",
+                FontSize = 12,
+                Foreground = ThemeTokens.TextMuted,
+                TextWrapping = TextWrapping.Wrap,
+            });
+            return UiComponents.CreateCard(panel);
+        }
+
+        foreach (var sess in active.Take(10))
+        {
+            var r = new Grid();
+            r.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            r.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var colLeft = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+            var title = string.IsNullOrWhiteSpace(sess.Label) ? $"{sess.BrowserFamily ?? "Device"} • {sess.OsFamily ?? "OS"}" : sess.Label;
+            colLeft.Children.Add(new TextBlock
+            {
+                Text = title,
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = ThemeTokens.TextPrimary,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+            var seen = (sess.LastSeenAt ?? sess.CreatedAt).ToLocalTime().ToString("dd/MM HH:mm");
+            colLeft.Children.Add(new TextBlock
+            {
+                Text = $"{sess.SessionType ?? "session"} • {sess.BrowserFamily ?? "?"} / {sess.OsFamily ?? "?"} • Hoạt động {seen}",
+                FontSize = 11,
+                Foreground = ThemeTokens.TextMuted,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+            r.Children.Add(colLeft);
+
+            if (sess.IsCurrent)
+            {
+                var curBadge = UiComponents.CreateBadgePill("Phiên hiện tại", ThemeTokens.SuccessText, ThemeTokens.SuccessBg, ThemeTokens.SuccessBorder);
+                Grid.SetColumn(curBadge, 1);
+                r.Children.Add(curBadge);
+            }
+            else
+            {
+                var revBtn = UiComponents.CreateButton("Thu hồi", ButtonVariant.Danger, compact: true, onClick: async (_, _) =>
+                {
+                    try
+                    {
+                        await _api.RevokeDeviceSessionAsync(sess.Id, "Thu hồi từ AdsOps Desktop Pro");
+                        AppendLog($"Đã thu hồi phiên thiết bị '{title}'.");
+                        await SyncCloudAsync(silent: false);
+                    }
+                    catch (Exception ex) { AppendLog($"Lỗi thu hồi phiên '{title}': {ex.Message}"); }
+                });
+                Grid.SetColumn(revBtn, 1);
+                r.Children.Add(revBtn);
+            }
+
+            var itemCard = UiComponents.CreateCard(r, new Thickness(10, 7, 10, 7), ThemeTokens.BgSurfaceElevated, ThemeTokens.BorderSubtle);
+            itemCard.Margin = new Thickness(0, 0, 0, 6);
+            panel.Children.Add(itemCard);
+        }
+
+        return UiComponents.CreateCard(panel);
     }
 
     // ------------------------------------------------------------------------

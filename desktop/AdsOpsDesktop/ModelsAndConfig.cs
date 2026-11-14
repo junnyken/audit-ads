@@ -143,6 +143,7 @@ public sealed class DesktopConfig
     public bool WarmupBeforeCreate { get; set; } = true;
     public bool AutoUploadMedia { get; set; } = true;
     public bool AutoCloseKeepAliveTab { get; set; } = true;
+    public bool AutoCloseKeepAliveWindow { get; set; } = true;
 
     [JsonIgnore]
     public string AccessToken
@@ -405,7 +406,19 @@ public sealed class AdAccountBillingMetaDto
 
 public sealed class AdAccountSpendPeriodsDto
 {
+    [JsonPropertyName("today_partial_raw")] public JsonElement? TodayPartialRaw { get; set; }
+    [JsonPropertyName("last_7d_raw")] public JsonElement? Last7dRaw { get; set; }
+    [JsonPropertyName("mtd_raw")] public JsonElement? MtdRaw { get; set; }
+    [JsonPropertyName("amount_spent_raw")] public JsonElement? AmountSpentRaw { get; set; }
     [JsonPropertyName("balance_raw")] public JsonElement? BalanceRaw { get; set; }
+    [JsonPropertyName("spend_cap_raw")] public JsonElement? SpendCapRaw { get; set; }
+
+    public string TodayText => AdAccountBillingMetaDto.AsOptionalString(TodayPartialRaw) ?? "";
+    public string Last7dText => AdAccountBillingMetaDto.AsOptionalString(Last7dRaw) ?? "";
+    public string MtdText => AdAccountBillingMetaDto.AsOptionalString(MtdRaw) ?? "";
+    public string AmountSpentText => AdAccountBillingMetaDto.AsOptionalString(AmountSpentRaw) ?? "";
+    public string BalanceText => AdAccountBillingMetaDto.AsOptionalString(BalanceRaw) ?? "";
+    public string SpendCapText => AdAccountBillingMetaDto.AsOptionalString(SpendCapRaw) ?? "";
 }
 
 public sealed class AdAccountIdentityLinkDto
@@ -726,6 +739,7 @@ public sealed class BrowserEventResponseDto
     [JsonPropertyName("external_page_id")] public string? ExternalPageId { get; set; }
     [JsonPropertyName("auto_claimed_bm")] public bool AutoClaimedBm { get; set; }
     [JsonPropertyName("telegram_notified")] public bool TelegramNotified { get; set; }
+    [JsonPropertyName("close_sender_window")] public bool CloseSenderWindow { get; set; }
 }
 
 public sealed record PageNicheTemplate(
@@ -1486,5 +1500,294 @@ public static class CsvExporter
         Buffer.BlockCopy(preamble, 0, result, 0, preamble.Length);
         Buffer.BlockCopy(body, 0, result, preamble.Length, body.Length);
         return result;
+    }
+}
+
+public sealed class AutoConnectTokenBridgeRequest
+{
+    [JsonPropertyName("access_token")] public string? AccessToken { get; set; }
+    [JsonPropertyName("browser_profile_label")] public string? BrowserProfileLabel { get; set; }
+    [JsonPropertyName("network_label")] public string? NetworkLabel { get; set; }
+    [JsonPropertyName("via_label")] public string? ViaLabel { get; set; }
+    [JsonPropertyName("via_id")] public string? ViaId { get; set; }
+}
+
+public sealed class AutoConnectTokenResponseDto
+{
+    [JsonPropertyName("id")] public string? Id { get; set; }
+    [JsonPropertyName("label")] public string? Label { get; set; }
+    [JsonPropertyName("external_reference_id")] public string? ExternalReferenceId { get; set; }
+    [JsonPropertyName("email_hint")] public string? EmailHint { get; set; }
+    [JsonPropertyName("linked_business_managers")] public int? LinkedBusinessManagers { get; set; }
+}
+
+public sealed class AutoConnectTokenBridgeResponse
+{
+    [JsonPropertyName("ok")] public bool Ok { get; set; }
+    [JsonPropertyName("id")] public string? Id { get; set; }
+    [JsonPropertyName("label")] public string? Label { get; set; }
+    [JsonPropertyName("external_reference_id")] public string? ExternalReferenceId { get; set; }
+    [JsonPropertyName("email_hint")] public string? EmailHint { get; set; }
+    [JsonPropertyName("linked_business_managers")] public int? LinkedBusinessManagers { get; set; }
+    [JsonPropertyName("error")] public string? Error { get; set; }
+}
+
+public sealed class TelegramBotConfigDto
+{
+    [JsonPropertyName("enabled")] public bool Enabled { get; set; }
+    [JsonPropertyName("bot_configured")] public bool BotConfigured { get; set; }
+    [JsonPropertyName("bot_source")] public string? BotSource { get; set; }
+    [JsonPropertyName("bot_mask")] public string? BotMask { get; set; }
+    [JsonPropertyName("bot_username")] public string? BotUsername { get; set; }
+    [JsonPropertyName("bot_name")] public string? BotName { get; set; }
+    [JsonPropertyName("chat_configured")] public bool ChatConfigured { get; set; }
+    [JsonPropertyName("chat_id_masked")] public string? ChatIdMasked { get; set; }
+    [JsonPropertyName("notify_ad_account_disabled")] public bool NotifyAdAccountDisabled { get; set; } = true;
+    [JsonPropertyName("notify_billing_failed")] public bool NotifyBillingFailed { get; set; } = true;
+    [JsonPropertyName("notify_page_restricted")] public bool NotifyPageRestricted { get; set; } = true;
+    [JsonPropertyName("notify_retainer_overspend")] public bool NotifyRetainerOverspend { get; set; } = true;
+    [JsonPropertyName("quiet_hours_respect")] public bool QuietHoursRespect { get; set; }
+}
+
+public sealed class TelegramDetectedChatDto
+{
+    [JsonPropertyName("chat_id")] public JsonElement? ChatIdRaw { get; set; }
+    [JsonPropertyName("title")] public string? Title { get; set; }
+    [JsonPropertyName("type")] public string? Type { get; set; }
+    [JsonPropertyName("username")] public string? Username { get; set; }
+
+    public string ChatIdText => AdAccountBillingMetaDto.AsOptionalString(ChatIdRaw) ?? "";
+}
+
+public sealed class TelegramDetectChatsResponseDto
+{
+    [JsonPropertyName("chats")] public List<TelegramDetectedChatDto> Chats { get; set; } = new();
+    [JsonPropertyName("hint")] public string? Hint { get; set; }
+}
+
+public sealed class SpendCurrencyBucketDto
+{
+    [JsonPropertyName("currency")] public string Currency { get; set; } = "";
+    [JsonPropertyName("total_raw")] public JsonElement? TotalRaw { get; set; }
+    [JsonPropertyName("today_partial_raw")] public JsonElement? TodayPartialRaw { get; set; }
+    [JsonPropertyName("last_7d_raw")] public JsonElement? Last7dRaw { get; set; }
+    [JsonPropertyName("mtd_raw")] public JsonElement? MtdRaw { get; set; }
+    [JsonPropertyName("amount_spent_raw")] public JsonElement? AmountSpentRaw { get; set; }
+    [JsonPropertyName("accounts_included")] public int AccountsIncluded { get; set; }
+    [JsonPropertyName("accounts_without_row")] public int AccountsWithoutRow { get; set; }
+    [JsonPropertyName("accounts_not_current")] public int AccountsNotCurrent { get; set; }
+    [JsonPropertyName("accounts_currency_conflict")] public int AccountsCurrencyConflict { get; set; }
+    [JsonPropertyName("complete")] public bool Complete { get; set; }
+
+    public string TotalText => AdAccountBillingMetaDto.AsOptionalString(TotalRaw) ?? "—";
+    public string TodayPartialText => AdAccountBillingMetaDto.AsOptionalString(TodayPartialRaw) ?? "—";
+    public string Last7dText => AdAccountBillingMetaDto.AsOptionalString(Last7dRaw) ?? "—";
+    public string MtdText => AdAccountBillingMetaDto.AsOptionalString(MtdRaw) ?? "—";
+}
+
+public sealed class SpendSummaryDto
+{
+    [JsonPropertyName("generated_at")] public string? GeneratedAt { get; set; }
+    [JsonPropertyName("total_accounts")] public int TotalAccounts { get; set; }
+    [JsonPropertyName("accounts_unattributed")] public int AccountsUnattributed { get; set; }
+    [JsonPropertyName("currencies")] public List<SpendCurrencyBucketDto> Currencies { get; set; } = new();
+    [JsonPropertyName("complete")] public bool Complete { get; set; }
+    [JsonPropertyName("disclaimer")] public string? Disclaimer { get; set; }
+}
+
+public sealed class DeviceSessionDto
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+    [JsonPropertyName("session_type")] public string? SessionType { get; set; }
+    [JsonPropertyName("label")] public string? Label { get; set; }
+    [JsonPropertyName("browser_family")] public string? BrowserFamily { get; set; }
+    [JsonPropertyName("os_family")] public string? OsFamily { get; set; }
+    [JsonPropertyName("last_seen_at")] public DateTimeOffset? LastSeenAt { get; set; }
+    [JsonPropertyName("created_at")] public DateTimeOffset CreatedAt { get; set; }
+    [JsonPropertyName("expires_at")] public DateTimeOffset ExpiresAt { get; set; }
+    [JsonPropertyName("revoked_at")] public DateTimeOffset? RevokedAt { get; set; }
+    [JsonPropertyName("revoked_reason")] public string? RevokedReason { get; set; }
+    [JsonPropertyName("is_current")] public bool IsCurrent { get; set; }
+}
+
+public sealed class RevokeSessionResultDto
+{
+    [JsonPropertyName("revoked_count")] public int RevokedCount { get; set; }
+}
+
+public sealed class TrackedChromeSessionDto
+{
+    [JsonPropertyName("session_id")] public string SessionId { get; set; } = "";
+    [JsonPropertyName("pid")] public int? Pid { get; set; }
+    [JsonPropertyName("via_id")] public string ViaId { get; set; } = "";
+    [JsonPropertyName("via_label")] public string ViaLabel { get; set; } = "";
+    [JsonPropertyName("profile_dir")] public string ProfileDir { get; set; } = "Default";
+    [JsonPropertyName("url")] public string Url { get; set; } = "";
+    [JsonPropertyName("started_at")] public DateTimeOffset StartedAt { get; set; }
+    [JsonPropertyName("keep_alive_closed")] public bool KeepAliveClosed { get; set; }
+    [JsonPropertyName("closed_at")] public DateTimeOffset? ClosedAt { get; set; }
+    [JsonPropertyName("alive")] public bool Alive { get; set; }
+    [JsonPropertyName("ram_mb")] public double RamMb { get; set; }
+    [JsonPropertyName("status_text")] public string StatusText { get; set; } = "";
+}
+
+public sealed class ChromeSessionTracker
+{
+    public static ChromeSessionTracker Default { get; } = new();
+
+    private readonly object _gate = new();
+    private readonly List<TrackedChromeSessionDto> _sessions = new();
+
+    public TrackedChromeSessionDto RecordLaunch(int? pid, string? viaId, string? viaLabel, string? profileDir, string url)
+    {
+        var entry = new TrackedChromeSessionDto
+        {
+            SessionId = Guid.NewGuid().ToString("N")[..10],
+            Pid = pid,
+            ViaId = viaId ?? "",
+            ViaLabel = string.IsNullOrWhiteSpace(viaLabel) ? (profileDir ?? "Chrome Profile") : viaLabel.Trim(),
+            ProfileDir = string.IsNullOrWhiteSpace(profileDir) ? "Default" : profileDir.Trim(),
+            Url = url,
+            StartedAt = DateTimeOffset.UtcNow,
+        };
+        lock (_gate)
+        {
+            _sessions.Insert(0, entry);
+            if (_sessions.Count > 30)
+            {
+                _sessions.RemoveRange(30, _sessions.Count - 30);
+            }
+        }
+        return CloneWithProcessProbe(entry);
+    }
+
+    public void MarkKeepAliveClosed(string? viaId, string? viaLabel, string? profileDir)
+    {
+        lock (_gate)
+        {
+            var match = _sessions.FirstOrDefault(s =>
+                !s.ClosedAt.HasValue &&
+                ((!string.IsNullOrWhiteSpace(viaId) && string.Equals(s.ViaId, viaId, StringComparison.OrdinalIgnoreCase)) ||
+                 (!string.IsNullOrWhiteSpace(profileDir) && string.Equals(s.ProfileDir, profileDir, StringComparison.OrdinalIgnoreCase)) ||
+                 (!string.IsNullOrWhiteSpace(viaLabel) && string.Equals(s.ViaLabel, viaLabel, StringComparison.OrdinalIgnoreCase))));
+            if (match != null)
+            {
+                match.KeepAliveClosed = true;
+                match.ClosedAt = DateTimeOffset.UtcNow;
+            }
+        }
+    }
+
+    public List<TrackedChromeSessionDto> GetSnapshot()
+    {
+        List<TrackedChromeSessionDto> copy;
+        lock (_gate)
+        {
+            copy = _sessions.ToList();
+        }
+        return copy.Select(CloneWithProcessProbe).ToList();
+    }
+
+    public bool TryCloseSession(string sessionId, out string message)
+    {
+        TrackedChromeSessionDto? target;
+        lock (_gate)
+        {
+            target = _sessions.FirstOrDefault(s => string.Equals(s.SessionId, sessionId, StringComparison.OrdinalIgnoreCase));
+        }
+        if (target == null)
+        {
+            message = "Không tìm thấy phiên Chrome trong danh sách theo dõi.";
+            return false;
+        }
+        if (!target.Pid.HasValue || target.Pid.Value <= 0)
+        {
+            target.ClosedAt ??= DateTimeOffset.UtcNow;
+            message = "Phiên Chrome này đã nhập chung vào cửa sổ Chrome có sẵn nên không có PID riêng.";
+            return false;
+        }
+        try
+        {
+            using var proc = System.Diagnostics.Process.GetProcessById(target.Pid.Value);
+            if (proc.HasExited)
+            {
+                target.ClosedAt ??= DateTimeOffset.UtcNow;
+                message = $"Tiến trình Chrome PID {target.Pid.Value} đã thoát trước đó.";
+                return true;
+            }
+            if (!proc.ProcessName.Contains("chrome", StringComparison.OrdinalIgnoreCase))
+            {
+                message = $"PID {target.Pid.Value} không còn là tiến trình Chrome ({proc.ProcessName}).";
+                return false;
+            }
+            var sent = proc.CloseMainWindow();
+            if (!sent)
+            {
+                proc.Kill(entireProcessTree: false);
+            }
+            target.ClosedAt = DateTimeOffset.UtcNow;
+            message = $"Đã đóng an toàn cửa sổ Chrome PID {target.Pid.Value} ({target.ProfileDir}).";
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            target.ClosedAt ??= DateTimeOffset.UtcNow;
+            message = $"Tiến trình Chrome PID {target.Pid.Value} đã kết thúc (hoặc chuyển tab sang cửa sổ chính).";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            message = $"Không thể đóng PID {target.Pid.Value}: {ex.Message}";
+            return false;
+        }
+    }
+
+    private static TrackedChromeSessionDto CloneWithProcessProbe(TrackedChromeSessionDto src)
+    {
+        bool alive = false;
+        double ramMb = 0;
+        if (!src.ClosedAt.HasValue && src.Pid.HasValue && src.Pid.Value > 0)
+        {
+            try
+            {
+                using var proc = System.Diagnostics.Process.GetProcessById(src.Pid.Value);
+                if (!proc.HasExited && proc.ProcessName.Contains("chrome", StringComparison.OrdinalIgnoreCase))
+                {
+                    alive = true;
+                    proc.Refresh();
+                    ramMb = Math.Round(proc.WorkingSet64 / (1024.0 * 1024.0), 1);
+                }
+            }
+            catch
+            {
+                alive = false;
+            }
+        }
+
+        string status = src.KeepAliveClosed
+            ? "Đã tự đóng sau Keep-Alive"
+            : alive
+                ? $"Đang mở (PID {src.Pid} • {ramMb:0.0} MB)"
+                : src.ClosedAt.HasValue
+                    ? "Đã đóng"
+                    : src.Pid.HasValue
+                        ? "Đã chuyển tab vào Chrome sẵn / thoát"
+                        : "Không có PID";
+
+        return new TrackedChromeSessionDto
+        {
+            SessionId = src.SessionId,
+            Pid = src.Pid,
+            ViaId = src.ViaId,
+            ViaLabel = src.ViaLabel,
+            ProfileDir = src.ProfileDir,
+            Url = src.Url,
+            StartedAt = src.StartedAt,
+            KeepAliveClosed = src.KeepAliveClosed,
+            ClosedAt = src.ClosedAt,
+            Alive = alive,
+            RamMb = ramMb,
+            StatusText = status,
+        };
     }
 }

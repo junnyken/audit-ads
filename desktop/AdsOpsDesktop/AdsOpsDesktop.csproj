@@ -8,12 +8,12 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>AdsOpsDesktop</AssemblyName>
     <RootNamespace>AdsOpsDesktop</RootNamespace>
-    <Version>2.1.0</Version>
-    <AssemblyVersion>2.1.0.0</AssemblyVersion>
-    <FileVersion>2.1.0.0</FileVersion>
+    <Version>2.2.0</Version>
+    <AssemblyVersion>2.2.0.0</AssemblyVersion>
+    <FileVersion>2.2.0.0</FileVersion>
     <Product>AdsOps Desktop Pro</Product>
     <Company>AdsOps</Company>
-    <Description>AdsOps Desktop Pro v2.1 — Bulk Multi-Via Importer, Live 2FA TOTP &amp; Auto-Fill v2.9.2, Account Health &amp; Meta Token Hub, CSV Export, Ctrl+K Command Palette &amp; DPAPI Vault</Description>
+    <Description>AdsOps Desktop Pro v2.2 — Auto Cookie Bootstrap v2.9.3, 1-Click Cloud Token EAAB, Active Chrome Session Tracker, Telegram Bot Alerts &amp; Spend Summary</Description>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 

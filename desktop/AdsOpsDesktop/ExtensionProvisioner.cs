@@ -14,7 +14,7 @@ namespace AdsOpsDesktop;
 
 public sealed class ExtensionTemplateBundle
 {
-    [JsonPropertyName("version")] public string Version { get; set; } = "2.9.2";
+    [JsonPropertyName("version")] public string Version { get; set; } = "2.9.3";
     [JsonPropertyName("description")] public string Description { get; set; } = "";
     [JsonPropertyName("passkey_shield_js")] public string PasskeyShieldJs { get; set; } = "";
     [JsonPropertyName("background_js_after_default_state")] public string BackgroundJsAfterDefaultState { get; set; } = "";
@@ -88,7 +88,7 @@ public static class ExtensionProvisioner
         }
 
         _cachedBundle = JsonSerializer.Deserialize<ExtensionTemplateBundle>(jsonText)
-            ?? throw new InvalidDataException("Không thể đọc dữ liệu template Extension v2.9.2.");
+            ?? throw new InvalidDataException("Không thể đọc dữ liệu template Extension v2.9.3.");
         return _cachedBundle;
     }
 
@@ -306,7 +306,7 @@ public static class ExtensionProvisioner
         File.WriteAllText(Path.Combine(targetDir, "popup.js"), popupJsBody, utf8NoBom);
         File.WriteAllText(
             Path.Combine(targetDir, "HUONG-DAN-CAI-DAT.txt"),
-            $"ADSOPS COMPANION v{tpl.Version} (AUTO-PROVISIONED BY ADSOPS DESKTOP PRO v2.1)\r\n" +
+            $"ADSOPS COMPANION v{tpl.Version} (AUTO-PROVISIONED BY ADSOPS DESKTOP PRO v2.2)\r\n" +
             $"Via: {displayViaName}\r\nChrome Profile: {profileDir}\r\nProxy: {(hasProxy ? parsedProxy!.CompactRaw : "Direct")}\r\n" +
             $"TKQC kem theo: {accountsList.Count}\r\n" +
             "Co the nap thu cong qua chrome://extensions -> Load unpacked tai thu muc nay, hoac de AdsOps Desktop Pro nap tu dong.\r\n",
@@ -374,7 +374,7 @@ public static class ExtensionProvisioner
         return list;
     }
 
-    public static void LaunchChrome(string url, string profileDir, string? extFolder, bool isolatedMode, string? viaSlug = null)
+    public static int? LaunchChrome(string url, string profileDir, string? extFolder, bool isolatedMode, string? viaSlug = null)
     {
         if (string.IsNullOrWhiteSpace(url) || !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
@@ -382,10 +382,11 @@ public static class ExtensionProvisioner
         }
         var safeProfile = SafeProfileDirRegex.IsMatch(profileDir ?? "") ? profileDir! : "Default";
         var chromeExe = FindChromeExecutable() ?? "chrome.exe";
+        var useDirectExec = File.Exists(chromeExe);
         var psi = new ProcessStartInfo
         {
             FileName = chromeExe,
-            UseShellExecute = true,
+            UseShellExecute = !useDirectExec,
         };
 
         if (isolatedMode)
@@ -407,6 +408,17 @@ public static class ExtensionProvisioner
             psi.ArgumentList.Add($"--load-extension={extFolder}");
         }
         psi.ArgumentList.Add(url);
-        Process.Start(psi);
+
+        Process? proc;
+        try
+        {
+            proc = Process.Start(psi);
+        }
+        catch when (useDirectExec)
+        {
+            psi.UseShellExecute = true;
+            proc = Process.Start(psi);
+        }
+        return proc?.Id;
     }
 }

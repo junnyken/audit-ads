@@ -1051,6 +1051,14 @@ internal sealed partial class MainWindow
                 "add them via moi",
                 () => { dlg.Close(); OpenViaEditorDialog(null); }));
 
+            allItems.Add(new CommandPaletteItem(
+                "THAO TÁC",
+                "Gắn nhanh Token EAAB (1-Click Auto-Connect)",
+                "Dán Meta Access Token EAAB... để tự nhận diện Via, BM & TKQC trên Cloud",
+                "Token",
+                "token eaab auto connect meta",
+                () => { dlg.Close(); OpenAutoConnectTokenDialog(null); }));
+
             var dueCount = _vias.Count(v => v.NeedsKeepAlive);
             if (dueCount > 0)
             {
@@ -1066,10 +1074,10 @@ internal sealed partial class MainWindow
 
         allItems.Add(new CommandPaletteItem(
             "THAO TÁC",
-            "Cấp lại Extension Companion v2.9.2 cho toàn bộ Via",
-            "Đồng bộ code Extension v2.9.2 & Proxy vào thư mục Profile của từng Via",
-            "Ext v2.9.2",
-            "provision extension cap lai 2.9.2",
+            "Cấp lại Extension Companion v2.9.3 cho toàn bộ Via",
+            "Đồng bộ code Extension v2.9.3 & Proxy vào thư mục Profile của từng Via",
+            "Ext v2.9.3",
+            "provision extension cap lai 2.9.3",
             () => { dlg.Close(); ProvisionAllViaExtensions(silent: false); }));
 
         var now = DateTimeOffset.UtcNow;
@@ -1256,6 +1264,137 @@ internal sealed partial class MainWindow
             RenderList();
             tbSearch.Focus();
         };
+
+        dlg.Content = root;
+        dlg.ShowDialog();
+    }
+
+    private void OpenAutoConnectTokenDialog(ViaWorkspaceEntry? presetVia = null)
+    {
+        if (string.IsNullOrWhiteSpace(_config.GetJwt()))
+        {
+            MessageBox.Show(this, "Vui lòng đăng nhập AdsOps Cloud ở mục Cài đặt trước khi gắn Token EAAB.", "Chưa đăng nhập Cloud", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dlg = new Window
+        {
+            Title = "Gắn nhanh Meta Token EAAB lên Cloud",
+            Width = 540,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            ResizeMode = ResizeMode.NoResize,
+            Background = ThemeTokens.BgCanvas,
+            Foreground = ThemeTokens.TextPrimary,
+            ShowInTaskbar = false,
+        };
+        ThemeTokens.ApplyDarkTitleBar(dlg);
+
+        var root = new StackPanel { Margin = new Thickness(20) };
+        root.Children.Add(new TextBlock
+        {
+            Text = "Dán Access Token EAAB... lấy từ Ads Manager hoặc Meta Business. Hệ thống sẽ tự giải mã UID Facebook, cập nhật Via & đồng bộ danh sách BM / TKQC lên Cloud.",
+            FontFamily = ThemeTokens.UiFont,
+            FontSize = 13,
+            Foreground = ThemeTokens.TextSecondary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 12),
+        });
+
+        var viaItems = new List<ComboBoxItem> { new() { Content = "(Tự tạo / khớp theo UID Facebook)", Tag = null } };
+        int selectedIdx = 0;
+        for (int i = 0; i < _vias.Count; i++)
+        {
+            var v = _vias[i];
+            viaItems.Add(new ComboBoxItem { Content = $"{v.Label} ({v.ProfileDir})", Tag = v });
+            if (presetVia != null && string.Equals(v.ViaId, presetVia.ViaId, StringComparison.OrdinalIgnoreCase))
+            {
+                selectedIdx = i + 1;
+            }
+        }
+        var cbVia = UiComponents.CreateComboBox(viaItems);
+        cbVia.SelectedIndex = selectedIdx;
+        root.Children.Add(BuildLabeledBox("Gắn ngữ cảnh Via & Profile (tùy chọn)", cbVia));
+
+        var tbToken = UiComponents.CreateTextBox("", "EAABwzLixnjYBO...", multiline: true, height: 84);
+        tbToken.FontFamily = ThemeTokens.MonoFont;
+        root.Children.Add(BuildLabeledBox("Meta Access Token (EAAB...) *", tbToken));
+
+        var metaCols = new Grid();
+        metaCols.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        metaCols.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+        metaCols.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var tbProfile = UiComponents.CreateTextBox(presetVia?.ProfileDir ?? "", "VD: Profile 3");
+        var tbProxy = UiComponents.CreateTextBox(presetVia?.NetworkLabel ?? "", "host:port:user:pass");
+        var bProf = BuildLabeledBox("Chrome Profile Đích", tbProfile);
+        var bPx = BuildLabeledBox("Nhãn Proxy / Mạng", tbProxy);
+        Grid.SetColumn(bProf, 0);
+        Grid.SetColumn(bPx, 2);
+        metaCols.Children.Add(bProf);
+        metaCols.Children.Add(bPx);
+        root.Children.Add(metaCols);
+
+        cbVia.SelectionChanged += (_, _) =>
+        {
+            if (cbVia.SelectedItem is ComboBoxItem cbi && cbi.Tag is ViaWorkspaceEntry sel)
+            {
+                tbProfile.Text = sel.ProfileDir;
+                if (!string.IsNullOrWhiteSpace(sel.NetworkLabel)) tbProxy.Text = sel.NetworkLabel;
+            }
+        };
+
+        var errTb = new TextBlock { Text = "", Foreground = ThemeTokens.DangerText, FontSize = 12, Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap };
+        root.Children.Add(errTb);
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
+        var pasteBtn = UiComponents.CreateButton("Dán từ Clipboard", ButtonVariant.Secondary, onClick: (_, _) =>
+        {
+            try
+            {
+                if (Clipboard.ContainsText())
+                {
+                    tbToken.Text = Clipboard.GetText().Trim();
+                    errTb.Text = "";
+                }
+            }
+            catch { }
+        });
+        pasteBtn.Margin = new Thickness(0, 0, 8, 0);
+
+        var cancel = UiComponents.CreateButton("Hủy", ButtonVariant.Secondary, onClick: (_, _) => dlg.Close());
+        cancel.Margin = new Thickness(0, 0, 8, 0);
+
+        Button okBtn = null!;
+        okBtn = UiComponents.CreateButton("Kết nối & Đồng bộ ngay", ButtonVariant.Primary, FluentIcons.ShieldKey, onClick: async (_, _) =>
+        {
+            var tok = (tbToken.Text ?? "").Trim();
+            if (!tok.StartsWith("EAA", StringComparison.Ordinal) || tok.Length < 30)
+            {
+                errTb.Text = "Token Meta không hợp lệ (cần bắt đầu bằng EAA... và dài tối thiểu 30 ký tự).";
+                return;
+            }
+            okBtn.IsEnabled = false;
+            errTb.Text = "";
+            try
+            {
+                var res = await _api.AutoConnectFacebookTokenAsync(tok, tbProfile.Text, tbProxy.Text);
+                AppendLog($"Auto-Connect Token EAAB thành công: {res.Label ?? res.ExternalReferenceId} (BM liên kết: {res.LinkedBusinessManagers ?? 0})");
+                dlg.DialogResult = true;
+                await SyncCloudAsync(silent: false);
+            }
+            catch (Exception ex)
+            {
+                errTb.Text = $"Lỗi Auto-Connect Token: {ex.Message}";
+                okBtn.IsEnabled = true;
+            }
+        });
+
+        row.Children.Add(pasteBtn);
+        row.Children.Add(cancel);
+        row.Children.Add(okBtn);
+        root.Children.Add(row);
 
         dlg.Content = root;
         dlg.ShowDialog();

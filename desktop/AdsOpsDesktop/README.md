@@ -1,11 +1,11 @@
-# AdsOps Desktop Pro v2.1
+# AdsOps Desktop Pro v2.2
 
-Ứng dụng Windows bản địa (.NET 8 WPF Dark Mode) thay thế Bridge EXE cũ, cung cấp **Local Bridge + Chrome Launcher + Két DPAPI Local + Hàng đợi Tự động hóa đa Via + Giám sát Sức khỏe & Token**:
+Ứng dụng Windows bản địa (.NET 8 WPF Dark Mode) thay thế Bridge EXE cũ, cung cấp **Local Bridge + Chrome Launcher + Két DPAPI Local + Hàng đợi Tự động hóa đa Via + Giám sát Sức khỏe, Chi tiêu, Bot Telegram & Bảo mật Cloud**:
 
 - **Quản lý Đa Via & Nhập Lô Hàng Loạt (`Ctrl+B`)**: Tách cột `UID|Pass|2FA|Cookie|Mail|Proxy`, tự động lọc bỏ Pass & Mail trước khi đẩy Cloud, lưu Cookie/2FA 100% cục bộ bằng Windows DPAPI, tự chia `Profile N` chưa trùng và cảnh báo trùng IP Proxy.
-- **Két DPAPI Local & Extension Companion `v2.9.2`**: Truyền Cookie & Proxy riêng từng Via, điền nhanh 2FA 6 số **chủ động bằng nút bấm** từ `127.0.0.1:17890/totp` (chỉ hoạt động trên màn hình nhập mã xác thực hợp lệ, tuyệt đối không vượt CAPTCHA).
-- **Sức khỏe TKQC, Meta Token & Pre-flight Hub (`Ctrl+6`)**: Kiểm tra capability Meta Token, xem trạng thái Critical/Warning/Clear từng TKQC, chấm điểm Pre-flight chiến dịch nháp và xuất báo cáo CSV chuẩn Excel UTF-8 BOM.
-- **Bảng Lệnh Nhanh (`Ctrl+K` / `Ctrl+P`) & Phím tắt**: Điều hướng `Ctrl+1..7`, `Ctrl+B` Nhập lô, `Ctrl+N` Thêm Via, `F5` Đồng bộ Cloud, chạy nền System Tray.
+- **Két DPAPI Local & Extension Companion `v2.9.3`**: Tự động kiểm tra `c_user` khi mở Profile Chrome mới & nạp sẵn Cookie + 2FA từ Két DPAPI, đẩy Token `EAAB` lên Cloud 1-click, tự đóng cửa sổ Chrome Keep-Alive khi hoàn tất an toàn, điền nhanh 2FA 6 số **chủ động bằng nút bấm** từ `127.0.0.1:17890/totp`.
+- **Sức khỏe TKQC, Chi tiêu & Meta Token Hub (`Ctrl+6`)**: Kiểm tra capability Meta Token, xem cột Chi tiêu Hôm nay / 7 ngày & Tổng hợp theo tiền tệ, làm mới Chi tiêu từng TKQC, chấm điểm Pre-flight chiến dịch nháp và xuất CSV chuẩn Excel UTF-8 BOM.
+- **Giám sát Phiên Chrome Active, Tạm ẩn Cảnh báo, Bot Telegram & Phiên Thiết Bị Cloud**: Theo dõi Chrome PID & RAM, tạm ẩn cảnh báo 24h, cấu hình Bot Telegram cảnh báo tức thời và quản lý/thu hồi phiên đăng nhập Cloud.
 
 ## Build & Self-Test
 

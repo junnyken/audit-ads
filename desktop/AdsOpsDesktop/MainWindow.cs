@@ -85,6 +85,9 @@ internal sealed partial class MainWindow : Window
     private HealthSummaryDto? _healthSummary;
     private List<AccountHealthRowDto> _accountHealthRows = new();
     private List<CampaignDraftDto> _campaignDrafts = new();
+    private TelegramBotConfigDto? _telegramConfig;
+    private SpendSummaryDto? _spendSummary;
+    private List<DeviceSessionDto> _deviceSessions = new();
 
     private bool _isBusy;
     private bool _hasLoadedOnce;
@@ -140,7 +143,7 @@ internal sealed partial class MainWindow : Window
             AppendLog);
         _queue.SnapshotChanged += OnQueueSnapshotChanged;
 
-        Title = "AdsOps Desktop Pro v2.1";
+        Title = "AdsOps Desktop Pro v2.2";
         Width = 1320;
         Height = 840;
         MinWidth = 1040;
@@ -252,7 +255,7 @@ internal sealed partial class MainWindow : Window
         });
         brandText.Children.Add(new TextBlock
         {
-            Text = "Desktop Suite v2.1",
+            Text = "Desktop Suite v2.2",
             FontFamily = ThemeTokens.UiFont,
             FontSize = 12,
             Foreground = ThemeTokens.TextMuted,
@@ -641,7 +644,7 @@ internal sealed partial class MainWindow : Window
 
     private async Task OnWindowLoadedAsync()
     {
-        AppendLog("Khởi động AdsOps Desktop Pro v2.1 (WPF Dark UI + DPAPI Vault + Local TOTP).");
+        AppendLog("Khởi động AdsOps Desktop Pro v2.2 (WPF Dark UI + DPAPI Vault + Local TOTP).");
         _chromeProfiles = ExtensionProvisioner.ReadLocalChromeProfiles();
         AppendLog($"Phát hiện {_chromeProfiles.Count} Chrome Profile trên máy Windows.");
 
@@ -677,10 +680,11 @@ internal sealed partial class MainWindow : Window
                 OnBridgeProvisionAllAsync,
                 AppendLog,
                 OnBridgeVaultSaveAsync,
-                OnBridgeVaultGetAsync);
+                OnBridgeVaultGetAsync,
+                OnBridgeAutoConnectTokenAsync);
             _bridge.Start();
             var tpl = ExtensionProvisioner.LoadTemplates();
-            AppendLog($"Local Bridge v2.1 đang lắng nghe tại http://127.0.0.1:{_bridge.BoundPort} (Ext v{tpl.Version}).");
+            AppendLog($"Local Bridge v2.2 đang lắng nghe tại http://127.0.0.1:{_bridge.BoundPort} (Ext v{tpl.Version}).");
         }
         catch (Exception ex)
         {
@@ -719,7 +723,8 @@ internal sealed partial class MainWindow : Window
                     NetworkLabel = req.Proxy ?? "",
                 };
                 var extFolder = ExtensionProvisioner.ProvisionForVia(tempVia);
-                ExtensionProvisioner.LaunchChrome(url, fallbackProfile, extFolder, _config.UseIsolatedProfiles, tempVia.Label);
+                var pid = ExtensionProvisioner.LaunchChrome(url, fallbackProfile, extFolder, _config.UseIsolatedProfiles, tempVia.Label);
+                ChromeSessionTracker.Default.RecordLaunch(pid, null, tempVia.Label, fallbackProfile, url);
                 AppendLog($"Mở nhanh Chrome từ Web/Bridge: Profile '{fallbackProfile}' -> {url}");
                 tcs.TrySetResult((true, $"Đã mở Chrome '{fallbackProfile}'."));
             }
@@ -734,18 +739,86 @@ internal sealed partial class MainWindow : Window
     private async Task<BrowserEventResponseDto> OnBridgeBrowserEventAsync(BrowserEventPayloadDto payload)
     {
         AppendLog($"Extension Event: {payload.EventType} | Via '{payload.ViaLabel}' | {payload.Detail}");
+        var isKeepAliveOk = string.Equals(payload.EventType, "KEEPALIVE_OK", StringComparison.OrdinalIgnoreCase);
+        var shouldCloseWindow = isKeepAliveOk && _config.AutoCloseKeepAliveWindow;
+        if (shouldCloseWindow)
+        {
+            ChromeSessionTracker.Default.MarkKeepAliveClosed(payload.ViaId, payload.ViaLabel, payload.BrowserProfile);
+        }
+
+        BrowserEventResponseDto resp;
         if (!string.IsNullOrWhiteSpace(_config.GetJwt()))
         {
             try
             {
-                return await _api.PostBrowserEventAsync(payload);
+                resp = await _api.PostBrowserEventAsync(payload);
             }
             catch (Exception ex)
             {
                 AppendLog($"Lỗi gửi browser-event lên Cloud: {ex.Message}");
+                resp = new BrowserEventResponseDto { Ok = true, EventType = payload.EventType };
             }
         }
-        return new BrowserEventResponseDto { Ok = true, EventType = payload.EventType };
+        else
+        {
+            resp = new BrowserEventResponseDto { Ok = true, EventType = payload.EventType };
+        }
+
+        if (shouldCloseWindow)
+        {
+            resp.CloseSenderWindow = true;
+            AppendLog($"Keep-Alive OK: Gửi tín hiệu tự đóng cửa sổ/tab Chrome cho Via '{payload.ViaLabel}'.");
+        }
+        return resp;
+    }
+
+    private async Task<AutoConnectTokenBridgeResponse> OnBridgeAutoConnectTokenAsync(AutoConnectTokenBridgeRequest req)
+    {
+        var token = (req.AccessToken ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return new AutoConnectTokenBridgeResponse { Ok = false, Error = "Thiếu access_token (EAAB...)." };
+        }
+        if (string.IsNullOrWhiteSpace(_config.GetJwt()))
+        {
+            return new AutoConnectTokenBridgeResponse
+            {
+                Ok = false,
+                Error = "Bạn chưa đăng nhập AdsOps Cloud trên App Windows (vào Cài đặt để đăng nhập).",
+            };
+        }
+
+        var profileLabel = !string.IsNullOrWhiteSpace(req.BrowserProfileLabel)
+            ? req.BrowserProfileLabel.Trim()
+            : req.ViaLabel?.Trim();
+        var matchVia = _vias.FirstOrDefault(v =>
+            (!string.IsNullOrWhiteSpace(req.ViaId) && string.Equals(v.ViaId, req.ViaId.Trim(), StringComparison.OrdinalIgnoreCase)) ||
+            (!string.IsNullOrWhiteSpace(profileLabel) && string.Equals(v.ProfileDir, profileLabel, StringComparison.OrdinalIgnoreCase)) ||
+            (!string.IsNullOrWhiteSpace(req.ViaLabel) && string.Equals(v.Label, req.ViaLabel.Trim(), StringComparison.OrdinalIgnoreCase)));
+        var networkLabel = !string.IsNullOrWhiteSpace(req.NetworkLabel)
+            ? req.NetworkLabel.Trim()
+            : matchVia?.NetworkLabel;
+
+        try
+        {
+            var res = await _api.AutoConnectFacebookTokenAsync(token, profileLabel ?? matchVia?.ProfileDir, networkLabel);
+            AppendLog($"Auto-Connect Token EAAB lên Cloud thành công: {res.Label ?? profileLabel} (BM: {res.LinkedBusinessManagers ?? 0})");
+            _ = Dispatcher.BeginInvoke(async () => await SyncCloudAsync(silent: true));
+            return new AutoConnectTokenBridgeResponse
+            {
+                Ok = true,
+                Id = res.Id,
+                Label = res.Label,
+                ExternalReferenceId = res.ExternalReferenceId,
+                EmailHint = res.EmailHint,
+                LinkedBusinessManagers = res.LinkedBusinessManagers,
+            };
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"LỖI đẩy Token EAAB lên Cloud: {ex.Message}");
+            return new AutoConnectTokenBridgeResponse { Ok = false, Error = ex.Message };
+        }
     }
 
     private Task<int> OnBridgeProvisionAllAsync()
@@ -816,10 +889,14 @@ internal sealed partial class MainWindow : Window
             var healthSumTask = TryFetchAsync(() => _api.GetAccountHealthSummaryAsync(), new HealthSummaryDto(), "Tóm tắt sức khỏe TKQC");
             var healthRowsTask = TryFetchAsync(() => _api.ListAccountHealthAsync(100), new PagedAccountHealthDto(), "Sức khỏe TKQC");
             var draftsTask = TryFetchAsync(() => _api.ListCampaignDraftsAsync(25), new PagedCampaignDraftsDto(), "Pre-flight Campaign Drafts");
+            var telegramTask = TryFetchAsync(() => _api.GetTelegramBotConfigAsync(), new TelegramBotConfigDto(), "Telegram Bot Config");
+            var spendSumTask = TryFetchAsync(() => _api.GetSpendSummaryAsync(), new SpendSummaryDto(), "Tổng hợp Chi tiêu");
+            var sessionsTask = TryFetchAsync(() => _api.ListMyDeviceSessionsAsync(), new List<DeviceSessionDto>(), "Phiên Thiết bị Cloud");
 
             await Task.WhenAll(
                 userTask, accountsTask, bmsTask, adAccsTask, pagesTask, alertSumTask, alertsTask, cronTask,
-                metaConnTask, healthSumTask, healthRowsTask, draftsTask);
+                metaConnTask, healthSumTask, healthRowsTask, draftsTask,
+                telegramTask, spendSumTask, sessionsTask);
 
             _currentUser = userTask.Result;
             _bms = bmsTask.Result.Items ?? new();
@@ -832,6 +909,9 @@ internal sealed partial class MainWindow : Window
             _healthSummary = healthSumTask.Result;
             _accountHealthRows = healthRowsTask.Result.Items ?? new();
             _campaignDrafts = draftsTask.Result.Items ?? new();
+            _telegramConfig = telegramTask.Result;
+            _spendSummary = spendSumTask.Result;
+            _deviceSessions = sessionsTask.Result;
 
             RebuildViaWorkspaceList(accountsTask.Result.Items ?? new());
             ProvisionAllViaExtensions(silent: true);
@@ -953,7 +1033,8 @@ internal sealed partial class MainWindow : Window
         try
         {
             via.ExtensionFolder = ExtensionProvisioner.ProvisionForVia(via);
-            ExtensionProvisioner.LaunchChrome(targetUrl, via.ProfileDir, via.ExtensionFolder, _config.UseIsolatedProfiles, via.Label);
+            var pid = ExtensionProvisioner.LaunchChrome(targetUrl, via.ProfileDir, via.ExtensionFolder, _config.UseIsolatedProfiles, via.Label);
+            ChromeSessionTracker.Default.RecordLaunch(pid, via.ViaId, via.Label, via.ProfileDir, targetUrl);
             AppendLog($"Đã mở Chrome Profile '{via.ProfileDir}' ({via.Label}) -> {targetUrl}");
         }
         catch (Exception ex)
@@ -1469,7 +1550,7 @@ internal sealed partial class MainWindow : Window
         e.Cancel = true;
         Hide();
         ShowInTaskbar = false;
-        _tray?.ShowBalloon("AdsOps Desktop Pro v2.1", "Ứng dụng đang chạy ngầm tại Khay hệ thống (Local Bridge vẫn bật).");
+        _tray?.ShowBalloon("AdsOps Desktop Pro v2.2", "Ứng dụng đang chạy ngầm tại Khay hệ thống (Local Bridge vẫn bật).");
     }
 
     public void ExitApplicationCleanly()

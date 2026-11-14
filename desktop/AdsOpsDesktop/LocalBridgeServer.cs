@@ -54,6 +54,7 @@ public sealed class LocalBridgeServer : IDisposable
     private readonly Func<Task<int>> _onProvisionAll;
     private readonly Func<LocalVaultSaveRequest, Task<LocalVaultGetResult>> _onVaultSave;
     private readonly Func<string, string, string, Task<LocalVaultGetResult>> _onVaultGet;
+    private readonly Func<AutoConnectTokenBridgeRequest, Task<AutoConnectTokenBridgeResponse>> _onAutoConnectToken;
     private readonly Action<string> _log;
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -68,7 +69,8 @@ public sealed class LocalBridgeServer : IDisposable
         Func<Task<int>> onProvisionAll,
         Action<string> log,
         Func<LocalVaultSaveRequest, Task<LocalVaultGetResult>>? onVaultSave = null,
-        Func<string, string, string, Task<LocalVaultGetResult>>? onVaultGet = null)
+        Func<string, string, string, Task<LocalVaultGetResult>>? onVaultGet = null,
+        Func<AutoConnectTokenBridgeRequest, Task<AutoConnectTokenBridgeResponse>>? onAutoConnectToken = null)
     {
         _requestedPort = port;
         _onOpenChrome = onOpenChrome;
@@ -77,6 +79,11 @@ public sealed class LocalBridgeServer : IDisposable
         _log = log;
         _onVaultSave = onVaultSave ?? (_ => Task.FromResult(new LocalVaultGetResult { Ok = false }));
         _onVaultGet = onVaultGet ?? ((_, _, _) => Task.FromResult(new LocalVaultGetResult { Ok = true, Found = false }));
+        _onAutoConnectToken = onAutoConnectToken ?? (_ => Task.FromResult(new AutoConnectTokenBridgeResponse
+        {
+            Ok = false,
+            Error = "Auto-connect handler chưa được cấu hình.",
+        }));
     }
 
     public static bool RetireLegacyBridgeHoldingPort(int port, Action<string> log)
@@ -125,7 +132,7 @@ public sealed class LocalBridgeServer : IDisposable
                     {
                         holder.Kill(entireProcessTree: true);
                         holder.WaitForExit(1500);
-                        log($"♻️ Đã tự động thay thế Cầu nối .bat cũ ({pname} PID {pid}) trên cổng {port} bằng AdsOps Desktop Pro v2.1.");
+                        log($"♻️ Đã tự động thay thế Cầu nối .bat cũ ({pname} PID {pid}) trên cổng {port} bằng AdsOps Desktop Pro v2.2.");
                         retiredAny = true;
                     }
                 }
@@ -198,7 +205,7 @@ public sealed class LocalBridgeServer : IDisposable
                     {
                         ok = true,
                         app = "AdsOpsDesktop",
-                        version = "2.1.0",
+                        version = "2.2.0",
                         extVersion = tpl.Version,
                         port = BoundPort,
                     });
@@ -288,6 +295,40 @@ public sealed class LocalBridgeServer : IDisposable
                         formatted = totp.FormattedCode,
                         seconds_remaining = totp.SecondsRemaining,
                         via_label = !string.IsNullOrWhiteSpace(vault.ViaLabel) ? vault.ViaLabel : name,
+                    });
+                    await WriteHttpResponseAsync(stream, 200, "OK", json, ct).ConfigureAwait(false);
+                    return;
+                }
+
+                if (method == "POST" && path == "/auto-connect-token")
+                {
+                    var req = JsonSerializer.Deserialize<AutoConnectTokenBridgeRequest>(
+                        string.IsNullOrWhiteSpace(bodyText) ? "{}" : bodyText,
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new AutoConnectTokenBridgeRequest();
+                    if (string.IsNullOrWhiteSpace(req.AccessToken))
+                    {
+                        var errJson = JsonSerializer.Serialize(new AutoConnectTokenBridgeResponse
+                        {
+                            Ok = false,
+                            Error = "Thiếu access_token (EAAB...) để đẩy lên Cloud.",
+                        });
+                        await WriteHttpResponseAsync(stream, 400, "Bad Request", errJson, ct).ConfigureAwait(false);
+                        return;
+                    }
+                    var result = await _onAutoConnectToken(req).ConfigureAwait(false);
+                    var json = JsonSerializer.Serialize(result);
+                    await WriteHttpResponseAsync(stream, result.Ok ? 200 : 400, result.Ok ? "OK" : "Bad Request", json, ct).ConfigureAwait(false);
+                    return;
+                }
+
+                if (method == "GET" && path == "/chrome-sessions")
+                {
+                    var sessions = ChromeSessionTracker.Default.GetSnapshot();
+                    var json = JsonSerializer.Serialize(new
+                    {
+                        ok = true,
+                        active_count = sessions.Count(s => s.Alive),
+                        sessions,
                     });
                     await WriteHttpResponseAsync(stream, 200, "OK", json, ct).ConfigureAwait(false);
                     return;

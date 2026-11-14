@@ -105,7 +105,7 @@ internal static class Program
                 "c_user=10001; xs=secret_xs",
                 "JBSWY3DPEHPK3PXP");
 
-            // 1. ExtensionProvisioner 7-file output + version 2.9.2 + real AdAccount & DEFAULT_VIA_META injection
+            // 1. ExtensionProvisioner 7-file output + version 2.9.3 + real AdAccount & DEFAULT_VIA_META injection
             var via = new ViaWorkspaceEntry
             {
                 ViaId = "11111111-2222-3333-4444-555555555555",
@@ -135,22 +135,25 @@ internal static class Program
             }
             using (var mfDoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(extDir, "manifest.json"))))
             {
-                if (mfDoc.RootElement.GetProperty("version").GetString() != "2.9.2")
-                    throw new InvalidOperationException("Manifest version is not 2.9.2");
+                if (mfDoc.RootElement.GetProperty("version").GetString() != "2.9.3")
+                    throw new InvalidOperationException("Manifest version is not 2.9.3");
             }
             var bgText = File.ReadAllText(Path.Combine(extDir, "background.js"));
             if (!bgText.Contains("ADSOPS_REPORT_BROWSER_EVENT", StringComparison.Ordinal) ||
                 !bgText.Contains("11111111-2222-3333-4444-555555555555", StringComparison.Ordinal) ||
-                !bgText.Contains("act_999888777", StringComparison.Ordinal))
+                !bgText.Contains("act_999888777", StringComparison.Ordinal) ||
+                !bgText.Contains("ensureVaultCookiesBootstrapped", StringComparison.Ordinal) ||
+                !bgText.Contains("close_sender_window", StringComparison.Ordinal))
             {
-                throw new InvalidOperationException("background.js missing v2.9.2 bridge, viaId, or bundled account");
+                throw new InvalidOperationException("background.js missing v2.9.3 bridge, bootstrap, auto-close, viaId, or bundled account");
             }
             var popupText = File.ReadAllText(Path.Combine(extDir, "popup.js"));
             if (!popupText.Contains("act_999888777", StringComparison.Ordinal) ||
                 !popupText.Contains("DEFAULT_VIA_META", StringComparison.Ordinal) ||
-                !popupText.Contains("btn-vault-save", StringComparison.Ordinal))
+                !popupText.Contains("btn-vault-save", StringComparison.Ordinal) ||
+                !popupText.Contains("btn-push-token-cloud", StringComparison.Ordinal))
             {
-                throw new InvalidOperationException("popup.js missing DEFAULT_ACCOUNTS, DEFAULT_VIA_META, or btn-vault-save");
+                throw new InvalidOperationException("popup.js missing DEFAULT_ACCOUNTS, DEFAULT_VIA_META, btn-vault-save, or btn-push-token-cloud");
             }
 
             // 2. LocalSecretVaultStore + VaultBackupService AES-256-GCM round-trip + wrong password rejection
@@ -222,7 +225,14 @@ internal static class Program
                         TwoFaSecret = f.TwoFaSecret,
                         UpdatedAt = f.UpdatedAtUtc,
                     });
-                });
+                },
+                req => Task.FromResult(new AutoConnectTokenBridgeResponse
+                {
+                    Ok = true,
+                    Id = "via-cloud-1",
+                    Label = req.ViaLabel ?? "Via Auto",
+                    LinkedBusinessManagers = 2,
+                }));
             srv.Start();
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
             var baseUrl = $"http://127.0.0.1:{srv.BoundPort}";
@@ -231,11 +241,34 @@ internal static class Program
             healthResp.EnsureSuccessStatusCode();
             var healthBody = await healthResp.Content.ReadAsStringAsync();
             if (!healthBody.Contains("\"app\":\"AdsOpsDesktop\"", StringComparison.Ordinal) ||
-                !healthBody.Contains("\"version\":\"2.1.0\"", StringComparison.Ordinal) ||
-                !healthBody.Contains("\"extVersion\":\"2.9.2\"", StringComparison.Ordinal))
+                !healthBody.Contains("\"version\":\"2.2.0\"", StringComparison.Ordinal) ||
+                !healthBody.Contains("\"extVersion\":\"2.9.3\"", StringComparison.Ordinal))
             {
                 throw new InvalidOperationException($"Unexpected /health response: {healthBody}");
             }
+
+            var sessResp = await http.GetAsync($"{baseUrl}/chrome-sessions");
+            sessResp.EnsureSuccessStatusCode();
+            var sessBody = await sessResp.Content.ReadAsStringAsync();
+            if (!sessBody.Contains("\"ok\":true", StringComparison.Ordinal) ||
+                !sessBody.Contains("\"sessions\":", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"Unexpected /chrome-sessions response: {sessBody}");
+            }
+
+            var acBadResp = await http.PostAsync(
+                $"{baseUrl}/auto-connect-token",
+                new StringContent("{}", Encoding.UTF8, "application/json"));
+            if ((int)acBadResp.StatusCode != 400)
+                throw new InvalidOperationException($"Expected 400 for empty /auto-connect-token, got {(int)acBadResp.StatusCode}");
+
+            var acOkResp = await http.PostAsync(
+                $"{baseUrl}/auto-connect-token",
+                new StringContent("{\"access_token\":\"EAABtesttoken1234567890\",\"via_label\":\"Via Cloud\"}", Encoding.UTF8, "application/json"));
+            acOkResp.EnsureSuccessStatusCode();
+            var acOkBody = await acOkResp.Content.ReadAsStringAsync();
+            if (!acOkBody.Contains("via-cloud-1", StringComparison.Ordinal))
+                throw new InvalidOperationException($"Unexpected /auto-connect-token response: {acOkBody}");
 
             var optReq = new HttpRequestMessage(HttpMethod.Options, $"{baseUrl}/open");
             var optResp = await http.SendAsync(optReq);
@@ -368,14 +401,18 @@ internal static class Program
                     throw new InvalidOperationException($"WCAG AA contrast failure for {pair.Name}: {pair.Ratio}:1 < 4.5:1");
             }
 
-            // 10. Extension v2.9.2 template verification (2FA bridge + click-to-fill, no auto-submit)
+            // 10. Extension v2.9.3 template verification (2FA bridge + cookie bootstrap + keepalive auto-close + cloud token push)
             var extTpl = ExtensionProvisioner.LoadTemplates();
-            if (extTpl.Version != "2.9.2" ||
+            if (extTpl.Version != "2.9.3" ||
                 !extTpl.BackgroundJsAfterDefaultState.Contains("ADSOPS_GET_LOCAL_TOTP", StringComparison.Ordinal) ||
+                !extTpl.BackgroundJsAfterDefaultState.Contains("ensureVaultCookiesBootstrapped", StringComparison.Ordinal) ||
+                !extTpl.BackgroundJsAfterDefaultState.Contains("close_sender_window", StringComparison.Ordinal) ||
                 !extTpl.ContentJs.Contains("handleTwoFactorAssistDom", StringComparison.Ordinal) ||
-                !extTpl.PopupJsAfterDefaults.Contains("_desktopTotpCache", StringComparison.Ordinal))
+                !extTpl.PopupHtml.Contains("btn-push-token-cloud", StringComparison.Ordinal) ||
+                !extTpl.PopupJsAfterDefaults.Contains("_desktopTotpCache", StringComparison.Ordinal) ||
+                !extTpl.PopupJsAfterDefaults.Contains("btn-push-token-cloud", StringComparison.Ordinal))
             {
-                throw new InvalidOperationException("Extension template bundle missing v2.9.2 2FA /totp helpers");
+                throw new InvalidOperationException("Extension template bundle missing v2.9.3 helpers");
             }
 
             // 11. ViaBulkImportParser (Pass/Mail secret stripping + auto Profile N + duplicate Proxy warning)
@@ -431,7 +468,25 @@ internal static class Program
                 throw new InvalidOperationException($"CsvExporter output unexpected: {csvText}");
             }
 
-            Console.WriteLine("ADSOPS_DESKTOP_V21_SELFTEST_100_PASS");
+            // 13. v2.2 ChromeSessionTracker + AdAccountSpendPeriodsDto + TelegramDetectedChatDto checks
+            var tracker = new ChromeSessionTracker();
+            tracker.RecordLaunch(999999, "via-track-1", "Via Tracker", "Profile 9", "https://www.facebook.com/");
+            tracker.MarkKeepAliveClosed("via-track-1", "Via Tracker", "Profile 9");
+            var snap = tracker.GetSnapshot();
+            if (snap.Count != 1 || !snap[0].KeepAliveClosed || snap[0].ProfileDir != "Profile 9")
+                throw new InvalidOperationException("ChromeSessionTracker KeepAliveClosed check failed");
+
+            var spendDto = JsonSerializer.Deserialize<AdAccountSpendPeriodsDto>("{\"today_partial_raw\":\"125000\",\"last_7d_raw\":890000}")
+                ?? throw new InvalidOperationException("AdAccountSpendPeriodsDto deserialize returned null");
+            if (spendDto.TodayText != "125000" || spendDto.Last7dText != "890000")
+                throw new InvalidOperationException($"Unexpected spendDto values: {spendDto.TodayText}/{spendDto.Last7dText}");
+
+            var chatDto = JsonSerializer.Deserialize<TelegramDetectedChatDto>("{\"chat_id\":-100987654321,\"title\":\"AdsOps Alerts\",\"type\":\"supergroup\"}")
+                ?? throw new InvalidOperationException("TelegramDetectedChatDto deserialize returned null");
+            if (chatDto.ChatIdText != "-100987654321" || chatDto.Title != "AdsOps Alerts")
+                throw new InvalidOperationException($"Unexpected chatDto ChatIdText: {chatDto.ChatIdText}");
+
+            Console.WriteLine("ADSOPS_DESKTOP_V22_SELFTEST_100_PASS");
             return 0;
         }
         finally

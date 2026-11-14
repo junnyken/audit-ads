@@ -614,7 +614,7 @@ export function downloadWindowsChromeLauncherBat(): void {
     '    }',
     '    $path = $req.Url.AbsolutePath.TrimEnd("/")',
     '    if ($path -eq "/health" -and $req.HttpMethod -eq "GET") {',
-    `      Send-Json $res 200 '{"ok":true,"version":"2.9.2"}'`,
+    `      Send-Json $res 200 '{"ok":true,"version":"2.9.3"}'`,
     '      continue',
     '    }',
     '    if ($path -eq "/chrome-profiles" -and $req.HttpMethod -eq "GET") {',
@@ -905,9 +905,9 @@ export function buildExtensionFilesForVia(
       ? `AdsOps Companion Pro · ${profileDir} · Proxy ${parsed!.host}:${parsed!.port}`
       : `AdsOps Companion Pro · ${profileDir} (${viaName})`,
     short_name: 'AdsOps Companion Pro',
-    version: '2.9.2',
+    version: '2.9.3',
     description:
-      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.9.2 Pro: Đảo Ấm Cookie Sinh Học Đa Lộ Trình + Tự Dừng Nếu Văng Cookie, Full Auto-Pilot Tạo Fanpage giãn nhịp an toàn + Checkpoint Guard, Anti-Passkey, 2FA, WebRTC Lock & EAAB Token.',
+      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.9.3 Pro: Đảo Ấm Cookie Sinh Học Đa Lộ Trình + Tự Dừng Nếu Văng Cookie, Full Auto-Pilot Tạo Fanpage giãn nhịp an toàn + Checkpoint Guard, Anti-Passkey, 2FA, WebRTC Lock & EAAB Token.',
     permissions: [
       'proxy',
       'privacy',
@@ -966,7 +966,7 @@ export function buildExtensionFilesForVia(
 
   // Runs in MAIN world at document_start BEFORE Facebook's scripts load:
   // Completely blocks Windows Hello / WebAuthn / Passkey popup from ever appearing!
-  const passkeyShieldJs = `// AdsOps Companion Pro v2.9.2 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
+  const passkeyShieldJs = `// AdsOps Companion Pro v2.9.3 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
 (function() {
   try {
     if (window.PublicKeyCredential) {
@@ -1049,6 +1049,125 @@ function applyProxyState(state) {
   }
 }
 
+let lastVaultBootstrapAt = 0;
+let vaultBootstrapInFlight = false;
+
+function parseAndSetFacebookCookies(raw) {
+  let count = 0;
+  const clean = String(raw || "").trim();
+  if (!clean || !chrome.cookies || !chrome.cookies.set) return 0;
+  if (clean.startsWith("[")) {
+    try {
+      const arr = JSON.parse(clean);
+      if (Array.isArray(arr)) {
+        arr.forEach((c) => {
+          if (c && c.name && c.value) {
+            chrome.cookies.set(
+              {
+                url: "https://www.facebook.com",
+                domain: ".facebook.com",
+                name: String(c.name),
+                value: String(c.value),
+                path: "/",
+                secure: true
+              },
+              () => {
+                void chrome.runtime.lastError;
+              }
+            );
+            count++;
+          }
+        });
+      }
+      return count;
+    } catch (e) {
+      return 0;
+    }
+  }
+  clean.split(";").forEach((pair) => {
+    const idx = pair.indexOf("=");
+    if (idx > 0) {
+      const name = pair.slice(0, idx).trim();
+      const value = pair.slice(idx + 1).trim();
+      if (name && value) {
+        chrome.cookies.set(
+          {
+            url: "https://www.facebook.com",
+            domain: ".facebook.com",
+            name: name,
+            value: value,
+            path: "/",
+            secure: true
+          },
+          () => {
+            void chrome.runtime.lastError;
+          }
+        );
+        count++;
+      }
+    }
+  });
+  return count;
+}
+
+function ensureVaultCookiesBootstrapped(force) {
+  if (vaultBootstrapInFlight) return;
+  const now = Date.now();
+  if (!force && now - lastVaultBootstrapAt < 30000) return;
+  if (!chrome.cookies || !chrome.cookies.getAll) return;
+
+  vaultBootstrapInFlight = true;
+  lastVaultBootstrapAt = now;
+
+  chrome.cookies.getAll({ domain: "facebook.com" }, (cookies) => {
+    void chrome.runtime.lastError;
+    const hasUser = Array.isArray(cookies) && cookies.some((c) => c && c.name === "c_user" && c.value);
+    if (hasUser) {
+      vaultBootstrapInFlight = false;
+      return;
+    }
+    chrome.storage.local.get(["viaId", "viaName", "profileCode", "twoFaSecret"], async (st) => {
+      void chrome.runtime.lastError;
+      try {
+        const viaId = (st && st.viaId) || DEFAULT_STATE.viaId || "";
+        const vName = (st && st.viaName) || DEFAULT_STATE.viaName || "";
+        const pCode = (st && st.profileCode) || DEFAULT_STATE.profileCode || "Default";
+        const qs = new URLSearchParams({
+          via_id: String(viaId || ""),
+          profile: String(pCode || "Default"),
+          name: String(vName || "")
+        });
+        const resp = await fetch("http://127.0.0.1:17890/local-vault/get?" + qs.toString(), {
+          cache: "no-store"
+        });
+        if (!resp.ok) return;
+        const payload = await resp.json().catch(() => null);
+        if (!payload || !payload.ok || !payload.found) return;
+        if (payload.two_fa_secret && (!st || !st.twoFaSecret)) {
+          chrome.storage.local.set({ twoFaSecret: String(payload.two_fa_secret) }, () => {
+            void chrome.runtime.lastError;
+          });
+        }
+        if (payload.cookie_raw) {
+          const injected = parseAndSetFacebookCookies(payload.cookie_raw);
+          if (injected > 0) {
+            chrome.storage.local.set(
+              { lastVaultBootstrapStatus: { ok: true, count: injected, at: Date.now() } },
+              () => {
+                void chrome.runtime.lastError;
+              }
+            );
+          }
+        }
+      } catch (e) {
+        // Desktop bridge offline: bo qua im lang
+      } finally {
+        vaultBootstrapInFlight = false;
+      }
+    });
+  });
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.get(["viaId", "viaName", "profileCode", "viaTier", "twoFaSecret", "webrtcShield", "blockPasskey", "passkeyStatus", "proxyRaw", "proxyEnabled", "accounts"], (res) => {
     const init = {
@@ -1064,8 +1183,22 @@ chrome.runtime.onInstalled.addListener(() => {
       proxyEnabled: res.proxyEnabled !== undefined ? Boolean(res.proxyEnabled) : DEFAULT_STATE.proxyEnabled,
       accounts: Array.isArray(res.accounts) && res.accounts.length > 0 ? res.accounts : DEFAULT_STATE.accounts
     };
-    chrome.storage.local.set(init, () => applyProxyState(init));
+    chrome.storage.local.set(init, () => {
+      applyProxyState(init);
+      ensureVaultCookiesBootstrapped(true);
+    });
   });
+});
+
+chrome.runtime.onStartup?.addListener(() => {
+  ensureVaultCookiesBootstrapped(true);
+});
+
+chrome.tabs.onUpdated?.addListener((tabId, changeInfo, tab) => {
+  const url = (changeInfo && changeInfo.url) || (tab && tab.url) || "";
+  if (url && url.indexOf("facebook.com") !== -1 && (changeInfo.status === "loading" || Boolean(changeInfo.url))) {
+    ensureVaultCookiesBootstrapped(false);
+  }
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -1266,6 +1399,30 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       })
         .then((r) => r.json().catch(() => ({ ok: r.ok })))
         .then((d) => {
+          if (d && d.close_sender_window && sender && sender.tab && typeof sender.tab.id === "number") {
+            const sTabId = sender.tab.id;
+            const sWinId = sender.tab.windowId;
+            setTimeout(() => {
+              if (typeof sWinId === "number") {
+                chrome.tabs.query({ windowId: sWinId }, (winTabs) => {
+                  void chrome.runtime.lastError;
+                  if (Array.isArray(winTabs) && winTabs.length <= 2 && chrome.windows && chrome.windows.remove) {
+                    chrome.windows.remove(sWinId, () => {
+                      void chrome.runtime.lastError;
+                    });
+                  } else {
+                    chrome.tabs.remove(sTabId, () => {
+                      void chrome.runtime.lastError;
+                    });
+                  }
+                });
+              } else {
+                chrome.tabs.remove(sTabId, () => {
+                  void chrome.runtime.lastError;
+                });
+              }
+            }, 600);
+          }
           try { sendResponse({ ok: true, data: d }); } catch (e) {}
         })
         .catch(() => {
@@ -1333,7 +1490,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   <div class="header">
     <div class="brand">
       <span class="logo">AO</span>
-      <span>AdsOps Companion v2.9.2 Pro</span>
+      <span>AdsOps Companion v2.9.3 Pro</span>
     </div>
     <span id="proxy-badge" class="status-pill">MẠNG GỐC</span>
   </div>
@@ -1433,19 +1590,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     <div id="acc-list" class="acc-list"></div>
   </div>
 
-  <!-- SECTION 4: COOKIE EXPORT/IMPORT, KEEP-ALIVE v2.9.2 & TOKEN EXTRACTOR -->
+  <!-- SECTION 4: COOKIE EXPORT/IMPORT, KEEP-ALIVE v2.9.3 & TOKEN EXTRACTOR -->
   <details class="card" style="cursor:pointer;">
-    <summary class="section-title" style="margin-bottom:0;">4. 🍪 Cookie · ☕ Đảo Ấm v2.9.2 &amp; ⚡ Bắt Token EAAB</summary>
+    <summary class="section-title" style="margin-bottom:0;">4. 🍪 Cookie · ☕ Đảo Ấm v2.9.3 &amp; ⚡ Bắt Token EAAB</summary>
     <div style="margin-top:8px;">
       <div class="btn-row" style="margin-top:0; margin-bottom:6px;">
         <button id="btn-export-cookie" type="button" class="btn btn-primary">🍪 Chép Cookie FB</button>
         <button id="btn-extract-token" type="button" class="btn btn-emerald">⚡ Bắt Token EAAB</button>
       </div>
-      <button id="btn-run-keepalive" type="button" class="btn" style="width:100%;margin-bottom:6px;border-color:rgba(245,158,11,0.55);color:#fcd34d;">☕ Đảo Ấm Cookie Như Người Thật (v2.9.2)</button>
+      <button id="btn-run-keepalive" type="button" class="btn" style="width:100%;margin-bottom:6px;border-color:rgba(245,158,11,0.55);color:#fcd34d;">☕ Đảo Ấm Cookie Như Người Thật (v2.9.3)</button>
       <div id="ka-last-status" style="margin-bottom:6px; font-size:10px; color:#94a3b8;"></div>
       <textarea id="cookie-box" rows="2" class="mono" placeholder="Dán Cookie JSON hoặc c_user=...; xs=... vào đây để đăng nhập Via không cần mật khẩu"></textarea>
       <div class="btn-row">
         <button id="btn-import-cookie" type="button" class="btn">📥 Nạp Cookie vào Chrome này</button>
+      </div>
+      <div class="btn-row">
+        <button id="btn-push-token-cloud" type="button" class="btn btn-primary" title="Tự động bắt Token EAAB trên tab Ads Manager / Meta Business (hoặc lấy từ ô phía trên) rồi đẩy thẳng lên Cloud qua AdsOps Desktop Pro">☁️ Đẩy Token EAAB lên Cloud</button>
       </div>
       <div class="btn-row">
         <button id="btn-vault-save" type="button" class="btn btn-emerald" title="Mã hóa DPAPI &amp; lưu Cookie + 2FA vào App Windows AdsOps Desktop Pro trên máy (không gửi lên Cloud)">🔐 Lưu vào Két App Win</button>
@@ -1863,6 +2023,86 @@ document.getElementById("btn-extract-token")?.addEventListener("click", () => {
   });
 });
 
+document.getElementById("btn-push-token-cloud")?.addEventListener("click", async () => {
+  const statusEl = document.getElementById("cookie-status");
+  const box = document.getElementById("cookie-box");
+  const typed = (box?.value || "").trim();
+  let tok = typed.startsWith("EAA") && typed.length >= 40 ? typed : "";
+
+  if (!tok && chrome.tabs && chrome.scripting) {
+    tok = await new Promise((resolve) => {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const tabId = tabs?.[0]?.id;
+        if (!tabId) {
+          resolve("");
+          return;
+        }
+        chrome.scripting.executeScript(
+          {
+            target: { tabId },
+            func: () => {
+              const html = document.documentElement.innerHTML;
+              const m = html.match(/EAA[A-Za-z0-9]{40,350}/);
+              return m ? m[0] : "";
+            }
+          },
+          (results) => {
+            void chrome.runtime.lastError;
+            resolve(results?.[0]?.result || "");
+          }
+        );
+      });
+    });
+  }
+
+  if (!tok) {
+    if (statusEl) {
+      statusEl.style.color = "#fbbf24";
+      statusEl.textContent = "Hãy dán Token EAAB vào ô trên hoặc mở tab Ads Manager / BM rồi bấm lại.";
+    }
+    return;
+  }
+
+  if (box) box.value = tok;
+  if (statusEl) {
+    statusEl.style.color = "#93c5fd";
+    statusEl.textContent = "⏳ Đang đẩy Token EAAB lên AdsOps Cloud...";
+  }
+
+  const vName = (viaInput?.value || (typeof DEFAULT_VIA_META !== "undefined" ? DEFAULT_VIA_META.viaName : "") || "Via Facebook").trim();
+  const pCode = (profileInput?.value || (typeof DEFAULT_VIA_META !== "undefined" ? DEFAULT_VIA_META.profileCode : "") || "Default").trim();
+
+  try {
+    const resp = await fetch("http://127.0.0.1:17890/auto-connect-token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        access_token: tok,
+        browser_profile_label: pCode || vName,
+        via_label: vName,
+        via_id: typeof currentViaId !== "undefined" ? currentViaId : ""
+      })
+    });
+    const d = await resp.json().catch(() => ({}));
+    if (resp.ok && d.ok) {
+      if (statusEl) {
+        statusEl.style.color = "#34d399";
+        statusEl.textContent = "☁️ Đã đẩy Token lên Cloud thành công!" + (d.label ? " (" + d.label + ")" : "");
+      }
+    } else {
+      if (statusEl) {
+        statusEl.style.color = "#fda4af";
+        statusEl.textContent = d.error || ("Không đẩy được Token lên Cloud (HTTP " + resp.status + ").");
+      }
+    }
+  } catch (e) {
+    if (statusEl) {
+      statusEl.style.color = "#fda4af";
+      statusEl.textContent = "⚠️ Chưa bật App Windows AdsOps Desktop Pro (127.0.0.1:17890).";
+    }
+  }
+});
+
 function fmtMoney(raw, curr) {
   const n = Number(raw) || 0;
   if (curr === "USD") return n.toLocaleString("en-US") + " USD";
@@ -2070,7 +2310,7 @@ refreshIp();
 tickOtp();`
 
   const readmeTxt = [
-    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.9.2 PRO - FULL AUTO PAGE + ANTI-PASSKEY)',
+    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.9.3 PRO - FULL AUTO PAGE + ANTI-PASSKEY)',
     '===================================================================================',
     'Bước 1: Giải nén file .zip này ra một thư mục cố định (ví dụ: Desktop\\AdsOps-Chrome-Extension).',
     'Bước 2: Mở trình duyệt Google Chrome của Via -> gõ vào thanh địa chỉ: chrome://extensions',
@@ -2079,7 +2319,7 @@ tickOtp();`
     'Bước 5: Bấm biểu tượng mảnh ghép trên góc phải Chrome -> Bấm nút Ghim (Pin) cạnh "AdsOps Companion Pro".',
   ].join('\r\n')
 
-  const contentJs = `// AdsOps Companion Pro v2.9.2 — Full Auto-Pilot Page Creator + Safety Guard + Anti-Passkey + HUD
+  const contentJs = `// AdsOps Companion Pro v2.9.3 — Full Auto-Pilot Page Creator + Safety Guard + Anti-Passkey + HUD
 (function() {
   let lastSyncedAct = "";
   let autoDeletePasskeyTriggered = false;
@@ -2472,7 +2712,7 @@ tickOtp();`
       if (!avFile || pageAutoPilotHalted) return;
       assignFileToInput(fileInputs[0], avFile);
       lastMediaAttachedAt = Date.now();
-      setHudPageStatus("🖼️ [Auto v2.9.2] Đã tự gắn Avatar độc bản (chống trùng Hash)...", "#38bdf8");
+      setHudPageStatus("🖼️ [Auto v2.9.3] Đã tự gắn Avatar độc bản (chống trùng Hash)...", "#38bdf8");
 
       if (fileInputs.length > 1) {
         setTimeout(() => {
@@ -2481,7 +2721,7 @@ tickOtp();`
             if (!cvFile || pageAutoPilotHalted) return;
             assignFileToInput(fileInputs[1], cvFile);
             lastMediaAttachedAt = Date.now();
-            setHudPageStatus("🖼️ [Auto v2.9.2] Đã tự gắn đủ Avatar + Cover độc bản!", "#34d399");
+            setHudPageStatus("🖼️ [Auto v2.9.3] Đã tự gắn đủ Avatar + Cover độc bản!", "#34d399");
           });
         }, randDelay(950, 1550));
       }
@@ -2721,7 +2961,7 @@ tickOtp();`
       const waitMs = randDelay(stopMeta.minMs, stopMeta.maxMs);
 
       const reader = startBiometricReadingLoop(
-        "☕ [Đảo Ấm v2.9.2 · Bước " + (idx + 1) + "/" + steps.length + "] Đang đọc " + stopMeta.label + " tự nhiên (" + Math.round(waitMs / 1000) + "s)..."
+        "☕ [Đảo Ấm v2.9.3 · Bước " + (idx + 1) + "/" + steps.length + "] Đang đọc " + stopMeta.label + " tự nhiên (" + Math.round(waitMs / 1000) + "s)..."
       );
 
       setTimeout(() => {
@@ -2756,7 +2996,7 @@ tickOtp();`
             route_summary: summary,
             duration_sec: Math.max(15, Math.round((Date.now() - (Number(session.startedAt) || Date.now())) / 1000)),
           });
-          setHudPageStatus("☕ [v2.9.2] Đã đảo ấm sinh học hoàn tất (" + summary + ")!", "#34d399");
+          setHudPageStatus("☕ [v2.9.3] Đã đảo ấm sinh học hoàn tất (" + summary + ")!", "#34d399");
           if (session.autoClose) {
             scheduleSafeTabAutoClose(randDelay(7500, 10500));
           }
@@ -2791,7 +3031,7 @@ tickOtp();`
           return;
         }
         const waitMs = randDelay(12500, 17500);
-        const reader = startBiometricReadingLoop("🌿 [Auto v2.9.2] Đang đọc lướt Newsfeed sinh học " + Math.round(waitMs / 1000) + "s trước khi tạo Page...");
+        const reader = startBiometricReadingLoop("🌿 [Auto v2.9.3] Đang đọc lướt Newsfeed sinh học " + Math.round(waitMs / 1000) + "s trước khi tạo Page...");
         setTimeout(() => {
           reader.stop();
           if (pageAutoPilotHalted) return;
@@ -3094,7 +3334,7 @@ tickOtp();`
       const tFinal = tBio + randDelay(1900, 2850);
 
       if (autoSubmit) {
-        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9.2] Đang nhập tự nhiên theo nhịp người thật...", "#38bdf8");
+        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9.3] Đang nhập tự nhiên theo nhịp người thật...", "#38bdf8");
       }
 
       if (pName && nameEl && !nameEl.value) {
@@ -3182,14 +3422,14 @@ tickOtp();`
           sessionStorage.setItem("adsops_media_uploaded", "0");
         } catch (e) {}
         createBtn.click();
-        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9.2] Đã bấm Tạo Trang — Đang hoàn tất bước phụ...", "#38bdf8");
+        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9.3] Đã bấm Tạo Trang — Đang hoàn tất bước phụ...", "#38bdf8");
       };
 
       setTimeout(() => tryAutoClickCreate(true), tFinal);
     } catch (e) {}
   }
 
-  // v2.9.2: User-clicked 1-tap 6-digit 2FA autofill from Desktop DPAPI Vault / local secret (strictly blocked on CAPTCHA pages)
+  // v2.9.3: User-clicked 1-tap 6-digit 2FA autofill from Desktop DPAPI Vault / local secret (strictly blocked on CAPTCHA pages)
   function handleTwoFactorAssistDom() {
     try {
       const url = (window.location.href || "").toLowerCase();
@@ -3332,7 +3572,7 @@ export function downloadChromeExtensionZip(
   const url = URL.createObjectURL(zipBlob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `AdsOps-Chrome-Extension-v2.9.2-${slug}.zip`
+  a.download = `AdsOps-Chrome-Extension-v2.9.3-${slug}.zip`
   document.body.appendChild(a)
   a.click()
   a.remove()
@@ -3353,12 +3593,12 @@ export function downloadAllViasExtensionsBundleZip(items: ViaExtensionBundleSpec
   if (!Array.isArray(items) || items.length === 0) return
   const allFiles: Array<{ name: string; content: string | Uint8Array }> = []
   const guideLines: string[] = [
-    'TRON BO TIEN ICH ADSOPS COMPANION v2.9.2 PRO CHO TOAN BO DAN VIA',
+    'TRON BO TIEN ICH ADSOPS COMPANION v2.9.3 PRO CHO TOAN BO DAN VIA',
     '================================================================',
     `Tong so thu muc Extension da dong goi: ${items.length} Via`,
     '',
     'Cach cai nhanh:',
-    '1. Giai nen file .zip nay ra mot thu muc co dinh (VD: Desktop\AdsOps-Extensions-v2.9.2).',
+    '1. Giai nen file .zip nay ra mot thu muc co dinh (VD: Desktop\AdsOps-Extensions-v2.9.3).',
     '2. Mo Chrome cua tung Via -> chrome://extensions -> Bat Developer mode -> Load unpacked -> chon dung thu muc ten cua Via do ben duoi:',
     '',
   ]
@@ -3390,7 +3630,7 @@ export function downloadAllViasExtensionsBundleZip(items: ViaExtensionBundleSpec
   const url = URL.createObjectURL(zipBlob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `AdsOps-Tron-Bo-Extension-v2.9.2-${items.length}Via.zip`
+  a.download = `AdsOps-Tron-Bo-Extension-v2.9.3-${items.length}Via.zip`
   document.body.appendChild(a)
   a.click()
   a.remove()

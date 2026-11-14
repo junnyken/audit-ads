@@ -38,7 +38,7 @@ public sealed class AdsOpsApiClient : IDisposable
     private HttpRequestMessage BuildRequest(HttpMethod method, string relativePath, object? body = null)
     {
         var req = new HttpRequestMessage(method, _baseUrl + relativePath);
-        req.Headers.TryAddWithoutValidation("X-AdsOps-Client", "2.1.0");
+        req.Headers.TryAddWithoutValidation("X-AdsOps-Client", "2.2.0");
         req.Headers.TryAddWithoutValidation("X-AdsOps-Source", "desktop");
         if (!string.IsNullOrWhiteSpace(_token))
         {
@@ -241,6 +241,84 @@ public sealed class AdsOpsApiClient : IDisposable
 
     public Task<JsonElement> EvaluateCampaignDraftAsync(string draftId, CancellationToken ct = default) =>
         SendJsonAsync<JsonElement>(HttpMethod.Post, $"/api/v1/campaign-drafts/{Uri.EscapeDataString(draftId)}/evaluate", new { }, ct);
+
+    public Task<AutoConnectTokenResponseDto> AutoConnectFacebookTokenAsync(
+        string accessToken,
+        string? browserProfileLabel = null,
+        string? networkLabel = null,
+        CancellationToken ct = default) =>
+        SendJsonAsync<AutoConnectTokenResponseDto>(
+            HttpMethod.Post,
+            "/api/v1/facebook-identities/auto-connect-token",
+            new
+            {
+                access_token = accessToken.Trim(),
+                browser_profile_label = string.IsNullOrWhiteSpace(browserProfileLabel) ? null : browserProfileLabel.Trim(),
+                network_label = string.IsNullOrWhiteSpace(networkLabel) ? null : networkLabel.Trim(),
+            },
+            ct);
+
+    public Task<JsonElement> SuppressAlertAsync(
+        string alertId,
+        int hours = 24,
+        string reason = "Tạm ẩn 24h từ AdsOps Desktop Pro",
+        CancellationToken ct = default) =>
+        SendJsonAsync<JsonElement>(
+            HttpMethod.Post,
+            $"/api/v1/alerts/{Uri.EscapeDataString(alertId)}/suppress",
+            new
+            {
+                reason = string.IsNullOrWhiteSpace(reason) ? "Tạm ẩn từ AdsOps Desktop Pro" : reason.Trim(),
+                expires_at = DateTimeOffset.UtcNow.AddHours(Math.Clamp(hours, 1, 720)).ToString("o"),
+            },
+            ct);
+
+    public Task<TelegramBotConfigDto> GetTelegramBotConfigAsync(CancellationToken ct = default) =>
+        SendJsonAsync<TelegramBotConfigDto>(HttpMethod.Get, "/api/v1/telegram-bot/config", null, ct);
+
+    public Task<TelegramBotConfigDto> SaveTelegramBotConfigAsync(object payload, CancellationToken ct = default) =>
+        SendJsonAsync<TelegramBotConfigDto>(HttpMethod.Post, "/api/v1/telegram-bot/config", payload, ct);
+
+    public Task<TelegramDetectChatsResponseDto> DetectTelegramChatsAsync(string? botToken = null, CancellationToken ct = default) =>
+        SendJsonAsync<TelegramDetectChatsResponseDto>(
+            HttpMethod.Post,
+            "/api/v1/telegram-bot/detect-chat",
+            string.IsNullOrWhiteSpace(botToken) ? new { } : new { bot_token = botToken.Trim() },
+            ct);
+
+    public Task<JsonElement> SendTelegramTestWithOverridesAsync(
+        string? botToken = null,
+        string? chatId = null,
+        CancellationToken ct = default)
+    {
+        var body = new Dictionary<string, object>();
+        if (!string.IsNullOrWhiteSpace(botToken)) body["bot_token"] = botToken.Trim();
+        if (!string.IsNullOrWhiteSpace(chatId)) body["chat_id"] = chatId.Trim();
+        return SendJsonAsync<JsonElement>(HttpMethod.Post, "/api/v1/telegram-bot/test-send", body, ct);
+    }
+
+    public Task<SpendSummaryDto> GetSpendSummaryAsync(CancellationToken ct = default) =>
+        SendJsonAsync<SpendSummaryDto>(HttpMethod.Get, "/api/v1/spend/summary", null, ct);
+
+    public Task<JsonElement> RefreshAdAccountSpendAsync(string adAccountId, CancellationToken ct = default) =>
+        SendJsonAsync<JsonElement>(
+            HttpMethod.Post,
+            $"/api/v1/ad-accounts/{Uri.EscapeDataString(adAccountId)}/spend/refresh",
+            null,
+            ct);
+
+    public Task<List<DeviceSessionDto>> ListMyDeviceSessionsAsync(CancellationToken ct = default) =>
+        SendJsonAsync<List<DeviceSessionDto>>(HttpMethod.Get, "/api/v1/security/sessions/me", null, ct);
+
+    public Task<DeviceSessionDto> RevokeDeviceSessionAsync(string sessionId, string? reason = null, CancellationToken ct = default) =>
+        SendJsonAsync<DeviceSessionDto>(
+            HttpMethod.Post,
+            $"/api/v1/security/sessions/{Uri.EscapeDataString(sessionId)}/revoke",
+            string.IsNullOrWhiteSpace(reason) ? null : new { reason = reason.Trim() },
+            ct);
+
+    public Task<RevokeSessionResultDto> LogoutOtherDevicesAsync(CancellationToken ct = default) =>
+        SendJsonAsync<RevokeSessionResultDto>(HttpMethod.Post, "/api/v1/security/sessions/logout-other-devices", null, ct);
 
     public void Dispose() => _http.Dispose();
 }
