@@ -9,6 +9,7 @@ RUN npm run build
 
 FROM nginx:1.27-alpine AS runtime
 COPY --from=build /app/dist /usr/share/nginx/html
+RUN chmod -R a+rX /usr/share/nginx/html
 # A TEMPLATE, not a finished config: the official nginx image runs envsubst over
 # /etc/nginx/templates/*.template at container start, so API_ORIGIN is resolved when the
 # container runs rather than when the image is built. The API's address is not known at build
