@@ -84,7 +84,7 @@ def _ensure_server_token_credential(
             .scalars()
             .first()
         )
-    bm_name = bm_row.name if bm_row else (label or f"BM {target_bm}" if target_bm else "Quảng Cáo Top")
+    bm_name = bm_row.name if bm_row else (label or (f"BM {target_bm}" if target_bm else "Meta Business Manager"))
     primary_via = (
         ctx.session.execute(
             sa.select(PersonalAccountReference)
@@ -111,7 +111,7 @@ def _ensure_server_token_credential(
     enc = encrypt_secret(settings, token) if vault_configured(settings) else None
     active_creds = [c for c in existing_creds if c.status != ReaderCredentialStatus.REVOKED]
     cred = active_creds[0] if active_creds else None
-    seen_entry = {"external_id": target_bm or "1993884657458857", "name": bm_name, "permitted_roles": ["ADMIN"]}
+    seen_entry = {"external_id": target_bm, "name": bm_name, "permitted_roles": ["ADMIN"]}
 
     if cred is None:
         cred = MetaReaderCredential(
@@ -122,9 +122,9 @@ def _ensure_server_token_credential(
             encrypted_secret=enc,
             secret_last_rotated_at=now_ts,
             provider_user_external_id=(
-                primary_via.external_reference_id if primary_via and primary_via.external_reference_id else "122246960810301923"
+                primary_via.external_reference_id if primary_via and primary_via.external_reference_id else None
             ),
-            provider_user_name=primary_via.label if primary_via else "Tài Khoản Chính",
+            provider_user_name=primary_via.label if primary_via else "Chủ workspace",
             personal_account_reference_id=primary_via.id if primary_via else None,
             scopes_json=["ads_read", "business_management"],
             issued_at=now_ts,
@@ -132,7 +132,7 @@ def _ensure_server_token_credential(
             last_verified_at=now_ts,
             last_verify_outcome="valid",
             reconnect_reason=None,
-            businesses_seen_json=[seen_entry],
+            businesses_seen_json=([seen_entry] if target_bm else []),
             connected_by=ctx.user.id,
             connected_at=now_ts,
         )

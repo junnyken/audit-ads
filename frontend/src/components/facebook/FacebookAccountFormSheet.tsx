@@ -339,6 +339,9 @@ export function FacebookAccountFormSheet({
               data-testid="fb-browser-input"
             >
               <option value="">— Chọn Hồ sơ Google Chrome thật trên máy tính ({chromeList.length} hồ sơ) —</option>
+              {chromeList.length === 0 && (
+                <option value="Default">Default (Mặc định — bật AdsOps Desktop Pro để quét đầy đủ hồ sơ)</option>
+              )}
               {chromeList.map((cp) => (
                 <option key={cp.folder} value={cp.label}>
                   {cp.label}

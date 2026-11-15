@@ -354,7 +354,7 @@ export default function AccountFormDrawer({
                       className="input"
                       value={form.business_legal_name}
                       onChange={(event) => set('business_legal_name', event.target.value)}
-                      placeholder="VD: Jollibee Foods Corporation"
+                      placeholder="VD: Công ty TNHH Thương mại ABC"
                     />
                   </Field>
                 </div>

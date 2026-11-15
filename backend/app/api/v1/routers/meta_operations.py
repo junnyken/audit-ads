@@ -1527,41 +1527,6 @@ def run_workspace_quick_sync(
                             pass
 
                 rollup_svc.checklists.initialise(acc)
-                if acc.status == AccountStatus.ACTIVE:
-                    for item in rollup_svc.checklists.list_items(acc.id):
-                        if item.item_key in (
-                            "ownership_confirmed",
-                            "admin_access_reviewed",
-                            "two_factor_reviewed",
-                            "payment_method_reviewed",
-                            "billing_issue_checked",
-                        ):
-                            item.review_status = ChecklistReviewStatus.COMPLETED
-                            item.reviewed_at = now_eval
-                            item.reviewed_by = actor_id
-                            if item.item_key in ("ownership_confirmed", "payment_method_reviewed"):
-                                has_ev = session.execute(
-                                    sa.select(ReadinessEvidence.id).where(
-                                        ReadinessEvidence.workspace_id == workspace_id,
-                                        ReadinessEvidence.checklist_item_id == item.id,
-                                        ReadinessEvidence.archived_at.is_(None),
-                                    )
-                                ).first()
-                                if has_ev is None:
-                                    session.add(
-                                        ReadinessEvidence(
-                                            workspace_id=workspace_id,
-                                            checklist_item_id=item.id,
-                                            evidence_type="meta_graph_api",
-                                            summary="Xác thực trực tiếp từ Meta Graph API (BM Quảng Cáo Top)",
-                                            provided_at=now_eval,
-                                            provided_by=actor_id,
-                                            verified_at=now_eval,
-                                            verified_by=actor_id,
-                                            status=EvidenceStatus.VERIFIED,
-                                        )
-                                    )
-                    session.flush()
 
             if settings.environment.lower() in ("production", "prod", "staging"):
                 if default_payment is not None:
@@ -1664,83 +1629,6 @@ def run_workspace_quick_sync(
                 ):
                     old_bm.archived_at = now_clean
 
-            # Ensure client portfolio BM 'Triều Shop' (109796697343603) is active and linked to ad account 148004397
-            trieu_bm = (
-                session.execute(
-                    sa.select(BusinessManager).where(
-                        BusinessManager.workspace_id == workspace_id,
-                        BusinessManager.external_id == "109796697343603",
-                    )
-                )
-                .scalars()
-                .first()
-            )
-            if trieu_bm is None:
-                try:
-                    with session.begin_nested():
-                        trieu_bm = BusinessManager(
-                            workspace_id=workspace_id,
-                            external_id="109796697343603",
-                            name="Triều Shop",
-                            country="VN",
-                            currency="VND",
-                            status=ReferenceStatus.ACTIVE,
-                            notes="Trang quản lý tài sản doanh nghiệp (Sở hữu TKQC 148004397)",
-                        )
-                        session.add(trieu_bm)
-                        session.flush()
-                except Exception:
-                    trieu_bm = None
-            else:
-                trieu_bm.archived_at = None
-                trieu_bm.status = ReferenceStatus.ACTIVE
-                if not trieu_bm.name or trieu_bm.name in ("BM - Album", "109796697343603"):
-                    trieu_bm.name = "Triều Shop"
-                if not trieu_bm.country:
-                    trieu_bm.country = "VN"
-                if not trieu_bm.currency:
-                    trieu_bm.currency = "VND"
-
-            if trieu_bm is not None:
-                for acc in (
-                    session.execute(
-                        sa.select(AdAccount).where(
-                            AdAccount.workspace_id == workspace_id,
-                            AdAccount.archived_at.is_(None),
-                        )
-                    )
-                    .scalars()
-                    .all()
-                ):
-                    if canonical_external_id(acc.external_account_id) == "148004397":
-                        acc.business_manager_id = trieu_bm.id
-                        acc.account_type = AccountType.BUSINESS_MANAGER
-                for ident in [i for i in all_identities if i.archived_at is None]:
-                    has_t_link = session.execute(
-                        sa.select(PersonalAccountBusinessLink.id).where(
-                            PersonalAccountBusinessLink.workspace_id == workspace_id,
-                            PersonalAccountBusinessLink.personal_account_reference_id == ident.id,
-                            PersonalAccountBusinessLink.business_manager_id == trieu_bm.id,
-                            PersonalAccountBusinessLink.unlinked_at.is_(None),
-                        )
-                    ).first()
-                    if has_t_link is None:
-                        try:
-                            with session.begin_nested():
-                                session.add(
-                                    PersonalAccountBusinessLink(
-                                        workspace_id=workspace_id,
-                                        personal_account_reference_id=ident.id,
-                                        business_manager_id=trieu_bm.id,
-                                        role=IdentityBusinessRole.ADMIN,
-                                        linked_at=now_clean,
-                                        linked_by=actor_id,
-                                        note="Quản trị viên BM Triều Shop",
-                                    )
-                                )
-                                session.flush()
-                        except Exception:
-                            pass
             for old_conn in (
                 session.execute(
                     sa.select(MetaConnection).where(
@@ -3105,10 +2993,7 @@ def _sync_workspace_pages_from_meta(
                         )
                     break
 
-    # 5) Auto-link BM Pages & Personal Pages to active Ad Accounts of their BM / cluster if 0 linked accounts
-    mb_corp_bm = bm_by_ext.get("102968402561310") or bm_by_name.get("công ty cổ phần mắt bão")
-    qct_bm = bm_by_ext.get("1993884657458857") or bm_by_name.get("quảng cáo top")
-    trieu_shop_bm = bm_by_ext.get("109796697343603") or bm_by_name.get("triều shop")
+    # 5) Auto-link BM Pages to active Ad Accounts of their exact owning BM if 0 linked accounts
     for pg_ent in by_ext_page.values():
         if pg_ent.id in pages_with_any_link or pg_ent.archived_at is not None:
             continue
@@ -3116,38 +3001,13 @@ def _sync_workspace_pages_from_meta(
         if pg_ent.notes and "Đồng bộ từ BM " in pg_ent.notes:
             b_label = pg_ent.notes.split("Đồng bộ từ BM ", 1)[1].strip().lower()
             matched_bm = bm_by_name.get(b_label)
-        p_name_low = (pg_ent.name or "").lower()
-        target_accs = []
         if matched_bm is not None:
             bm_accs = [
                 a for a in accounts_all
                 if a.business_manager_id == matched_bm.id and a.status == AccountStatus.ACTIVE
             ] or [a for a in accounts_all if a.business_manager_id == matched_bm.id]
-            if not bm_accs and any(k in matched_bm.name.lower() for k in ("mắt bão", "mat bao")) and mb_corp_bm is not None:
-                mb_pool = [
-                    a for a in accounts_all
-                    if a.business_manager_id == mb_corp_bm.id and a.status == AccountStatus.ACTIVE
-                ]
-                if "invoice" in p_name_low:
-                    target_accs = [a for a in mb_pool if "invoice" in a.display_name.lower() or "mifi" in a.display_name.lower()][:2] or mb_pool[:2]
-                elif "sale ai" in p_name_low:
-                    target_accs = [a for a in mb_pool if "mbi" in a.display_name.lower() or "cty" in a.display_name.lower()][:2] or mb_pool[:2]
-                else:
-                    target_accs = [a for a in mb_pool if "branding" in a.display_name.lower() or "công ty cp mắt bão" in a.display_name.lower()][:2] or mb_pool[:2]
-            else:
-                target_accs = bm_accs[:2]
-        else:
-            # Personal page administered by Master Via (/me/accounts)
-            pers_accs = [
-                a for a in accounts_all
-                if (a.business_manager_id is None or (trieu_shop_bm and a.business_manager_id == trieu_shop_bm.id))
-                and a.status == AccountStatus.ACTIVE
-            ]
-            if not pers_accs and qct_bm is not None:
-                pers_accs = [a for a in accounts_all if a.business_manager_id == qct_bm.id and a.status == AccountStatus.ACTIVE][:1]
-            target_accs = pers_accs[:2]
-        for acc_target in target_accs:
-            _link_page_to_account(pg_ent, acc_target, f"Tự động liên kết theo cụm {matched_bm.name if matched_bm else 'Via Tổng'}")
+            for acc_target in bm_accs[:2]:
+                _link_page_to_account(pg_ent, acc_target, f"Tự động liên kết theo BM {matched_bm.name}")
 
     return {
         "synced_count": synced_count,
@@ -3337,34 +3197,12 @@ def _build_pages_summary(
                     }
                 )
 
-        # If Page has 0 explicit links yet, infer BM's / Cluster's / Holder Via's active accounts for visibility
-        if not linked_accs_out and not ov.get("explicit_links_configured"):
-            mb_corp_bm = bm_by_name.get("công ty cổ phần mắt bão")
-            trieu_shop_bm = bm_by_name.get("triều shop")
-            p_name_low = (p.name or "").lower()
-            inferred_accs = []
-            if owner_bm is not None:
-                inferred_accs = [
-                    a for a in accounts_all
-                    if a.business_manager_id == owner_bm.id and a.status == AccountStatus.ACTIVE
-                ] or [a for a in accounts_all if a.business_manager_id == owner_bm.id]
-                if not inferred_accs and any(k in owner_bm.name.lower() for k in ("mắt bão", "mat bao")) and mb_corp_bm is not None:
-                    mb_pool = [
-                        a for a in accounts_all
-                        if a.business_manager_id == mb_corp_bm.id and a.status == AccountStatus.ACTIVE
-                    ]
-                    if "invoice" in p_name_low:
-                        inferred_accs = [a for a in mb_pool if "invoice" in a.display_name.lower() or "mifi" in a.display_name.lower()][:2] or mb_pool[:2]
-                    elif "sale ai" in p_name_low:
-                        inferred_accs = [a for a in mb_pool if "mbi" in a.display_name.lower() or "cty" in a.display_name.lower()][:2] or mb_pool[:2]
-                    else:
-                        inferred_accs = [a for a in mb_pool if "branding" in a.display_name.lower() or "công ty cp mắt bão" in a.display_name.lower()][:2] or mb_pool[:2]
-            else:
-                inferred_accs = [
-                    a for a in accounts_all
-                    if (a.business_manager_id is None or (trieu_shop_bm and a.business_manager_id == trieu_shop_bm.id))
-                    and a.status == AccountStatus.ACTIVE
-                ][:2]
+        # If Page has 0 explicit links yet, infer active accounts belonging to its exact owning BM
+        if not linked_accs_out and not ov.get("explicit_links_configured") and owner_bm is not None:
+            inferred_accs = [
+                a for a in accounts_all
+                if a.business_manager_id == owner_bm.id and a.status == AccountStatus.ACTIVE
+            ] or [a for a in accounts_all if a.business_manager_id == owner_bm.id]
             for acc_obj in inferred_accs[:2]:
                 st_val = acc_obj.status.value
                 if st_val in ("restricted", "disabled"):
@@ -5232,19 +5070,7 @@ def discard_unsynced_page_draft(
 
 assets_control_router = APIRouter(prefix="/facebook-assets", tags=["facebook-assets"])
 
-_REAL_CHROME_PROFILES_POOL = [
-    "Chrome — Default · trieu (thientrieu753@gmail.com)",
-    "Chrome — Profile 1 · Thiên Triều (nguyen.thientrieu@gmail.com)",
-    "Chrome — Profile 3 · Thiên Triều (trieunguyen.home9x@gmail.com)",
-    "Chrome — Profile 4 · MATBAO (marcommatbao@gmail.com)",
-    "Chrome — Profile 5 · Matbao-invoice (mifihoadondientuantoan@gmail.com)",
-    "Chrome — Profile 7 · Utra Google (thientrieuadmin@tbsupellex.com)",
-    "Chrome — Profile 8 · Test Utraviw (tranngoc123@tbsupellex.com)",
-    "Chrome — Profile 9 · matbao.com (thinhlq@matbao.com)",
-    "Chrome — Profile 10 · Lâm Quang (lamquangthinh3006@gmail.com)",
-    "Chrome — Profile 11 · thu (thientrieu.gr1@gmail.com)",
-    "Chrome — Profile 12 · Dự phòng (standby@matbao.com)",
-]
+_REAL_CHROME_PROFILES_POOL: list[str] = []
 
 _LEGACY_PRESET_NETWORK_LABELS = (
     "vnpt static ip — line #",
@@ -5313,41 +5139,22 @@ def _reconcile_workspace_assets(
         left = s.split("·")[0].strip().lower()
         return left
 
-    # Preferred 1:1 Chrome Profile per Via label so no two Vias ever share the same Chrome folder
-    preferred_by_label = {
-        "tài khoản chính": "Chrome — Default · trieu (thientrieu753@gmail.com)",
-        "thiên triều nguyễn": "Chrome — Profile 1 · Thiên Triều (nguyen.thientrieu@gmail.com)",
-        "thiên triều mới": "Chrome — Profile 3 · Thiên Triều (trieunguyen.home9x@gmail.com)",
-        "thiên triều mkmb": "Chrome — Profile 4 · Triều Nguyễn (trieunguyen.xx@gmail.com)",
-        "triều nguyễn thiên": "Chrome — Profile 5 · Thiên Triều (thientrieu2101@gmail.com)",
-        "via xmdt 2": "Chrome — Profile 6 · Via XMDT 2",
-        "lâm quang thịnh": "Chrome — Profile 10 · Lâm Quang (lamquangthinh3006@gmail.com)",
-        "via 2": "Chrome — Profile 11 · Via 2",
-        "via 3": "Chrome — Profile 12 · Via 3",
-    }
-
-    is_owner_ws = is_bootstrap_owner_workspace(session, workspace_id)
     used_profiles: set[str] = set()
     used_folders: set[str] = set()
     browsers_synced = 0
     for idx, v in enumerate(vias):
-        v_lbl_low = (v.label or "").strip().lower()
-        pref_cand = preferred_by_label.get(v_lbl_low) if is_owner_ws else None
         prof = (v.browser_profile_label or "").strip()
-        if pref_cand and _chrome_folder_key(pref_cand) not in used_folders:
-            prof = pref_cand
-            v.browser_profile_label = prof[:160]
         f_key = _chrome_folder_key(prof)
         if not prof or prof in used_profiles or (f_key and f_key in used_folders):
-            for cand in (_REAL_CHROME_PROFILES_POOL if is_owner_ws else ()):
+            cand_num = idx
+            while True:
+                cand = "Default" if cand_num == 0 else f"Profile {cand_num}"
                 cf = _chrome_folder_key(cand)
                 if cand not in used_profiles and cf not in used_folders:
                     prof = cand
                     f_key = cf
                     break
-            if not prof or prof in used_profiles or (f_key and f_key in used_folders):
-                prof = f"Chrome — Profile {idx + 20} · {v.label[:40]}"
-                f_key = _chrome_folder_key(prof)
+                cand_num += 1
             v.browser_profile_label = prof[:160]
         used_profiles.add(prof)
         if f_key:
@@ -6127,143 +5934,8 @@ def _ensure_initial_retainers_from_real_bms(
     audit,
     actor_id: uuid.UUID | None = None,
 ) -> None:
-    from app.models.entities import AdAccount, AuditLog, BusinessManager
-    from app.services.extension_context import canonical_external_id
-
-    existing_rows = (
-        session.execute(
-            sa.select(AuditLog).where(
-                AuditLog.workspace_id == workspace_id,
-                AuditLog.entity_type == "client_retainer",
-                AuditLog.action.in_(("client_retainer.created", "client_retainer.updated", "client_retainer.deleted")),
-            )
-        )
-        .scalars()
-        .all()
-    )
-    if existing_rows:
-        return
-
-    accounts_all = (
-        session.execute(
-            sa.select(AdAccount).where(
-                AdAccount.workspace_id == workspace_id,
-                AdAccount.archived_at.is_(None),
-            )
-        )
-        .scalars()
-        .all()
-    )
-    if not accounts_all:
-        return
-
-    acc_by_ext: dict[str, AdAccount] = {}
-    for a in accounts_all:
-        ext = canonical_external_id(a.external_account_id)
-        if ext:
-            acc_by_ext[ext] = a
-
-    now_iso = datetime.now(UTC).isoformat()
-
-    # Build initial real retainers strictly from the workspace's real AdAccounts & BMs
-    mb_exts = ("4109242709312785", "659208850058410", "996876978574999", "487663100420907", "160263643531519", "764307044801093")
-    mb_ids = [str(acc_by_ext[e].id) for e in mb_exts if e in acc_by_ext]
-
-    tbs_exts = ("1167063825546698", "1069545664559001", "790088142598612")
-    tbs_ids = [str(acc_by_ext[e].id) for e in tbs_exts if e in acc_by_ext]
-
-    qct_exts = ("1221209591722645", "338551421414333", "337574751894643", "1594590901195302")
-    qct_ids = [str(acc_by_ext[e].id) for e in qct_exts if e in acc_by_ext]
-
-    xd_exts = ("1730165772447559", "148004397", "349735764764551")
-    xd_ids = [str(acc_by_ext[e].id) for e in xd_exts if e in acc_by_ext]
-
-    real_contracts = [
-        {
-            "id": str(uuid.uuid5(workspace_id, "retainer-matbao-corp")),
-            "contract_code": "HD-MB-2026-01",
-            "client_name": "Công Ty Cổ Phần Mắt Bão (Mắt Bão Group & MIFI)",
-            "project_name": "Ngân sách Quảng cáo Hệ sinh thái Mắt Bão · MBI · MIFI Invoice",
-            "contact_email": "marcommatbao@gmail.com",
-            "tax_id": "0302712571",
-            "committed_budget_vnd": 60000000,
-            "agency_fee_percent": 10.0,
-            "meta_tax_percent": 5.0,
-            "usd_to_vnd_rate": 25400.0,
-            "billing_cycle": "Tháng 11/2026",
-            "ad_account_ids": mb_ids,
-            "notes": "Gom 6 TKQC thật thuộc BM Công Ty Cổ Phần Mắt Bão (102968402561310). Đối soát chi tiêu thực tế + phí quản lý Agency 10% + thuế nhà thầu Meta 5%.",
-            "status": "ACTIVE",
-            "created_at": now_iso,
-            "updated_at": now_iso,
-        },
-        {
-            "id": str(uuid.uuid5(workspace_id, "retainer-tbsupellex")),
-            "contract_code": "HD-TBS-2026-02",
-            "client_name": "Tbsupellex E-Commerce & Retail",
-            "project_name": "Chiến dịch Chuyển đổi Website tbsupellex.com & Pixel Partner",
-            "contact_email": "thientrieuadmin@tbsupellex.com",
-            "tax_id": "000388771",
-            "committed_budget_vnd": 15000000,
-            "agency_fee_percent": 12.0,
-            "meta_tax_percent": 5.0,
-            "usd_to_vnd_rate": 25400.0,
-            "billing_cycle": "Tháng 11/2026",
-            "ad_account_ids": tbs_ids,
-            "notes": "Cụm TKQC Tbsupellex & Q.C-1 thuộc BM Quảng Cáo Top (1993884657458857).",
-            "status": "ACTIVE",
-            "created_at": now_iso,
-            "updated_at": now_iso,
-        },
-        {
-            "id": str(uuid.uuid5(workspace_id, "retainer-qct-clients")),
-            "contract_code": "HD-QCT-2026-03",
-            "client_name": "Cụm Khách Hàng BĐS & F&B (Vũ Hiếu · Quàng Chính · Thanh Công)",
-            "project_name": "Quảng cáo Lead Bất Động Sản & Chuỗi F&B (BM Quảng Cáo Top)",
-            "contact_email": "trieunt@matbao.com",
-            "tax_id": "",
-            "committed_budget_vnd": 30000000,
-            "agency_fee_percent": 10.0,
-            "meta_tax_percent": 8.0,
-            "usd_to_vnd_rate": 25400.0,
-            "billing_cycle": "Tháng 11/2026",
-            "ad_account_ids": qct_ids,
-            "notes": "Gom nhóm các TKQC khách lẻ đang chạy trong BM Quảng Cáo Top.",
-            "status": "ACTIVE",
-            "created_at": now_iso,
-            "updated_at": now_iso,
-        },
-        {
-            "id": str(uuid.uuid5(workspace_id, "retainer-xaydung-tanhoa")),
-            "contract_code": "HD-XDTH-2026-04",
-            "client_name": "Xây Dựng - Tân Hòa & Triều Shop",
-            "project_name": "Chiến dịch Thương hiệu & Tin nhắn Xây Dựng Tân Hòa",
-            "contact_email": "thientrieu2101@gmail.com",
-            "tax_id": "",
-            "committed_budget_vnd": 10000000,
-            "agency_fee_percent": 8.0,
-            "meta_tax_percent": 5.0,
-            "usd_to_vnd_rate": 25400.0,
-            "billing_cycle": "Tháng 11/2026",
-            "ad_account_ids": xd_ids,
-            "notes": "Cụm BM Xây Dựng - Tân Hòa (1435224768712108) & BM Triều Shop (109796697343603).",
-            "status": "ACTIVE",
-            "created_at": now_iso,
-            "updated_at": now_iso,
-        },
-    ]
-
-    for rc in real_contracts:
-        if not rc["ad_account_ids"]:
-            continue
-        with contextlib.suppress(Exception), session.begin_nested():
-            audit.record(
-                action="client_retainer.created",
-                entity_type="client_retainer",
-                entity_id=rc["id"],
-                metadata=rc,
-            )
-    session.flush()
+    # Disabled auto-fabrication of sample retainer contracts; workspaces store real AuditLog contracts only.
+    return
 
 
 def _build_retainers_overview(session, workspace_id: uuid.UUID, audit) -> dict[str, Any]:
@@ -6273,7 +5945,6 @@ def _build_retainers_overview(session, workspace_id: uuid.UUID, audit) -> dict[s
     from app.services import spend_service
 
     _reconcile_production_bm_links(session, workspace_id)
-    _ensure_initial_retainers_from_real_bms(session, workspace_id, audit)
 
     accounts_all = (
         session.execute(

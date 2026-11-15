@@ -129,7 +129,7 @@ public sealed class LocalBridgeServer : IDisposable
             var output = netstatProc.StandardOutput.ReadToEnd();
             netstatProc.WaitForExit(3000);
 
-            var lineRx = new Regex($@"^\s*TCP\s+127\.0\.0\.1:{port}\s+\S+\s+LISTENING\s+(\d+)\s*$", RegexOptions.Multiline | RegexOptions.IgnoreCase);
+            var lineRx = new Regex($@"^\s*TCP\s+(?:127\.0\.0\.1|0\.0\.0\.0|\[::1?\]):{port}\s+\S+\s+\S+\s+(\d+)\s*$", RegexOptions.Multiline | RegexOptions.IgnoreCase);
             var retiredAny = false;
             foreach (Match m in lineRx.Matches(output))
             {
@@ -142,7 +142,7 @@ public sealed class LocalBridgeServer : IDisposable
                     {
                         holder.Kill(entireProcessTree: true);
                         holder.WaitForExit(1500);
-                        log($"♻️ Đã tự động thay thế Cầu nối .bat cũ ({pname} PID {pid}) trên cổng {port} bằng AdsOps Desktop Pro v2.3.");
+                        log($"♻️ Đã tự động thay thế Cầu nối .bat cũ ({pname} PID {pid}) trên cổng {port} bằng AdsOps Desktop Pro v{DesktopAppInfo.Version}.");
                         retiredAny = true;
                     }
                 }

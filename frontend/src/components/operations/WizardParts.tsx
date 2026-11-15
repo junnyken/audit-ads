@@ -164,7 +164,7 @@ export function ConnectionPicker({
                     : 'https://business.facebook.com/settings'
                   launchInAssignedChromeProfile(
                     targetUrl,
-                    'Chrome — Default · trieu (thientrieu753@gmail.com)',
+                    'Default',
                     connection.reader_credential?.label || 'Tài Khoản Chính',
                   )
                 }}

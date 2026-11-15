@@ -921,18 +921,18 @@ export default function Login() {
                 </div>
               </div>
 
-              {/* VISUAL SETTLEMENT STATEMENT PREVIEW CARD */}
+              {/* SETTLEMENT ARCHITECTURE CARD */}
               <div className="lg:col-span-6">
                 <div className="rounded-xl border border-line-strong bg-surface p-5 shadow-sm space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-3">
                     <div>
                       <span className="rounded bg-brand/15 px-2 py-0.5 font-mono text-[11px] font-bold text-brand-text">
-                        HD-MB-2026-01
+                        META GRAPH + LOCAL BILLING SYNC
                       </span>
                       <h3 className="mt-1 text-sm font-bold text-ink">
                         {isEn
-                          ? 'Sample Contract: Enterprise Client (6 Grouped Ad Accounts)'
-                          : 'Minh họa Hợp đồng: Cụm 6 TKQC (Tự động quy đổi VND & USD)'}
+                          ? 'Real-Time Settlement Engine (VND & USD Multi-Account)'
+                          : 'Công thức Quyết toán Hợp đồng Theo Chi tiêu Thật'}
                       </h3>
                     </div>
                     <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-400">
@@ -943,30 +943,30 @@ export default function Login() {
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
                     <div className="rounded-lg border border-line bg-canvas p-2.5">
                       <div className="text-[10px] font-bold uppercase text-ink-muted">
-                        {isEn ? '1. Net Meta Spend' : '1. Chi tiêu gốc Meta'}
+                        {isEn ? '1. Live Meta Spend' : '1. Chi tiêu gốc Meta'}
                       </div>
-                      <div className="mt-1 font-mono text-sm font-bold text-ink">25.643.338 ₫</div>
-                      <div className="text-[10px] text-ink-muted">6 TKQC (VND &amp; USD)</div>
+                      <div className="mt-1 font-mono text-sm font-bold text-ink">MTD Spend</div>
+                      <div className="text-[10px] text-ink-muted">{isEn ? 'Auto VND / USD rate' : 'Gộp đa TKQC (VND & USD)'}</div>
                     </div>
                     <div className="rounded-lg border border-line bg-canvas p-2.5">
                       <div className="text-[10px] font-bold uppercase text-ink-muted">
-                        {isEn ? '2. Agency Fee (10%)' : '2. Phí Agency (10%)'}
+                        {isEn ? '2. Agency Fee (%)' : '2. Phí Quản lý (%)'}
                       </div>
-                      <div className="mt-1 font-mono text-sm font-bold text-brand-text">+ 2.564.334 ₫</div>
-                      <div className="text-[10px] text-ink-muted">{isEn ? 'Configurable 5–15%' : 'Tùy chỉnh 5%–15%'}</div>
+                      <div className="mt-1 font-mono text-sm font-bold text-brand-text">+ Spend × Fee%</div>
+                      <div className="text-[10px] text-ink-muted">{isEn ? 'Per-contract rate' : 'Cấu hình theo hợp đồng'}</div>
                     </div>
                     <div className="rounded-lg border border-line bg-canvas p-2.5">
                       <div className="text-[10px] font-bold uppercase text-ink-muted">
-                        {isEn ? '3. Meta Tax (5%)' : '3. Thuế Meta (5%)'}
+                        {isEn ? '3. Meta Tax (%)' : '3. Thuế Nhà thầu (%)'}
                       </div>
-                      <div className="mt-1 font-mono text-sm font-bold text-amber-500">+ 1.282.167 ₫</div>
-                      <div className="text-[10px] text-ink-muted">{isEn ? 'Configurable 5–10%' : 'Tùy chỉnh 5%–10%'}</div>
+                      <div className="mt-1 font-mono text-sm font-bold text-amber-500">+ Spend × Tax%</div>
+                      <div className="text-[10px] text-ink-muted">{isEn ? 'Configurable rate' : 'Đối soát minh bạch'}</div>
                     </div>
                     <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-2.5">
                       <div className="text-[10px] font-bold uppercase text-emerald-400">
                         {isEn ? '4. Total Settlement' : '4. Tổng Quyết Toán'}
                       </div>
-                      <div className="mt-1 font-mono text-sm font-extrabold text-emerald-400">29.489.839 ₫</div>
+                      <div className="mt-1 font-mono text-sm font-extrabold text-emerald-400">(1) + (2) + (3)</div>
                       <div className="text-[10px] text-emerald-300/80">
                         {isEn ? 'PDF · Excel · Zalo' : 'Xuất PDF · Excel · Zalo'}
                       </div>
@@ -1071,7 +1071,7 @@ export default function Login() {
                 </div>
               </div>
 
-              {/* CHROME EXTENSION MOCKUP */}
+              {/* CHROME EXTENSION ARCHITECTURE CARD */}
               <div className="lg:col-span-5">
                 <div className="rounded-xl border border-line-strong bg-surface p-5 shadow-sm space-y-4">
                   <div className="flex items-center justify-between border-b border-line pb-3">

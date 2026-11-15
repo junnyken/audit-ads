@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -105,7 +106,7 @@ internal static class Program
                 "c_user=10001; xs=secret_xs",
                 "JBSWY3DPEHPK3PXP");
 
-            // 1. ExtensionProvisioner 7-file output + version 2.9.4 + real AdAccount & DEFAULT_VIA_META injection
+            // 1. ExtensionProvisioner 7-file output + version 2.9.5 + real AdAccount & DEFAULT_VIA_META injection
             var via = new ViaWorkspaceEntry
             {
                 ViaId = "11111111-2222-3333-4444-555555555555",
@@ -135,8 +136,8 @@ internal static class Program
             }
             using (var mfDoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(extDir, "manifest.json"))))
             {
-                if (mfDoc.RootElement.GetProperty("version").GetString() != "2.9.4")
-                    throw new InvalidOperationException("Manifest version is not 2.9.4");
+                if (mfDoc.RootElement.GetProperty("version").GetString() != "2.9.5")
+                    throw new InvalidOperationException("Manifest version is not 2.9.5");
             }
             var bgText = File.ReadAllText(Path.Combine(extDir, "background.js"));
             if (!bgText.Contains("ADSOPS_REPORT_BROWSER_EVENT", StringComparison.Ordinal) ||
@@ -146,12 +147,13 @@ internal static class Program
                 !bgText.Contains("ensureVaultCookiesBootstrapped", StringComparison.Ordinal) ||
                 !bgText.Contains("close_sender_window", StringComparison.Ordinal))
             {
-                throw new InvalidOperationException("background.js missing v2.9.4 bridge, billing sync, bootstrap, auto-close, viaId, or bundled account");
+                throw new InvalidOperationException("background.js missing v2.9.5 bridge, billing sync, bootstrap, auto-close, viaId, or bundled account");
             }
             var contentText = File.ReadAllText(Path.Combine(extDir, "content.js"));
-            if (!contentText.Contains("ADSOPS_SYNC_BILLING", StringComparison.Ordinal))
+            if (!contentText.Contains("ADSOPS_SYNC_BILLING", StringComparison.Ordinal) ||
+                !contentText.Contains("adsops_keepalive_session", StringComparison.Ordinal))
             {
-                throw new InvalidOperationException("content.js missing v2.9.4 ADSOPS_SYNC_BILLING");
+                throw new InvalidOperationException("content.js missing v2.9.5 ADSOPS_SYNC_BILLING or keepalive trigger");
             }
             var popupText = File.ReadAllText(Path.Combine(extDir, "popup.js"));
             if (!popupText.Contains("act_999888777", StringComparison.Ordinal) ||
@@ -261,8 +263,8 @@ internal static class Program
             healthResp.EnsureSuccessStatusCode();
             var healthBody = await healthResp.Content.ReadAsStringAsync();
             if (!healthBody.Contains("\"app\":\"AdsOpsDesktop\"", StringComparison.Ordinal) ||
-                !healthBody.Contains("\"version\":\"2.3.0\"", StringComparison.Ordinal) ||
-                !healthBody.Contains("\"extVersion\":\"2.9.4\"", StringComparison.Ordinal))
+                !healthBody.Contains("\"version\":\"2.3.1\"", StringComparison.Ordinal) ||
+                !healthBody.Contains("\"extVersion\":\"2.9.5\"", StringComparison.Ordinal))
             {
                 throw new InvalidOperationException($"Unexpected /health response: {healthBody}");
             }
@@ -354,10 +356,15 @@ internal static class Program
             if (ProtocolRegistrar.TryParseAdsOpsUri("adsops-chrome://open?profile=Default&url=javascript%3Aalert(1)", out _))
                 throw new InvalidOperationException("TryParseAdsOpsUri failed to reject non-https URL");
 
-            // 6. TotpService RFC 6238 deterministic vector + invalid reject
+            // 6. TotpService RFC 6238 deterministic vector + otpauth:// + 8-char Base32 + invalid reject
             var rfcVec = TotpService.ComputeTotp("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", DateTimeOffset.FromUnixTimeSeconds(59));
             if (!rfcVec.Valid || rfcVec.Code6 != "287082" || rfcVec.SecondsRemaining != 1)
                 throw new InvalidOperationException($"RFC 6238 vector mismatch: {rfcVec}");
+            var otpUriRes = TotpService.ComputeTotp("otpauth://totp/AdsOps:via?secret=JBSWY3DPEHPK3PXP&issuer=AdsOps");
+            if (!otpUriRes.Valid || otpUriRes.Code6.Length != 6)
+                throw new InvalidOperationException("otpauth:// URI should parse valid secret");
+            if (string.IsNullOrEmpty(TotpService.NormalizeBase32Secret("JBSWY3DP")))
+                throw new InvalidOperationException("8-char Base32 secret should be accepted");
             if (TotpService.ComputeTotp("not_valid!").Valid)
                 throw new InvalidOperationException("Invalid Base32 secret should fail TOTP");
 
@@ -405,9 +412,10 @@ internal static class Program
             {
                 await Task.Delay(30);
             }
-            if (qEngine.Current.Phase != QueuePhase.Completed || launchedIds.Count != 1 || launchedIds[0] != "v1" || qEngine.Current.SkippedCount != 2 || !synced)
+            if (qEngine.Current.Phase != QueuePhase.Completed || launchedIds.Count != 1 || launchedIds[0] != "v1" || qEngine.Current.SkippedCount != 2 || !synced ||
+                qEngine.LastLaunchedItems.Count != 1 || qEngine.LastLaunchedItems[0].ViaId != "v1")
             {
-                throw new InvalidOperationException($"Queue test failed: phase={qEngine.Current.Phase}, launched=[{string.Join(",", launchedIds)}], skipped={qEngine.Current.SkippedCount}, synced={synced}");
+                throw new InvalidOperationException($"Queue test failed: phase={qEngine.Current.Phase}, launched=[{string.Join(",", launchedIds)}], tracked={qEngine.LastLaunchedItems.Count}, skipped={qEngine.Current.SkippedCount}, synced={synced}");
             }
 
             using var nightEngine = new AutomationQueueEngine(
@@ -443,9 +451,9 @@ internal static class Program
                     throw new InvalidOperationException($"WCAG AA contrast failure for {pair.Name}: {pair.Ratio}:1 < 4.5:1");
             }
 
-            // 10. Extension v2.9.4 template verification (2FA bridge + billing sync + cookie bootstrap + keepalive auto-close + cloud token push)
+            // 10. Extension v2.9.5 template verification (2FA bridge + billing sync + cookie bootstrap + keepalive auto-close + cloud token push)
             var extTpl = ExtensionProvisioner.LoadTemplates();
-            if (extTpl.Version != "2.9.4" ||
+            if (extTpl.Version != "2.9.5" ||
                 !extTpl.BackgroundJsAfterDefaultState.Contains("ADSOPS_GET_LOCAL_TOTP", StringComparison.Ordinal) ||
                 !extTpl.BackgroundJsAfterDefaultState.Contains("ADSOPS_SYNC_BILLING", StringComparison.Ordinal) ||
                 !extTpl.BackgroundJsAfterDefaultState.Contains("ensureVaultCookiesBootstrapped", StringComparison.Ordinal) ||
@@ -456,7 +464,7 @@ internal static class Program
                 !extTpl.PopupJsAfterDefaults.Contains("_desktopTotpCache", StringComparison.Ordinal) ||
                 !extTpl.PopupJsAfterDefaults.Contains("btn-push-token-cloud", StringComparison.Ordinal))
             {
-                throw new InvalidOperationException("Extension template bundle missing v2.9.4 helpers");
+                throw new InvalidOperationException("Extension template bundle missing v2.9.5 helpers");
             }
 
             // 11. ViaBulkImportParser (Pass/Mail secret stripping + auto Profile N + duplicate Proxy warning)
@@ -556,6 +564,27 @@ internal static class Program
                 ?? throw new InvalidOperationException("TeamInvitationCreateResponseDto null");
             if (invResp.InviteLinkToken != "tok_abc_123" || invResp.Invitation.EmailNormalized != "nv@gmail.com")
                 throw new InvalidOperationException("TeamInvitationCreateResponseDto field mismatch");
+
+            // 15. v2.3.1 bugfix checks: ExtractDetail error.message & FormatMetricOrDash invariant culture parsing
+            var parsedErr = AdsOpsApiClient.ExtractDetail("{\"error\":{\"code\":\"bad_request\",\"message\":\"Lỗi thật từ server\"}}");
+            if (parsedErr != "Lỗi thật từ server")
+                throw new InvalidOperationException($"ExtractDetail AppError mismatch: {parsedErr}");
+            var parsed422 = AdsOpsApiClient.ExtractDetail("{\"detail\":[{\"msg\":\"Field required\"},{\"msg\":\"Invalid ID\"}]}");
+            if (parsed422 != "Field required; Invalid ID")
+                throw new InvalidOperationException($"ExtractDetail 422 mismatch: {parsed422}");
+
+            var prevCulture = CultureInfo.CurrentCulture;
+            try
+            {
+                CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("vi-VN");
+                var formattedUsd = MainWindow.FormatMetricOrDash("1500.50", "USD");
+                if (formattedUsd != "1,500.50 USD")
+                    throw new InvalidOperationException($"FormatMetricOrDash vi-VN inflation bug: {formattedUsd}");
+            }
+            finally
+            {
+                CultureInfo.CurrentCulture = prevCulture;
+            }
 
             Console.WriteLine("ADSOPS_DESKTOP_V23_SELFTEST_100_PASS");
             return 0;

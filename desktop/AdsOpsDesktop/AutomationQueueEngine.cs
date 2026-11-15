@@ -59,6 +59,7 @@ public sealed class AutomationQueueEngine : IDisposable
     private CancellationTokenSource? _cts;
     private Task? _runnerTask;
     private List<QueueTaskItem> _items = new();
+    private readonly List<QueueTaskItem> _launchedItems = new();
     private QueueSnapshot _snapshot = new(QueuePhase.Idle, QueueKind.KeepAlive, 0, 0, 0, 0, 0, 0, "", "", false, "");
     private readonly Dictionary<string, int> _proxyBatchUseCounts = new(StringComparer.OrdinalIgnoreCase);
 
@@ -88,6 +89,17 @@ public sealed class AutomationQueueEngine : IDisposable
     }
 
     public QueueSnapshot Current => _snapshot;
+
+    public IReadOnlyList<QueueTaskItem> LastLaunchedItems
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _launchedItems.ToList();
+            }
+        }
+    }
 
     public void ConfigureTiming(int tickIntervalMs, int syncWaitSeconds)
     {
@@ -139,6 +151,10 @@ public sealed class AutomationQueueEngine : IDisposable
         _startHour = Math.Clamp(daytimeStartHour, 0, 23);
         _endHour = Math.Clamp(daytimeEndHour, 0, 23);
         _proxyBatchUseCounts.Clear();
+        lock (_gate)
+        {
+            _launchedItems.Clear();
+        }
         _skipRequested = false;
 
         _cts = new CancellationTokenSource();
@@ -229,7 +245,7 @@ public sealed class AutomationQueueEngine : IDisposable
             var item = _items[i];
             var hostPort = ExtractProxyHostPort(item.NetworkLabel);
             if (!string.IsNullOrEmpty(hostPort) &&
-                kind == QueueKind.PageCreation &&
+                (kind == QueueKind.PageCreation || _items.Count > 1) &&
                 _proxyBatchUseCounts.TryGetValue(hostPort, out var usedCount) &&
                 usedCount >= _maxViasPerProxy)
             {
@@ -291,6 +307,10 @@ public sealed class AutomationQueueEngine : IDisposable
             }
 
             await _launchChrome(item).ConfigureAwait(false);
+            lock (_gate)
+            {
+                _launchedItems.Add(item);
+            }
             launched++;
 
             if (i < _items.Count - 1)

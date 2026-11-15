@@ -1439,7 +1439,7 @@ export default function Assets() {
                 type="text"
                 value={browserNotes}
                 onChange={(e) => setBrowserNotes(e.target.value)}
-                placeholder="VD: Dành riêng cho Via Dự Phòng BM Quảng Cáo Top"
+                placeholder="VD: Dành riêng cho Via Dự Phòng Lớp 2"
                 className="input text-xs"
               />
             </div>

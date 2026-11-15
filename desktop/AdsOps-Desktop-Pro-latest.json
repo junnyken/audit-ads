@@ -1,9 +1,9 @@
 {
-  "version": "2.3.0",
-  "ext_version": "2.9.4",
+  "version": "2.3.1",
+  "ext_version": "2.9.5",
   "download_url": "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
-  "sha256": "59d48a04093983448bf38a5bd0b1c2ce697a594b463424f727a887570d53c15b",
-  "size_bytes": 61848296,
-  "published_at": "2026-11-14T20:29:42.680081Z",
-  "release_notes": "AdsOps Desktop Pro v2.3.0 + Extension v2.9.4: Quét Live Proxy hàng loạt & lọc Proxy chết, Auto-Sync Billing DOM không cần Token Meta, Xếp lưới Chrome 2x2/3x2/2x1, Readiness Board + Signals + Live Audit Log, BM/Pixel/Domain SEO, Ngân sách Retainers & Team/Seats + Tự cập nhật 1-Click."
+  "sha256": "f87c48b605178e1b672fd2e03ff8f3d375c5aff9a24e832e67a49e24bf0c3b05",
+  "size_bytes": 65810684,
+  "published_at": "2026-11-15T14:41:57.667807Z",
+  "release_notes": "AdsOps Desktop Pro v2.3.1 + Extension v2.9.5: Khắc phục triệt để Keep-Alive query params & logging chính xác từng Via đã mở, chống phóng đại x100 tiền tệ trên Windows tiếng Việt, hiển thị Watermark Search/Input, sửa CreateEmptyState & min mật khẩu Vault 6 ký tự, tự dọn Autostart Python bridge cũ & tối ưu toàn hệ thống không mock/preset."
 }

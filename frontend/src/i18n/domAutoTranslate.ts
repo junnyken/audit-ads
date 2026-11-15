@@ -17,14 +17,10 @@ const EXACT_TRIMMED: Record<string, string> = {
 }
 
 const PHRASE_PAIRS: Array<[string, string]> = [
-  ["Ngân sách Quảng cáo Hệ sinh thái Mắt Bão · MBI · MIFI Invoice", "Mắt Bão Ecosystem · MBI · MIFI Invoice Ad Budget"],
   ["Chiến dịch Chuyển đổi Website tbsupellex.com & Pixel Partner", "Website Conversion Campaign tbsupellex.com & Partner Pixel"],
   ["Cụm Khách Hàng BĐS & F&B (Vũ Hiếu · Quàng Chính · Thanh Công)", "Real Estate & F&B Client Cluster (Vu Hieu · Quang Chinh · Thanh Cong)"],
-  ["Quảng cáo Lead Bất Động Sản & Chuỗi F&B (BM Quảng Cáo Top)", "Real Estate Lead Gen & F&B Chain Ads (BM Quang Cao Top)"],
   ["Chiến dịch Thương hiệu & Tin nhắn Xây Dựng Tân Hòa", "Brand & Messaging Campaign — Xay Dung Tan Hoa"],
-  ["Gom 6 TKQC thật thuộc BM Công Ty Cổ Phần Mắt Bão", "Grouped 6 live Ad Accounts under BM Mat Bao Corp"],
   ["Đối soát chi tiêu thực tế + phí quản lý Agency 10% + thuế nhà thầu Meta 5%.", "Live spend reconciliation + 10% Agency fee + 5% Meta tax."],
-  ["Gom nhóm các TKQC khách lẻ đang chạy trong BM Quảng Cáo Top.", "Grouped client Ad Accounts running inside BM Quang Cao Top."],
   ["Tháng 11/2026", "Nov 2026"],
   ["Đồng bộ từ Meta Graph API (/me/accounts)", "Synced from Meta Graph API (/me/accounts)"],
   ["Tự động liên kết theo cụm Via Tổng", "Auto-linked via Primary Master Account cluster"],
@@ -35,16 +31,11 @@ const PHRASE_PAIRS: Array<[string, string]> = [
   ["Nhà bếp/Nấu ăn", "Kitchen / Cooking"],
   ["Công ty phần mềm", "Software Company"],
   ["Công nghệ", "Technology"],
-  ["6 TKQC Mắt Bão", "6 Mắt Bão Ad Accounts"],
-  ["5 TKQC Mắt Bão", "5 Mắt Bão Ad Accounts"],
   ["6 TKQC", "6 Ad Accounts"],
   ["5 TKQC", "5 Ad Accounts"],
   ["3 TKQC", "3 Ad Accounts"],
   ["TKQC", "Ad Accounts"],
   ["Mạng gốc Văn phòng (Dành riêng Via Tổng Lớp 1)", "Office Direct Line (Reserved for Tier-1 Asset Vias)"],
-  ["Proxy Dân cư Tĩnh VN #1 — Cụm BM Quảng Cáo Top", "VN Static Residential Proxy #1 — BM Quang Cao Top Cluster"],
-  ["Proxy Dân cư Tĩnh VN #2 — Cụm BM Quảng Cáo Top", "VN Static Residential Proxy #2 — BM Quang Cao Top Cluster"],
-  ["Proxy Dân cư Tĩnh VN #3 — Cụm BM Mắt Bão Corp", "VN Static Residential Proxy #3 — BM Mat Bao Corp Cluster"],
   ["Proxy Dân cư Tĩnh VN #4 — Cụm BM Xây Dựng Tân Hòa", "VN Static Residential Proxy #4 — BM Xay Dung Tan Hoa Cluster"],
   ["Proxy Dân cư Tĩnh VN #5 — Cụm Via Dự Phòng Ngâm 72h", "VN Static Residential Proxy #5 — 72h Warm-up Standby Via Cluster"],
   ["Tuyến mạng cách ly cụm Via", "Isolated Via cluster network line"],
@@ -65,8 +56,8 @@ const PHRASE_PAIRS: Array<[string, string]> = [
   ["Quán ăn", "Restaurant"],
   ["Đồng bộ từ BM", "Synced from BM"],
   [
-    "🚫 Khiên Chặn Passkey Tự Động (passkey_shield.js): Tiện ích AdsOps Companion v2.9.4 Pro khóa thẳng hàm WebAuthn (PublicKeyCredential) ngay trước khi trang Facebook tải xong — bảng Windows Hello / QR Passkey sẽ KHÔNG BAO GIỜ nhảy lên nữa, ép Facebook chuyển thẳng về ô nhập mã 2FA 6 số.",
-    "🚫 Automatic Passkey Shield (passkey_shield.js): AdsOps Companion v2.9.4 Pro overrides WebAuthn (PublicKeyCredential) before Facebook finishes loading — Windows Hello / QR Passkey dialogs NEVER appear, forcing Facebook directly to 6-digit 2FA."
+    "🚫 Khiên Chặn Passkey Tự Động (passkey_shield.js): Tiện ích AdsOps Companion v2.9.5 Pro khóa thẳng hàm WebAuthn (PublicKeyCredential) ngay trước khi trang Facebook tải xong — bảng Windows Hello / QR Passkey sẽ KHÔNG BAO GIỜ nhảy lên nữa, ép Facebook chuyển thẳng về ô nhập mã 2FA 6 số.",
+    "🚫 Automatic Passkey Shield (passkey_shield.js): AdsOps Companion v2.9.5 Pro overrides WebAuthn (PublicKeyCredential) before Facebook finishes loading — Windows Hello / QR Passkey dialogs NEVER appear, forcing Facebook directly to 6-digit 2FA."
   ],
   [
     "🗑️ Nút 1 Chạm «🚫 Quét & Xoá Passkey» trên bảng Via: Bấm 1 nút trên bảng Tài khoản Facebook (hoặc trong Popup tiện ích), trình duyệt sẽ mở thẳng trang Quản lý Passkey của Meta và tự động phát hiện + bấm Xoá sạch Passkey đang lưu.",
@@ -217,8 +208,8 @@ const PHRASE_PAIRS: Array<[string, string]> = [
     "First 72h warm-up: DO NOT open Ads Manager, DO NOT change password, DO NOT kick old sessions. Browse Newsfeed/Watch 5–10 mins only."
   ],
   [
-    "Chạy file .bat (1 lần) để mở đúng Hồ sơ Chrome từ Web & cài gói Tiện ích v2.9.4 Pro (2FA tự điền, khóa WebRTC).",
-    "Run the .bat file (once) to launch the exact Chrome Profile from the Web & install Extension v2.9.4 Pro (2FA auto-fill, WebRTC shield)."
+    "Chạy file .bat (1 lần) để mở đúng Hồ sơ Chrome từ Web & cài gói Tiện ích v2.9.5 Pro (2FA tự điền, khóa WebRTC).",
+    "Run the .bat file (once) to launch the exact Chrome Profile from the Web & install Extension v2.9.5 Pro (2FA auto-fill, WebRTC shield)."
   ],
   [
     "Không gắn quá 3 TKQC chung 1 thẻ trực tiếp để tránh chết liên đới (bão thẻ) khi 1 TKQC bị khoá hoặc hụt tiền.",
@@ -305,8 +296,8 @@ const PHRASE_PAIRS: Array<[string, string]> = [
     "Log in with the managing Facebook account and open Ads Manager to inspect live account status."
   ],
   [
-    "(1 lần) để mở đúng Hồ sơ Chrome từ Web & cài gói Tiện ích v2.9.4 Pro (2FA tự điền, khóa WebRTC).",
-    "(once) to open the exact Chrome Profile from Web & install Extension v2.9.4 Pro (2FA auto-fill, WebRTC shield)."
+    "(1 lần) để mở đúng Hồ sơ Chrome từ Web & cài gói Tiện ích v2.9.5 Pro (2FA tự điền, khóa WebRTC).",
+    "(once) to open the exact Chrome Profile from Web & install Extension v2.9.5 Pro (2FA auto-fill, WebRTC shield)."
   ],
   [
     "Tuyệt đối tách bạch quyền Sở hữu Tài sản (Admin BM) và quyền Lên Chiến dịch (Advertiser TKQC):",
@@ -789,8 +780,8 @@ const PHRASE_PAIRS: Array<[string, string]> = [
     "Your projected daily spend is within this limit"
   ],
   [
-    "Tiện ích Google Chrome chính thức · v2.9.4 Pro (Anti-Passkey)",
-    "Official Google Chrome Extension · v2.9.4 Pro (Anti-Passkey)"
+    "Tiện ích Google Chrome chính thức · v2.9.5 Pro (Anti-Passkey)",
+    "Official Google Chrome Extension · v2.9.5 Pro (Anti-Passkey)"
   ],
   [
     "Token thiếu quyền đọc BM (ads_read / business_management).",

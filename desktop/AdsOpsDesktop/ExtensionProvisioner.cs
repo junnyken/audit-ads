@@ -14,7 +14,7 @@ namespace AdsOpsDesktop;
 
 public sealed class ExtensionTemplateBundle
 {
-    [JsonPropertyName("version")] public string Version { get; set; } = "2.9.4";
+    [JsonPropertyName("version")] public string Version { get; set; } = "2.9.5";
     [JsonPropertyName("description")] public string Description { get; set; } = "";
     [JsonPropertyName("passkey_shield_js")] public string PasskeyShieldJs { get; set; } = "";
     [JsonPropertyName("background_js_after_default_state")] public string BackgroundJsAfterDefaultState { get; set; } = "";
@@ -54,8 +54,8 @@ public static class ExtensionProvisioner
     private static readonly Regex ProxyAtRegex = new(@"^(?:(http|https|socks5):\/\/)?([^:\s]+):([^@\s]+)@(\d{1,3}(?:\.\d{1,3}){3}):(\d{2,5})$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex Proxy4Regex = new(@"(\d{1,3}(?:\.\d{1,3}){3}):(\d{2,5}):([^:\s]+):([^\s]+)", RegexOptions.Compiled);
     private static readonly Regex Proxy2Regex = new(@"(\d{1,3}(?:\.\d{1,3}){3}):(\d{2,5})", RegexOptions.Compiled);
-    private static readonly Regex TwoFaParamRegex = new(@"(?:secret=|2fa[:=]\s*)([A-Z2-7]{16,64})", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex PureBase32Regex = new(@"^[A-Z2-7]{16,64}$", RegexOptions.Compiled);
+    private static readonly Regex TwoFaParamRegex = new(@"(?:secret=|2fa[:=]\s*)([A-Z2-7]{8,128})", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex PureBase32Regex = new(@"^[A-Z2-7]{8,128}$", RegexOptions.Compiled);
 
     private static ExtensionTemplateBundle? _cachedBundle;
 
@@ -88,7 +88,7 @@ public static class ExtensionProvisioner
         }
 
         _cachedBundle = JsonSerializer.Deserialize<ExtensionTemplateBundle>(jsonText)
-            ?? throw new InvalidDataException("Không thể đọc dữ liệu template Extension v2.9.4.");
+            ?? throw new InvalidDataException($"Không thể đọc dữ liệu template Extension v{DesktopAppInfo.ExtVersion}.");
         return _cachedBundle;
     }
 
@@ -306,7 +306,7 @@ public static class ExtensionProvisioner
         File.WriteAllText(Path.Combine(targetDir, "popup.js"), popupJsBody, utf8NoBom);
         File.WriteAllText(
             Path.Combine(targetDir, "HUONG-DAN-CAI-DAT.txt"),
-            $"ADSOPS COMPANION v{tpl.Version} (AUTO-PROVISIONED BY ADSOPS DESKTOP PRO v2.3)\r\n" +
+            $"ADSOPS COMPANION v{tpl.Version} (AUTO-PROVISIONED BY ADSOPS DESKTOP PRO v{DesktopAppInfo.Version})\r\n" +
             $"Via: {displayViaName}\r\nChrome Profile: {profileDir}\r\nProxy: {(hasProxy ? parsedProxy!.CompactRaw : "Direct")}\r\n" +
             $"TKQC kem theo: {accountsList.Count}\r\n" +
             "Co the nap thu cong qua chrome://extensions -> Load unpacked tai thu muc nay, hoac de AdsOps Desktop Pro nap tu dong.\r\n",

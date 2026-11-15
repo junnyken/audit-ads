@@ -182,6 +182,12 @@ internal sealed partial class MainWindow
             new ComboBoxItem { Content = "Tạm nghỉ (paused)", Tag = "paused" },
             new ComboBoxItem { Content = "Cảnh báo / Check (restricted)", Tag = "restricted" },
         });
+        cbStatus.SelectedIndex = (existing?.Status?.Trim().ToLowerInvariant()) switch
+        {
+            "paused" => 1,
+            "restricted" => 2,
+            _ => 0,
+        };
         var wmBox = BuildLabeledBox("Chế độ Ngâm Thiết Bị", warmupMode);
         var stBox = BuildLabeledBox("Trạng thái Cloud", cbStatus);
         Grid.SetColumn(wmBox, 0);
@@ -637,9 +643,9 @@ internal sealed partial class MainWindow
         cancel.Margin = new Thickness(0, 0, 8, 0);
         var ok = UiComponents.CreateButton("Xác nhận", ButtonVariant.Primary, onClick: (_, _) =>
         {
-            if (string.IsNullOrWhiteSpace(pb1.Password) || pb1.Password.Length < 4)
+            if (string.IsNullOrWhiteSpace(pb1.Password) || pb1.Password.Length < 6)
             {
-                errTb.Text = "Mật khẩu cần tối thiểu 4 ký tự.";
+                errTb.Text = "Mật khẩu cần tối thiểu 6 ký tự.";
                 return;
             }
             if (confirmMatch && pb2 != null && pb1.Password != pb2.Password)
@@ -1117,10 +1123,10 @@ internal sealed partial class MainWindow
 
         allItems.Add(new CommandPaletteItem(
             "THAO TÁC",
-            "Cấp lại Extension Companion v2.9.4 cho toàn bộ Via",
-            "Đồng bộ code Extension v2.9.4 & Proxy vào thư mục Profile của từng Via",
-            "Ext v2.9.4",
-            "provision extension cap lai 2.9.4",
+            $"Cấp lại Extension Companion v{DesktopAppInfo.ExtVersion} cho toàn bộ Via",
+            $"Đồng bộ code Extension v{DesktopAppInfo.ExtVersion} & Proxy vào thư mục Profile của từng Via",
+            $"Ext v{DesktopAppInfo.ExtVersion}",
+            $"provision extension cap lai {DesktopAppInfo.ExtVersion}",
             () => { dlg.Close(); ProvisionAllViaExtensions(silent: false); }));
 
         var now = DateTimeOffset.UtcNow;
@@ -1503,9 +1509,9 @@ internal sealed partial class MainWindow
                 if (items.Count == 0)
                 {
                     listHost.Children.Add(UiComponents.CreateEmptyState(
+                        FluentIcons.ShieldCheck,
                         "Không có tín hiệu sức khỏe nào",
-                        "TKQC này hiện sạch cảnh báo hoặc chưa có đợt tính toán sức khỏe.",
-                        FluentIcons.ShieldCheck));
+                        "Hệ thống chưa ghi nhận cảnh báo sức khỏe nào cho workspace này."));
                     statusTb.Text = "0 tín hiệu.";
                     return;
                 }

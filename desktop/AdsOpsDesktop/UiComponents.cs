@@ -324,11 +324,31 @@ internal static class UiComponents
         bd.SetValue(Border.CornerRadiusProperty, new CornerRadius(7));
         bd.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
 
+        var hostGrid = new FrameworkElementFactory(typeof(Grid));
+
         var sv = new FrameworkElementFactory(typeof(ScrollViewer));
         sv.Name = "PART_ContentHost";
         sv.SetValue(FrameworkElement.VerticalAlignmentProperty, multiline ? VerticalAlignment.Top : VerticalAlignment.Center);
-        bd.AppendChild(sv);
+        hostGrid.AppendChild(sv);
+
+        var wm = new FrameworkElementFactory(typeof(TextBlock));
+        wm.Name = "Watermark";
+        wm.SetValue(TextBlock.TextProperty, new TemplateBindingExtension(FrameworkElement.TagProperty));
+        wm.SetValue(TextBlock.ForegroundProperty, ThemeTokens.TextMuted);
+        wm.SetValue(TextBlock.FontSizeProperty, 12.5);
+        wm.SetValue(FrameworkElement.MarginProperty, new Thickness(2, 0, 0, 0));
+        wm.SetValue(FrameworkElement.VerticalAlignmentProperty, multiline ? VerticalAlignment.Top : VerticalAlignment.Center);
+        wm.SetValue(UIElement.IsHitTestVisibleProperty, false);
+        wm.SetValue(UIElement.VisibilityProperty, Visibility.Collapsed);
+        wm.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis);
+        hostGrid.AppendChild(wm);
+
+        bd.AppendChild(hostGrid);
         tpl.VisualTree = bd;
+
+        var emptyTrig = new Trigger { Property = TextBox.TextProperty, Value = "" };
+        emptyTrig.Setters.Add(new Setter(UIElement.VisibilityProperty, Visibility.Visible, "Watermark"));
+        tpl.Triggers.Add(emptyTrig);
 
         var focusTrig = new Trigger { Property = UIElement.IsKeyboardFocusedProperty, Value = true };
         focusTrig.Setters.Add(new Setter(Border.BorderBrushProperty, ThemeTokens.BorderFocus, "Bd"));

@@ -65,14 +65,53 @@ public sealed class AdsOpsApiClient : IDisposable
             ?? throw new InvalidOperationException($"Không đọc được JSON từ {relativePath}");
     }
 
-    private static string ExtractDetail(string raw)
+    internal static string ExtractDetail(string raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return "Không có phản hồi";
         try
         {
             using var doc = JsonDocument.Parse(raw);
-            if (doc.RootElement.TryGetProperty("detail", out var det)) return det.ToString();
-            if (doc.RootElement.TryGetProperty("message", out var msg)) return msg.ToString();
+            var root = doc.RootElement;
+            if (root.TryGetProperty("error", out var errObj) &&
+                errObj.ValueKind == JsonValueKind.Object &&
+                errObj.TryGetProperty("message", out var errMsg) &&
+                errMsg.ValueKind == JsonValueKind.String)
+            {
+                var em = errMsg.GetString();
+                if (!string.IsNullOrWhiteSpace(em)) return em;
+            }
+            if (root.TryGetProperty("detail", out var det))
+            {
+                if (det.ValueKind == JsonValueKind.String)
+                {
+                    var ds = det.GetString();
+                    if (!string.IsNullOrWhiteSpace(ds)) return ds;
+                }
+                if (det.ValueKind == JsonValueKind.Array)
+                {
+                    var parts = new List<string>();
+                    foreach (var item in det.EnumerateArray())
+                    {
+                        if (item.ValueKind == JsonValueKind.Object &&
+                            item.TryGetProperty("msg", out var m) &&
+                            m.ValueKind == JsonValueKind.String)
+                        {
+                            var ms = m.GetString();
+                            if (!string.IsNullOrWhiteSpace(ms)) parts.Add(ms);
+                        }
+                        else
+                        {
+                            parts.Add(item.ToString());
+                        }
+                    }
+                    if (parts.Count > 0) return string.Join("; ", parts);
+                }
+                return det.ToString();
+            }
+            if (root.TryGetProperty("message", out var msg))
+            {
+                return msg.ValueKind == JsonValueKind.String ? (msg.GetString() ?? "") : msg.ToString();
+            }
         }
         catch { }
         return raw.Length > 220 ? raw[..220] : raw;

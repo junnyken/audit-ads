@@ -1902,12 +1902,15 @@ internal sealed partial class MainWindow
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(162) });
     }
 
-    private static string FormatMetricOrDash(string? raw, string currency)
+    internal static string FormatMetricOrDash(string? raw, string currency)
     {
         if (string.IsNullOrWhiteSpace(raw)) return "—";
-        if (decimal.TryParse(raw.Trim(), out var d))
+        if (decimal.TryParse(raw.Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out var d))
         {
-            return $"{d:N0} {currency}".Trim();
+            var numText = (d % 1m == 0m)
+                ? d.ToString("N0", CultureInfo.GetCultureInfo("vi-VN"))
+                : d.ToString("N2", CultureInfo.InvariantCulture);
+            return $"{numText} {currency}".Trim();
         }
         return raw.Trim();
     }
@@ -3519,9 +3522,11 @@ internal sealed partial class MainWindow
         if (items.Count == 0)
         {
             box.Children.Add(UiComponents.CreateEmptyState(
+                FluentIcons.Page,
                 "Chưa có Hợp đồng Client Retainer nào",
-                "Nhấn '+ Hợp đồng mới' để thiết lập ngân sách cam kết, phí Agency và gán các TKQC theo dõi Pacing.",
-                FluentIcons.Page));
+                "Tạo hợp đồng phí quản lý (%) & thuế để tự động tính quyết toán theo chi tiêu TKQC thực tế.",
+                "Hợp đồng mới",
+                (_, _) => OpenClientRetainerDialog(null)));
         }
         else
         {

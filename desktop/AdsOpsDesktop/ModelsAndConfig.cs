@@ -799,6 +799,7 @@ public sealed class ViaWorkspaceEntry
     public string Label { get; set; } = "";
     public string DisplayName { get; set; } = "";
     public string ExternalReferenceId { get; set; } = "";
+    public string Status { get; set; } = "active";
     public string BrowserProfileLabel { get; set; } = "";
     public string ProfileDir { get; set; } = "Default";
     public string NetworkLabel { get; set; } = "";
@@ -1115,6 +1116,19 @@ public static class ProtocolRegistrar
         }
         var exe = exePath ?? Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName ?? "";
         key.SetValue(RunValueName, $"\"{exe}\" --minimized");
+    }
+
+    public static void CleanupLegacyPythonBridgeAutostart()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: true);
+            key?.DeleteValue("AdsOpsChromeBridge", throwOnMissingValue: false);
+        }
+        catch
+        {
+            // Ignore restricted registry environments
+        }
     }
 
     public static bool TryParseAdsOpsUri(string rawUri, out ParsedAdsOpsUri parsed)
@@ -1802,9 +1816,9 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "2.3.0";
-    public const string DisplayVersion = "v2.3";
-    public const string ExtVersion = "2.9.4";
+    public const string Version = "2.3.1";
+    public const string DisplayVersion = "v2.3.1";
+    public const string ExtVersion = "2.9.5";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 
     /// <summary>

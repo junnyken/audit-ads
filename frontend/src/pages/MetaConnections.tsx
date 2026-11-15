@@ -131,7 +131,7 @@ function ConnectionCard({ connection }: { connection: MetaConnection }) {
                     onClick={() =>
                       launchInAssignedChromeProfile(
                         `https://business.facebook.com/settings/ad-accounts?business_id=${encodeURIComponent(bm.external_id)}`,
-                        'Chrome — Default · trieu (thientrieu753@gmail.com)',
+                        'Default',
                         connection.reader_credential?.label || 'Tài Khoản Chính',
                       )
                     }
@@ -249,7 +249,6 @@ export default function MetaConnections() {
                       value={environment}
                       onChange={(event) => setEnvironment(event.target.value as MetaEnvironment)}
                     >
-                      <option value="fake">{t('connEnv.fake')}</option>
                       <option value="sandbox">{t('connEnv.sandbox')}</option>
                       <option value="production">{t('connEnv.production')}</option>
                     </select>

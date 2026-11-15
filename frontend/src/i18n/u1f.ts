@@ -123,7 +123,7 @@ export const u1fVi = {
     'Workspace này làm được gì với Meta API ngay lúc này — không bao giờ là chính credential, chỉ là credential đã cấu hình hay chưa và nó được phép làm gì.',
   'mc.add.title': 'Thêm kết nối',
   'mc.add.label': 'Nhãn',
-  'mc.add.labelPlaceholder': 'Ví dụ: BM đại lý — giả lập',
+  'mc.add.labelPlaceholder': 'Ví dụ: BM Chính Agency',
   'mc.add.env': 'Môi trường',
   'mc.add.bm': 'ID Business Manager',
   'mc.add.bmPlaceholder': 'Để trống để dùng Business Manager của máy chủ',

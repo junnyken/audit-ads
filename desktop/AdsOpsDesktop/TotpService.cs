@@ -11,13 +11,20 @@ public sealed record TotpResult(bool Valid, string Code6, string FormattedCode, 
 public static class TotpService
 {
     private const string Base32Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-    private static readonly Regex Base32Regex = new(@"^[A-Z2-7]{12,128}$", RegexOptions.Compiled);
+    private static readonly Regex Base32Regex = new(@"^[A-Z2-7]{8,128}$", RegexOptions.Compiled);
+    private static readonly Regex OtpAuthSecretRegex = new(@"[?&]secret=([A-Za-z2-7=\s-]+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     public static string NormalizeBase32Secret(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return "";
         var s = raw.Trim();
-        if (s.StartsWith("2fa://", StringComparison.OrdinalIgnoreCase))
+        if (s.StartsWith("otpauth://", StringComparison.OrdinalIgnoreCase))
+        {
+            var m = OtpAuthSecretRegex.Match(s);
+            if (!m.Success) return "";
+            s = m.Groups[1].Value;
+        }
+        else if (s.StartsWith("2fa://", StringComparison.OrdinalIgnoreCase))
         {
             s = s[6..];
         }

@@ -63,7 +63,7 @@ export default function Operations() {
   const holderLabel = String(matchedVia?.label ?? 'Tài Khoản Chính')
   const holderProfile =
     String(matchedVia?.browser_profile_label ?? '').trim() ||
-    'Chrome — Default · trieu (thientrieu753@gmail.com)'
+    'Default'
   const holderProxy = String(matchedVia?.network_label ?? '')
 
   const launchBmAction = (path: string, actionLabel: string) => {
@@ -309,7 +309,7 @@ export default function Operations() {
                 <Puzzle className="h-4 w-4 text-brand-text" />
                 <span>{isEn ? 'Chrome Extension & Proxy Shield' : 'Tiện ích Chrome & Bọc Proxy'}</span>
               </span>
-              <Badge tone="positive">v2.9.4 Pro</Badge>
+              <Badge tone="positive">v2.9.5 Pro</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-xs text-ink-muted">

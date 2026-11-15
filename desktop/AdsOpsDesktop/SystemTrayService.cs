@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace AdsOpsDesktop;
@@ -11,6 +12,9 @@ namespace AdsOpsDesktop;
 /// </summary>
 internal sealed class SystemTrayService : IDisposable
 {
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool DestroyIcon(IntPtr hIcon);
+
     private readonly NotifyIcon _trayIcon;
     private readonly ContextMenuStrip _menu;
     private readonly Icon _customIcon;
@@ -52,7 +56,7 @@ internal sealed class SystemTrayService : IDisposable
         _trayIcon = new NotifyIcon
         {
             Icon = _customIcon,
-            Text = "AdsOps Desktop Pro v2.3 — Sẵn sàng",
+            Text = $"AdsOps Desktop Pro v{DesktopAppInfo.Version} — Sẵn sàng",
             ContextMenuStrip = _menu,
             Visible = true,
         };
@@ -64,7 +68,7 @@ internal sealed class SystemTrayService : IDisposable
     {
         _menu.Items.Clear();
 
-        var openItem = new ToolStripMenuItem("Mở AdsOps Desktop Pro v2.3");
+        var openItem = new ToolStripMenuItem($"Mở AdsOps Desktop Pro v{DesktopAppInfo.Version}");
         openItem.Font = new Font(_menu.Font, FontStyle.Bold);
         openItem.Click += (_, _) => _onShowWindow();
         _menu.Items.Add(openItem);
@@ -137,7 +141,7 @@ internal sealed class SystemTrayService : IDisposable
         var statusSuffix = queue.Phase == QueuePhase.Running
             ? $"Đang chạy {queue.CurrentIndex}/{queue.TotalCount}"
             : isLoggedIn ? $"{vias.Count} Via sẵn sàng" : "Chờ đăng nhập";
-        var text = $"AdsOps Desktop Pro v2.3 — {statusSuffix}";
+        var text = $"AdsOps Desktop Pro v{DesktopAppInfo.Version} — {statusSuffix}";
         _trayIcon.Text = text.Length > 63 ? text[..63] : text;
     }
 
@@ -205,7 +209,15 @@ internal sealed class SystemTrayService : IDisposable
         g.DrawString("A", font, Brushes.White, new RectangleF(1, 1, 30, 30), sf);
 
         var hIcon = bmp.GetHicon();
-        return Icon.FromHandle(hIcon);
+        try
+        {
+            using var tmp = Icon.FromHandle(hIcon);
+            return (Icon)tmp.Clone();
+        }
+        finally
+        {
+            DestroyIcon(hIcon);
+        }
     }
 
     public void Dispose()

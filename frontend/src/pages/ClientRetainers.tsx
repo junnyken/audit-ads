@@ -919,7 +919,7 @@ export default function ClientRetainers() {
                   value={formCode}
                   onChange={(e) => setFormCode(e.target.value)}
                   className="input font-mono text-xs"
-                  placeholder="HD-MB-2026-01"
+                  placeholder="VD: HD-2026-001"
                 />
               </div>
               <div>
@@ -939,7 +939,7 @@ export default function ClientRetainers() {
                   value={formClient}
                   onChange={(e) => setFormClient(e.target.value)}
                   className="input text-xs font-bold"
-                  placeholder="VD: Công Ty Cổ Phần Mắt Bão"
+                  placeholder="VD: Công ty Cổ phần Thương mại ABC"
                 />
               </div>
               <div className="sm:col-span-2">

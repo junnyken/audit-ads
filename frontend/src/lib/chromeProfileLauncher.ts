@@ -8,106 +8,8 @@ export interface RealChromeProfile {
   label: string
 }
 
-export const WORKSTATION_REAL_CHROME_PROFILES: RealChromeProfile[] = [
-  {
-    folder: 'Default',
-    name: 'trieu',
-    email: 'thientrieu753@gmail.com',
-    gaia_name: 'trieu nguyen thien',
-    label: 'Chrome — Default · trieu (thientrieu753@gmail.com)',
-  },
-  {
-    folder: 'Profile 1',
-    name: 'tt',
-    email: 'duchungducvb@gmail.com',
-    gaia_name: 'Hung Duc',
-    label: 'Chrome — Profile 1 · tt (duchungducvb@gmail.com)',
-  },
-  {
-    folder: 'Profile 3',
-    name: 'Thiên Triều',
-    email: 'trieunguyen.home9x@gmail.com',
-    gaia_name: 'Triều Thiên',
-    label: 'Chrome — Profile 3 · Thiên Triều (trieunguyen.home9x@gmail.com)',
-  },
-  {
-    folder: 'Profile 4',
-    name: 'MATBAO',
-    email: 'marcommatbao@gmail.com',
-    gaia_name: 'MATBAO MARCOM',
-    label: 'Chrome — Profile 4 · MATBAO (marcommatbao@gmail.com)',
-  },
-  {
-    folder: 'Profile 5',
-    name: 'Matbao-invoice',
-    email: 'mifihoadondientuantoan@gmail.com',
-    gaia_name: 'Matbao-invoice Hóa đơn điện tử an toàn',
-    label: 'Chrome — Profile 5 · Matbao-invoice (mifihoadondientuantoan@gmail.com)',
-  },
-  {
-    folder: 'Profile 6',
-    name: 'Test',
-    email: 'quangtrkk7344@noigame.dpdns.org',
-    gaia_name: 'tai ngo',
-    label: 'Chrome — Profile 6 · Test (quangtrkk7344@noigame.dpdns.org)',
-  },
-  {
-    folder: 'Profile 7',
-    name: 'Utra Google',
-    email: 'thientrieuadmin@tbsupellex.com',
-    gaia_name: 'Triều Thiên',
-    label: 'Chrome — Profile 7 · Utra Google (thientrieuadmin@tbsupellex.com)',
-  },
-  {
-    folder: 'Profile 8',
-    name: 'Test Utraviw',
-    email: 'tranngoc123@tbsupellex.com',
-    gaia_name: 'Trần Ngọc',
-    label: 'Chrome — Profile 8 · Test Utraviw (tranngoc123@tbsupellex.com)',
-  },
-  {
-    folder: 'Profile 9',
-    name: 'matbao.com',
-    email: 'thinhlq@matbao.com',
-    gaia_name: 'Thinh Lam Quang',
-    label: 'Chrome — Profile 9 · matbao.com (thinhlq@matbao.com)',
-  },
-  {
-    folder: 'Profile 10',
-    name: 'Lâm Quang',
-    email: 'lamquangthinh3006@gmail.com',
-    gaia_name: 'Lâm Quang Thịnh',
-    label: 'Chrome — Profile 10 · Lâm Quang (lamquangthinh3006@gmail.com)',
-  },
-  {
-    folder: 'Profile 11',
-    name: 'thu',
-    email: 'thientrieu.gr1@gmail.com',
-    gaia_name: 'Vũ ngọc Triều',
-    label: 'Chrome — Profile 11 · thu (thientrieu.gr1@gmail.com)',
-  },
-  {
-    folder: 'Profile 12',
-    name: 'trtr',
-    email: '',
-    gaia_name: '',
-    label: 'Chrome — Profile 12 · trtr',
-  },
-  {
-    folder: 'Profile 13',
-    name: 'VPN',
-    email: 'shopheiyo@gmail.com',
-    gaia_name: 'Trung Trần Đức',
-    label: 'Chrome — Profile 13 · VPN (shopheiyo@gmail.com)',
-  },
-  {
-    folder: 'Profile 14',
-    name: 'Test video',
-    email: '',
-    gaia_name: '',
-    label: 'Chrome — Profile 14 · Test video',
-  },
-]
+// Real Chrome profiles are read exclusively from the user's running Windows Local Bridge (:17890).
+export const WORKSTATION_REAL_CHROME_PROFILES: RealChromeProfile[] = []
 
 export async function fetchRealLocalChromeProfiles(): Promise<RealChromeProfile[]> {
   try {
@@ -146,14 +48,8 @@ export function resolveChromeProfileDirectory(
     return `Profile ${profileMatch[1]}`
   }
 
-  const lower = raw.toLowerCase()
-  for (const p of WORKSTATION_REAL_CHROME_PROFILES) {
-    if (p.email && lower.includes(p.email.toLowerCase())) {
-      return p.folder
-    }
-    if (p.name && p.name.length >= 2 && lower.includes(p.name.toLowerCase())) {
-      return p.folder
-    }
+  if (/\bguest\s*profile\b/i.test(raw)) {
+    return 'Guest Profile'
   }
 
   const hashMatch = raw.match(/#\s*(\d+)/)
@@ -614,7 +510,7 @@ export function downloadWindowsChromeLauncherBat(): void {
     '    }',
     '    $path = $req.Url.AbsolutePath.TrimEnd("/")',
     '    if ($path -eq "/health" -and $req.HttpMethod -eq "GET") {',
-    `      Send-Json $res 200 '{"ok":true,"version":"2.9.4"}'`,
+    `      Send-Json $res 200 '{"ok":true,"version":"2.9.5"}'`,
     '      continue',
     '    }',
     '    if ($path -eq "/chrome-profiles" -and $req.HttpMethod -eq "GET") {',
@@ -905,9 +801,9 @@ export function buildExtensionFilesForVia(
       ? `AdsOps Companion Pro · ${profileDir} · Proxy ${parsed!.host}:${parsed!.port}`
       : `AdsOps Companion Pro · ${profileDir} (${viaName})`,
     short_name: 'AdsOps Companion Pro',
-    version: '2.9.4',
+    version: '2.9.5',
     description:
-      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.9.4 Pro: Đảo Ấm Cookie Sinh Học Đa Lộ Trình + Tự Dừng Nếu Văng Cookie, Full Auto-Pilot Tạo Fanpage giãn nhịp an toàn + Checkpoint Guard, Anti-Passkey, 2FA, WebRTC Lock & EAAB Token.',
+      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.9.5 Pro: Đảo Ấm Cookie Sinh Học Đa Lộ Trình + Tự Dừng Nếu Văng Cookie, Full Auto-Pilot Tạo Fanpage giãn nhịp an toàn + Checkpoint Guard, Anti-Passkey, 2FA, WebRTC Lock & EAAB Token.',
     permissions: [
       'proxy',
       'privacy',
@@ -966,7 +862,7 @@ export function buildExtensionFilesForVia(
 
   // Runs in MAIN world at document_start BEFORE Facebook's scripts load:
   // Completely blocks Windows Hello / WebAuthn / Passkey popup from ever appearing!
-  const passkeyShieldJs = `// AdsOps Companion Pro v2.9.4 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
+  const passkeyShieldJs = `// AdsOps Companion Pro v2.9.5 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
 (function() {
   try {
     if (window.PublicKeyCredential) {
@@ -1515,7 +1411,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   <div class="header">
     <div class="brand">
       <span class="logo">AO</span>
-      <span>AdsOps Companion v2.9.4 Pro</span>
+      <span>AdsOps Companion v2.9.5 Pro</span>
     </div>
     <span id="proxy-badge" class="status-pill">MẠNG GỐC</span>
   </div>
@@ -1615,15 +1511,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     <div id="acc-list" class="acc-list"></div>
   </div>
 
-  <!-- SECTION 4: COOKIE EXPORT/IMPORT, KEEP-ALIVE v2.9.4 & TOKEN EXTRACTOR -->
+  <!-- SECTION 4: COOKIE EXPORT/IMPORT, KEEP-ALIVE v2.9.5 & TOKEN EXTRACTOR -->
   <details class="card" style="cursor:pointer;">
-    <summary class="section-title" style="margin-bottom:0;">4. 🍪 Cookie · ☕ Đảo Ấm v2.9.4 &amp; ⚡ Bắt Token EAAB</summary>
+    <summary class="section-title" style="margin-bottom:0;">4. 🍪 Cookie · ☕ Đảo Ấm v2.9.5 &amp; ⚡ Bắt Token EAAB</summary>
     <div style="margin-top:8px;">
       <div class="btn-row" style="margin-top:0; margin-bottom:6px;">
         <button id="btn-export-cookie" type="button" class="btn btn-primary">🍪 Chép Cookie FB</button>
         <button id="btn-extract-token" type="button" class="btn btn-emerald">⚡ Bắt Token EAAB</button>
       </div>
-      <button id="btn-run-keepalive" type="button" class="btn" style="width:100%;margin-bottom:6px;border-color:rgba(245,158,11,0.55);color:#fcd34d;">☕ Đảo Ấm Cookie Như Người Thật (v2.9.4)</button>
+      <button id="btn-run-keepalive" type="button" class="btn" style="width:100%;margin-bottom:6px;border-color:rgba(245,158,11,0.55);color:#fcd34d;">☕ Đảo Ấm Cookie Như Người Thật (v2.9.5)</button>
       <div id="ka-last-status" style="margin-bottom:6px; font-size:10px; color:#94a3b8;"></div>
       <textarea id="cookie-box" rows="2" class="mono" placeholder="Dán Cookie JSON hoặc c_user=...; xs=... vào đây để đăng nhập Via không cần mật khẩu"></textarea>
       <div class="btn-row">
@@ -2335,7 +2231,7 @@ refreshIp();
 tickOtp();`
 
   const readmeTxt = [
-    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.9.4 PRO - FULL AUTO PAGE + ANTI-PASSKEY)',
+    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.9.5 PRO - FULL AUTO PAGE + ANTI-PASSKEY)',
     '===================================================================================',
     'Bước 1: Giải nén file .zip này ra một thư mục cố định (ví dụ: Desktop\\AdsOps-Chrome-Extension).',
     'Bước 2: Mở trình duyệt Google Chrome của Via -> gõ vào thanh địa chỉ: chrome://extensions',
@@ -2344,7 +2240,7 @@ tickOtp();`
     'Bước 5: Bấm biểu tượng mảnh ghép trên góc phải Chrome -> Bấm nút Ghim (Pin) cạnh "AdsOps Companion Pro".',
   ].join('\r\n')
 
-  const contentJs = `// AdsOps Companion Pro v2.9.4 — Full Auto-Pilot Page Creator + Safety Guard + Anti-Passkey + HUD
+  const contentJs = `// AdsOps Companion Pro v2.9.5 — Full Auto-Pilot Page Creator + Safety Guard + Anti-Passkey + HUD
 (function() {
   let lastSyncedAct = "";
   let autoDeletePasskeyTriggered = false;
@@ -2751,7 +2647,7 @@ tickOtp();`
       if (!avFile || pageAutoPilotHalted) return;
       assignFileToInput(fileInputs[0], avFile);
       lastMediaAttachedAt = Date.now();
-      setHudPageStatus("🖼️ [Auto v2.9.4] Đã tự gắn Avatar độc bản (chống trùng Hash)...", "#38bdf8");
+      setHudPageStatus("🖼️ [Auto v2.9.5] Đã tự gắn Avatar độc bản (chống trùng Hash)...", "#38bdf8");
 
       if (fileInputs.length > 1) {
         setTimeout(() => {
@@ -2760,7 +2656,7 @@ tickOtp();`
             if (!cvFile || pageAutoPilotHalted) return;
             assignFileToInput(fileInputs[1], cvFile);
             lastMediaAttachedAt = Date.now();
-            setHudPageStatus("🖼️ [Auto v2.9.4] Đã tự gắn đủ Avatar + Cover độc bản!", "#34d399");
+            setHudPageStatus("🖼️ [Auto v2.9.5] Đã tự gắn đủ Avatar + Cover độc bản!", "#34d399");
           });
         }, randDelay(950, 1550));
       }
@@ -3000,7 +2896,7 @@ tickOtp();`
       const waitMs = randDelay(stopMeta.minMs, stopMeta.maxMs);
 
       const reader = startBiometricReadingLoop(
-        "☕ [Đảo Ấm v2.9.4 · Bước " + (idx + 1) + "/" + steps.length + "] Đang đọc " + stopMeta.label + " tự nhiên (" + Math.round(waitMs / 1000) + "s)..."
+        "☕ [Đảo Ấm v2.9.5 · Bước " + (idx + 1) + "/" + steps.length + "] Đang đọc " + stopMeta.label + " tự nhiên (" + Math.round(waitMs / 1000) + "s)..."
       );
 
       setTimeout(() => {
@@ -3035,7 +2931,7 @@ tickOtp();`
             route_summary: summary,
             duration_sec: Math.max(15, Math.round((Date.now() - (Number(session.startedAt) || Date.now())) / 1000)),
           });
-          setHudPageStatus("☕ [v2.9.4] Đã đảo ấm sinh học hoàn tất (" + summary + ")!", "#34d399");
+          setHudPageStatus("☕ [v2.9.5] Đã đảo ấm sinh học hoàn tất (" + summary + ")!", "#34d399");
           if (session.autoClose) {
             scheduleSafeTabAutoClose(randDelay(7500, 10500));
           }
@@ -3053,7 +2949,7 @@ tickOtp();`
       return;
     }
     const isWarmupToCreate = urlObj.searchParams.get("adsops_warmup_to_create") === "1";
-    const isKeepAliveStart = urlObj.searchParams.get("adsops_keepalive_session") === "1";
+    const isKeepAliveStart = urlObj.searchParams.get("adsops_keepalive_session") === "1" || urlObj.searchParams.get("adsops_keepalive") === "1";
 
     if (isWarmupToCreate) {
       warmupStarted = true;
@@ -3070,7 +2966,7 @@ tickOtp();`
           return;
         }
         const waitMs = randDelay(12500, 17500);
-        const reader = startBiometricReadingLoop("🌿 [Auto v2.9.4] Đang đọc lướt Newsfeed sinh học " + Math.round(waitMs / 1000) + "s trước khi tạo Page...");
+        const reader = startBiometricReadingLoop("🌿 [Auto v2.9.5] Đang đọc lướt Newsfeed sinh học " + Math.round(waitMs / 1000) + "s trước khi tạo Page...");
         setTimeout(() => {
           reader.stop();
           if (pageAutoPilotHalted) return;
@@ -3093,7 +2989,8 @@ tickOtp();`
 
     if (isKeepAliveStart) {
       warmupStarted = true;
-      const wantClose = urlObj.searchParams.get("adsops_auto_close") !== "0";
+      const rawAutoClose = urlObj.searchParams.get("adsops_auto_close") ?? urlObj.searchParams.get("autoclose");
+      const wantClose = rawAutoClose !== "0";
       const viaTier = urlObj.searchParams.get("adsops_via_tier") || "standard";
       const viaLabel = urlObj.searchParams.get("adsops_via_label") || "";
       const rawRoute = (urlObj.searchParams.get("adsops_ka_route") || "")
@@ -3304,7 +3201,7 @@ tickOtp();`
   function handlePageCreationDom() {
     if (pageAutoPilotHalted || pageCreateAutoFilled) return;
     const url = window.location.href;
-    if (url.includes("adsops_warmup_to_create=1") || url.includes("adsops_keepalive_session=1")) return;
+    if (url.includes("adsops_warmup_to_create=1") || url.includes("adsops_keepalive_session=1") || url.includes("adsops_keepalive=1")) return;
     if (!url.includes("/pages/creation") && !url.includes("adsops_page_name=")) return;
     try {
       const u = new URL(url);
@@ -3373,7 +3270,7 @@ tickOtp();`
       const tFinal = tBio + randDelay(1900, 2850);
 
       if (autoSubmit) {
-        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9.4] Đang nhập tự nhiên theo nhịp người thật...", "#38bdf8");
+        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9.5] Đang nhập tự nhiên theo nhịp người thật...", "#38bdf8");
       }
 
       if (pName && nameEl && !nameEl.value) {
@@ -3461,14 +3358,14 @@ tickOtp();`
           sessionStorage.setItem("adsops_media_uploaded", "0");
         } catch (e) {}
         createBtn.click();
-        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9.4] Đã bấm Tạo Trang — Đang hoàn tất bước phụ...", "#38bdf8");
+        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9.5] Đã bấm Tạo Trang — Đang hoàn tất bước phụ...", "#38bdf8");
       };
 
       setTimeout(() => tryAutoClickCreate(true), tFinal);
     } catch (e) {}
   }
 
-  // v2.9.4: User-clicked 1-tap 6-digit 2FA autofill from Desktop DPAPI Vault / local secret (strictly blocked on CAPTCHA pages)
+  // v2.9.5: User-clicked 1-tap 6-digit 2FA autofill from Desktop DPAPI Vault / local secret (strictly blocked on CAPTCHA pages)
   function handleTwoFactorAssistDom() {
     try {
       const url = (window.location.href || "").toLowerCase();
@@ -3611,7 +3508,7 @@ export function downloadChromeExtensionZip(
   const url = URL.createObjectURL(zipBlob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `AdsOps-Chrome-Extension-v2.9.4-${slug}.zip`
+  a.download = `AdsOps-Chrome-Extension-v2.9.5-${slug}.zip`
   document.body.appendChild(a)
   a.click()
   a.remove()
@@ -3632,12 +3529,12 @@ export function downloadAllViasExtensionsBundleZip(items: ViaExtensionBundleSpec
   if (!Array.isArray(items) || items.length === 0) return
   const allFiles: Array<{ name: string; content: string | Uint8Array }> = []
   const guideLines: string[] = [
-    'TRON BO TIEN ICH ADSOPS COMPANION v2.9.4 PRO CHO TOAN BO DAN VIA',
+    'TRON BO TIEN ICH ADSOPS COMPANION v2.9.5 PRO CHO TOAN BO DAN VIA',
     '================================================================',
     `Tong so thu muc Extension da dong goi: ${items.length} Via`,
     '',
     'Cach cai nhanh:',
-    '1. Giai nen file .zip nay ra mot thu muc co dinh (VD: Desktop\AdsOps-Extensions-v2.9.4).',
+    '1. Giai nen file .zip nay ra mot thu muc co dinh (VD: Desktop\AdsOps-Extensions-v2.9.5).',
     '2. Mo Chrome cua tung Via -> chrome://extensions -> Bat Developer mode -> Load unpacked -> chon dung thu muc ten cua Via do ben duoi:',
     '',
   ]
@@ -3669,7 +3566,7 @@ export function downloadAllViasExtensionsBundleZip(items: ViaExtensionBundleSpec
   const url = URL.createObjectURL(zipBlob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `AdsOps-Tron-Bo-Extension-v2.9.4-${items.length}Via.zip`
+  a.download = `AdsOps-Tron-Bo-Extension-v2.9.5-${items.length}Via.zip`
   document.body.appendChild(a)
   a.click()
   a.remove()

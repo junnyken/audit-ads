@@ -147,6 +147,7 @@ internal sealed partial class MainWindow : Window
     public MainWindow(bool startMinimized = false)
     {
         _startMinimized = startMinimized;
+        ProtocolRegistrar.CleanupLegacyPythonBridgeAutostart();
         _config = DesktopConfig.Load();
         _api.Configure(_config.BackendBaseUrl, _config.GetJwt());
 
@@ -157,7 +158,7 @@ internal sealed partial class MainWindow : Window
             AppendLog);
         _queue.SnapshotChanged += OnQueueSnapshotChanged;
 
-        Title = "AdsOps Desktop Pro v2.3";
+        Title = $"AdsOps Desktop Pro v{DesktopAppInfo.Version}";
         Width = 1320;
         Height = 840;
         MinWidth = 1040;
@@ -269,7 +270,7 @@ internal sealed partial class MainWindow : Window
         });
         brandText.Children.Add(new TextBlock
         {
-            Text = "Desktop Suite v2.3",
+            Text = $"Desktop Suite v{DesktopAppInfo.Version}",
             FontFamily = ThemeTokens.UiFont,
             FontSize = 12,
             Foreground = ThemeTokens.TextMuted,
@@ -659,7 +660,7 @@ internal sealed partial class MainWindow : Window
 
     private async Task OnWindowLoadedAsync()
     {
-        AppendLog("Khởi động AdsOps Desktop Pro v2.3 (WPF Dark UI + DPAPI Vault + Local TOTP + Retainers/Team).");
+        AppendLog($"Khởi động AdsOps Desktop Pro v{DesktopAppInfo.Version} (WPF Dark UI + DPAPI Vault + Local TOTP + Retainers/Team).");
         _chromeProfiles = ExtensionProvisioner.ReadLocalChromeProfiles();
         AppendLog($"Phát hiện {_chromeProfiles.Count} Chrome Profile trên máy Windows.");
 
@@ -701,7 +702,7 @@ internal sealed partial class MainWindow : Window
                 OnBridgeTileWindows);
             _bridge.Start();
             var tpl = ExtensionProvisioner.LoadTemplates();
-            AppendLog($"Local Bridge v2.3 đang lắng nghe tại http://127.0.0.1:{_bridge.BoundPort} (Ext v{tpl.Version}).");
+            AppendLog($"Local Bridge v{DesktopAppInfo.Version} đang lắng nghe tại http://127.0.0.1:{_bridge.BoundPort} (Ext v{tpl.Version}).");
         }
         catch (Exception ex)
         {
@@ -1095,6 +1096,7 @@ internal sealed partial class MainWindow : Window
                 Label = r.Label,
                 DisplayName = r.DisplayName,
                 ExternalReferenceId = r.ExternalReferenceId ?? "",
+                Status = string.IsNullOrWhiteSpace(r.Status) ? "active" : r.Status,
                 BrowserProfileLabel = string.IsNullOrWhiteSpace(r.BrowserProfileLabel) ? profileDir : r.BrowserProfileLabel,
                 ProfileDir = profileDir,
                 NetworkLabel = r.NetworkLabel ?? "",
@@ -1234,15 +1236,27 @@ internal sealed partial class MainWindow : Window
         {
             try
             {
-                var payload = _vias.Where(v => v.NeedsKeepAlive).Select(v => new
+                var launchedById = _queue.LastLaunchedItems
+                    .Where(item => !string.IsNullOrWhiteSpace(item.ViaId))
+                    .GroupBy(item => item.ViaId, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => g.First())
+                    .ToList();
+                if (launchedById.Count > 0)
                 {
-                    via_id = v.ViaId,
-                    via_label = v.Label,
-                    browser_profile = v.ProfileDir,
-                    route_summary = "newsfeed -> notifications",
-                    duration_sec = 30,
-                });
-                await _api.LogViaKeepAliveBatchAsync(payload);
+                    var payload = launchedById.Select(item =>
+                    {
+                        var matched = _vias.FirstOrDefault(v => string.Equals(v.ViaId, item.ViaId, StringComparison.OrdinalIgnoreCase));
+                        return new
+                        {
+                            via_id = item.ViaId,
+                            via_label = matched?.Label ?? item.ViaLabel,
+                            browser_profile = matched?.ProfileDir ?? item.BrowserProfile,
+                            route_summary = "newsfeed -> notifications",
+                            duration_sec = 30,
+                        };
+                    });
+                    await _api.LogViaKeepAliveBatchAsync(payload);
+                }
             }
             catch (Exception ex)
             {
@@ -1352,7 +1366,9 @@ internal sealed partial class MainWindow : Window
             v.Label,
             v.ProfileDir,
             v.NetworkLabel,
-            "https://www.facebook.com/?adsops_keepalive=1&autoclose=" + (_config.AutoCloseKeepAliveTab ? "1" : "0"),
+            "https://www.facebook.com/?adsops_keepalive_session=1&adsops_auto_close=" + (_config.AutoCloseKeepAliveTab ? "1" : "0") +
+            "&adsops_via_tier=" + Uri.EscapeDataString(v.RoleTier) +
+            "&adsops_via_label=" + Uri.EscapeDataString(v.Label),
             "Đảo Ấm Cookie thụ động",
             v.BackendTier)).ToList();
 
@@ -1680,7 +1696,7 @@ internal sealed partial class MainWindow : Window
         e.Cancel = true;
         Hide();
         ShowInTaskbar = false;
-        _tray?.ShowBalloon("AdsOps Desktop Pro v2.3", "Ứng dụng đang chạy ngầm tại Khay hệ thống (Local Bridge vẫn bật).");
+        _tray?.ShowBalloon($"AdsOps Desktop Pro v{DesktopAppInfo.Version}", "Ứng dụng đang chạy ngầm tại Khay hệ thống (Local Bridge vẫn bật).");
     }
 
     public void ExitApplicationCleanly()
