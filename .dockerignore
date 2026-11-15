@@ -1,0 +1,12 @@
+.git
+.github
+.dev
+desktop
+extension
+frontend
+docs
+backend/.venv
+backend/tests
+**/__pycache__
+**/node_modules
+**/*.zip
