@@ -136,22 +136,84 @@ internal sealed partial class MainWindow
             Margin = new Thickness(0, 6, 0, 0),
             Visibility = Visibility.Collapsed,
         };
+
+        // Multi-Client Silo & Default Warmup Route (v2.4.0)
+        var twoColSilo = new Grid { Margin = new Thickness(0, 8, 0, 0) };
+        twoColSilo.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        twoColSilo.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+        twoColSilo.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var tbClientGroup = UiComponents.CreateTextBox(existing?.ClientGroup ?? "", "VD: NhaKhoa_A, Spa_B (để trống nếu dùng chung)");
+        var cbWarmupRoute = UiComponents.CreateComboBox(new[]
+        {
+            new ComboBoxItem { Content = "Nuôi Tương Tác Thật (Feed + Watch + Notif)", Tag = "human_organic" },
+            new ComboBoxItem { Content = "Ngâm 72h Thụ Động (Chỉ Feed + Notif)", Tag = "soak_72h" },
+            new ComboBoxItem { Content = "Nuôi Cầm BM (Anti-Deep-Link)", Tag = "bm_warmup" },
+            new ComboBoxItem { Content = "Trước Lên Camp (Feed + Pages)", Tag = "pre_camp" },
+        });
+        cbWarmupRoute.SelectedIndex = ViaMetadataParser.NormalizeWarmupMode(existing?.DefaultWarmupMode) switch
+        {
+            "soak_72h" => 1,
+            "bm_warmup" => 2,
+            "pre_camp" => 3,
+            _ => 0,
+        };
+        var clientBox = BuildLabeledBox("Nhóm Khách Hàng (Client Silo)", tbClientGroup);
+        var routeBox = BuildLabeledBox("Kịch bản Nuôi mặc định", cbWarmupRoute);
+        Grid.SetColumn(clientBox, 0);
+        Grid.SetColumn(routeBox, 2);
+        twoColSilo.Children.Add(clientBox);
+        twoColSilo.Children.Add(routeBox);
+
         void RefreshProxyDupWarning()
         {
             var hostPort = AutomationQueueEngine.ExtractProxyHostPort(tbProxy.Text);
-            if (string.IsNullOrWhiteSpace(hostPort))
+            var clientVal = tbClientGroup.Text.Trim();
+            var profVal = (cbProfile.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "Default";
+            var warnings = new List<string>();
+            bool isDanger = false;
+
+            if (!string.IsNullOrWhiteSpace(hostPort))
             {
-                proxyDupHint.Visibility = Visibility.Collapsed;
-                return;
+                var collisions = _vias.Where(v =>
+                    !string.Equals(v.ViaId, existing?.ViaId, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(AutomationQueueEngine.ExtractProxyHostPort(v.NetworkLabel), hostPort, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                if (collisions.Count > 0)
+                {
+                    var crossClient = collisions.Where(v =>
+                        !string.Equals(v.ClientGroup ?? "", clientVal, StringComparison.OrdinalIgnoreCase) &&
+                        (!string.IsNullOrEmpty(clientVal) || !string.IsNullOrEmpty(v.ClientGroup))).ToList();
+                    if (crossClient.Count > 0)
+                    {
+                        isDanger = true;
+                        warnings.Add($"🚨 XUNG ĐỘT SILO KHÁCH HÀNG: Proxy {hostPort} đang gắn cho khách khác ({string.Join(", ", crossClient.Select(x => $"{x.Label} [{x.ClientGroup}]"))})!");
+                    }
+                    else
+                    {
+                        warnings.Add($"⚠ Trùng IP Proxy ({hostPort}) với Via khác: {string.Join(", ", collisions.Select(v => v.Label))}.");
+                    }
+                }
             }
-            var collisions = _vias.Where(v =>
-                !string.Equals(v.ViaId, existing?.ViaId, StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(AutomationQueueEngine.ExtractProxyHostPort(v.NetworkLabel), hostPort, StringComparison.OrdinalIgnoreCase))
-                .Select(v => v.Label)
-                .ToList();
-            if (collisions.Count > 0)
+
+            if (!string.IsNullOrEmpty(clientVal))
             {
-                proxyDupHint.Text = $"⚠ Cảnh báo trùng IP Proxy ({hostPort}) với Via khác: {string.Join(", ", collisions)}. Dễ gây Checkpoint chéo khi mở nhiều Profile!";
+                var profCross = _vias.Where(v =>
+                    !string.Equals(v.ViaId, existing?.ViaId, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(v.ProfileDir, profVal, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(v.ClientGroup ?? "", clientVal, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                if (profCross.Count > 0)
+                {
+                    isDanger = true;
+                    warnings.Add($"🚨 Trùng Chrome Profile «{profVal}» với Via khác khách ({string.Join(", ", profCross.Select(v => v.Label))}).");
+                }
+            }
+
+            if (warnings.Count > 0)
+            {
+                proxyDupHint.Text = string.Join(" ", warnings);
+                proxyDupHint.Foreground = isDanger ? ThemeTokens.DangerText : ThemeTokens.WarningText;
                 proxyDupHint.Visibility = Visibility.Visible;
             }
             else
@@ -160,8 +222,41 @@ internal sealed partial class MainWindow
             }
         }
         tbProxy.TextChanged += (_, _) => RefreshProxyDupWarning();
+        tbClientGroup.TextChanged += (_, _) => RefreshProxyDupWarning();
+        cbProfile.SelectionChanged += (_, _) => RefreshProxyDupWarning();
         RefreshProxyDupWarning();
         root.Children.Add(proxyDupHint);
+        root.Children.Add(twoColSilo);
+
+        if (existing?.IsInCooldown == true)
+        {
+            var cdGrid = new Grid();
+            cdGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            cdGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var cdText = new TextBlock
+            {
+                Text = $"❄️ Via đang Cooldown đến {existing.CooldownUntilUtc!.Value.ToLocalTime():dd/MM HH:mm}: {existing.CooldownReason}",
+                FontFamily = ThemeTokens.UiFont,
+                FontSize = 12,
+                Foreground = ThemeTokens.DangerText,
+                TextWrapping = TextWrapping.Wrap,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            var clearCdBtn = UiComponents.CreateButton("Gỡ đóng băng ngay", ButtonVariant.Secondary, compact: true, onClick: (_, _) =>
+            {
+                ViaStewardshipStore.Default.ClearCooldown(existing.ViaId, existing.Label);
+                existing.CooldownUntilUtc = null;
+                existing.CooldownReason = "";
+                AppendLog($"Đã gỡ đóng băng Cooldown cho Via '{existing.Label}'.");
+                MessageBox.Show(this, $"Đã gỡ Cooldown cho '{existing.Label}'.", "Hoàn tất", MessageBoxButton.OK, MessageBoxImage.Information);
+            });
+            Grid.SetColumn(clearCdBtn, 1);
+            cdGrid.Children.Add(cdText);
+            cdGrid.Children.Add(clearCdBtn);
+            var cdCard = UiComponents.CreateCard(cdGrid, new Thickness(10, 8, 10, 8), ThemeTokens.DangerBg, ThemeTokens.DangerBorder);
+            cdCard.Margin = new Thickness(0, 8, 0, 0);
+            root.Children.Add(cdCard);
+        }
 
         // Warmup baseline + Status
         var twoCol4 = new Grid { Margin = new Thickness(0, 8, 0, 0) };
@@ -283,6 +378,7 @@ internal sealed partial class MainWindow
                 var profTag = (cbProfile.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "Default";
                 var statusTag = (cbStatus.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "active";
                 var wmTag = (warmupMode.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "keep";
+                var wModeTag = (cbWarmupRoute.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "human_organic";
                 var nextWarmupIso = wmTag switch
                 {
                     "now" => DateTimeOffset.UtcNow.ToString("O"),
@@ -290,7 +386,7 @@ internal sealed partial class MainWindow
                     _ => existing?.WarmupStartIso ?? "",
                 };
 
-                var builtNotes = ViaMetadataParser.BuildNotes(tbNotes.Text.Trim(), tierTag, nextWarmupIso);
+                var builtNotes = ViaMetadataParser.BuildNotes(tbNotes.Text.Trim(), tierTag, nextWarmupIso, tbClientGroup.Text.Trim(), wModeTag);
                 var payload = new PersonalAccountUpsertRequestDto
                 {
                     Label = labelVal,
@@ -2030,6 +2126,198 @@ internal sealed partial class MainWindow
         root.Children.Add(row);
 
         dlg.Content = root;
+        dlg.ShowDialog();
+    }
+
+    internal void OpenStewardshipLogDialog()
+    {
+        var dlg = new Window
+        {
+            Title = "Nhật ký Khiên Chống Checkpoint & Cách Ly Đa Khách Hàng (v2.4.0)",
+            Width = 800,
+            Height = 680,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            Background = ThemeTokens.BgCanvas,
+            Foreground = ThemeTokens.TextPrimary,
+            ShowInTaskbar = false,
+        };
+        ThemeTokens.ApplyDarkTitleBar(dlg);
+
+        var outer = new Grid { Margin = new Thickness(20) };
+        outer.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        outer.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        outer.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        outer.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var hdr = new StackPanel { Margin = new Thickness(0, 0, 0, 12) };
+        hdr.Children.Add(new TextBlock
+        {
+            Text = "Nhật ký Bảo vệ Tài khoản Khách Hàng & Chống Checkpoint",
+            FontFamily = ThemeTokens.UiFont,
+            FontSize = 16,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeTokens.TextPrimary,
+        });
+        hdr.Children.Add(new TextBlock
+        {
+            Text = "Ghi nhận tức thì mọi sự kiện chặn rò rỉ IP, kích hoạt Cooldown 24h, cách ly Silo 72h và làm mới Cookie DPAPI Local.",
+            FontFamily = ThemeTokens.UiFont,
+            FontSize = 12,
+            Foreground = ThemeTokens.TextSecondary,
+            Margin = new Thickness(0, 3, 0, 0),
+        });
+        Grid.SetRow(hdr, 0);
+        outer.Children.Add(hdr);
+
+        var soakCount = _vias.Count(v => v.IsInSoakQuarantine);
+        var cdCount = _vias.Count(v => v.IsInCooldown);
+        var siloCount = _vias.Count(v => v.HasSiloConflict);
+        var avgTrust = _vias.Count > 0 ? (int)Math.Round(_vias.Average(v => v.TrustScore)) : 0;
+
+        var kpiGrid = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+        kpiGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        kpiGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+        kpiGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        kpiGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+        kpiGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        kpiGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+        kpiGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var k1 = UiComponents.CreateMetricCard("Đang ngâm 72h", soakCount.ToString(), "Khóa Tạo Page hàng loạt", FluentIcons.Lock, ThemeTokens.WarningText, out _, out _);
+        var k2 = UiComponents.CreateMetricCard("Đang Cooldown", cdCount.ToString(), "Tự dừng khi gặp biến cố", FluentIcons.Warning, cdCount > 0 ? ThemeTokens.DangerText : ThemeTokens.SuccessText, out _, out _);
+        var k3 = UiComponents.CreateMetricCard("Trùng Silo Khách", siloCount.ToString(), "Proxy / Profile dùng chung", FluentIcons.ShieldCheck, siloCount > 0 ? ThemeTokens.DangerText : ThemeTokens.SuccessText, out _, out _);
+        var k4 = UiComponents.CreateMetricCard("Trust Trung Bình", $"{avgTrust}/100", "Điểm môi trường toàn dàn", FluentIcons.CheckCircle, avgTrust >= 75 ? ThemeTokens.SuccessText : ThemeTokens.AccentText, out _, out _);
+        Grid.SetColumn(k1, 0);
+        Grid.SetColumn(k2, 2);
+        Grid.SetColumn(k3, 4);
+        Grid.SetColumn(k4, 6);
+        kpiGrid.Children.Add(k1);
+        kpiGrid.Children.Add(k2);
+        kpiGrid.Children.Add(k3);
+        kpiGrid.Children.Add(k4);
+        Grid.SetRow(kpiGrid, 1);
+        outer.Children.Add(kpiGrid);
+
+        var eventsListPanel = new StackPanel();
+        void PopulateEvents()
+        {
+            eventsListPanel.Children.Clear();
+            var events = ViaStewardshipStore.Default.GetRecentEvents(120);
+            if (events.Count == 0)
+            {
+                eventsListPanel.Children.Add(UiComponents.CreateEmptyState(
+                    FluentIcons.ShieldCheck,
+                    "Chưa có biến cố hoặc sự kiện bảo vệ",
+                    "Khi có sự kiện IP Kill-Switch, Checkpoint Cooldown, Đảo Ấm hoặc làm mới Cookie DPAPI, lịch sử sẽ hiện tại đây."));
+                return;
+            }
+            foreach (var ev in events)
+            {
+                var row = new Grid();
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(132) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(170) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+                var tsText = DateTimeOffset.TryParse(ev.TimestampUtc, out var dt)
+                    ? dt.ToLocalTime().ToString("dd/MM HH:mm:ss")
+                    : ev.TimestampUtc;
+                row.Children.Add(new TextBlock
+                {
+                    Text = tsText,
+                    FontFamily = ThemeTokens.MonoFont,
+                    FontSize = 11,
+                    Foreground = ThemeTokens.TextMuted,
+                    VerticalAlignment = VerticalAlignment.Center,
+                });
+
+                var badgeCol = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+                var (fg, bg, bd) = ev.EventType switch
+                {
+                    "IP_LEAK_BLOCKED" or "SAFETY_CHALLENGE" or "SAFETY_COOLDOWN" => (ThemeTokens.DangerText, ThemeTokens.DangerBg, ThemeTokens.DangerBorder),
+                    "PROXY_CHANGED_QUARANTINE" => (ThemeTokens.WarningText, ThemeTokens.WarningBg, ThemeTokens.WarningBorder),
+                    "VAULT_COOKIE_REFRESHED" or "KEEPALIVE_OK" or "COOLDOWN_CLEARED" or "COOLDOWN_CLEARED_ALL" => (ThemeTokens.SuccessText, ThemeTokens.SuccessBg, ThemeTokens.SuccessBorder),
+                    _ => (ThemeTokens.AccentText, ThemeTokens.InfoBg, ThemeTokens.InfoBorder),
+                };
+                badgeCol.Children.Add(UiComponents.CreateBadgePill(ev.EventType, fg, bg, bd));
+                Grid.SetColumn(badgeCol, 1);
+                row.Children.Add(badgeCol);
+
+                var detailStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                var siloPart = string.IsNullOrWhiteSpace(ev.ClientGroup) ? "" : $" [Silo: {ev.ClientGroup}]";
+                detailStack.Children.Add(new TextBlock
+                {
+                    Text = $"{ev.ViaLabel}{siloPart}",
+                    FontFamily = ThemeTokens.UiFont,
+                    FontSize = 12,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = ThemeTokens.TextPrimary,
+                });
+                detailStack.Children.Add(new TextBlock
+                {
+                    Text = ev.Detail,
+                    FontFamily = ThemeTokens.UiFont,
+                    FontSize = 12,
+                    Foreground = ThemeTokens.TextSecondary,
+                    TextWrapping = TextWrapping.Wrap,
+                });
+                Grid.SetColumn(detailStack, 2);
+                row.Children.Add(detailStack);
+
+                var card = UiComponents.CreateCard(row, new Thickness(10, 7, 10, 7), ThemeTokens.BgSurfaceElevated, ThemeTokens.BorderSubtle);
+                card.Margin = new Thickness(0, 0, 0, 6);
+                eventsListPanel.Children.Add(card);
+            }
+        }
+        PopulateEvents();
+
+        var scroll = new ScrollViewer
+        {
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Content = eventsListPanel,
+        };
+        Grid.SetRow(scroll, 2);
+        outer.Children.Add(scroll);
+
+        var footer = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 14, 0, 0),
+        };
+        var clearAllBtn = UiComponents.CreateButton("Gỡ toàn bộ Cooldown", ButtonVariant.Secondary, FluentIcons.CheckCircle, onClick: (_, _) =>
+        {
+            var count = ViaStewardshipStore.Default.ClearAllCooldowns();
+            foreach (var v in _vias)
+            {
+                v.CooldownUntilUtc = null;
+                v.CooldownReason = "";
+            }
+            AppendLog($"Đã gỡ Cooldown cho {count} Via.");
+            PopulateEvents();
+            RenderCurrentView();
+        });
+        clearAllBtn.Margin = new Thickness(0, 0, 8, 0);
+
+        var exportLogBtn = UiComponents.CreateButton("Xuất CSV Nhật ký An toàn", ButtonVariant.Secondary, FluentIcons.Upload, onClick: (_, _) =>
+        {
+            var events = ViaStewardshipStore.Default.GetRecentEvents(250);
+            ExportCsvWithDialog(
+                $"adsops-stewardship-log-{DateTime.Now:yyyyMMdd-HHmm}.csv",
+                new[] { "Thoi_Gian_UTC", "Su_Kien", "Via_ID", "Ten_Via", "Silo_Khach_Hang", "Chi_Tiet" },
+                events.Select(e => new string?[] { e.TimestampUtc, e.EventType, e.ViaId, e.ViaLabel, e.ClientGroup, e.Detail }),
+                "Nhật ký Bảo vệ Via");
+        });
+        exportLogBtn.Margin = new Thickness(0, 0, 8, 0);
+
+        var closeBtn = UiComponents.CreateButton("Đóng", ButtonVariant.Primary, onClick: (_, _) => dlg.Close());
+        footer.Children.Add(clearAllBtn);
+        footer.Children.Add(exportLogBtn);
+        footer.Children.Add(closeBtn);
+        Grid.SetRow(footer, 3);
+        outer.Children.Add(footer);
+
+        dlg.Content = outer;
         dlg.ShowDialog();
     }
 }

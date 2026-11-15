@@ -29,7 +29,12 @@ public sealed record QueueTaskItem(
     string NetworkLabel,
     string TargetUrl,
     string TaskTitle,
-    string ViaTier);
+    string ViaTier,
+    string ClientGroup = "",
+    bool IsInSoakQuarantine = false,
+    DateTimeOffset? CooldownUntilUtc = null,
+    bool HasSiloConflict = false,
+    string SiloConflictDetail = "");
 
 public sealed record QueueSnapshot(
     QueuePhase Phase,
@@ -62,6 +67,8 @@ public sealed class AutomationQueueEngine : IDisposable
     private readonly List<QueueTaskItem> _launchedItems = new();
     private QueueSnapshot _snapshot = new(QueuePhase.Idle, QueueKind.KeepAlive, 0, 0, 0, 0, 0, 0, "", "", false, "");
     private readonly Dictionary<string, int> _proxyBatchUseCounts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _proxyClientGroupOwners = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _profileClientGroupOwners = new(StringComparer.OrdinalIgnoreCase);
 
     private int _baseStaggerSec = 48;
     private bool _preCheckProxy = true;
@@ -70,6 +77,8 @@ public sealed class AutomationQueueEngine : IDisposable
     private int _endHour = 22;
     private int _tickIntervalMs = 1000;
     private int _syncWaitSeconds = 22;
+    private bool _enforceSoakQuarantine = true;
+    private bool _enforceClientSilo = true;
     private bool _skipRequested;
 
     public event Action<QueueSnapshot>? SnapshotChanged;
@@ -138,7 +147,9 @@ public sealed class AutomationQueueEngine : IDisposable
         int maxViasPerProxy = 2,
         int daytimeStartHour = 8,
         int daytimeEndHour = 22,
-        bool enforceDaytimeWindow = true)
+        bool enforceDaytimeWindow = true,
+        bool enforceSoakQuarantine = false,
+        bool enforceClientSilo = false)
     {
         if (items == null || items.Count == 0) return;
 
@@ -150,7 +161,11 @@ public sealed class AutomationQueueEngine : IDisposable
         _maxViasPerProxy = Math.Max(1, maxViasPerProxy);
         _startHour = Math.Clamp(daytimeStartHour, 0, 23);
         _endHour = Math.Clamp(daytimeEndHour, 0, 23);
+        _enforceSoakQuarantine = enforceSoakQuarantine;
+        _enforceClientSilo = enforceClientSilo;
         _proxyBatchUseCounts.Clear();
+        _proxyClientGroupOwners.Clear();
+        _profileClientGroupOwners.Clear();
         lock (_gate)
         {
             _launchedItems.Clear();
@@ -244,6 +259,96 @@ public sealed class AutomationQueueEngine : IDisposable
 
             var item = _items[i];
             var hostPort = ExtractProxyHostPort(item.NetworkLabel);
+            var itemClientGroup = (item.ClientGroup ?? "").Trim();
+            var itemProfile = (item.BrowserProfile ?? "").Trim();
+
+            // Guard A: Cooldown 24h freeze after Safety Challenge or IP Leak Kill-Switch
+            if (item.CooldownUntilUtc.HasValue && item.CooldownUntilUtc.Value > DateTimeOffset.UtcNow)
+            {
+                skipped++;
+                var msg = $"Bỏ qua «{item.ViaLabel}»: Đang đóng băng Cooldown an toàn đến {item.CooldownUntilUtc.Value.ToLocalTime():dd/MM HH:mm}.";
+                _log($"❄️ {msg}");
+                UpdateSnapshot(_snapshot with
+                {
+                    Phase = QueuePhase.Running,
+                    CurrentIndex = i,
+                    LaunchedCount = launched,
+                    SkippedCount = skipped,
+                    CurrentViaLabel = item.ViaLabel,
+                    CurrentTaskTitle = item.TaskTitle,
+                    CheckingProxy = false,
+                    LastNotice = msg,
+                });
+                continue;
+            }
+
+            // Guard B: 72h New-Device / New-Proxy Soak Quarantine (blocks batch PageCreation, permits KeepAlive soak)
+            if (_enforceSoakQuarantine && kind == QueueKind.PageCreation && item.IsInSoakQuarantine)
+            {
+                skipped++;
+                var msg = $"Bỏ qua Tạo Page «{item.ViaLabel}»: Đang ngâm thiết bị mới 72h (chỉ cho phép Đảo Ấm thụ động).";
+                _log($"🛡️ {msg}");
+                UpdateSnapshot(_snapshot with
+                {
+                    Phase = QueuePhase.Running,
+                    CurrentIndex = i,
+                    LaunchedCount = launched,
+                    SkippedCount = skipped,
+                    CurrentViaLabel = item.ViaLabel,
+                    CurrentTaskTitle = item.TaskTitle,
+                    CheckingProxy = false,
+                    LastNotice = msg,
+                });
+                continue;
+            }
+
+            // Guard C: Multi-Client Silo Isolation (forbid cross-client proxy/profile collisions)
+            if (_enforceClientSilo)
+            {
+                string siloViolation = item.HasSiloConflict
+                    ? (string.IsNullOrWhiteSpace(item.SiloConflictDetail) ? "Xung đột cách ly Silo khách hàng." : item.SiloConflictDetail)
+                    : "";
+
+                if (string.IsNullOrEmpty(siloViolation) &&
+                    !string.IsNullOrEmpty(hostPort) &&
+                    _proxyClientGroupOwners.TryGetValue(hostPort, out var prevProxyClient) &&
+                    !string.Equals(prevProxyClient, itemClientGroup, StringComparison.OrdinalIgnoreCase) &&
+                    (!string.IsNullOrEmpty(prevProxyClient) || !string.IsNullOrEmpty(itemClientGroup)))
+                {
+                    var peerDesc = string.IsNullOrEmpty(prevProxyClient) ? "(Chưa gắn Silo)" : $"Khách {prevProxyClient}";
+                    siloViolation = $"Proxy {hostPort} đã dùng cho {peerDesc} trong lô.";
+                }
+
+                if (string.IsNullOrEmpty(siloViolation) &&
+                    !string.IsNullOrEmpty(itemProfile) &&
+                    _profileClientGroupOwners.TryGetValue(itemProfile, out var prevProfClient) &&
+                    !string.Equals(prevProfClient, itemClientGroup, StringComparison.OrdinalIgnoreCase) &&
+                    (!string.IsNullOrEmpty(prevProfClient) || !string.IsNullOrEmpty(itemClientGroup)))
+                {
+                    var peerDesc = string.IsNullOrEmpty(prevProfClient) ? "(Chưa gắn Silo)" : $"Khách {prevProfClient}";
+                    siloViolation = $"Chrome Profile «{itemProfile}» đã dùng cho {peerDesc} trong lô.";
+                }
+
+                if (!string.IsNullOrEmpty(siloViolation))
+                {
+                    skipped++;
+                    var msg = $"Bỏ qua «{item.ViaLabel}» (Silo Guard): {siloViolation}";
+                    _log($"🔒 {msg}");
+                    UpdateSnapshot(_snapshot with
+                    {
+                        Phase = QueuePhase.Running,
+                        CurrentIndex = i,
+                        LaunchedCount = launched,
+                        SkippedCount = skipped,
+                        CurrentViaLabel = item.ViaLabel,
+                        CurrentTaskTitle = item.TaskTitle,
+                        CheckingProxy = false,
+                        LastNotice = msg,
+                    });
+                    continue;
+                }
+            }
+
             if (!string.IsNullOrEmpty(hostPort) &&
                 (kind == QueueKind.PageCreation || _items.Count > 1) &&
                 _proxyBatchUseCounts.TryGetValue(hostPort, out var usedCount) &&
@@ -304,6 +409,14 @@ public sealed class AutomationQueueEngine : IDisposable
             if (!string.IsNullOrEmpty(hostPort))
             {
                 _proxyBatchUseCounts[hostPort] = _proxyBatchUseCounts.GetValueOrDefault(hostPort) + 1;
+                if (!_proxyClientGroupOwners.ContainsKey(hostPort))
+                {
+                    _proxyClientGroupOwners[hostPort] = itemClientGroup;
+                }
+            }
+            if (!string.IsNullOrEmpty(itemProfile) && !_profileClientGroupOwners.ContainsKey(itemProfile))
+            {
+                _profileClientGroupOwners[itemProfile] = itemClientGroup;
             }
 
             await _launchChrome(item).ConfigureAwait(false);

@@ -248,24 +248,32 @@ export function withAutoSubmitPageUrl(
   }
 }
 
+export type WarmupMode = 'soak_72h' | 'human_organic' | 'bm_warmup' | 'pre_camp'
+
 export interface HumanKeepAlivePlan {
   steps: string[]
   routeSummary: string
   estimatedSeconds: number
   normalizedTier: 'vault' | 'standard'
+  mode: WarmupMode
 }
 
 const KEEPALIVE_STOP_META: Record<string, { label: string; sec: number }> = {
   feed: { label: 'Newsfeed', sec: 14 },
+  watch: { label: 'Watch Video', sec: 13 },
   notif: { label: 'Thông báo', sec: 10 },
   pages: { label: 'Quản lý Trang', sec: 10 },
   profile: { label: 'Trang cá nhân', sec: 9 },
   biz: { label: 'Business Suite (BM)', sec: 14 },
 }
 
-export function planHumanKeepAliveRoute(viaTier?: string): HumanKeepAlivePlan {
+export function planHumanKeepAliveRoute(
+  viaTier?: string,
+  mode: WarmupMode = 'human_organic',
+): HumanKeepAlivePlan {
   const isVault = viaTier === 'vault' || viaTier === 'veteran_xmdt'
-  const pool = ['notif', 'pages', 'profile']
+  const effectiveMode: WarmupMode = mode || 'human_organic'
+  const pool = ['notif', 'watch', 'pages', 'profile']
   for (let i = pool.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1))
     const tmp = pool[i]
@@ -273,11 +281,17 @@ export function planHumanKeepAliveRoute(viaTier?: string): HumanKeepAlivePlan {
     pool[j] = tmp
   }
   let steps: string[]
-  if (isVault) {
+  if (effectiveMode === 'soak_72h') {
+    steps = ['feed', 'notif']
+  } else if (effectiveMode === 'bm_warmup') {
+    steps = ['feed', 'notif', 'biz']
+  } else if (effectiveMode === 'pre_camp') {
+    steps = ['feed', 'pages']
+  } else if (isVault) {
     const sec = pool[0]
     steps = Math.random() < 0.65 ? ['feed', sec, 'biz'] : ['feed', 'biz', sec]
   } else {
-    const count = Math.random() < 0.55 ? 1 : 2
+    const count = Math.random() < 0.5 ? 1 : 2
     steps = ['feed', ...pool.slice(0, count)]
   }
   const routeSummary = steps.map((s) => KEEPALIVE_STOP_META[s]?.label || s).join(' → ')
@@ -287,6 +301,7 @@ export function planHumanKeepAliveRoute(viaTier?: string): HumanKeepAlivePlan {
     routeSummary,
     estimatedSeconds,
     normalizedTier: isVault ? 'vault' : 'standard',
+    mode: effectiveMode,
   }
 }
 
@@ -295,16 +310,19 @@ export function buildViaKeepAliveUrl(opts?: {
   viaLabel?: string
   viaTier?: string
   routeSteps?: string[]
+  warmupMode?: WarmupMode
 }): string {
   const normalizedTier = opts?.viaTier === 'vault' || opts?.viaTier === 'veteran_xmdt' ? 'vault' : 'standard'
+  const effectiveMode: WarmupMode = opts?.warmupMode || 'human_organic'
   const steps =
     Array.isArray(opts?.routeSteps) && opts!.routeSteps.length >= 2
       ? opts!.routeSteps
-      : planHumanKeepAliveRoute(opts?.viaTier).steps
+      : planHumanKeepAliveRoute(opts?.viaTier, effectiveMode).steps
   const params = new URLSearchParams({
     adsops_keepalive_session: '1',
     adsops_auto_close: opts?.autoCloseTab === false ? '0' : '1',
     adsops_via_tier: normalizedTier,
+    adsops_ka_mode: effectiveMode,
     adsops_ka_route: steps.join(','),
   })
   if (opts?.viaLabel?.trim()) {
@@ -510,7 +528,7 @@ export function downloadWindowsChromeLauncherBat(): void {
     '    }',
     '    $path = $req.Url.AbsolutePath.TrimEnd("/")',
     '    if ($path -eq "/health" -and $req.HttpMethod -eq "GET") {',
-    `      Send-Json $res 200 '{"ok":true,"version":"2.9.5"}'`,
+    `      Send-Json $res 200 '{"ok":true,"version":"2.9.6"}'`,
     '      continue',
     '    }',
     '    if ($path -eq "/chrome-profiles" -and $req.HttpMethod -eq "GET") {',
@@ -782,6 +800,20 @@ export interface ExtensionBundledAccount {
   bm_name?: string | null
 }
 
+export interface ExtensionStewardshipMeta {
+  clientGroup?: string
+  warmupPhase?: string
+  warmupStartIso?: string
+  soakHoursRemaining?: number
+  defaultWarmupMode?: WarmupMode
+  soakQuarantineEnabled?: boolean
+  ipKillSwitch?: boolean
+  autoVaultCookieRefresh?: boolean
+  cooldownUntilMs?: number
+  cooldownReason?: string
+  trustScore?: number
+}
+
 export function buildExtensionFilesForVia(
   folderRoot = 'AdsOps-Chrome-Extension',
   viaName = 'Tài Khoản Chính',
@@ -791,9 +823,22 @@ export function buildExtensionFilesForVia(
   twoFaSecret = '',
   viaTier: 'vault' | 'camp' | 'standby' = 'camp',
   viaId = '',
+  extraMeta?: ExtensionStewardshipMeta,
 ): Array<{ name: string; content: string }> {
   const parsed = parseProxyString(rawProxy)
   const hasProxy = Boolean(parsed?.host)
+  const meta = extraMeta || {}
+  const clientGroup = (meta.clientGroup || '').trim()
+  const warmupPhase = meta.warmupPhase || 'trusted'
+  const warmupStartIso = meta.warmupStartIso || ''
+  const soakHoursRemaining = Number(meta.soakHoursRemaining || 0) || 0
+  const defaultWarmupMode: WarmupMode = meta.defaultWarmupMode || (warmupPhase === '72h_lock' ? 'soak_72h' : 'human_organic')
+  const soakQuarantineEnabled = meta.soakQuarantineEnabled !== false
+  const ipKillSwitch = meta.ipKillSwitch !== false
+  const autoVaultCookieRefresh = meta.autoVaultCookieRefresh !== false
+  const cooldownUntilMs = Number(meta.cooldownUntilMs || 0) || 0
+  const cooldownReason = (meta.cooldownReason || '').trim()
+  const trustScore = Number.isFinite(meta.trustScore) ? Number(meta.trustScore) : (hasProxy ? 75 : 50)
 
   const manifestObj = {
     manifest_version: 3,
@@ -801,9 +846,9 @@ export function buildExtensionFilesForVia(
       ? `AdsOps Companion Pro · ${profileDir} · Proxy ${parsed!.host}:${parsed!.port}`
       : `AdsOps Companion Pro · ${profileDir} (${viaName})`,
     short_name: 'AdsOps Companion Pro',
-    version: '2.9.5',
+    version: '2.9.6',
     description:
-      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.9.5 Pro: Đảo Ấm Cookie Sinh Học Đa Lộ Trình + Tự Dừng Nếu Văng Cookie, Full Auto-Pilot Tạo Fanpage giãn nhịp an toàn + Checkpoint Guard, Anti-Passkey, 2FA, WebRTC Lock & EAAB Token.',
+      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.9.6 Pro: Tab Automatic Nuôi Trust riêng, Kill-Switch chống rò rỉ IP Proxy, Ngâm thiết bị mới 72h + Cooldown 24h, Tự làm ấm Cookie & Két DPAPI, Anti-Passkey & 2FA.',
     permissions: [
       'proxy',
       'privacy',
@@ -812,6 +857,7 @@ export function buildExtensionFilesForVia(
       'tabs',
       'activeTab',
       'scripting',
+      'alarms',
       'webRequest',
       'webRequestAuthProvider',
     ],
@@ -858,11 +904,22 @@ export function buildExtensionFilesForVia(
     proxyRaw: parsed ? `${parsed.host}:${parsed.port}${parsed.user ? `:${parsed.user}:${parsed.pass}` : ''}` : '',
     proxyEnabled: hasProxy,
     accounts: bundledAccounts,
+    clientGroup,
+    warmupPhase,
+    warmupStartIso,
+    soakHoursRemaining,
+    defaultWarmupMode,
+    soakQuarantineEnabled,
+    ipKillSwitch,
+    autoVaultCookieRefresh,
+    cooldownUntilMs,
+    cooldownReason,
+    trustScore,
   })
 
   // Runs in MAIN world at document_start BEFORE Facebook's scripts load:
   // Completely blocks Windows Hello / WebAuthn / Passkey popup from ever appearing!
-  const passkeyShieldJs = `// AdsOps Companion Pro v2.9.5 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
+  const passkeyShieldJs = `// AdsOps Companion Pro v2.9.6 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
 (function() {
   try {
     if (window.PublicKeyCredential) {
@@ -1064,41 +1121,366 @@ function ensureVaultCookiesBootstrapped(force) {
   });
 }
 
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.local.get(["viaId", "viaName", "profileCode", "viaTier", "twoFaSecret", "webrtcShield", "blockPasskey", "passkeyStatus", "proxyRaw", "proxyEnabled", "accounts"], (res) => {
-    const init = {
-      viaId: res.viaId || DEFAULT_STATE.viaId || "",
-      viaName: res.viaName || DEFAULT_STATE.viaName,
-      profileCode: res.profileCode || DEFAULT_STATE.profileCode,
-      viaTier: res.viaTier || DEFAULT_STATE.viaTier,
-      twoFaSecret: res.twoFaSecret ? res.twoFaSecret : DEFAULT_STATE.twoFaSecret,
-      webrtcShield: res.webrtcShield !== undefined ? Boolean(res.webrtcShield) : true,
-      blockPasskey: res.blockPasskey !== undefined ? Boolean(res.blockPasskey) : true,
-      passkeyStatus: res.passkeyStatus || "clean",
-      proxyRaw: res.proxyRaw !== undefined ? res.proxyRaw : DEFAULT_STATE.proxyRaw,
-      proxyEnabled: res.proxyEnabled !== undefined ? Boolean(res.proxyEnabled) : DEFAULT_STATE.proxyEnabled,
-      accounts: Array.isArray(res.accounts) && res.accounts.length > 0 ? res.accounts : DEFAULT_STATE.accounts
-    };
-    chrome.storage.local.set(init, () => {
-      applyProxyState(init);
-      ensureVaultCookiesBootstrapped(true);
+let ipGuardInFlight = false;
+let lastIpGuardAt = 0;
+let ipLeakLockedAt = 0;
+let proxyFailStreak = 0;
+
+function reportBrowserEventToDesktop(rawPayload, sender, onDone) {
+  chrome.storage.local.get(["viaId", "viaName", "profileCode", "viaTier"], (st) => {
+    void chrome.runtime.lastError;
+    const fb = typeof DEFAULT_STATE !== "undefined" ? DEFAULT_STATE : {};
+    const body = Object.assign({}, rawPayload || {}, {
+      via_id: (rawPayload && rawPayload.via_id) || (st && st.viaId) || fb.viaId || "",
+      via_label: (rawPayload && rawPayload.via_label) || (st && st.viaName) || fb.viaName || "",
+      browser_profile: (rawPayload && rawPayload.browser_profile) || (st && st.profileCode) || fb.profileCode || "",
+      via_tier: (rawPayload && rawPayload.via_tier) || (st && st.viaTier) || fb.viaTier || "camp"
+    });
+    fetch("http://127.0.0.1:17890/browser-event", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    })
+      .then((r) => r.json().catch(() => ({ ok: r.ok })))
+      .then((d) => {
+        if (d && d.close_sender_window && sender && sender.tab && typeof sender.tab.id === "number") {
+          const sTabId = sender.tab.id;
+          const sWinId = sender.tab.windowId;
+          setTimeout(() => {
+            if (typeof sWinId === "number") {
+              chrome.tabs.query({ windowId: sWinId }, (winTabs) => {
+                void chrome.runtime.lastError;
+                if (Array.isArray(winTabs) && winTabs.length <= 2 && chrome.windows && chrome.windows.remove) {
+                  chrome.windows.remove(sWinId, () => {
+                    void chrome.runtime.lastError;
+                  });
+                } else {
+                  chrome.tabs.remove(sTabId, () => {
+                    void chrome.runtime.lastError;
+                  });
+                }
+              });
+            } else {
+              chrome.tabs.remove(sTabId, () => {
+                void chrome.runtime.lastError;
+              });
+            }
+          }, 600);
+        }
+        if (typeof onDone === "function") onDone({ ok: true, data: d });
+      })
+      .catch(() => {
+        if (typeof onDone === "function") onDone({ ok: false, offline: true });
+      });
+  });
+}
+
+function refreshVaultCookieToDesktop(source, force, onDone) {
+  if (!chrome.cookies || !chrome.cookies.getAll) {
+    if (typeof onDone === "function") onDone({ ok: false, reason: "no_cookies_api" });
+    return;
+  }
+  chrome.storage.local.get(["viaId", "viaName", "profileCode", "autoVaultCookieRefresh"], (st) => {
+    void chrome.runtime.lastError;
+    const enabled = force || (st && st.autoVaultCookieRefresh !== undefined ? Boolean(st.autoVaultCookieRefresh) : true);
+    if (!enabled) {
+      if (typeof onDone === "function") onDone({ ok: false, skipped: true });
+      return;
+    }
+    chrome.cookies.getAll({ domain: "facebook.com" }, async (cookies) => {
+      void chrome.runtime.lastError;
+      if (!Array.isArray(cookies) || !cookies.length) {
+        if (typeof onDone === "function") onDone({ ok: false, reason: "empty" });
+        return;
+      }
+      const hasUser = cookies.some((c) => c && c.name === "c_user" && c.value);
+      const hasXs = cookies.some((c) => c && c.name === "xs" && c.value);
+      if (!hasUser || !hasXs) {
+        if (typeof onDone === "function") onDone({ ok: false, reason: "missing_session_cookies" });
+        return;
+      }
+      const cookieRaw = cookies.map((c) => c.name + "=" + c.value).join("; ");
+      const fb = typeof DEFAULT_STATE !== "undefined" ? DEFAULT_STATE : {};
+      try {
+        const resp = await fetch("http://127.0.0.1:17890/local-vault/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            via_id: (st && st.viaId) || fb.viaId || "",
+            via_label: (st && st.viaName) || fb.viaName || "Via Facebook",
+            profile_dir: (st && st.profileCode) || fb.profileCode || "Default",
+            cookie_raw: cookieRaw,
+            two_fa_secret: ""
+          })
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (resp.ok && data && data.ok) {
+          const tsIso = new Date().toISOString();
+          chrome.storage.local.set({ lastVaultCookieRefreshAt: tsIso, lastVaultCookieRefreshSource: source || "auto" }, () => {
+            void chrome.runtime.lastError;
+          });
+          if (typeof onDone === "function") onDone({ ok: true, count: cookies.length, refreshedAt: tsIso });
+          return;
+        }
+      } catch (e) {}
+      if (typeof onDone === "function") onDone({ ok: false, offline: true });
     });
   });
+}
+
+function buildIpLeakLockdownUrl(reason, liveIp) {
+  const safeReason = String(reason || "Phát hiện rò rỉ IP Proxy").replace(/[<>]/g, "");
+  const safeIp = String(liveIp || "Không rõ").replace(/[<>]/g, "");
+  const html =
+    '<!DOCTYPE html><html lang="vi"><head><meta charset="utf-8"><title>AdsOps Kill-Switch</title></head>' +
+    '<body style="margin:0;background:#111827;color:#f8fafc;font-family:Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px;">' +
+    '<div style="max-width:520px;background:#1f2937;border:2px solid #f43f5e;border-radius:14px;padding:22px;box-shadow:0 20px 50px rgba(0,0,0,0.45);">' +
+    '<h2 style="margin:0 0 8px 0;color:#fda4af;">🚨 ADSOPS KILL-SWITCH ĐÃ KHÓA PHIÊN</h2>' +
+    '<p style="margin:0 0 10px 0;font-size:14px;line-height:1.5;color:#e2e8f0;">' + safeReason + '</p>' +
+    '<div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;font-family:Consolas,monospace;font-size:12px;color:#fbbf24;margin-bottom:12px;">IP phát hiện: ' + safeIp + ' · Cooldown tự động: 24 giờ</div>' +
+    '<p style="margin:0;font-size:12px;color:#94a3b8;">Hệ thống đã chặn toàn bộ tab Facebook để tránh Meta gắn cờ đổi IP / Checkpoint hàng loạt. Hãy kiểm tra lại Proxy trong Popup Extension hoặc AdsOps Desktop Pro trước khi mở lại.</p>' +
+    '</div></body></html>';
+  return "data:text/html;charset=utf-8," + encodeURIComponent(html);
+}
+
+function triggerIpLeakLockdown(reason, liveIp) {
+  const now = Date.now();
+  if (ipLeakLockedAt && now - ipLeakLockedAt < 30000) return;
+  ipLeakLockedAt = now;
+  const cooldownUntilMs = now + 24 * 3600 * 1000;
+  const statusObj = { state: "IP_LEAK", detail: reason, at: new Date().toISOString() };
+  chrome.storage.local.set(
+    {
+      ipLeakHalted: true,
+      ipLeakReason: reason,
+      ipLeakAt: now,
+      cooldownUntilMs: cooldownUntilMs,
+      cooldownReason: reason,
+      lastKeepAliveStatus: statusObj
+    },
+    () => {
+      void chrome.runtime.lastError;
+    }
+  );
+  if (chrome.tabs && chrome.tabs.query && chrome.tabs.update) {
+    const lockUrl = buildIpLeakLockdownUrl(reason, liveIp);
+    chrome.tabs.query(
+      { url: ["https://*.facebook.com/*", "https://business.facebook.com/*", "https://adsmanager.facebook.com/*"] },
+      (tabs) => {
+        void chrome.runtime.lastError;
+        if (Array.isArray(tabs)) {
+          tabs.forEach((t) => {
+            if (t && typeof t.id === "number") {
+              chrome.storage.local.remove("adsops_ka_tab_" + t.id, () => {
+                void chrome.runtime.lastError;
+              });
+              chrome.tabs.update(t.id, { url: lockUrl }, () => {
+                void chrome.runtime.lastError;
+              });
+            }
+          });
+        }
+      }
+    );
+  }
+  reportBrowserEventToDesktop({
+    event_type: "IP_LEAK_BLOCKED",
+    detail: reason + (liveIp ? " (IP: " + liveIp + ")" : "")
+  });
+}
+
+function checkProxyIpLeakGuard(source, force, onDone) {
+  if (ipGuardInFlight) {
+    if (typeof onDone === "function") onDone({ ok: false, busy: true });
+    return;
+  }
+  const now = Date.now();
+  if (!force && now - lastIpGuardAt < 25000) {
+    if (typeof onDone === "function") onDone({ ok: true, throttled: true });
+    return;
+  }
+  if (typeof fetch !== "function") {
+    if (typeof onDone === "function") onDone({ ok: false, reason: "no_fetch" });
+    return;
+  }
+
+  ipGuardInFlight = true;
+  lastIpGuardAt = now;
+
+  chrome.storage.local.get(["proxyEnabled", "proxyRaw", "ipKillSwitch", "baselineDirectIp", "lastVerifiedProxyIp"], async (st) => {
+    void chrome.runtime.lastError;
+    try {
+      const enabled = Boolean(st && st.proxyEnabled);
+      const killSwitchOn = st && st.ipKillSwitch !== undefined ? Boolean(st.ipKillSwitch) : true;
+      const parsed = enabled ? parseProxy((st && st.proxyRaw) || "") : null;
+
+      const ctrl = new AbortController();
+      const tmo = setTimeout(() => ctrl.abort(), 6000);
+      let liveIp = "";
+      try {
+        const r = await fetch("https://api.ipify.org?format=json", { cache: "no-store", signal: ctrl.signal });
+        clearTimeout(tmo);
+        if (r && r.ok) {
+          const d = await r.json().catch(() => null);
+          liveIp = d && d.ip ? String(d.ip).trim() : "";
+        }
+      } catch (err) {
+        clearTimeout(tmo);
+        liveIp = "";
+      }
+
+      if (!enabled || !parsed) {
+        proxyFailStreak = 0;
+        if (liveIp && !enabled) {
+          chrome.storage.local.set({ baselineDirectIp: liveIp }, () => {
+            void chrome.runtime.lastError;
+          });
+        }
+        if (typeof onDone === "function") onDone({ ok: true, proxyEnabled: false, liveIp });
+        return;
+      }
+
+      if (!killSwitchOn) {
+        proxyFailStreak = 0;
+        if (typeof onDone === "function") onDone({ ok: true, killSwitch: false, liveIp });
+        return;
+      }
+
+      if (!liveIp) {
+        proxyFailStreak += 1;
+        if (proxyFailStreak >= 2 && chrome.tabs && chrome.tabs.query) {
+          chrome.tabs.query({ url: ["https://*.facebook.com/*"] }, (fbTabs) => {
+            void chrome.runtime.lastError;
+            if (Array.isArray(fbTabs) && fbTabs.length > 0) {
+              triggerIpLeakLockdown("Đứt kết nối Proxy IPv4 liên tiếp (" + parsed.host + ":" + parsed.port + ")", "");
+            }
+          });
+        }
+        if (typeof onDone === "function") onDone({ ok: false, liveIp: "", streak: proxyFailStreak });
+        return;
+      }
+
+      proxyFailStreak = 0;
+      const baseIp = (st && st.baselineDirectIp) ? String(st.baselineDirectIp).trim() : "";
+      const verifiedProxyIp = (st && st.lastVerifiedProxyIp) ? String(st.lastVerifiedProxyIp).trim() : "";
+
+      if (baseIp && liveIp === baseIp) {
+        triggerIpLeakLockdown("Rò rỉ IP thật về mạng gốc (" + liveIp + ") khi đang bật Proxy " + parsed.host, liveIp);
+        if (typeof onDone === "function") onDone({ ok: false, leaked: true, liveIp });
+        return;
+      }
+
+      if (verifiedProxyIp && parsed.host === verifiedProxyIp && liveIp !== verifiedProxyIp) {
+        triggerIpLeakLockdown("IP ra bị đổi bất thường từ " + verifiedProxyIp + " sang " + liveIp, liveIp);
+        if (typeof onDone === "function") onDone({ ok: false, leaked: true, liveIp });
+        return;
+      }
+
+      if (!verifiedProxyIp && (!baseIp || liveIp !== baseIp)) {
+        chrome.storage.local.set({ lastVerifiedProxyIp: liveIp, ipLeakHalted: false }, () => {
+          void chrome.runtime.lastError;
+        });
+      }
+      if (typeof onDone === "function") onDone({ ok: true, leaked: false, liveIp, source });
+    } finally {
+      ipGuardInFlight = false;
+    }
+  });
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.storage.local.get(
+    [
+      "viaId",
+      "viaName",
+      "profileCode",
+      "viaTier",
+      "twoFaSecret",
+      "webrtcShield",
+      "blockPasskey",
+      "passkeyStatus",
+      "proxyRaw",
+      "proxyEnabled",
+      "accounts",
+      "clientGroup",
+      "warmupPhase",
+      "warmupStartIso",
+      "soakHoursRemaining",
+      "defaultWarmupMode",
+      "soakQuarantineEnabled",
+      "ipKillSwitch",
+      "autoVaultCookieRefresh",
+      "cooldownUntilMs",
+      "cooldownReason",
+      "trustScore"
+    ],
+    (res) => {
+      const init = {
+        viaId: res.viaId || DEFAULT_STATE.viaId || "",
+        viaName: res.viaName || DEFAULT_STATE.viaName,
+        profileCode: res.profileCode || DEFAULT_STATE.profileCode,
+        viaTier: res.viaTier || DEFAULT_STATE.viaTier,
+        twoFaSecret: res.twoFaSecret ? res.twoFaSecret : DEFAULT_STATE.twoFaSecret,
+        webrtcShield: res.webrtcShield !== undefined ? Boolean(res.webrtcShield) : true,
+        blockPasskey: res.blockPasskey !== undefined ? Boolean(res.blockPasskey) : true,
+        passkeyStatus: res.passkeyStatus || "clean",
+        proxyRaw: res.proxyRaw !== undefined ? res.proxyRaw : DEFAULT_STATE.proxyRaw,
+        proxyEnabled: res.proxyEnabled !== undefined ? Boolean(res.proxyEnabled) : DEFAULT_STATE.proxyEnabled,
+        accounts: Array.isArray(res.accounts) && res.accounts.length > 0 ? res.accounts : DEFAULT_STATE.accounts,
+        clientGroup: res.clientGroup !== undefined ? res.clientGroup : (DEFAULT_STATE.clientGroup || ""),
+        warmupPhase: res.warmupPhase || DEFAULT_STATE.warmupPhase || "trusted",
+        warmupStartIso: res.warmupStartIso || DEFAULT_STATE.warmupStartIso || "",
+        soakHoursRemaining: res.soakHoursRemaining !== undefined ? Number(res.soakHoursRemaining) : Number(DEFAULT_STATE.soakHoursRemaining || 0),
+        defaultWarmupMode: res.defaultWarmupMode || DEFAULT_STATE.defaultWarmupMode || "human_organic",
+        soakQuarantineEnabled: res.soakQuarantineEnabled !== undefined ? Boolean(res.soakQuarantineEnabled) : (DEFAULT_STATE.soakQuarantineEnabled !== false),
+        ipKillSwitch: res.ipKillSwitch !== undefined ? Boolean(res.ipKillSwitch) : (DEFAULT_STATE.ipKillSwitch !== false),
+        autoVaultCookieRefresh: res.autoVaultCookieRefresh !== undefined ? Boolean(res.autoVaultCookieRefresh) : (DEFAULT_STATE.autoVaultCookieRefresh !== false),
+        cooldownUntilMs: res.cooldownUntilMs !== undefined ? Number(res.cooldownUntilMs) : Number(DEFAULT_STATE.cooldownUntilMs || 0),
+        cooldownReason: res.cooldownReason !== undefined ? res.cooldownReason : (DEFAULT_STATE.cooldownReason || ""),
+        trustScore: res.trustScore !== undefined ? Number(res.trustScore) : Number(DEFAULT_STATE.trustScore || 0)
+      };
+      chrome.storage.local.set(init, () => {
+        applyProxyState(init);
+        ensureVaultCookiesBootstrapped(true);
+        checkProxyIpLeakGuard("install", false);
+      });
+    }
+  );
+  if (chrome.alarms && chrome.alarms.create) {
+    chrome.alarms.create("adsops_ip_guard", { periodInMinutes: 1 });
+  }
 });
+
+chrome.alarms?.onAlarm?.addListener((alarm) => {
+  if (alarm && alarm.name === "adsops_ip_guard") {
+    checkProxyIpLeakGuard("alarm", false);
+  }
+});
+
+setInterval(() => {
+  checkProxyIpLeakGuard("interval", false);
+}, 38000);
 
 chrome.runtime.onStartup?.addListener(() => {
   ensureVaultCookiesBootstrapped(true);
+  checkProxyIpLeakGuard("startup", false);
 });
 
 chrome.tabs.onUpdated?.addListener((tabId, changeInfo, tab) => {
   const url = (changeInfo && changeInfo.url) || (tab && tab.url) || "";
   if (url && url.indexOf("facebook.com") !== -1 && (changeInfo.status === "loading" || Boolean(changeInfo.url))) {
     ensureVaultCookiesBootstrapped(false);
+    checkProxyIpLeakGuard("nav", false);
   }
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local") {
+    if (changes && (changes.proxyRaw || changes.proxyEnabled)) {
+      chrome.storage.local.remove(["lastVerifiedProxyIp", "ipLeakHalted"], () => {
+        void chrome.runtime.lastError;
+      });
+    }
     chrome.storage.local.get(["viaName", "profileCode", "webrtcShield", "proxyRaw", "proxyEnabled"], (res) => applyProxyState(res));
   }
 });
@@ -1142,6 +1524,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       autoClose: Boolean(msg.autoClose),
       viaTier: msg.viaTier || "standard",
       viaLabel: msg.viaLabel || "",
+      kaMode: msg.kaMode || "human_organic",
       routeSummary: msg.routeSummary || "",
       startedAt: Date.now(),
       expiresAt: Date.now() + 240000
@@ -1303,52 +1686,38 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === "ADSOPS_AUTO_REFRESH_VAULT_COOKIE") {
+    refreshVaultCookieToDesktop(msg.source || "manual_msg", Boolean(msg.force), (res) => {
+      try { sendResponse(res); } catch (e) {}
+    });
+    return true;
+  }
+
+  if (msg.type === "ADSOPS_CHECK_IP_GUARD") {
+    checkProxyIpLeakGuard("popup_check", true, (res) => {
+      try { sendResponse(res); } catch (e) {}
+    });
+    return true;
+  }
+
   if (msg.type === "ADSOPS_REPORT_BROWSER_EVENT") {
     const rawPayload = msg.payload && typeof msg.payload === "object" ? msg.payload : {};
-    chrome.storage.local.get(["viaId", "viaName", "profileCode", "viaTier"], (st) => {
-      void chrome.runtime.lastError;
-      const body = Object.assign({}, rawPayload, {
-        via_id: rawPayload.via_id || (st && st.viaId) || "",
-        via_label: rawPayload.via_label || (st && st.viaName) || "",
-        browser_profile: rawPayload.browser_profile || (st && st.profileCode) || "",
-        via_tier: rawPayload.via_tier || (st && st.viaTier) || "camp"
-      });
-      fetch("http://127.0.0.1:17890/browser-event", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-      })
-        .then((r) => r.json().catch(() => ({ ok: r.ok })))
-        .then((d) => {
-          if (d && d.close_sender_window && sender && sender.tab && typeof sender.tab.id === "number") {
-            const sTabId = sender.tab.id;
-            const sWinId = sender.tab.windowId;
-            setTimeout(() => {
-              if (typeof sWinId === "number") {
-                chrome.tabs.query({ windowId: sWinId }, (winTabs) => {
-                  void chrome.runtime.lastError;
-                  if (Array.isArray(winTabs) && winTabs.length <= 2 && chrome.windows && chrome.windows.remove) {
-                    chrome.windows.remove(sWinId, () => {
-                      void chrome.runtime.lastError;
-                    });
-                  } else {
-                    chrome.tabs.remove(sTabId, () => {
-                      void chrome.runtime.lastError;
-                    });
-                  }
-                });
-              } else {
-                chrome.tabs.remove(sTabId, () => {
-                  void chrome.runtime.lastError;
-                });
-              }
-            }, 600);
-          }
-          try { sendResponse({ ok: true, data: d }); } catch (e) {}
-        })
-        .catch(() => {
-          try { sendResponse({ ok: false, offline: true }); } catch (e) {}
-        });
+    const evUpper = String(rawPayload.event_type || "").toUpperCase();
+    if (evUpper === "KEEPALIVE_OK") {
+      refreshVaultCookieToDesktop("keepalive_ok", false);
+    } else if (evUpper === "SAFETY_CHALLENGE") {
+      chrome.storage.local.set(
+        {
+          cooldownUntilMs: Date.now() + 24 * 3600 * 1000,
+          cooldownReason: String(rawPayload.detail || "Phát hiện Checkpoint / CAPTCHA")
+        },
+        () => {
+          void chrome.runtime.lastError;
+        }
+      );
+    }
+    reportBrowserEventToDesktop(rawPayload, sender, (out) => {
+      try { sendResponse(out); } catch (e) {}
     });
     return true;
   }
@@ -1361,19 +1730,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 <meta charset="utf-8" />
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  body { width: 425px; background: #0f172a; color: #f8fafc; padding: 12px; font-size: 12px; }
-  .header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 9px; margin-bottom: 9px; border-bottom: 1px solid #1e293b; }
+  body { width: 432px; background: #0f172a; color: #f8fafc; padding: 12px; font-size: 12px; }
+  .header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid #1e293b; gap: 6px; }
   .brand { display: flex; align-items: center; gap: 7px; font-weight: 800; font-size: 13px; color: #f8fafc; }
   .logo { width: 22px; height: 22px; border-radius: 6px; background: #2563eb; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; }
   .status-pill { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px; border: 1px solid #3b82f6; background: rgba(37,99,235,0.18); color: #93c5fd; }
   .status-pill.active { border-color: #22c55e; background: rgba(34,197,94,0.18); color: #86efac; }
+  .tabs-nav { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 9px; background: #0b1120; padding: 4px; border-radius: 8px; border: 1px solid #1e293b; }
+  .tab-btn { padding: 6px 8px; border-radius: 6px; border: 1px solid transparent; background: transparent; color: #94a3b8; font-weight: 700; font-size: 11px; cursor: pointer; transition: all 0.15s; }
+  .tab-btn:hover { color: #e2e8f0; background: rgba(30,41,59,0.65); }
+  .tab-btn.active { background: #1e293b; color: #f8fafc; border-color: #3b82f6; box-shadow: 0 2px 6px rgba(0,0,0,0.28); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
   .card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 9px 10px; margin-bottom: 8px; }
   .section-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #94a3b8; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; }
   .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 8px; }
   .kpi-box { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 6px 8px; }
   .kpi-lbl { font-size: 10px; color: #94a3b8; }
   .kpi-val { font-size: 12px; font-weight: 800; color: #f8fafc; margin-top: 2px; font-family: ui-monospace, Consolas, monospace; }
-  .acc-list { max-height: 170px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 2px; }
+  .acc-list { max-height: 165px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 2px; }
   .acc-item { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 7px 8px; }
   .acc-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 4px; }
   .acc-name { font-weight: 700; font-size: 11.5px; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 210px; }
@@ -1384,7 +1759,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   .acc-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px; font-size: 10.5px; color: #cbd5e1; }
   .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
   .row { display: grid; grid-template-columns: 1fr 95px; gap: 6px; margin-bottom: 6px; }
-  input, select, textarea { width: 100%; border: 1px solid #475569; border-radius: 6px; padding: 5px 7px; font-size: 11.5px; color: #f8fafc; background: #0f172a; }
+  input[type="text"], select, textarea { width: 100%; border: 1px solid #475569; border-radius: 6px; padding: 5px 7px; font-size: 11.5px; color: #f8fafc; background: #0f172a; }
   .btn-row { display: flex; gap: 6px; margin-top: 6px; }
   .btn { flex: 1; padding: 6px 8px; border-radius: 6px; border: 1px solid #475569; background: #1e293b; color: #f8fafc; font-weight: 600; font-size: 11px; cursor: pointer; text-align: center; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
   .btn:hover { background: #334155; }
@@ -1392,6 +1767,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   .btn-primary:hover { background: #1d4ed8; }
   .btn-emerald { background: #059669; border-color: #059669; color: #fff; }
   .btn-emerald:hover { background: #047857; }
+  .btn-amber { background: rgba(217,119,6,0.22); border-color: rgba(245,158,11,0.55); color: #fcd34d; }
+  .btn-amber:hover { background: rgba(217,119,6,0.36); }
   .btn-danger { background: rgba(225,29,72,0.22); border-color: rgba(244,63,94,0.5); color: #fda4af; }
   .btn-danger:hover { background: rgba(225,29,72,0.35); }
   .ip-bar { display: flex; align-items: center; justify-content: space-between; padding-top: 6px; margin-top: 6px; border-top: 1px dashed #334155; font-size: 11px; color: #cbd5e1; }
@@ -1405,162 +1782,253 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   .link-item.alert { border-color: rgba(244,63,94,0.45); color: #fda4af; }
   .link-item.bill { border-color: rgba(59,130,246,0.45); color: #93c5fd; }
   .msg { font-size: 10.5px; color: #4ade80; font-weight: 600; display: none; }
+  .meter-track { width: 100%; height: 7px; border-radius: 999px; background: #0f172a; border: 1px solid #334155; overflow: hidden; margin: 5px 0; }
+  .meter-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #2563eb, #10b981); width: 0%; transition: width 0.25s; }
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px dashed rgba(51,65,85,0.7); font-size: 11px; color: #e2e8f0; cursor: pointer; }
+  .toggle-row:last-child { border-bottom: none; padding-bottom: 0; }
+  .toggle-row input[type="checkbox"] { width: 15px; height: 15px; accent-color: #10b981; cursor: pointer; }
 </style>
 </head>
 <body>
   <div class="header">
     <div class="brand">
       <span class="logo">AO</span>
-      <span>AdsOps Companion v2.9.5 Pro</span>
+      <span>AdsOps Companion v2.9.6 Pro</span>
     </div>
-    <span id="proxy-badge" class="status-pill">MẠNG GỐC</span>
-  </div>
-
-  <div id="fb-detected" class="detected-box">
-    <div style="font-weight:700; color:#93c5fd; margin-bottom:3px;">⚡ Phát hiện tab Meta đang mở:</div>
-    <div id="fb-detected-text" class="mono" style="color:#f8fafc; margin-bottom:5px;"></div>
-    <div class="btn-row" style="margin-top:0;">
-      <button id="btn-copy-id" class="btn btn-primary" type="button">Sao chép ID</button>
-      <a id="btn-open-dashboard" class="btn" href="https://adsops-app.vibe.tinhgon.xyz/accounts" target="_blank">Mở Web AdsOps ↗</a>
+    <div style="display:flex; align-items:center; gap:5px;">
+      <span id="hdr-trust-badge" class="badge badge-ok" title="Điểm Tin Cậy Môi Trường">🛡️ --/100</span>
+      <span id="proxy-badge" class="status-pill">MẠNG GỐC</span>
     </div>
   </div>
 
-  <!-- SECTION 1: VIA PASSPORT, TIER, WEBRTC & ANTI-PASSKEY SHIELD -->
-  <div class="card">
-    <div class="section-title">
-      <span>1. Định danh Via · Chặn Passkey &amp; Khóa WebRTC</span>
-      <span id="save-msg" class="msg">Đã lưu!</span>
-    </div>
-    <div class="row">
-      <input id="via-name" type="text" placeholder="Tên Via" />
-      <input id="profile-code" type="text" class="mono" placeholder="Default" />
-    </div>
-    <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:6px;">
-      <select id="via-tier" style="flex:1; font-weight:700;">
-        <option value="vault">🛡️ Lớp 1: Via Tổng (Chỉ giữ BM - CẤM LÊN CAMP)</option>
-        <option value="camp">🚀 Lớp 2: Via Lên Camp (Chạy Ads khách)</option>
-        <option value="standby">🌱 Lớp 3: Via Dự Phòng (Ngâm sẵn &gt; 7 ngày)</option>
-      </select>
-      <span class="badge badge-ok" title="Đã khóa UDP STUN chống lộ IP Wifi gốc">🛡️ WebRTC Lock</span>
-    </div>
-
-    <!-- ANTI-PASSKEY SHIELD & 1-CLICK AUTO DELETE PASSKEY -->
-    <div style="background:#0f172a; border:1px solid #334155; border-radius:6px; padding:6px 8px; margin-bottom:4px;">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:5px;">
-        <span style="font-size:11px; font-weight:700; color:#e2e8f0;">🚫 Khiên Chặn Passkey (Windows Hello):</span>
-        <span id="passkey-badge" class="badge badge-ok">ĐANG CHẶN 100%</span>
-      </div>
-      <div style="display:flex; gap:5px;">
-        <button id="btn-nuke-passkey" type="button" class="btn btn-danger" title="Mở Account Center và tự động quét + bấm Xoá sạch Passkey của Via này">
-          🗑️ 1 Chạm Quét &amp; Tự Xoá Passkey
-        </button>
-        <button id="btn-bypass-login-passkey" type="button" class="btn" title="Đang bị kẹt ở màn hình đòi Passkey? Bấm để tự chuyển sang nhập 6 số 2FA">
-          ⚡ Bỏ qua Passkey → 2FA
-        </button>
-      </div>
-    </div>
-
-    <div class="ip-bar" style="margin-top:2px; padding-top:4px;">
-      <span>IP Public thực tế của Chrome này:</span>
-      <span id="live-ip" class="ip-val">Đang kiểm tra...</span>
-    </div>
+  <div class="tabs-nav">
+    <button id="tab-btn-manage" type="button" class="tab-btn active">🛡️ Quản trị &amp; Két</button>
+    <button id="tab-btn-auto" type="button" class="tab-btn">🤖 Automatic &amp; Nuôi</button>
   </div>
 
-  <!-- SECTION 2: LIVE 2FA 6-DIGIT OTP & AUTO-FILL -->
-  <div class="card">
-    <div class="section-title">
-      <span>2. 🔑 Mã 2FA 6 số trực tiếp &amp; Tự điền</span>
-      <span id="otp-timer" class="mono" style="color:#34d399;">30s</span>
-    </div>
-    <div class="otp-box">
-      <span id="otp-code" class="otp-code">--- ---</span>
-      <div style="display:flex; gap:4px;">
-        <button id="btn-copy-otp" type="button" class="btn btn-primary" style="padding:4px 8px;">📋 Copy</button>
-        <button id="btn-fill-otp" type="button" class="btn btn-emerald" style="padding:4px 8px;" title="Tự điền mã 6 số vào ô 2FA trên tab Facebook đang mở">⚡ Tự điền FB</button>
+  <!-- TAB 1: QUAN TRI & KET -->
+  <div id="tab-panel-manage" class="tab-panel active">
+    <div id="fb-detected" class="detected-box">
+      <div style="font-weight:700; color:#93c5fd; margin-bottom:3px;">⚡ Phát hiện tab Meta đang mở:</div>
+      <div id="fb-detected-text" class="mono" style="color:#f8fafc; margin-bottom:5px;"></div>
+      <div class="btn-row" style="margin-top:0;">
+        <button id="btn-copy-id" class="btn btn-primary" type="button">Sao chép ID</button>
+        <a id="btn-open-dashboard" class="btn" href="https://adsops-app.vibe.tinhgon.xyz/accounts" target="_blank">Mở Web AdsOps ↗</a>
       </div>
     </div>
-    <details style="margin-top:5px;">
-      <summary style="font-size:10px; color:#94a3b8; cursor:pointer;">Cài đặt / Đổi Khóa 2FA Base32 của Via này</summary>
-      <div style="display:flex; gap:5px; margin-top:5px;">
-        <input id="twofa-secret" type="text" class="mono" placeholder="Dán chuỗi Secret 2FA (VD: JBSWY3DPEHPK3PXP)" />
-        <button id="btn-save-2fa" type="button" class="btn btn-primary" style="flex:0 0 65px;">Lưu</button>
+
+    <!-- SECTION 1: VIA PASSPORT, TIER, WEBRTC & ANTI-PASSKEY SHIELD -->
+    <div class="card">
+      <div class="section-title">
+        <span>1. Định danh Via · Chặn Passkey &amp; Khóa WebRTC</span>
+        <span id="save-msg" class="msg">Đã lưu!</span>
+      </div>
+      <div class="row">
+        <input id="via-name" type="text" placeholder="Tên Via" />
+        <input id="profile-code" type="text" class="mono" placeholder="Default" />
+      </div>
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:6px;">
+        <select id="via-tier" style="flex:1; font-weight:700;">
+          <option value="vault">🛡️ Lớp 1: Via Tổng (Chỉ giữ BM - CẤM LÊN CAMP)</option>
+          <option value="camp">🚀 Lớp 2: Via Lên Camp (Chạy Ads khách)</option>
+          <option value="standby">🌱 Lớp 3: Via Dự Phòng (Ngâm sẵn &gt; 7 ngày)</option>
+        </select>
+        <span class="badge badge-ok" title="Đã khóa UDP STUN chống lộ IP Wifi gốc">🛡️ WebRTC Lock</span>
+      </div>
+
+      <!-- ANTI-PASSKEY SHIELD & 1-CLICK AUTO DELETE PASSKEY -->
+      <div style="background:#0f172a; border:1px solid #334155; border-radius:6px; padding:6px 8px; margin-bottom:4px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:5px;">
+          <span style="font-size:11px; font-weight:700; color:#e2e8f0;">🚫 Khiên Chặn Passkey (Windows Hello):</span>
+          <span id="passkey-badge" class="badge badge-ok">ĐANG CHẶN 100%</span>
+        </div>
+        <div style="display:flex; gap:5px;">
+          <button id="btn-nuke-passkey" type="button" class="btn btn-danger" title="Mở Account Center và tự động quét + bấm Xoá sạch Passkey của Via này">
+            🗑️ 1 Chạm Quét &amp; Tự Xoá Passkey
+          </button>
+          <button id="btn-bypass-login-passkey" type="button" class="btn" title="Đang bị kẹt ở màn hình đòi Passkey? Bấm để tự chuyển sang nhập 6 số 2FA">
+            ⚡ Bỏ qua Passkey → 2FA
+          </button>
+        </div>
+      </div>
+
+      <div class="ip-bar" style="margin-top:2px; padding-top:4px;">
+        <span>IP Public thực tế của Chrome này:</span>
+        <span id="live-ip" class="ip-val">Đang kiểm tra...</span>
+      </div>
+    </div>
+
+    <!-- SECTION 2: LIVE 2FA 6-DIGIT OTP & AUTO-FILL -->
+    <div class="card">
+      <div class="section-title">
+        <span>2. 🔑 Mã 2FA 6 số trực tiếp &amp; Tự điền</span>
+        <span id="otp-timer" class="mono" style="color:#34d399;">30s</span>
+      </div>
+      <div class="otp-box">
+        <span id="otp-code" class="otp-code">--- ---</span>
+        <div style="display:flex; gap:4px;">
+          <button id="btn-copy-otp" type="button" class="btn btn-primary" style="padding:4px 8px;">📋 Copy</button>
+          <button id="btn-fill-otp" type="button" class="btn btn-emerald" style="padding:4px 8px;" title="Tự điền mã 6 số vào ô 2FA trên tab Facebook đang mở">⚡ Tự điền FB</button>
+        </div>
+      </div>
+      <details style="margin-top:5px;">
+        <summary style="font-size:10px; color:#94a3b8; cursor:pointer;">Cài đặt / Đổi Khóa 2FA Base32 của Via này</summary>
+        <div style="display:flex; gap:5px; margin-top:5px;">
+          <input id="twofa-secret" type="text" class="mono" placeholder="Dán chuỗi Secret 2FA (VD: JBSWY3DPEHPK3PXP)" />
+          <button id="btn-save-2fa" type="button" class="btn btn-primary" style="flex:0 0 65px;">Lưu</button>
+        </div>
+      </details>
+    </div>
+
+    <!-- SECTION 3: AD ACCOUNTS & BILLING -->
+    <div class="card">
+      <div class="section-title">
+        <span>3. Danh sách TKQC thuộc Via này</span>
+        <span id="acc-count-label" class="mono" style="color:#93c5fd;"></span>
+      </div>
+      <div class="kpi-grid">
+        <div class="kpi-box">
+          <div class="kpi-lbl">Hoạt động</div>
+          <div id="kpi-active" class="kpi-val" style="color:#34d399;">0</div>
+        </div>
+        <div class="kpi-box">
+          <div class="kpi-lbl">Nợ / Hạn chế</div>
+          <div id="kpi-restricted" class="kpi-val" style="color:#fbbf24;">0</div>
+        </div>
+        <div class="kpi-box">
+          <div class="kpi-lbl">Tổng dư nợ</div>
+          <div id="kpi-debt" class="kpi-val" style="color:#f87171;">0 ₫</div>
+        </div>
+      </div>
+      <div id="acc-list" class="acc-list"></div>
+    </div>
+
+    <!-- SECTION 4: COOKIE EXPORT/IMPORT, DPAPI VAULT & TOKEN EXTRACTOR -->
+    <details class="card" style="cursor:pointer;">
+      <summary class="section-title" style="margin-bottom:0;">4. 🍪 Cookie · Két DPAPI &amp; ⚡ Bắt Token EAAB</summary>
+      <div style="margin-top:8px;">
+        <div class="btn-row" style="margin-top:0; margin-bottom:6px;">
+          <button id="btn-export-cookie" type="button" class="btn btn-primary">🍪 Chép Cookie FB</button>
+          <button id="btn-extract-token" type="button" class="btn btn-emerald">⚡ Bắt Token EAAB</button>
+        </div>
+        <button id="btn-jump-auto" type="button" class="btn btn-amber" style="width:100%; margin-bottom:6px;">🤖 Mở Tab Automatic &amp; Đảo Ấm Sinh Học v2.9.6 →</button>
+        <textarea id="cookie-box" rows="2" class="mono" placeholder="Dán Cookie JSON hoặc c_user=...; xs=... vào đây để đăng nhập Via không cần mật khẩu"></textarea>
+        <div class="btn-row">
+          <button id="btn-import-cookie" type="button" class="btn">📥 Nạp Cookie vào Chrome này</button>
+        </div>
+        <div class="btn-row">
+          <button id="btn-push-token-cloud" type="button" class="btn btn-primary" title="Tự động bắt Token EAAB trên tab Ads Manager / Meta Business (hoặc lấy từ ô phía trên) rồi đẩy thẳng lên Cloud qua AdsOps Desktop Pro">☁️ Đẩy Token EAAB lên Cloud</button>
+        </div>
+        <div class="btn-row">
+          <button id="btn-vault-save" type="button" class="btn btn-emerald" title="Mã hóa DPAPI &amp; lưu Cookie + 2FA vào App Windows AdsOps Desktop Pro trên máy (không gửi lên Cloud)">🔐 Lưu vào Két App Win</button>
+          <button id="btn-vault-load" type="button" class="btn btn-primary" title="Lấy Cookie + 2FA từ Két App Windows và nạp thẳng vào Chrome này">📥 Nạp từ Két App Win</button>
+        </div>
+        <div id="cookie-status" style="margin-top:4px; font-size:10.5px; color:#34d399;"></div>
       </div>
     </details>
+
+    <!-- SECTION 5: PROXY CONFIG -->
+    <details class="card" style="cursor:pointer;">
+      <summary class="section-title" style="margin-bottom:0;">5. 🌐 Cấu hình Proxy IPv4 riêng (IP:Port:User:Pass)</summary>
+      <div style="margin-top:8px;">
+        <input id="proxy-raw" type="text" class="mono" placeholder="103.145.67.89:8080:user:pass (để trống = mạng gốc)" />
+        <div class="btn-row">
+          <button id="btn-save-enable" type="button" class="btn btn-primary">Lưu &amp; Bật Proxy + Khóa WebRTC</button>
+          <button id="btn-disable-proxy" type="button" class="btn">Tắt Proxy</button>
+        </div>
+      </div>
+    </details>
+
+    <div class="mini-links">
+      <a class="link-item alert" href="https://business.facebook.com/accountquality" target="_blank">
+        <span>🛡️ Kháng nghị &amp; Xoá bài lỗi</span><span>↗</span>
+      </a>
+      <a class="link-item bill" href="https://business.facebook.com/billing_hub/accounts" target="_blank">
+        <span>💳 Billing Hub Meta</span><span>↗</span>
+      </a>
+      <a class="link-item" href="https://adsmanager.facebook.com/adsmanager/manage/campaigns" target="_blank">
+        <span>📊 Ads Manager</span><span>↗</span>
+      </a>
+      <a class="link-item" href="https://adsops-app.vibe.tinhgon.xyz/operations-guide" target="_blank">
+        <span>📖 Công thức Chống Die</span><span>↗</span>
+      </a>
+    </div>
   </div>
 
-  <!-- SECTION 3: AD ACCOUNTS & BILLING -->
-  <div class="card">
-    <div class="section-title">
-      <span>3. Danh sách TKQC thuộc Via này</span>
-      <span id="acc-count-label" class="mono" style="color:#93c5fd;"></span>
-    </div>
-    <div class="kpi-grid">
-      <div class="kpi-box">
-        <div class="kpi-lbl">Hoạt động</div>
-        <div id="kpi-active" class="kpi-val" style="color:#34d399;">0</div>
+  <!-- TAB 2: AUTOMATIC & NUOI TRUST CHONG CHECKPOINT -->
+  <div id="tab-panel-auto" class="tab-panel">
+    <!-- TRUST SCORE & CLIENT SILO -->
+    <div class="card">
+      <div class="section-title">
+        <span>1. 🛡️ Chỉ Số Tin Cậy Môi Trường &amp; Silo</span>
+        <span id="auto-trust-score" class="mono" style="color:#34d399; font-weight:800;">-- / 100</span>
       </div>
-      <div class="kpi-box">
-        <div class="kpi-lbl">Nợ / Hạn chế</div>
-        <div id="kpi-restricted" class="kpi-val" style="color:#fbbf24;">0</div>
-      </div>
-      <div class="kpi-box">
-        <div class="kpi-lbl">Tổng dư nợ</div>
-        <div id="kpi-debt" class="kpi-val" style="color:#f87171;">0 ₫</div>
+      <div class="meter-track"><div id="auto-trust-bar" class="meter-fill"></div></div>
+      <div id="auto-trust-detail" style="font-size:10.5px; color:#cbd5e1; margin-top:4px;">Đang đánh giá môi trường thiết bị...</div>
+      <div style="display:flex; justify-content:space-between; gap:6px; margin-top:6px; padding-top:5px; border-top:1px dashed #334155; font-size:10px; color:#94a3b8;">
+        <span id="auto-client-silo">Silo: Chưa gắn nhóm khách</span>
+        <span id="auto-vault-refresh-at">Cookie Két: Chờ làm mới</span>
       </div>
     </div>
-    <div id="acc-list" class="acc-list"></div>
-  </div>
 
-  <!-- SECTION 4: COOKIE EXPORT/IMPORT, KEEP-ALIVE v2.9.5 & TOKEN EXTRACTOR -->
-  <details class="card" style="cursor:pointer;">
-    <summary class="section-title" style="margin-bottom:0;">4. 🍪 Cookie · ☕ Đảo Ấm v2.9.5 &amp; ⚡ Bắt Token EAAB</summary>
-    <div style="margin-top:8px;">
-      <div class="btn-row" style="margin-top:0; margin-bottom:6px;">
-        <button id="btn-export-cookie" type="button" class="btn btn-primary">🍪 Chép Cookie FB</button>
-        <button id="btn-extract-token" type="button" class="btn btn-emerald">⚡ Bắt Token EAAB</button>
+    <!-- 72H SOAK QUARANTINE & COOLDOWN -->
+    <div class="card">
+      <div class="section-title">
+        <span>2. 🫧 Ngâm Thiết Bị Mới 72h &amp; Cooldown</span>
+        <span id="auto-soak-badge" class="badge badge-ok">SẴN SÀNG</span>
       </div>
-      <button id="btn-run-keepalive" type="button" class="btn" style="width:100%;margin-bottom:6px;border-color:rgba(245,158,11,0.55);color:#fcd34d;">☕ Đảo Ấm Cookie Như Người Thật (v2.9.5)</button>
-      <div id="ka-last-status" style="margin-bottom:6px; font-size:10px; color:#94a3b8;"></div>
-      <textarea id="cookie-box" rows="2" class="mono" placeholder="Dán Cookie JSON hoặc c_user=...; xs=... vào đây để đăng nhập Via không cần mật khẩu"></textarea>
-      <div class="btn-row">
-        <button id="btn-import-cookie" type="button" class="btn">📥 Nạp Cookie vào Chrome này</button>
-      </div>
-      <div class="btn-row">
-        <button id="btn-push-token-cloud" type="button" class="btn btn-primary" title="Tự động bắt Token EAAB trên tab Ads Manager / Meta Business (hoặc lấy từ ô phía trên) rồi đẩy thẳng lên Cloud qua AdsOps Desktop Pro">☁️ Đẩy Token EAAB lên Cloud</button>
-      </div>
-      <div class="btn-row">
-        <button id="btn-vault-save" type="button" class="btn btn-emerald" title="Mã hóa DPAPI &amp; lưu Cookie + 2FA vào App Windows AdsOps Desktop Pro trên máy (không gửi lên Cloud)">🔐 Lưu vào Két App Win</button>
-        <button id="btn-vault-load" type="button" class="btn btn-primary" title="Lấy Cookie + 2FA từ Két App Windows và nạp thẳng vào Chrome này">📥 Nạp từ Két App Win</button>
-      </div>
-      <div id="cookie-status" style="margin-top:4px; font-size:10.5px; color:#34d399;"></div>
-    </div>
-  </details>
-
-  <!-- SECTION 5: PROXY CONFIG -->
-  <details class="card" style="cursor:pointer;">
-    <summary class="section-title" style="margin-bottom:0;">5. 🌐 Cấu hình Proxy IPv4 riêng (IP:Port:User:Pass)</summary>
-    <div style="margin-top:8px;">
-      <input id="proxy-raw" type="text" class="mono" placeholder="103.145.67.89:8080:user:pass (để trống = mạng gốc)" />
-      <div class="btn-row">
-        <button id="btn-save-enable" type="button" class="btn btn-primary">Lưu &amp; Bật Proxy + Khóa WebRTC</button>
-        <button id="btn-disable-proxy" type="button" class="btn">Tắt Proxy</button>
+      <div class="meter-track"><div id="auto-soak-bar" class="meter-fill" style="background:linear-gradient(90deg,#f59e0b,#10b981);"></div></div>
+      <div id="auto-soak-desc" style="font-size:10.5px; color:#cbd5e1;">Đang kiểm tra tuổi thiết bị Chrome / Proxy...</div>
+      <div id="auto-cooldown-box" style="display:none; margin-top:7px; padding:7px 8px; border-radius:6px; background:rgba(244,63,94,0.16); border:1px solid rgba(244,63,94,0.45);">
+        <div id="auto-cooldown-text" style="font-size:10.5px; color:#fecdd3; font-weight:700;">❄️ Via đang Cooldown bảo vệ</div>
+        <button id="btn-clear-cooldown" type="button" class="btn btn-danger" style="margin-top:5px; width:100%;">🔓 Gỡ Cooldown Thủ Công</button>
       </div>
     </div>
-  </details>
 
-  <div class="mini-links">
-    <a class="link-item alert" href="https://business.facebook.com/accountquality" target="_blank">
-      <span>🛡️ Kháng nghị &amp; Xoá bài lỗi</span><span>↗</span>
-    </a>
-    <a class="link-item bill" href="https://business.facebook.com/billing_hub/accounts" target="_blank">
-      <span>💳 Billing Hub Meta</span><span>↗</span>
-    </a>
-    <a class="link-item" href="https://adsmanager.facebook.com/adsmanager/manage/campaigns" target="_blank">
-      <span>📊 Ads Manager</span><span>↗</span>
-    </a>
-    <a class="link-item" href="https://adsops-app.vibe.tinhgon.xyz/operations-guide" target="_blank">
-      <span>📖 Công thức Chống Die</span><span>↗</span>
-    </a>
+    <!-- GEOIP & TIMEZONE GUARD -->
+    <div class="card">
+      <div class="section-title">
+        <span>3. 🌍 Đối Chiếu GeoIP Proxy ↔ Múi Giờ/Ngôn Ngữ</span>
+        <button id="btn-recheck-geo" type="button" class="btn" style="flex:0 0 auto; padding:2px 7px; font-size:10px;">🩺 Quét lại</button>
+      </div>
+      <div id="auto-geo-status" style="font-size:10.5px; color:#cbd5e1; line-height:1.4;">Đang đối chiếu IP ra với Múi giờ &amp; Ngôn ngữ trình duyệt...</div>
+    </div>
+
+    <!-- 4-MODE BIO WARMUP ENGINE -->
+    <div class="card">
+      <div class="section-title">
+        <span>4. ☕ Automatic Đảo Ấm Sinh Học (4 Chế Độ)</span>
+        <span style="font-size:9.5px; color:#fcd34d;">v2.9.6</span>
+      </div>
+      <select id="ka-mode-select" style="margin-bottom:6px; font-weight:600;">
+        <option value="human_organic">☕ Đảo Ấm Sinh Học (Feed → Watch / Thông báo / Profile)</option>
+        <option value="soak_72h">🫧 Ngâm Thiết Bị Mới &lt;72h (Chỉ Feed &amp; Thông báo thụ động)</option>
+        <option value="bm_warmup">🏢 Vào BM An Toàn (Lướt Feed &amp; Thông báo trước BM)</option>
+        <option value="pre_camp">🚀 Khởi Động Trước Tạo Page / Lên Camp</option>
+      </select>
+      <button id="btn-run-keepalive" type="button" class="btn btn-amber" style="width:100%; margin-bottom:5px;">☕ Chạy Đảo Ấm Ngay (Theo Chế Độ Đã Chọn)</button>
+      <button id="btn-open-bm-safe" type="button" class="btn btn-emerald" style="width:100%; margin-bottom:5px;">🏢 Vào BM An Toàn (Chống Deep-Link)</button>
+      <div id="ka-last-status" style="font-size:10px; color:#94a3b8; line-height:1.35;">Chưa có phiên Đảo Ấm gần đây.</div>
+    </div>
+
+    <!-- 3 AUTO PROTECTION SHIELDS -->
+    <div class="card" style="margin-bottom:2px;">
+      <div class="section-title">
+        <span>5. 🔐 Công Tắc Khiên Bảo Vệ Tự Động</span>
+      </div>
+      <label class="toggle-row">
+        <span>🚨 Kill-Switch Chống Rò Rỉ IP Proxy (38s + Tab)</span>
+        <input id="chk-ip-killswitch" type="checkbox" checked />
+      </label>
+      <label class="toggle-row">
+        <span>⏳ Khóa Tạo Page Tự Động Khi Ngâm &lt; 72h</span>
+        <input id="chk-soak-lock" type="checkbox" checked />
+      </label>
+      <label class="toggle-row">
+        <span>🔄 Tự Lưu Cookie Tươi Vào Két DPAPI Sau Đảo Ấm</span>
+        <input id="chk-auto-vault-cookie" type="checkbox" checked />
+      </label>
+    </div>
   </div>
 
   <script src="popup.js"></script>
@@ -1573,6 +2041,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     profileCode: String(profileDir || 'Default'),
     viaTier: String(viaTier || 'camp'),
     twoFaSecret: twoFaSecret.replace(/\s+/g, '').toUpperCase(),
+    clientGroup,
+    warmupPhase,
+    warmupStartIso,
+    soakHoursRemaining,
+    defaultWarmupMode,
+    soakQuarantineEnabled,
+    ipKillSwitch,
+    autoVaultCookieRefresh,
+    cooldownUntilMs,
+    cooldownReason,
+    trustScore,
   })
 
   const popupJs = `const DEFAULT_ACCOUNTS = ${JSON.stringify(bundledAccounts)};
@@ -2120,50 +2599,308 @@ function flashSaved() {
 
 renderAccounts(DEFAULT_ACCOUNTS);
 
-if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
-  chrome.storage.local.get(["viaId", "viaName", "profileCode", "viaTier", "twoFaSecret", "passkeyStatus", "proxyRaw", "proxyEnabled", "accounts", "lastKeepAliveStatus"], (res) => {
-    currentViaId = res.viaId || DEFAULT_VIA_META.viaId || "";
-    if (viaInput) viaInput.value = res.viaName || DEFAULT_VIA_META.viaName || "";
-    if (profileInput) profileInput.value = res.profileCode || DEFAULT_VIA_META.profileCode || "Default";
-    if (tierSelect) tierSelect.value = res.viaTier || DEFAULT_VIA_META.viaTier || "camp";
-    if (twofaInput) twofaInput.value = res.twoFaSecret || DEFAULT_VIA_META.twoFaSecret || "";
-    if (proxyInput) proxyInput.value = res.proxyRaw || "";
-    if (passkeyBadge) {
-      if (res.passkeyStatus === "detected") {
-        passkeyBadge.textContent = "⚠️ CÓ PASSKEY - BẤM XOÁ NGAY";
-        passkeyBadge.className = "badge badge-err";
-      } else if (res.passkeyStatus === "deleted") {
-        passkeyBadge.textContent = "✅ ĐÃ XOÁ SẠCH PASSKEY";
-        passkeyBadge.className = "badge badge-ok";
-      }
-    }
-    const kaEl = document.getElementById("ka-last-status");
-    if (kaEl && res.lastKeepAliveStatus) {
-      const st = res.lastKeepAliveStatus;
-      if (st.state === "LOGGED_OUT") {
-        kaEl.textContent = "⚠️ Cảnh báo: Via bị văng phiên đăng nhập — cần Nạp Cookie / Điền 2FA!";
-        kaEl.style.color = "#fda4af";
-      } else if (st.state === "CHALLENGE") {
-        kaEl.textContent = "🛑 Tạm dừng đảo ấm do xác minh (" + (st.detail || "Checkpoint") + ")";
-        kaEl.style.color = "#fda4af";
-      } else if (st.state === "OK") {
-        kaEl.textContent = "☕ Đã đảo ấm: " + (st.routeSummary || "Cookie khỏe");
-        kaEl.style.color = "#6ee7b7";
-      }
-    }
-    updateBadge(Boolean(res.proxyEnabled), res.proxyRaw || "");
-    if (Array.isArray(res.accounts) && res.accounts.length > 0) {
-      renderAccounts(res.accounts);
-    }
-    tickOtp();
-  });
+function switchPopupTab(tabName) {
+  const isAuto = tabName === "auto";
+  const btnM = document.getElementById("tab-btn-manage");
+  const btnA = document.getElementById("tab-btn-auto");
+  const panelM = document.getElementById("tab-panel-manage");
+  const panelA = document.getElementById("tab-panel-auto");
+  if (btnM) btnM.classList.toggle("active", !isAuto);
+  if (btnA) btnA.classList.toggle("active", isAuto);
+  if (panelM) panelM.classList.toggle("active", !isAuto);
+  if (panelA) panelA.classList.toggle("active", isAuto);
 }
+
+document.getElementById("tab-btn-manage")?.addEventListener("click", () => switchPopupTab("manage"));
+document.getElementById("tab-btn-auto")?.addEventListener("click", () => switchPopupTab("auto"));
+document.getElementById("btn-jump-auto")?.addEventListener("click", () => switchPopupTab("auto"));
+
+function computeSoakMetrics(st) {
+  const iso = (st && st.warmupStartIso) || (typeof DEFAULT_VIA_META !== "undefined" ? DEFAULT_VIA_META.warmupStartIso : "") || "";
+  const phaseRaw = (st && st.warmupPhase) || (typeof DEFAULT_VIA_META !== "undefined" ? DEFAULT_VIA_META.warmupPhase : "trusted") || "trusted";
+  let ageHours = 72;
+  if (iso) {
+    const parsedMs = Date.parse(iso);
+    if (!Number.isNaN(parsedMs)) {
+      ageHours = Math.max(0, (Date.now() - parsedMs) / 3600000);
+    }
+  } else if (phaseRaw === "72h_lock") {
+    const rem = Number((st && st.soakHoursRemaining) || DEFAULT_VIA_META.soakHoursRemaining || 48);
+    ageHours = Math.max(0, 72 - rem);
+  }
+  const remHours = iso ? Math.max(0, 72 - ageHours) : (phaseRaw === "72h_lock" ? Number((st && st.soakHoursRemaining) || DEFAULT_VIA_META.soakHoursRemaining || 48) : 0);
+  const inSoak = remHours > 0 || phaseRaw === "72h_lock";
+  return { inSoak, ageHours: Math.round(ageHours), remHours: Math.ceil(remHours), phase: phaseRaw };
+}
+
+function renderStewardshipPanel(st) {
+  const s = st || {};
+  const fb = typeof DEFAULT_VIA_META !== "undefined" ? DEFAULT_VIA_META : {};
+  const proxyOn = Boolean(s.proxyEnabled && s.proxyRaw);
+  const twoFaOk = Boolean((s.twoFaSecret || fb.twoFaSecret || "").trim());
+  const soak = computeSoakMetrics(s);
+  const now = Date.now();
+  const cdUntil = Number(s.cooldownUntilMs || 0);
+  const inCd = cdUntil > now;
+  const leakHalted = Boolean(s.ipLeakHalted);
+  const killOn = s.ipKillSwitch !== undefined ? Boolean(s.ipKillSwitch) : (fb.ipKillSwitch !== false);
+
+  let score = Number(s.trustScore || fb.trustScore || 0);
+  if (!score) {
+    score = (proxyOn ? 25 : 0) + (soak.inSoak ? 10 : 25) + 15 + (twoFaOk ? 15 : 5) + (inCd || leakHalted ? 0 : 20);
+  } else if (inCd || leakHalted) {
+    score = Math.max(15, score - 25);
+  }
+  score = Math.max(0, Math.min(100, Math.round(score)));
+
+  const hdrBadge = document.getElementById("hdr-trust-badge");
+  const scoreEl = document.getElementById("auto-trust-score");
+  const barEl = document.getElementById("auto-trust-bar");
+  const detailEl = document.getElementById("auto-trust-detail");
+  const siloEl = document.getElementById("auto-client-silo");
+  const refreshEl = document.getElementById("auto-vault-refresh-at");
+
+  if (hdrBadge) {
+    hdrBadge.textContent = "🛡️ " + score + "/100";
+    hdrBadge.className = "badge " + (score >= 80 ? "badge-ok" : score >= 55 ? "badge-warn" : "badge-err");
+  }
+  if (scoreEl) {
+    scoreEl.textContent = score + " / 100";
+    scoreEl.style.color = score >= 80 ? "#34d399" : score >= 55 ? "#fbbf24" : "#fda4af";
+  }
+  if (barEl) {
+    barEl.style.width = score + "%";
+  }
+  if (detailEl) {
+    const parts = [];
+    parts.push(proxyOn ? "Proxy: Đã bọc" : "Mạng gốc (-25đ)");
+    parts.push(soak.inSoak ? "Ngâm <72h (-15đ)" : "Thiết bị >=72h");
+    parts.push(killOn ? "Kill-Switch BẬT" : "Kill-Switch TẮT");
+    detailEl.textContent = parts.join(" · ");
+  }
+  const grp = (s.clientGroup || fb.clientGroup || "").trim();
+  if (siloEl) siloEl.textContent = grp ? "Silo: " + grp : "Silo: Dùng chung Workspace";
+  if (refreshEl) {
+    if (s.lastVaultCookieRefreshAt) {
+      const dt = new Date(s.lastVaultCookieRefreshAt);
+      refreshEl.textContent = "Cookie Két: " + dt.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+    } else {
+      refreshEl.textContent = "Cookie Két: Sẵn sàng";
+    }
+  }
+
+  const soakBadge = document.getElementById("auto-soak-badge");
+  const soakBar = document.getElementById("auto-soak-bar");
+  const soakDesc = document.getElementById("auto-soak-desc");
+  const pct = soak.inSoak ? Math.max(8, Math.min(99, Math.round(((72 - soak.remHours) / 72) * 100))) : 100;
+  if (soakBar) soakBar.style.width = pct + "%";
+  if (soakBadge) {
+    if (soak.inSoak) {
+      soakBadge.textContent = "NGÂM CÒN " + soak.remHours + "H";
+      soakBadge.className = "badge badge-warn";
+    } else {
+      soakBadge.textContent = "ĐỦ 72H TRUSTED";
+      soakBadge.className = "badge badge-ok";
+    }
+  }
+  if (soakDesc) {
+    soakDesc.textContent = soak.inSoak
+      ? "Thiết bị/Proxy mới đang ở vùng ngâm (" + pct + "%). Khuyến nghị chỉ Đảo Ấm thụ động, hạn chế tạo Page/đổi BM."
+      : "Thiết bị đã qua 72h làm quen IP/Profile. Đủ điều kiện chạy Đảo Ấm & BM/Tạo Page giãn nhịp.";
+  }
+
+  const cdBox = document.getElementById("auto-cooldown-box");
+  const cdText = document.getElementById("auto-cooldown-text");
+  if (cdBox && cdText) {
+    if (inCd || leakHalted) {
+      const minsLeft = Math.max(1, Math.round((cdUntil - now) / 60000));
+      const hrsLeft = (minsLeft / 60).toFixed(1);
+      cdText.textContent =
+        (leakHalted ? "🚨 Đã khóa Kill-Switch IP: " : "❄️ Đang Cooldown: ") +
+        (s.cooldownReason || s.ipLeakReason || "Bảo vệ chống Checkpoint") +
+        (inCd ? " (còn ~" + hrsLeft + "h)" : "");
+      cdBox.style.display = "block";
+    } else {
+      cdBox.style.display = "none";
+    }
+  }
+}
+
+function recheckGeoAlignment() {
+  const geoEl = document.getElementById("auto-geo-status");
+  if (!geoEl) return;
+  const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const navLang = navigator.language || "en-US";
+  geoEl.textContent = "⏳ Đang đối chiếu IP ra với múi giờ " + localTz + "...";
+  geoEl.style.color = "#93c5fd";
+
+  fetch("https://ipwho.is/")
+    .then((r) => r.json())
+    .then((d) => {
+      if (!d || d.success === false || !d.ip) throw new Error("ipwho fallback");
+      const ipTz = (d.timezone && d.timezone.id) ? String(d.timezone.id) : "";
+      const cc = String(d.country_code || "");
+      const city = String(d.city || "");
+      const tzMatch = !ipTz || ipTz.toLowerCase() === localTz.toLowerCase() || (cc === "VN" && localTz === "Asia/Ho_Chi_Minh");
+      if (tzMatch) {
+        geoEl.style.color = "#6ee7b7";
+        geoEl.textContent = "✅ Khớp môi trường: IP " + d.ip + " (" + city + ", " + cc + ") · Múi giờ " + (ipTz || localTz) + " · Lang " + navLang;
+      } else {
+        geoEl.style.color = "#fcd34d";
+        geoEl.textContent = "⚠️ Lệch Múi Giờ: Proxy IP ở " + city + " (" + cc + " · " + ipTz + ") nhưng Chrome đang chạy " + localTz + "!";
+      }
+      chrome.runtime?.sendMessage?.({ type: "ADSOPS_CHECK_IP_GUARD" }, () => {
+        void chrome.runtime?.lastError;
+      });
+    })
+    .catch(() => {
+      geoEl.style.color = "#cbd5e1";
+      geoEl.textContent = "Múi giờ Chrome: " + localTz + " · Ngôn ngữ: " + navLang + " (Bấm Quét lại nếu Proxy chậm)";
+    });
+}
+
+if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+  chrome.storage.local.get(
+    [
+      "viaId",
+      "viaName",
+      "profileCode",
+      "viaTier",
+      "twoFaSecret",
+      "passkeyStatus",
+      "proxyRaw",
+      "proxyEnabled",
+      "accounts",
+      "lastKeepAliveStatus",
+      "clientGroup",
+      "warmupPhase",
+      "warmupStartIso",
+      "soakHoursRemaining",
+      "defaultWarmupMode",
+      "soakQuarantineEnabled",
+      "ipKillSwitch",
+      "autoVaultCookieRefresh",
+      "cooldownUntilMs",
+      "cooldownReason",
+      "ipLeakHalted",
+      "ipLeakReason",
+      "trustScore",
+      "lastVaultCookieRefreshAt"
+    ],
+    (res) => {
+      currentViaId = res.viaId || DEFAULT_VIA_META.viaId || "";
+      if (viaInput) viaInput.value = res.viaName || DEFAULT_VIA_META.viaName || "";
+      if (profileInput) profileInput.value = res.profileCode || DEFAULT_VIA_META.profileCode || "Default";
+      if (tierSelect) tierSelect.value = res.viaTier || DEFAULT_VIA_META.viaTier || "camp";
+      if (twofaInput) twofaInput.value = res.twoFaSecret || DEFAULT_VIA_META.twoFaSecret || "";
+      if (proxyInput) proxyInput.value = res.proxyRaw || "";
+      if (passkeyBadge) {
+        if (res.passkeyStatus === "detected") {
+          passkeyBadge.textContent = "⚠️ CÓ PASSKEY - BẤM XOÁ NGAY";
+          passkeyBadge.className = "badge badge-err";
+        } else if (res.passkeyStatus === "deleted") {
+          passkeyBadge.textContent = "✅ ĐÃ XOÁ SẠCH PASSKEY";
+          passkeyBadge.className = "badge badge-ok";
+        }
+      }
+      const kaEl = document.getElementById("ka-last-status");
+      if (kaEl && res.lastKeepAliveStatus) {
+        const st = res.lastKeepAliveStatus;
+        if (st.state === "LOGGED_OUT") {
+          kaEl.textContent = "⚠️ Cảnh báo: Via bị văng phiên đăng nhập — cần Nạp Cookie / Điền 2FA!";
+          kaEl.style.color = "#fda4af";
+        } else if (st.state === "CHALLENGE") {
+          kaEl.textContent = "🛑 Tạm dừng đảo ấm do xác minh (" + (st.detail || "Checkpoint") + ")";
+          kaEl.style.color = "#fda4af";
+        } else if (st.state === "IP_LEAK") {
+          kaEl.textContent = "🚨 Kill-Switch đã khóa vì rò rỉ/đứt Proxy IP (" + (st.detail || "IP Leak") + ")";
+          kaEl.style.color = "#fda4af";
+        } else if (st.state === "OK") {
+          kaEl.textContent = "☕ Đã đảo ấm: " + (st.routeSummary || "Cookie khỏe");
+          kaEl.style.color = "#6ee7b7";
+        }
+      }
+      const modeSel = document.getElementById("ka-mode-select");
+      const chkIp = document.getElementById("chk-ip-killswitch");
+      const chkSoak = document.getElementById("chk-soak-lock");
+      const chkAutoVault = document.getElementById("chk-auto-vault-cookie");
+      if (modeSel) {
+        modeSel.value = res.defaultWarmupMode || DEFAULT_VIA_META.defaultWarmupMode || ((res.warmupPhase === "72h_lock") ? "soak_72h" : "human_organic");
+      }
+      if (chkIp) chkIp.checked = res.ipKillSwitch !== undefined ? Boolean(res.ipKillSwitch) : (DEFAULT_VIA_META.ipKillSwitch !== false);
+      if (chkSoak) chkSoak.checked = res.soakQuarantineEnabled !== undefined ? Boolean(res.soakQuarantineEnabled) : (DEFAULT_VIA_META.soakQuarantineEnabled !== false);
+      if (chkAutoVault) chkAutoVault.checked = res.autoVaultCookieRefresh !== undefined ? Boolean(res.autoVaultCookieRefresh) : (DEFAULT_VIA_META.autoVaultCookieRefresh !== false);
+
+      updateBadge(Boolean(res.proxyEnabled), res.proxyRaw || "");
+      renderStewardshipPanel(res);
+      if (Array.isArray(res.accounts) && res.accounts.length > 0) {
+        renderAccounts(res.accounts);
+      }
+      tickOtp();
+    }
+  );
+}
+
+function resolveRouteByMode(mode, tier) {
+  if (mode === "soak_72h") return "feed,notif";
+  if (mode === "bm_warmup") return "feed,notif,biz";
+  if (mode === "pre_camp") return "feed,pages";
+  return tier === "vault" ? "feed,notif,biz" : "feed,watch,notif";
+}
+
+document.getElementById("ka-mode-select")?.addEventListener("change", (ev) => {
+  const val = ev?.target?.value || "human_organic";
+  chrome.storage?.local?.set({ defaultWarmupMode: val }, () => flashSaved());
+});
+document.getElementById("chk-ip-killswitch")?.addEventListener("change", (ev) => {
+  chrome.storage?.local?.set({ ipKillSwitch: Boolean(ev?.target?.checked) }, () => flashSaved());
+});
+document.getElementById("chk-soak-lock")?.addEventListener("change", (ev) => {
+  chrome.storage?.local?.set({ soakQuarantineEnabled: Boolean(ev?.target?.checked) }, () => flashSaved());
+});
+document.getElementById("chk-auto-vault-cookie")?.addEventListener("change", (ev) => {
+  chrome.storage?.local?.set({ autoVaultCookieRefresh: Boolean(ev?.target?.checked) }, () => flashSaved());
+});
+document.getElementById("btn-recheck-geo")?.addEventListener("click", () => recheckGeoAlignment());
+
+document.getElementById("btn-clear-cooldown")?.addEventListener("click", () => {
+  chrome.storage?.local?.set(
+    { cooldownUntilMs: 0, cooldownReason: "", ipLeakHalted: false, ipLeakReason: "" },
+    () => {
+      flashSaved();
+      chrome.storage.local.get(null, (all) => renderStewardshipPanel(all));
+    }
+  );
+});
 
 document.getElementById("btn-run-keepalive")?.addEventListener("click", () => {
   const tier = (tierSelect?.value === "vault") ? "vault" : "standard";
   const viaNm = (viaInput?.value || "Via").trim().slice(0, 50);
+  const mode = document.getElementById("ka-mode-select")?.value || "human_organic";
+  const route = resolveRouteByMode(mode, tier);
   chrome.tabs?.create({
-    url: "https://www.facebook.com/?adsops_keepalive_session=1&adsops_auto_close=0&adsops_via_tier=" + encodeURIComponent(tier) + "&adsops_via_label=" + encodeURIComponent(viaNm)
+    url:
+      "https://www.facebook.com/?adsops_keepalive_session=1&adsops_auto_close=0&adsops_via_tier=" +
+      encodeURIComponent(tier) +
+      "&adsops_via_label=" +
+      encodeURIComponent(viaNm) +
+      "&adsops_ka_mode=" +
+      encodeURIComponent(mode) +
+      "&adsops_ka_route=" +
+      encodeURIComponent(route)
+  });
+});
+
+document.getElementById("btn-open-bm-safe")?.addEventListener("click", () => {
+  const tier = (tierSelect?.value === "vault") ? "vault" : "standard";
+  const viaNm = (viaInput?.value || "Via").trim().slice(0, 50);
+  chrome.tabs?.create({
+    url:
+      "https://www.facebook.com/?adsops_keepalive_session=1&adsops_auto_close=0&adsops_via_tier=" +
+      encodeURIComponent(tier) +
+      "&adsops_via_label=" +
+      encodeURIComponent(viaNm) +
+      "&adsops_ka_mode=bm_warmup&adsops_ka_route=feed,notif,biz"
   });
 });
 
@@ -2175,13 +2912,17 @@ document.getElementById("btn-save-enable")?.addEventListener("click", () => {
     viaTier: tierSelect?.value || "camp",
     proxyRaw: raw,
     proxyEnabled: Boolean(raw),
-    webrtcShield: true
+    webrtcShield: true,
+    ipLeakHalted: false
   };
   if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
     chrome.storage.local.set(state, () => {
       updateBadge(state.proxyEnabled, state.proxyRaw);
       flashSaved();
-      setTimeout(refreshIp, 600);
+      setTimeout(() => {
+        refreshIp();
+        recheckGeoAlignment();
+      }, 600);
     });
   }
 });
@@ -2191,7 +2932,8 @@ document.getElementById("btn-disable-proxy")?.addEventListener("click", () => {
     viaName: (viaInput?.value || "").trim() || "Via Facebook",
     profileCode: (profileInput?.value || "").trim() || "Default",
     proxyRaw: (proxyInput?.value || "").trim(),
-    proxyEnabled: false
+    proxyEnabled: false,
+    ipLeakHalted: false
   };
   if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
     chrome.storage.local.set(state, () => {
@@ -2228,11 +2970,12 @@ if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.query) {
 }
 
 refreshIp();
-tickOtp();`
+tickOtp();
+recheckGeoAlignment();`
 
   const readmeTxt = [
-    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.9.5 PRO - FULL AUTO PAGE + ANTI-PASSKEY)',
-    '===================================================================================',
+    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.9.6 PRO - ANTI-CHECKPOINT & TAB AUTOMATIC)',
+    '========================================================================================================',
     'Bước 1: Giải nén file .zip này ra một thư mục cố định (ví dụ: Desktop\\AdsOps-Chrome-Extension).',
     'Bước 2: Mở trình duyệt Google Chrome của Via -> gõ vào thanh địa chỉ: chrome://extensions',
     'Bước 3: Bật công tắc "Chế độ dành cho nhà phát triển" (Developer mode) ở góc trên bên phải.',
@@ -2240,7 +2983,7 @@ tickOtp();`
     'Bước 5: Bấm biểu tượng mảnh ghép trên góc phải Chrome -> Bấm nút Ghim (Pin) cạnh "AdsOps Companion Pro".',
   ].join('\r\n')
 
-  const contentJs = `// AdsOps Companion Pro v2.9.5 — Full Auto-Pilot Page Creator + Safety Guard + Anti-Passkey + HUD
+  const contentJs = `// AdsOps Companion Pro v2.9.6 — Anti-Checkpoint + 4-Mode Warmup + Auto Page Creator + Passkey Shield + HUD
 (function() {
   let lastSyncedAct = "";
   let autoDeletePasskeyTriggered = false;
@@ -2647,7 +3390,7 @@ tickOtp();`
       if (!avFile || pageAutoPilotHalted) return;
       assignFileToInput(fileInputs[0], avFile);
       lastMediaAttachedAt = Date.now();
-      setHudPageStatus("🖼️ [Auto v2.9.5] Đã tự gắn Avatar độc bản (chống trùng Hash)...", "#38bdf8");
+      setHudPageStatus("🖼️ [Auto v2.9.6] Đã tự gắn Avatar độc bản (chống trùng Hash)...", "#38bdf8");
 
       if (fileInputs.length > 1) {
         setTimeout(() => {
@@ -2656,7 +3399,7 @@ tickOtp();`
             if (!cvFile || pageAutoPilotHalted) return;
             assignFileToInput(fileInputs[1], cvFile);
             lastMediaAttachedAt = Date.now();
-            setHudPageStatus("🖼️ [Auto v2.9.5] Đã tự gắn đủ Avatar + Cover độc bản!", "#34d399");
+            setHudPageStatus("🖼️ [Auto v2.9.6] Đã tự gắn đủ Avatar + Cover độc bản!", "#34d399");
           });
         }, randDelay(950, 1550));
       }
@@ -2854,14 +3597,18 @@ tickOtp();`
 
   const KA_STOPS = {
     feed: { label: "Newsfeed", url: "https://www.facebook.com/", minMs: 11000, maxMs: 16000 },
+    watch: { label: "Watch Video", url: "https://www.facebook.com/watch/?adsops_ka_hop=1", minMs: 10000, maxMs: 14500 },
     notif: { label: "Thông báo", url: "https://www.facebook.com/notifications", minMs: 7500, maxMs: 11500 },
     pages: { label: "Quản lý Trang", url: "https://www.facebook.com/pages/?category=your_pages", minMs: 7500, maxMs: 11500 },
     profile: { label: "Trang cá nhân", url: "https://www.facebook.com/me", minMs: 7000, maxMs: 10500 },
     biz: { label: "Business Suite (BM)", url: "https://business.facebook.com/latest/home", minMs: 11500, maxMs: 15500 },
   };
 
-  function pickFallbackKeepAliveSteps(tier) {
-    const pool = ["notif", "pages", "profile"];
+  function pickFallbackKeepAliveSteps(tier, mode) {
+    if (mode === "soak_72h") return ["feed", "notif"];
+    if (mode === "bm_warmup") return ["feed", "notif", "biz"];
+    if (mode === "pre_camp") return ["feed", "pages"];
+    const pool = ["notif", "watch", "pages", "profile"];
     for (let i = pool.length - 1; i > 0; i -= 1) {
       const j = Math.floor(Math.random() * (i + 1));
       const tmp = pool[i];
@@ -2896,7 +3643,7 @@ tickOtp();`
       const waitMs = randDelay(stopMeta.minMs, stopMeta.maxMs);
 
       const reader = startBiometricReadingLoop(
-        "☕ [Đảo Ấm v2.9.5 · Bước " + (idx + 1) + "/" + steps.length + "] Đang đọc " + stopMeta.label + " tự nhiên (" + Math.round(waitMs / 1000) + "s)..."
+        "☕ [Đảo Ấm v2.9.6 · Bước " + (idx + 1) + "/" + steps.length + "] Đang đọc " + stopMeta.label + " tự nhiên (" + Math.round(waitMs / 1000) + "s)..."
       );
 
       setTimeout(() => {
@@ -2931,8 +3678,15 @@ tickOtp();`
             route_summary: summary,
             duration_sec: Math.max(15, Math.round((Date.now() - (Number(session.startedAt) || Date.now())) / 1000)),
           });
-          setHudPageStatus("☕ [v2.9.5] Đã đảo ấm sinh học hoàn tất (" + summary + ")!", "#34d399");
-          if (session.autoClose) {
+          if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+            try {
+              chrome.runtime.sendMessage({ type: "ADSOPS_AUTO_REFRESH_VAULT_COOKIE", source: "keepalive_ok" }, () => {
+                void chrome.runtime.lastError;
+              });
+            } catch (e) {}
+          }
+          setHudPageStatus("☕ [v2.9.6] Đã đảo ấm sinh học & làm mới Két Cookie (" + summary + ")!", "#34d399");
+          if (session.autoClose && session.kaMode !== "bm_warmup") {
             scheduleSafeTabAutoClose(randDelay(7500, 10500));
           }
         }
@@ -2966,7 +3720,7 @@ tickOtp();`
           return;
         }
         const waitMs = randDelay(12500, 17500);
-        const reader = startBiometricReadingLoop("🌿 [Auto v2.9.5] Đang đọc lướt Newsfeed sinh học " + Math.round(waitMs / 1000) + "s trước khi tạo Page...");
+        const reader = startBiometricReadingLoop("🌿 [Auto v2.9.6] Đang đọc lướt Newsfeed sinh học " + Math.round(waitMs / 1000) + "s trước khi tạo Page...");
         setTimeout(() => {
           reader.stop();
           if (pageAutoPilotHalted) return;
@@ -2993,11 +3747,12 @@ tickOtp();`
       const wantClose = rawAutoClose !== "0";
       const viaTier = urlObj.searchParams.get("adsops_via_tier") || "standard";
       const viaLabel = urlObj.searchParams.get("adsops_via_label") || "";
+      const kaMode = urlObj.searchParams.get("adsops_ka_mode") || "human_organic";
       const rawRoute = (urlObj.searchParams.get("adsops_ka_route") || "")
         .split(",")
         .map((s) => s.trim())
         .filter((k) => Boolean(KA_STOPS[k]));
-      const steps = rawRoute.length >= 2 ? rawRoute : pickFallbackKeepAliveSteps(viaTier);
+      const steps = rawRoute.length >= 2 ? rawRoute : pickFallbackKeepAliveSteps(viaTier, kaMode);
       const routeSummary = steps.map((k) => (KA_STOPS[k] ? KA_STOPS[k].label : k)).join(" → ");
       const localSession = {
         steps: steps,
@@ -3005,6 +3760,7 @@ tickOtp();`
         autoClose: wantClose,
         viaTier: viaTier,
         viaLabel: viaLabel,
+        kaMode: kaMode,
         routeSummary: routeSummary,
       };
       if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
@@ -3015,6 +3771,7 @@ tickOtp();`
             autoClose: wantClose,
             viaTier: viaTier,
             viaLabel: viaLabel,
+            kaMode: kaMode,
             routeSummary: routeSummary,
           },
           (res) => {
@@ -3269,8 +4026,23 @@ tickOtp();`
       const tBio = tCat + tCatOpt + randDelay(1100, 1750);
       const tFinal = tBio + randDelay(1900, 2850);
 
+      let autoSubmitBlockedReason = "";
+      if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.get(["warmupPhase", "soakQuarantineEnabled", "cooldownUntilMs", "ipLeakHalted"], (st) => {
+          void chrome.runtime?.lastError;
+          if (!st) return;
+          if (st.ipLeakHalted) {
+            autoSubmitBlockedReason = "Kill-Switch IP đang khóa";
+          } else if (Number(st.cooldownUntilMs || 0) > Date.now()) {
+            autoSubmitBlockedReason = "Via đang Cooldown 24h chống Checkpoint";
+          } else if (st.warmupPhase === "72h_lock" && st.soakQuarantineEnabled !== false) {
+            autoSubmitBlockedReason = "Thiết bị mới đang ngâm < 72h";
+          }
+        });
+      }
+
       if (autoSubmit) {
-        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9.5] Đang nhập tự nhiên theo nhịp người thật...", "#38bdf8");
+        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9.6] Đang nhập tự nhiên theo nhịp người thật...", "#38bdf8");
       }
 
       if (pName && nameEl && !nameEl.value) {
@@ -3314,6 +4086,16 @@ tickOtp();`
         }
         createBtn.style.outline = "3px solid #10b981";
         createBtn.style.boxShadow = "0 0 18px rgba(16,185,129,0.75)";
+        if (autoSubmit && autoSubmitBlockedReason) {
+          setHudPageStatus(
+            (batchStep ? "[Lô " + batchStep + "] " : "") +
+              "🫧 [Khiên Bảo Vệ] " +
+              autoSubmitBlockedReason +
+              " — Đã điền sẵn nhưng khóa bấm Tạo Trang tự động!",
+            "#fbbf24",
+          );
+          return;
+        }
         if (!autoSubmit) {
           if (!createBtn.dataset.adsopsHooked) {
             createBtn.dataset.adsopsHooked = "1";
@@ -3358,14 +4140,14 @@ tickOtp();`
           sessionStorage.setItem("adsops_media_uploaded", "0");
         } catch (e) {}
         createBtn.click();
-        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9.5] Đã bấm Tạo Trang — Đang hoàn tất bước phụ...", "#38bdf8");
+        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9.6] Đã bấm Tạo Trang — Đang hoàn tất bước phụ...", "#38bdf8");
       };
 
       setTimeout(() => tryAutoClickCreate(true), tFinal);
     } catch (e) {}
   }
 
-  // v2.9.5: User-clicked 1-tap 6-digit 2FA autofill from Desktop DPAPI Vault / local secret (strictly blocked on CAPTCHA pages)
+  // v2.9.6: User-clicked 1-tap 6-digit 2FA autofill from Desktop DPAPI Vault / local secret (strictly blocked on CAPTCHA pages)
   function handleTwoFactorAssistDom() {
     try {
       const url = (window.location.href || "").toLowerCase();
@@ -3491,6 +4273,7 @@ export function downloadChromeExtensionZip(
   twoFaSecret = '',
   viaTier: 'vault' | 'camp' | 'standby' = 'camp',
   viaId = '',
+  extraMeta?: ExtensionStewardshipMeta,
 ): void {
   const slug = profileDir.replace(/[^a-zA-Z0-9_-]/g, '-')
   const zipBlob = buildStoreZip(
@@ -3503,12 +4286,13 @@ export function downloadChromeExtensionZip(
       twoFaSecret,
       viaTier,
       viaId,
+      extraMeta,
     ),
   )
   const url = URL.createObjectURL(zipBlob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `AdsOps-Chrome-Extension-v2.9.5-${slug}.zip`
+  a.download = `AdsOps-Chrome-Extension-v2.9.6-${slug}.zip`
   document.body.appendChild(a)
   a.click()
   a.remove()
@@ -3523,18 +4307,19 @@ export interface ViaExtensionBundleSpec {
   bundledAccounts: ExtensionBundledAccount[]
   twoFaSecret: string
   viaTier: 'vault' | 'camp' | 'standby'
+  extraMeta?: ExtensionStewardshipMeta
 }
 
 export function downloadAllViasExtensionsBundleZip(items: ViaExtensionBundleSpec[]): void {
   if (!Array.isArray(items) || items.length === 0) return
   const allFiles: Array<{ name: string; content: string | Uint8Array }> = []
   const guideLines: string[] = [
-    'TRON BO TIEN ICH ADSOPS COMPANION v2.9.5 PRO CHO TOAN BO DAN VIA',
+    'TRON BO TIEN ICH ADSOPS COMPANION v2.9.6 PRO CHO TOAN BO DAN VIA',
     '================================================================',
     `Tong so thu muc Extension da dong goi: ${items.length} Via`,
     '',
     'Cach cai nhanh:',
-    '1. Giai nen file .zip nay ra mot thu muc co dinh (VD: Desktop\AdsOps-Extensions-v2.9.5).',
+    '1. Giai nen file .zip nay ra mot thu muc co dinh (VD: Desktop\\AdsOps-Extensions-v2.9.6).',
     '2. Mo Chrome cua tung Via -> chrome://extensions -> Bat Developer mode -> Load unpacked -> chon dung thu muc ten cua Via do ben duoi:',
     '',
   ]
@@ -3553,6 +4338,7 @@ export function downloadAllViasExtensionsBundleZip(items: ViaExtensionBundleSpec
         spec.twoFaSecret,
         spec.viaTier,
         spec.viaId || '',
+        spec.extraMeta,
       ),
     )
   })
@@ -3566,7 +4352,7 @@ export function downloadAllViasExtensionsBundleZip(items: ViaExtensionBundleSpec
   const url = URL.createObjectURL(zipBlob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `AdsOps-Tron-Bo-Extension-v2.9.5-${items.length}Via.zip`
+  a.download = `AdsOps-Tron-Bo-Extension-v2.9.6-${items.length}Via.zip`
   document.body.appendChild(a)
   a.click()
   a.remove()

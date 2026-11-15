@@ -1,9 +1,9 @@
 {
-  "version": "2.3.1",
-  "ext_version": "2.9.5",
+  "version": "2.4.0",
+  "ext_version": "2.9.6",
   "download_url": "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
-  "sha256": "f87c48b605178e1b672fd2e03ff8f3d375c5aff9a24e832e67a49e24bf0c3b05",
-  "size_bytes": 65810684,
-  "published_at": "2026-11-15T14:41:57.667807Z",
-  "release_notes": "AdsOps Desktop Pro v2.3.1 + Extension v2.9.5: Khắc phục triệt để Keep-Alive query params & logging chính xác từng Via đã mở, chống phóng đại x100 tiền tệ trên Windows tiếng Việt, hiển thị Watermark Search/Input, sửa CreateEmptyState & min mật khẩu Vault 6 ký tự, tự dọn Autostart Python bridge cũ & tối ưu toàn hệ thống không mock/preset."
+  "sha256": "2e05547a6cd1f33a3038b4a4df90fc27be3de42e2311d3b719ea5b5cbdedfe98",
+  "size_bytes": 65845011,
+  "published_at": "2026-11-15T20:03:00.737644Z",
+  "release_notes": "AdsOps Desktop Pro v2.4.0 + Extension v2.9.6: Bổ sung Trung tâm Tự động & Chống Checkpoint (Tab riêng trên Extension & Desktop), Chế độ Ngâm Via 72h (Soak Quarantine), Công tắc Ngắt mạng Khẩn cấp khi rò IP Proxy (IP Leak Kill-Switch), Cách ly Silo Đa Khách Hàng chống chết chùm, Tự động đóng băng Cooldown 24h, Tự làm mới Cookie Két sắt DPAPI & Điểm Tin cậy Via (Trust Score 0-100) — 100% dữ liệu thật."
 }

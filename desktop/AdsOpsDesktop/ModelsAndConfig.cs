@@ -138,7 +138,7 @@ public sealed class DesktopConfig
     public bool AutoKeepAliveScheduler { get; set; } = true;
     public int BridgePort { get; set; } = 17890;
 
-    // Automation Suite Preferences (v2.0)
+    // Automation Suite Preferences (v2.0 -> v2.4 Anti-Checkpoint)
     public int AutoKeepAliveStartHour { get; set; } = 8;
     public int AutoKeepAliveEndHour { get; set; } = 22;
     public int AutoKeepAliveMinGapMinutes { get; set; } = 20;
@@ -149,6 +149,13 @@ public sealed class DesktopConfig
     public bool AutoUploadMedia { get; set; } = true;
     public bool AutoCloseKeepAliveTab { get; set; } = true;
     public bool AutoCloseKeepAliveWindow { get; set; } = true;
+    public bool EnforceSoakQuarantine { get; set; } = true;
+    public int SoakQuarantineHours { get; set; } = 72;
+    public bool EnforceClientSilo { get; set; } = true;
+    public int AutoCooldownHours { get; set; } = 24;
+    public string DefaultWarmupMode { get; set; } = "human_organic";
+    public bool AutoRefreshCookieAfterKeepAlive { get; set; } = true;
+    public bool IpLeakKillSwitchEnabled { get; set; } = true;
 
     [JsonIgnore]
     public string AccessToken
@@ -193,6 +200,9 @@ public sealed class DesktopConfig
                     if (cfg.DefaultStaggerSeconds < 18) cfg.DefaultStaggerSeconds = 65;
                     if (cfg.MaxViasPerProxyInBatch < 1) cfg.MaxViasPerProxyInBatch = 2;
                     if (cfg.AutoKeepAliveMinGapMinutes < 5) cfg.AutoKeepAliveMinGapMinutes = 20;
+                    if (cfg.SoakQuarantineHours < 12 || cfg.SoakQuarantineHours > 336) cfg.SoakQuarantineHours = 72;
+                    if (cfg.AutoCooldownHours < 1 || cfg.AutoCooldownHours > 168) cfg.AutoCooldownHours = 24;
+                    if (string.IsNullOrWhiteSpace(cfg.DefaultWarmupMode)) cfg.DefaultWarmupMode = "human_organic";
                     return cfg;
                 }
             }
@@ -214,19 +224,40 @@ public sealed class DesktopConfig
     }
 }
 
-public sealed record ParsedViaNotes(string Tier, string WarmupStartIso, string CleanNotes);
+public sealed record ParsedViaNotes(
+    string Tier,
+    string WarmupStartIso,
+    string CleanNotes,
+    string ClientGroup = "",
+    string WarmupMode = "human_organic");
 public sealed record ViaWarmupStatus(int HoursElapsed, int DaysElapsed, string Phase, string Label, string Hint);
 
 public static class ViaMetadataParser
 {
     private static readonly Regex TierRegex = new(@"\[TIER:(vault|hold|camp|standby)\]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex WarmupRegex = new(@"\[WARMUP:([0-9T:.\-]+Z?)\]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex ClientRegex = new(@"\[CLIENT:([^\[\]\r\n]{1,64})\]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex WarmupModeRegex = new(@"\[WMODE:(soak_72h|human_organic|bm_warmup|pre_camp)\]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    public static string NormalizeWarmupMode(string? raw)
+    {
+        var m = (raw ?? "").Trim().ToLowerInvariant();
+        return m switch
+        {
+            "soak_72h" => "soak_72h",
+            "bm_warmup" => "bm_warmup",
+            "pre_camp" => "pre_camp",
+            _ => "human_organic",
+        };
+    }
 
     public static ParsedViaNotes ParseNotes(string? notesRaw, string? label, int bmCount = 0, int adCount = 0)
     {
         var notes = notesRaw ?? "";
         var tm = TierRegex.Match(notes);
         var wm = WarmupRegex.Match(notes);
+        var cm = ClientRegex.Match(notes);
+        var wmm = WarmupModeRegex.Match(notes);
 
         var tier = "camp";
         if (tm.Success)
@@ -248,12 +279,23 @@ public static class ViaMetadataParser
         }
 
         var warmupIso = wm.Success ? wm.Groups[1].Value : "";
-        var clean = TierRegex.Replace(notes, "");
-        clean = WarmupRegex.Replace(clean, "").Trim();
-        return new ParsedViaNotes(tier, warmupIso, clean);
+        var clientGroup = cm.Success ? cm.Groups[1].Value.Trim() : "";
+        var warmupMode = wmm.Success ? NormalizeWarmupMode(wmm.Groups[1].Value) : "human_organic";
+
+        var clean = TierRegex.Replace(notes, " ");
+        clean = WarmupRegex.Replace(clean, " ");
+        clean = ClientRegex.Replace(clean, " ");
+        clean = WarmupModeRegex.Replace(clean, " ");
+        clean = Regex.Replace(clean, @"\s+", " ").Trim();
+        return new ParsedViaNotes(tier, warmupIso, clean, clientGroup, warmupMode);
     }
 
-    public static string BuildNotes(string? cleanNotes, string tier, string warmupStartIso)
+    public static string BuildNotes(
+        string? cleanNotes,
+        string tier,
+        string warmupStartIso,
+        string? clientGroup = null,
+        string? warmupMode = null)
     {
         var rawTier = (tier ?? "").Trim().ToLowerInvariant();
         var safeTier = rawTier switch
@@ -267,14 +309,26 @@ public static class ViaMetadataParser
         {
             tags.Add($"[WARMUP:{warmupStartIso.Trim()}]");
         }
+        var safeClient = Regex.Replace((clientGroup ?? "").Trim(), @"[\[\]\r\n]+", "");
+        if (safeClient.Length > 64) safeClient = safeClient[..64].Trim();
+        if (!string.IsNullOrEmpty(safeClient))
+        {
+            tags.Add($"[CLIENT:{safeClient}]");
+        }
+        var normMode = NormalizeWarmupMode(warmupMode);
+        if (!string.IsNullOrWhiteSpace(warmupMode) && normMode != "human_organic")
+        {
+            tags.Add($"[WMODE:{normMode}]");
+        }
         var prefix = string.Join(" ", tags);
         var tail = (cleanNotes ?? "").Trim();
         return string.IsNullOrEmpty(tail) ? prefix : $"{prefix} {tail}";
     }
 
-    public static ViaWarmupStatus ComputeWarmupStatus(string? warmupStartIso, DateTimeOffset? now = null)
+    public static ViaWarmupStatus ComputeWarmupStatus(string? warmupStartIso, DateTimeOffset? now = null, int soakHours = 72)
     {
         var refNow = now ?? DateTimeOffset.UtcNow;
+        var effectiveSoak = Math.Clamp(soakHours, 12, 336);
         if (string.IsNullOrWhiteSpace(warmupStartIso) ||
             !DateTimeOffset.TryParse(warmupStartIso, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsedStart))
         {
@@ -291,14 +345,14 @@ public static class ViaMetadataParser
         var hours = (int)Math.Floor(diff.TotalHours);
         var days = (int)Math.Floor(diff.TotalDays);
 
-        if (hours < 72)
+        if (hours < effectiveSoak)
         {
             return new ViaWarmupStatus(
                 hours,
                 days,
                 "72h_lock",
-                $"Ngâm 72h vàng ({hours}/72h)",
-                "72h đầu: CẤM vào Ads Manager, CẤM đổi pass/2FA. Chỉ lướt Newsfeed thụ động.");
+                $"Ngâm {effectiveSoak}h vàng ({hours}/{effectiveSoak}h)",
+                $"{effectiveSoak}h đầu: CẤM tạo Page hàng loạt, CẤM vào Ads Manager, CẤM đổi pass/2FA. Chỉ lướt Newsfeed thụ động.");
         }
         if (days < 7)
         {
@@ -828,6 +882,21 @@ public sealed class ViaWorkspaceEntry
     public string ExtensionFolder { get; set; } = "";
     public bool IsSelected { get; set; }
     public List<BundledExtensionAccountDto> BundledAccounts { get; set; } = new();
+
+    // v2.4 Anti-Checkpoint & Multi-Client Stewardship fields
+    public string ClientGroup { get; set; } = "";
+    public string DefaultWarmupMode { get; set; } = "human_organic";
+    public int SoakHoursRemaining { get; set; }
+    public bool IsInSoakQuarantine { get; set; }
+    public DateTimeOffset? CooldownUntilUtc { get; set; }
+    public string CooldownReason { get; set; } = "";
+    public bool IsInCooldown => CooldownUntilUtc.HasValue && CooldownUntilUtc.Value > DateTimeOffset.UtcNow;
+    public bool HasSiloConflict { get; set; }
+    public string SiloConflictDetail { get; set; } = "";
+    public int TrustScore { get; set; } = 100;
+    public string TrustSummary { get; set; } = "";
+    public DateTimeOffset? LastCookieRefreshUtc { get; set; }
+    public int KeepAliveSuccessCount { get; set; }
 }
 
 public sealed class LocalViaSecretRecord
@@ -1816,9 +1885,9 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "2.3.1";
-    public const string DisplayVersion = "v2.3.1";
-    public const string ExtVersion = "2.9.5";
+    public const string Version = "2.4.0";
+    public const string DisplayVersion = "v2.4.0";
+    public const string ExtVersion = "2.9.6";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 
     /// <summary>
@@ -2425,4 +2494,442 @@ public sealed class TeamInvitationCreateResponseDto
 {
     [JsonPropertyName("invitation")] public TeamInvitationDto Invitation { get; set; } = new();
     [JsonPropertyName("invite_link_token")] public string InviteLinkToken { get; set; } = string.Empty;
+}
+
+// ---------- v2.4 Anti-Checkpoint, Cooldown & Multi-Client Stewardship ----------
+
+public sealed class ViaStewardshipRecord
+{
+    [JsonPropertyName("key")] public string Key { get; set; } = "";
+    [JsonPropertyName("via_id")] public string ViaId { get; set; } = "";
+    [JsonPropertyName("via_label")] public string ViaLabel { get; set; } = "";
+    [JsonPropertyName("last_proxy_key")] public string LastProxyKey { get; set; } = "";
+    [JsonPropertyName("proxy_changed_utc")] public string ProxyChangedUtc { get; set; } = "";
+    [JsonPropertyName("cooldown_until_utc")] public string CooldownUntilUtc { get; set; } = "";
+    [JsonPropertyName("cooldown_reason")] public string CooldownReason { get; set; } = "";
+    [JsonPropertyName("keep_alive_success_count")] public int KeepAliveSuccessCount { get; set; }
+    [JsonPropertyName("last_keep_alive_utc")] public string LastKeepAliveUtc { get; set; } = "";
+    [JsonPropertyName("last_cookie_refresh_utc")] public string LastCookieRefreshUtc { get; set; } = "";
+}
+
+public sealed class StewardshipSafetyEventDto
+{
+    [JsonPropertyName("timestamp_utc")] public string TimestampUtc { get; set; } = DateTime.UtcNow.ToString("O");
+    [JsonPropertyName("event_type")] public string EventType { get; set; } = "";
+    [JsonPropertyName("via_id")] public string ViaId { get; set; } = "";
+    [JsonPropertyName("via_label")] public string ViaLabel { get; set; } = "";
+    [JsonPropertyName("client_group")] public string ClientGroup { get; set; } = "";
+    [JsonPropertyName("detail")] public string Detail { get; set; } = "";
+}
+
+public sealed class ViaStewardshipDocument
+{
+    [JsonPropertyName("records")] public List<ViaStewardshipRecord> Records { get; set; } = new();
+    [JsonPropertyName("events")] public List<StewardshipSafetyEventDto> Events { get; set; } = new();
+}
+
+/// <summary>Stores per-Via proxy transitions (72h soak quarantine), safety cooldowns, and audit events locally.</summary>
+public sealed class ViaStewardshipStore
+{
+    private static readonly Lazy<ViaStewardshipStore> _default =
+        new(() => new ViaStewardshipStore(Path.Combine(DesktopConfig.AppDataRoot, "via_stewardship.json")));
+
+    public static ViaStewardshipStore Default => _default.Value;
+
+    private readonly string _filePath;
+    private readonly object _gate = new();
+    private ViaStewardshipDocument _doc = new();
+
+    public ViaStewardshipStore(string filePath)
+    {
+        _filePath = filePath;
+        LoadFromDisk();
+    }
+
+    private void LoadFromDisk()
+    {
+        lock (_gate)
+        {
+            try
+            {
+                if (File.Exists(_filePath))
+                {
+                    var txt = File.ReadAllText(_filePath, Encoding.UTF8);
+                    _doc = JsonSerializer.Deserialize<ViaStewardshipDocument>(txt) ?? new ViaStewardshipDocument();
+                }
+            }
+            catch
+            {
+                _doc = new ViaStewardshipDocument();
+            }
+            _doc.Records ??= new List<ViaStewardshipRecord>();
+            _doc.Events ??= new List<StewardshipSafetyEventDto>();
+        }
+    }
+
+    private void SaveToDiskLocked()
+    {
+        var dir = Path.GetDirectoryName(_filePath);
+        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+        var json = JsonSerializer.Serialize(_doc, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(_filePath, json, new UTF8Encoding(false));
+    }
+
+    private ViaStewardshipRecord GetOrCreateRecordLocked(string? viaId, string? viaLabel)
+    {
+        var id = (viaId ?? "").Trim();
+        var lbl = (viaLabel ?? "").Trim();
+
+        ViaStewardshipRecord? match = null;
+        if (!string.IsNullOrEmpty(id))
+        {
+            match = _doc.Records.FirstOrDefault(r => string.Equals(r.ViaId, id, StringComparison.OrdinalIgnoreCase));
+        }
+        if (match == null && !string.IsNullOrEmpty(lbl))
+        {
+            match = _doc.Records.FirstOrDefault(r => string.Equals(r.ViaLabel, lbl, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (match == null)
+        {
+            var key = !string.IsNullOrEmpty(id) ? $"id:{id.ToLowerInvariant()}" : $"lbl:{lbl.ToLowerInvariant()}";
+            match = new ViaStewardshipRecord
+            {
+                Key = key,
+                ViaId = id,
+                ViaLabel = lbl,
+            };
+            _doc.Records.Add(match);
+        }
+        else
+        {
+            if (!string.IsNullOrEmpty(id)) match.ViaId = id;
+            if (!string.IsNullOrEmpty(lbl)) match.ViaLabel = lbl;
+        }
+        return match;
+    }
+
+    private void AppendEventLocked(string eventType, string? viaId, string? viaLabel, string? clientGroup, string detail)
+    {
+        _doc.Events.Insert(0, new StewardshipSafetyEventDto
+        {
+            TimestampUtc = DateTimeOffset.UtcNow.ToString("O"),
+            EventType = (eventType ?? "").Trim().ToUpperInvariant(),
+            ViaId = (viaId ?? "").Trim(),
+            ViaLabel = string.IsNullOrWhiteSpace(viaLabel) ? "Via" : viaLabel.Trim(),
+            ClientGroup = (clientGroup ?? "").Trim(),
+            Detail = (detail ?? "").Trim(),
+        });
+        if (_doc.Events.Count > 250)
+        {
+            _doc.Events.RemoveRange(250, _doc.Events.Count - 250);
+        }
+    }
+
+    private static ViaStewardshipRecord CloneRecord(ViaStewardshipRecord src) => new()
+    {
+        Key = src.Key,
+        ViaId = src.ViaId,
+        ViaLabel = src.ViaLabel,
+        LastProxyKey = src.LastProxyKey,
+        ProxyChangedUtc = src.ProxyChangedUtc,
+        CooldownUntilUtc = src.CooldownUntilUtc,
+        CooldownReason = src.CooldownReason,
+        KeepAliveSuccessCount = src.KeepAliveSuccessCount,
+        LastKeepAliveUtc = src.LastKeepAliveUtc,
+        LastCookieRefreshUtc = src.LastCookieRefreshUtc,
+    };
+
+    public ViaStewardshipRecord GetOrTrackProxy(string? viaId, string? viaLabel, string? currentProxyRaw)
+    {
+        var normKey = DesktopAppInfo.NormalizeProxyKey(currentProxyRaw);
+        lock (_gate)
+        {
+            var rec = GetOrCreateRecordLocked(viaId, viaLabel);
+            bool dirty = false;
+            if (!string.IsNullOrEmpty(normKey))
+            {
+                if (!string.IsNullOrEmpty(rec.LastProxyKey) &&
+                    !string.Equals(rec.LastProxyKey, normKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    rec.ProxyChangedUtc = DateTimeOffset.UtcNow.ToString("O");
+                    AppendEventLocked(
+                        "PROXY_CHANGED_QUARANTINE",
+                        rec.ViaId,
+                        rec.ViaLabel,
+                        "",
+                        $"Đổi Proxy ({rec.LastProxyKey} -> {normKey}) — Kích hoạt khóa ngâm thiết bị mới");
+                    dirty = true;
+                }
+                if (!string.Equals(rec.LastProxyKey, normKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    rec.LastProxyKey = normKey;
+                    dirty = true;
+                }
+            }
+            else if (!string.IsNullOrEmpty(rec.LastProxyKey))
+            {
+                rec.LastProxyKey = "";
+                dirty = true;
+            }
+            if (dirty) SaveToDiskLocked();
+            return CloneRecord(rec);
+        }
+    }
+
+    public void TriggerCooldown(string? viaId, string? viaLabel, string? clientGroup, int hours, string reason, string eventType = "SAFETY_COOLDOWN")
+    {
+        var effectiveHours = Math.Clamp(hours, 1, 168);
+        var cleanReason = string.IsNullOrWhiteSpace(reason) ? "Kích hoạt Cooldown bảo vệ tài khoản" : reason.Trim();
+        lock (_gate)
+        {
+            var rec = GetOrCreateRecordLocked(viaId, viaLabel);
+            rec.CooldownUntilUtc = DateTimeOffset.UtcNow.AddHours(effectiveHours).ToString("O");
+            rec.CooldownReason = cleanReason;
+            AppendEventLocked(eventType, rec.ViaId, rec.ViaLabel, clientGroup, $"Đóng băng {effectiveHours}h: {cleanReason}");
+            SaveToDiskLocked();
+        }
+    }
+
+    public void ClearCooldown(string? viaId, string? viaLabel)
+    {
+        lock (_gate)
+        {
+            var rec = GetOrCreateRecordLocked(viaId, viaLabel);
+            rec.CooldownUntilUtc = "";
+            rec.CooldownReason = "";
+            AppendEventLocked("COOLDOWN_CLEARED", rec.ViaId, rec.ViaLabel, "", "Gỡ đóng băng Cooldown thủ công trên Desktop");
+            SaveToDiskLocked();
+        }
+    }
+
+    public int ClearAllCooldowns()
+    {
+        lock (_gate)
+        {
+            int cleared = 0;
+            foreach (var rec in _doc.Records)
+            {
+                if (!string.IsNullOrWhiteSpace(rec.CooldownUntilUtc))
+                {
+                    rec.CooldownUntilUtc = "";
+                    rec.CooldownReason = "";
+                    cleared++;
+                }
+            }
+            if (cleared > 0)
+            {
+                AppendEventLocked("COOLDOWN_CLEARED_ALL", "", "Tất cả Via", "", $"Đã gỡ đóng băng Cooldown hàng loạt cho {cleared} Via");
+                SaveToDiskLocked();
+            }
+            return cleared;
+        }
+    }
+
+    public void RecordKeepAliveSuccess(string? viaId, string? viaLabel, string? clientGroup, string? detail = null)
+    {
+        lock (_gate)
+        {
+            var rec = GetOrCreateRecordLocked(viaId, viaLabel);
+            rec.KeepAliveSuccessCount++;
+            rec.LastKeepAliveUtc = DateTimeOffset.UtcNow.ToString("O");
+            AppendEventLocked(
+                "KEEPALIVE_OK",
+                rec.ViaId,
+                rec.ViaLabel,
+                clientGroup,
+                string.IsNullOrWhiteSpace(detail) ? "Hoàn tất phiên Đảo Ấm an toàn" : detail.Trim());
+            SaveToDiskLocked();
+        }
+    }
+
+    public void RecordCookieRefresh(string? viaId, string? viaLabel, string? clientGroup)
+    {
+        lock (_gate)
+        {
+            var rec = GetOrCreateRecordLocked(viaId, viaLabel);
+            rec.LastCookieRefreshUtc = DateTimeOffset.UtcNow.ToString("O");
+            AppendEventLocked(
+                "VAULT_COOKIE_REFRESHED",
+                rec.ViaId,
+                rec.ViaLabel,
+                clientGroup,
+                "Extension tự động làm mới Cookie c_user/xs vào Két DPAPI Local");
+            SaveToDiskLocked();
+        }
+    }
+
+    public void AppendEvent(string eventType, string? viaId, string? viaLabel, string? clientGroup, string detail)
+    {
+        lock (_gate)
+        {
+            AppendEventLocked(eventType, viaId, viaLabel, clientGroup, detail);
+            SaveToDiskLocked();
+        }
+    }
+
+    public List<StewardshipSafetyEventDto> GetRecentEvents(int max = 100)
+    {
+        var take = Math.Clamp(max, 1, 250);
+        lock (_gate)
+        {
+            return _doc.Events.Take(take).ToList();
+        }
+    }
+}
+
+/// <summary>Deterministic cross-client Silo Isolation checker and Environmental Trust Score calculator.</summary>
+public static class ViaTrustEvaluator
+{
+    public static void DetectClientSiloConflicts(IList<ViaWorkspaceEntry> vias)
+    {
+        if (vias == null || vias.Count == 0) return;
+
+        foreach (var v in vias)
+        {
+            v.HasSiloConflict = false;
+            v.SiloConflictDetail = "";
+        }
+
+        for (int i = 0; i < vias.Count; i++)
+        {
+            var a = vias[i];
+            var clientA = (a.ClientGroup ?? "").Trim();
+            var pxA = AutomationQueueEngine.ExtractProxyHostPort(a.NetworkLabel);
+            var profA = (a.ProfileDir ?? "").Trim();
+
+            for (int j = i + 1; j < vias.Count; j++)
+            {
+                var b = vias[j];
+                var clientB = (b.ClientGroup ?? "").Trim();
+
+                // Same ClientGroup (or both unassigned) does NOT violate Multi-Client Silo isolation.
+                if (string.Equals(clientA, clientB, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                // Conflict if at least one belongs to a named ClientGroup and shares proxy IP or Chrome profile directory
+                var reasonsA = new List<string>();
+                var reasonsB = new List<string>();
+
+                var pxB = AutomationQueueEngine.ExtractProxyHostPort(b.NetworkLabel);
+                if (!string.IsNullOrEmpty(pxA) && string.Equals(pxA, pxB, StringComparison.OrdinalIgnoreCase))
+                {
+                    var peerA = string.IsNullOrEmpty(clientB) ? b.Label : $"Khách {clientB} ({b.Label})";
+                    var peerB = string.IsNullOrEmpty(clientA) ? a.Label : $"Khách {clientA} ({a.Label})";
+                    reasonsA.Add($"Trùng Proxy {pxA} với {peerA}");
+                    reasonsB.Add($"Trùng Proxy {pxA} với {peerB}");
+                }
+
+                var profB = (b.ProfileDir ?? "").Trim();
+                if (!string.IsNullOrEmpty(profA) && string.Equals(profA, profB, StringComparison.OrdinalIgnoreCase))
+                {
+                    var peerA = string.IsNullOrEmpty(clientB) ? b.Label : $"Khách {clientB} ({b.Label})";
+                    var peerB = string.IsNullOrEmpty(clientA) ? a.Label : $"Khách {clientA} ({a.Label})";
+                    reasonsA.Add($"Trùng Chrome {profA} với {peerA}");
+                    reasonsB.Add($"Trùng Chrome {profA} với {peerB}");
+                }
+
+                if (reasonsA.Count > 0)
+                {
+                    a.HasSiloConflict = true;
+                    a.SiloConflictDetail = string.IsNullOrEmpty(a.SiloConflictDetail)
+                        ? string.Join("; ", reasonsA)
+                        : $"{a.SiloConflictDetail}; {string.Join("; ", reasonsA)}";
+
+                    b.HasSiloConflict = true;
+                    b.SiloConflictDetail = string.IsNullOrEmpty(b.SiloConflictDetail)
+                        ? string.Join("; ", reasonsB)
+                        : $"{b.SiloConflictDetail}; {string.Join("; ", reasonsB)}";
+                }
+            }
+        }
+    }
+
+    public static (int Score, string Summary) EvaluateTrustScore(ViaWorkspaceEntry v, bool hasTwoFa, bool hasVaultCookie)
+    {
+        int score = 0;
+        var notes = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(v.NetworkLabel))
+        {
+            if (string.Equals(v.ProxyLastStatus, "LIVE", StringComparison.OrdinalIgnoreCase))
+            {
+                score += 30;
+                notes.Add("Proxy LIVE (+30)");
+            }
+            else if (string.Equals(v.ProxyLastStatus, "DEAD", StringComparison.OrdinalIgnoreCase))
+            {
+                score -= 15;
+                notes.Add("Proxy DEAD (-15)");
+            }
+            else
+            {
+                score += 18;
+                notes.Add("Đã gắn Proxy (+18)");
+            }
+        }
+        else
+        {
+            notes.Add("Direct IP (+0)");
+        }
+
+        switch (v.WarmupPhase)
+        {
+            case "trusted":
+                score += 25;
+                notes.Add("Trust >7d (+25)");
+                break;
+            case "7d_warmup":
+                score += 15;
+                notes.Add("Ngâm 4–7d (+15)");
+                break;
+            default:
+                score += 8;
+                notes.Add("Ngâm 72h mới (+8)");
+                break;
+        }
+
+        if (hasTwoFa)
+        {
+            score += 15;
+            notes.Add("2FA DPAPI (+15)");
+        }
+        if (hasVaultCookie)
+        {
+            score += 10;
+            notes.Add("Cookie DPAPI (+10)");
+        }
+
+        if (!v.NeedsKeepAlive)
+        {
+            score += 10;
+            notes.Add("Cookie ấm (+10)");
+        }
+        else
+        {
+            score += 3;
+            notes.Add("Cần Đảo Ấm (+3)");
+        }
+
+        if (!v.HasSiloConflict && string.Equals(v.QuotaStatus, "SAFE", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 10;
+            notes.Add("Quota/Silo sạch (+10)");
+        }
+        if (v.HasSiloConflict)
+        {
+            score -= 25;
+            notes.Add("Trùng Silo khác khách (-25)");
+        }
+        if (v.IsInCooldown)
+        {
+            score -= 35;
+            notes.Add("Đang Cooldown bảo vệ (-35)");
+        }
+
+        score = Math.Clamp(score, 0, 100);
+        return (score, string.Join(" • ", notes));
+    }
 }

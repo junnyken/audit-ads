@@ -23,6 +23,12 @@ internal static class Program
             return RunSelfTestAsync().GetAwaiter().GetResult();
         }
 
+        if (args.Any(a => string.Equals(a, "--register-protocol", StringComparison.OrdinalIgnoreCase)))
+        {
+            ProtocolRegistrar.RegisterUriProtocol();
+            return 0;
+        }
+
         var uriIdx = Array.FindIndex(args, a => string.Equals(a, "--uri", StringComparison.OrdinalIgnoreCase));
         if (uriIdx >= 0 && uriIdx + 1 < args.Length)
         {
@@ -136,8 +142,11 @@ internal static class Program
             }
             using (var mfDoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(extDir, "manifest.json"))))
             {
-                if (mfDoc.RootElement.GetProperty("version").GetString() != "2.9.5")
-                    throw new InvalidOperationException("Manifest version is not 2.9.5");
+                if (mfDoc.RootElement.GetProperty("version").GetString() != "2.9.6")
+                    throw new InvalidOperationException("Manifest version is not 2.9.6");
+                var perms = mfDoc.RootElement.GetProperty("permissions").EnumerateArray().Select(e => e.GetString()).ToList();
+                if (!perms.Contains("alarms"))
+                    throw new InvalidOperationException("Manifest permissions missing alarms for v2.9.6 IP Leak Watchdog");
             }
             var bgText = File.ReadAllText(Path.Combine(extDir, "background.js"));
             if (!bgText.Contains("ADSOPS_REPORT_BROWSER_EVENT", StringComparison.Ordinal) ||
@@ -263,8 +272,8 @@ internal static class Program
             healthResp.EnsureSuccessStatusCode();
             var healthBody = await healthResp.Content.ReadAsStringAsync();
             if (!healthBody.Contains("\"app\":\"AdsOpsDesktop\"", StringComparison.Ordinal) ||
-                !healthBody.Contains("\"version\":\"2.3.1\"", StringComparison.Ordinal) ||
-                !healthBody.Contains("\"extVersion\":\"2.9.5\"", StringComparison.Ordinal))
+                !healthBody.Contains("\"version\":\"2.4.0\"", StringComparison.Ordinal) ||
+                !healthBody.Contains("\"extVersion\":\"2.9.6\"", StringComparison.Ordinal))
             {
                 throw new InvalidOperationException($"Unexpected /health response: {healthBody}");
             }
@@ -451,9 +460,9 @@ internal static class Program
                     throw new InvalidOperationException($"WCAG AA contrast failure for {pair.Name}: {pair.Ratio}:1 < 4.5:1");
             }
 
-            // 10. Extension v2.9.5 template verification (2FA bridge + billing sync + cookie bootstrap + keepalive auto-close + cloud token push)
+            // 10. Extension v2.9.6 template verification (2FA bridge + billing sync + cookie bootstrap + keepalive auto-close + cloud token push)
             var extTpl = ExtensionProvisioner.LoadTemplates();
-            if (extTpl.Version != "2.9.5" ||
+            if (extTpl.Version != "2.9.6" ||
                 !extTpl.BackgroundJsAfterDefaultState.Contains("ADSOPS_GET_LOCAL_TOTP", StringComparison.Ordinal) ||
                 !extTpl.BackgroundJsAfterDefaultState.Contains("ADSOPS_SYNC_BILLING", StringComparison.Ordinal) ||
                 !extTpl.BackgroundJsAfterDefaultState.Contains("ensureVaultCookiesBootstrapped", StringComparison.Ordinal) ||
@@ -464,7 +473,7 @@ internal static class Program
                 !extTpl.PopupJsAfterDefaults.Contains("_desktopTotpCache", StringComparison.Ordinal) ||
                 !extTpl.PopupJsAfterDefaults.Contains("btn-push-token-cloud", StringComparison.Ordinal))
             {
-                throw new InvalidOperationException("Extension template bundle missing v2.9.5 helpers");
+                throw new InvalidOperationException("Extension template bundle missing v2.9.6 helpers");
             }
 
             // 11. ViaBulkImportParser (Pass/Mail secret stripping + auto Profile N + duplicate Proxy warning)
@@ -586,7 +595,118 @@ internal static class Program
                 CultureInfo.CurrentCulture = prevCulture;
             }
 
-            Console.WriteLine("ADSOPS_DESKTOP_V23_SELFTEST_100_PASS");
+            // 16. v2.4.0 Anti-Checkpoint, Client Silo, 72h Soak Quarantine, Partial Vault Refresh & Extension v2.9.6
+            var builtV24 = ViaMetadataParser.BuildNotes("Ghi chú sạch", "camp", "2026-11-15T00:00:00Z", "Khach_NhaKhoa_A", "bm_warmup");
+            var parsedV24 = ViaMetadataParser.ParseNotes(builtV24, "Via A", 0, 0);
+            if (parsedV24.ClientGroup != "Khach_NhaKhoa_A" || parsedV24.WarmupMode != "bm_warmup" || parsedV24.CleanNotes != "Ghi chú sạch")
+                throw new InvalidOperationException($"ViaMetadataParser v2.4 [CLIENT]/[WMODE] round-trip mismatch: {parsedV24}");
+
+            var siloVias = new List<ViaWorkspaceEntry>
+            {
+                new() { ViaId = "s1", Label = "Via Khách A1", ProfileDir = "Profile 1", NetworkLabel = "103.1.2.3:8080:u:p", ClientGroup = "Khách A", ProxyLastStatus = "LIVE", WarmupPhase = "trusted", QuotaStatus = "SAFE" },
+                new() { ViaId = "s2", Label = "Via Khách B1", ProfileDir = "Profile 2", NetworkLabel = "103.1.2.3:8080:u:p", ClientGroup = "Khách B", ProxyLastStatus = "LIVE", WarmupPhase = "trusted", QuotaStatus = "SAFE" },
+                new() { ViaId = "s3", Label = "Via Khách A2", ProfileDir = "Profile 3", NetworkLabel = "103.1.2.9:8080:u:p", ClientGroup = "Khách A", ProxyLastStatus = "LIVE", WarmupPhase = "trusted", QuotaStatus = "SAFE" },
+            };
+            ViaTrustEvaluator.DetectClientSiloConflicts(siloVias);
+            if (!siloVias[0].HasSiloConflict || !siloVias[1].HasSiloConflict || siloVias[2].HasSiloConflict)
+                throw new InvalidOperationException("ViaTrustEvaluator.DetectClientSiloConflicts mismatch");
+            var (tScoreClean, _) = ViaTrustEvaluator.EvaluateTrustScore(siloVias[2], hasTwoFa: true, hasVaultCookie: true);
+            var (tScoreConflict, _) = ViaTrustEvaluator.EvaluateTrustScore(siloVias[0], hasTwoFa: true, hasVaultCookie: true);
+            if (tScoreClean != 100 || tScoreConflict >= tScoreClean)
+                throw new InvalidOperationException($"ViaTrustEvaluator.EvaluateTrustScore unexpected: clean={tScoreClean}, conflict={tScoreConflict}");
+
+            var testStewStore = new ViaStewardshipStore(Path.Combine(tempRoot, "via_stewardship.json"));
+            var st1 = testStewStore.GetOrTrackProxy("v-stew", "Via Stew", "103.10.20.30:8080:u:p");
+            if (!string.IsNullOrEmpty(st1.ProxyChangedUtc))
+                throw new InvalidOperationException("First proxy track should not set ProxyChangedUtc");
+            var st2 = testStewStore.GetOrTrackProxy("v-stew", "Via Stew", "103.10.20.99:8080:u:p");
+            if (string.IsNullOrEmpty(st2.ProxyChangedUtc))
+                throw new InvalidOperationException("Proxy change must set ProxyChangedUtc for 72h soak quarantine");
+            testStewStore.TriggerCooldown("v-stew", "Via Stew", "Khách A", 24, "IP leak test", "IP_LEAK_BLOCKED");
+            testStewStore.RecordCookieRefresh("v-stew", "Via Stew", "Khách A");
+            if (!testStewStore.GetRecentEvents(10).Any(e => e.EventType == "IP_LEAK_BLOCKED") ||
+                !testStewStore.GetRecentEvents(10).Any(e => e.EventType == "VAULT_COOKIE_REFRESHED"))
+                throw new InvalidOperationException("ViaStewardshipStore failed to record safety events");
+            testStewStore.ClearCooldown("v-stew", "Via Stew");
+
+            // Partial cookie refresh must preserve existing 2FA secret
+            var refreshedVault = testSecretStore.Upsert(
+                "via-2",
+                "Via Hai",
+                "Profile 8",
+                "c_user=2002; xs=refreshed_xs_v296",
+                "");
+            if (refreshedVault.TwoFaSecret != "MFRGGZDFMZTWQ2LK" || refreshedVault.CookieRaw != "c_user=2002; xs=refreshed_xs_v296")
+                throw new InvalidOperationException("LocalSecretVaultStore partial cookie refresh overwrote or dropped 2FA secret");
+
+            // AutomationQueueEngine v2.4 guards: PageCreation blocks 72h soak, cooldown, and silo conflicts; KeepAlive permits 72h soak
+            var pcLaunched = new List<string>();
+            using var guardEngine = new AutomationQueueEngine(
+                _ => Task.FromResult((true, "Live OK")),
+                item => { pcLaunched.Add(item.ViaId); return Task.CompletedTask; },
+                _ => Task.CompletedTask,
+                _ => { });
+            guardEngine.ConfigureTiming(tickIntervalMs: 15, syncWaitSeconds: 1);
+            guardEngine.StartQueue(
+                QueueKind.PageCreation,
+                new[]
+                {
+                    new QueueTaskItem("g-soak", "Via Soak", "Profile 10", "1.1.1.1:8080", "https://facebook.com", "T1", "standard_via", "Khách X", IsInSoakQuarantine: true),
+                    new QueueTaskItem("g-cd", "Via Cooldown", "Profile 11", "1.1.1.2:8080", "https://facebook.com", "T2", "standard_via", "Khách X", CooldownUntilUtc: DateTimeOffset.UtcNow.AddHours(12)),
+                    new QueueTaskItem("g-silo1", "Via Silo A", "Profile 12", "2.2.2.2:8080", "https://facebook.com", "T3", "standard_via", "Khách A"),
+                    new QueueTaskItem("g-silo2", "Via Silo B", "Profile 13", "2.2.2.2:8080", "https://facebook.com", "T4", "standard_via", "Khách B"),
+                },
+                baseStaggerSeconds: 1,
+                preCheckProxy: false,
+                maxViasPerProxy: 5,
+                enforceDaytimeWindow: false,
+                enforceSoakQuarantine: true,
+                enforceClientSilo: true);
+            var gDeadline = DateTime.UtcNow.AddSeconds(10);
+            while (guardEngine.Current.Phase != QueuePhase.Completed && DateTime.UtcNow < gDeadline)
+            {
+                await Task.Delay(30);
+            }
+            if (guardEngine.Current.Phase != QueuePhase.Completed || pcLaunched.Count != 1 || pcLaunched[0] != "g-silo1" || guardEngine.Current.SkippedCount != 3)
+                throw new InvalidOperationException($"Queue v2.4 PageCreation guard failed: launched=[{string.Join(",", pcLaunched)}], skipped={guardEngine.Current.SkippedCount}");
+
+            var kaLaunched = new List<string>();
+            using var kaEngine = new AutomationQueueEngine(
+                _ => Task.FromResult((true, "Live OK")),
+                item => { kaLaunched.Add(item.ViaId); return Task.CompletedTask; },
+                _ => Task.CompletedTask,
+                _ => { });
+            kaEngine.ConfigureTiming(tickIntervalMs: 15, syncWaitSeconds: 1);
+            kaEngine.StartQueue(
+                QueueKind.KeepAlive,
+                new[]
+                {
+                    new QueueTaskItem("ka-soak", "Via Soak KeepAlive", "Profile 14", "1.1.1.3:8080", "https://facebook.com/?adsops_ka_mode=soak_72h", "Ngâm 72h", "standard_via", "Khách X", IsInSoakQuarantine: true),
+                },
+                baseStaggerSeconds: 1,
+                preCheckProxy: false,
+                maxViasPerProxy: 2,
+                enforceDaytimeWindow: false,
+                enforceSoakQuarantine: true,
+                enforceClientSilo: true);
+            var kaDeadline = DateTime.UtcNow.AddSeconds(10);
+            while (kaEngine.Current.Phase != QueuePhase.Completed && DateTime.UtcNow < kaDeadline)
+            {
+                await Task.Delay(30);
+            }
+            if (kaEngine.Current.Phase != QueuePhase.Completed || kaLaunched.Count != 1 || kaLaunched[0] != "ka-soak")
+                throw new InvalidOperationException("Queue v2.4 KeepAlive must permit Vias in 72h Soak Quarantine");
+
+            var popupHtmlText = File.ReadAllText(Path.Combine(extDir, "popup.html"));
+            if (!popupHtmlText.Contains("tab-btn-auto", StringComparison.Ordinal) ||
+                !bgText.Contains("checkProxyIpLeakGuard", StringComparison.Ordinal) ||
+                !bgText.Contains("refreshVaultCookieToDesktop", StringComparison.Ordinal) ||
+                !contentText.Contains("soak_72h", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Provisioned Extension v2.9.6 missing Automatic tab, IP Kill-Switch, Auto Vault Cookie Refresh, or soak_72h markers");
+            }
+
+            Console.WriteLine("ADSOPS_DESKTOP_V24_SELFTEST_100_PASS");
             return 0;
         }
         finally

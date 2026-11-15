@@ -4846,14 +4846,14 @@ def ingest_browser_event(
     ctx: WriteCtx,
     payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Ingest real-time events from AdsOps Desktop / Chrome Extension v2.9."""
+    """Ingest real-time events from AdsOps Desktop / Chrome Extension v2.9.6."""
     from app.core.enums import ReferenceStatus
     from app.core.errors import ValidationError
     from app.models.entities import Page, PersonalAccountReference
 
     body = payload or {}
     event_type = str(body.get("event_type") or "").strip().upper()
-    if event_type not in ("PAGE_CREATED", "COOKIE_LOGGED_OUT", "SAFETY_CHALLENGE", "KEEPALIVE_OK"):
+    if event_type not in ("PAGE_CREATED", "COOKIE_LOGGED_OUT", "SAFETY_CHALLENGE", "KEEPALIVE_OK", "IP_LEAK_BLOCKED"):
         raise ValidationError("Loại sự kiện trình duyệt không hợp lệ.")
 
     via_id_raw = str(body.get("via_id") or "").strip()[:80]
@@ -4946,7 +4946,7 @@ def ingest_browser_event(
                             )
                             break
 
-    elif event_type in ("COOKIE_LOGGED_OUT", "SAFETY_CHALLENGE"):
+    elif event_type in ("COOKIE_LOGGED_OUT", "SAFETY_CHALLENGE", "IP_LEAK_BLOCKED"):
         ctx.audit.record(
             action="page.via_alert",
             entity_type="page",
@@ -4961,7 +4961,11 @@ def ingest_browser_event(
                 "detail": detail_txt or (
                     "Phát hiện màn hình đăng nhập — Cookie Via có thể đã văng"
                     if event_type == "COOKIE_LOGGED_OUT"
-                    else "Phát hiện Checkpoint / CAPTCHA — Auto đã dừng an toàn"
+                    else (
+                        "Phát hiện rò rỉ hoặc đứt kết nối Proxy IPv4 — Kill-Switch đã khóa phiên Facebook khẩn cấp"
+                        if event_type == "IP_LEAK_BLOCKED"
+                        else "Phát hiện Checkpoint / CAPTCHA — Auto đã dừng an toàn"
+                    )
                 ),
                 "recorded_at": now_iso,
             },
@@ -4969,7 +4973,11 @@ def ingest_browser_event(
         title_line = (
             "🍪 CẢNH BÁO VĂNG COOKIE VIA (DESKTOP/CHROME)"
             if event_type == "COOKIE_LOGGED_OUT"
-            else "🛑 CẢNH BÁO CHECKPOINT / XÁC MINH FB"
+            else (
+                "🚨 KHẨN CẤP: CHẶN RÒ RỈ IP PROXY TRÊN VIA"
+                if event_type == "IP_LEAK_BLOCKED"
+                else "🛑 CẢNH BÁO CHECKPOINT / XÁC MINH FB"
+            )
         )
         telegram_notified = _send_workspace_telegram_alert(
             ctx.session,
@@ -4979,7 +4987,7 @@ def ingest_browser_event(
                 f"Via: {via_label_val}",
                 f"Hồ sơ Chrome: {browser_prof_val}",
                 f"Chi tiết: {detail_txt or 'Cần kiểm tra trực tiếp trên trình duyệt Via'}",
-                "👉 Extension v2.9 đã tự dừng mọi thao tác để bảo vệ tài khoản.",
+                "👉 Extension v2.9.6 đã tự dừng mọi thao tác để bảo vệ tài khoản.",
             ],
         )
 
@@ -4998,7 +5006,7 @@ def ingest_browser_event(
         route_s = ent["route_summary"] or "feed -> notif"
         dur_sec = ent["duration_sec"]
         dur_part = f" • ~{dur_sec}s" if dur_sec > 0 else ""
-        default_note = f"Đảo ấm Desktop/Extension v2.9 ({route_s}{dur_part}) trên {browser_prof_val}"
+        default_note = f"Đảo ấm Desktop/Extension v2.9.6 ({route_s}{dur_part}) trên {browser_prof_val}"
         ctx.audit.record(
             action="page.via_keepalive",
             entity_type="page",

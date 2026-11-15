@@ -14,7 +14,7 @@ namespace AdsOpsDesktop;
 
 public sealed class ExtensionTemplateBundle
 {
-    [JsonPropertyName("version")] public string Version { get; set; } = "2.9.5";
+    [JsonPropertyName("version")] public string Version { get; set; } = "2.9.6";
     [JsonPropertyName("description")] public string Description { get; set; } = "";
     [JsonPropertyName("passkey_shield_js")] public string PasskeyShieldJs { get; set; } = "";
     [JsonPropertyName("background_js_after_default_state")] public string BackgroundJsAfterDefaultState { get; set; } = "";
@@ -184,7 +184,8 @@ public static class ExtensionProvisioner
     public static string ProvisionForVia(
         ViaWorkspaceEntry via,
         string? extensionsRootOverride = null,
-        LocalSecretVaultStore? secretStore = null)
+        LocalSecretVaultStore? secretStore = null,
+        DesktopConfig? config = null)
     {
         var tpl = LoadTemplates();
         var root = extensionsRootOverride ?? ExtensionsRoot;
@@ -229,6 +230,7 @@ public static class ExtensionProvisioner
                 "tabs",
                 "activeTab",
                 "scripting",
+                "alarms",
                 "webRequest",
                 "webRequestAuthProvider",
             },
@@ -269,6 +271,20 @@ public static class ExtensionProvisioner
             },
         };
 
+        var cooldownUntilMs = via.CooldownUntilUtc.HasValue && via.CooldownUntilUtc.Value > DateTimeOffset.UtcNow
+            ? via.CooldownUntilUtc.Value.ToUnixTimeMilliseconds()
+            : 0L;
+        var effectiveWarmupMode = ViaMetadataParser.NormalizeWarmupMode(
+            via.IsInSoakQuarantine
+                ? "soak_72h"
+                : !string.IsNullOrWhiteSpace(via.DefaultWarmupMode)
+                    ? via.DefaultWarmupMode
+                    : config?.DefaultWarmupMode);
+        var effectiveWarmupPhase = string.IsNullOrWhiteSpace(via.WarmupPhase) ? "trusted" : via.WarmupPhase;
+        var soakQuarantineEnabled = config?.EnforceSoakQuarantine ?? true;
+        var ipKillSwitch = config?.IpLeakKillSwitchEnabled ?? true;
+        var autoVaultCookieRefresh = config?.AutoRefreshCookieAfterKeepAlive ?? true;
+
         var defaultStateJson = JsonSerializer.Serialize(new
         {
             viaId = via.ViaId ?? "",
@@ -282,6 +298,17 @@ public static class ExtensionProvisioner
             proxyRaw = parsedProxy?.CompactRaw ?? "",
             proxyEnabled = hasProxy,
             accounts = accountsList,
+            clientGroup = via.ClientGroup ?? "",
+            warmupPhase = effectiveWarmupPhase,
+            warmupStartIso = via.WarmupStartIso ?? "",
+            soakHoursRemaining = via.SoakHoursRemaining,
+            defaultWarmupMode = effectiveWarmupMode,
+            soakQuarantineEnabled,
+            ipKillSwitch,
+            autoVaultCookieRefresh,
+            cooldownUntilMs,
+            cooldownReason = via.CooldownReason ?? "",
+            trustScore = via.TrustScore,
         });
 
         var defaultAccountsJson = JsonSerializer.Serialize(accountsList);
@@ -292,6 +319,17 @@ public static class ExtensionProvisioner
             profileCode = profileDir,
             viaTier = effectiveTier,
             twoFaSecret = effectiveTwoFa,
+            clientGroup = via.ClientGroup ?? "",
+            warmupPhase = effectiveWarmupPhase,
+            warmupStartIso = via.WarmupStartIso ?? "",
+            soakHoursRemaining = via.SoakHoursRemaining,
+            defaultWarmupMode = effectiveWarmupMode,
+            soakQuarantineEnabled,
+            ipKillSwitch,
+            autoVaultCookieRefresh,
+            cooldownUntilMs,
+            cooldownReason = via.CooldownReason ?? "",
+            trustScore = via.TrustScore,
         });
         var popupJsBody = !string.IsNullOrEmpty(tpl.PopupJsAfterDefaults)
             ? $"const DEFAULT_ACCOUNTS = {defaultAccountsJson};\nconst DEFAULT_VIA_META = {defaultViaMetaJson};\n{tpl.PopupJsAfterDefaults}"

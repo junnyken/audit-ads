@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -740,7 +741,7 @@ internal sealed partial class MainWindow : Window
                     ProfileDir = fallbackProfile,
                     NetworkLabel = req.Proxy ?? "",
                 };
-                var extFolder = ExtensionProvisioner.ProvisionForVia(tempVia);
+                var extFolder = ExtensionProvisioner.ProvisionForVia(tempVia, config: _config);
                 var pid = ExtensionProvisioner.LaunchChrome(url, fallbackProfile, extFolder, _config.UseIsolatedProfiles, tempVia.Label);
                 ChromeSessionTracker.Default.RecordLaunch(pid, null, tempVia.Label, fallbackProfile, url);
                 AppendLog($"Mở nhanh Chrome từ Web/Bridge: Profile '{fallbackProfile}' -> {url}");
@@ -757,7 +758,61 @@ internal sealed partial class MainWindow : Window
     private async Task<BrowserEventResponseDto> OnBridgeBrowserEventAsync(BrowserEventPayloadDto payload)
     {
         AppendLog($"Extension Event: {payload.EventType} | Via '{payload.ViaLabel}' | {payload.Detail}");
-        var isKeepAliveOk = string.Equals(payload.EventType, "KEEPALIVE_OK", StringComparison.OrdinalIgnoreCase);
+        var evType = (payload.EventType ?? "").Trim().ToUpperInvariant();
+        var isKeepAliveOk = string.Equals(evType, "KEEPALIVE_OK", StringComparison.OrdinalIgnoreCase);
+        var isSafetyFreeze = evType is "IP_LEAK_BLOCKED" or "SAFETY_CHALLENGE";
+
+        ViaWorkspaceEntry? matched = null;
+        matched = _vias.FirstOrDefault(v =>
+            (!string.IsNullOrWhiteSpace(payload.ViaId) && string.Equals(v.ViaId, payload.ViaId.Trim(), StringComparison.OrdinalIgnoreCase)) ||
+            (!string.IsNullOrWhiteSpace(payload.BrowserProfile) && string.Equals(v.ProfileDir, payload.BrowserProfile.Trim(), StringComparison.OrdinalIgnoreCase)) ||
+            (!string.IsNullOrWhiteSpace(payload.ViaLabel) && string.Equals(v.Label, payload.ViaLabel.Trim(), StringComparison.OrdinalIgnoreCase)));
+
+        var resolvedViaId = !string.IsNullOrWhiteSpace(payload.ViaId) ? payload.ViaId : matched?.ViaId;
+        var resolvedViaLabel = !string.IsNullOrWhiteSpace(payload.ViaLabel) ? payload.ViaLabel : matched?.Label;
+
+        if (isSafetyFreeze)
+        {
+            var reasonText = $"{evType}: {(string.IsNullOrWhiteSpace(payload.Detail) ? "Tự động đóng băng bảo vệ tài khoản" : payload.Detail)}";
+            ViaStewardshipStore.Default.TriggerCooldown(
+                resolvedViaId,
+                resolvedViaLabel,
+                matched?.ClientGroup,
+                _config.AutoCooldownHours,
+                reasonText,
+                evType);
+
+            var cooldownUntil = DateTimeOffset.UtcNow.AddHours(Math.Clamp(_config.AutoCooldownHours, 1, 168));
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                if (matched != null)
+                {
+                    matched.CooldownUntilUtc = cooldownUntil;
+                    matched.CooldownReason = reasonText;
+                    try { matched.ExtensionFolder = ExtensionProvisioner.ProvisionForVia(matched, config: _config); } catch { }
+                }
+                _tray?.ShowBalloon(
+                    evType == "IP_LEAK_BLOCKED" ? "🚨 CHẶN RÒ RỈ IP PROXY" : "🛑 CẢNH BÁO CHECKPOINT",
+                    $"Via '{resolvedViaLabel ?? "Via"}' đã được đóng băng Cooldown {_config.AutoCooldownHours}h: {payload.Detail}");
+                if (_activeView is AppView.Vias or AppView.Overview or AppView.Automation)
+                {
+                    RenderCurrentView();
+                }
+            });
+        }
+        else if (isKeepAliveOk)
+        {
+            ViaStewardshipStore.Default.RecordKeepAliveSuccess(
+                resolvedViaId,
+                resolvedViaLabel,
+                matched?.ClientGroup,
+                payload.Detail);
+            if (matched != null)
+            {
+                _ = Dispatcher.BeginInvoke(() => { matched.KeepAliveSuccessCount++; });
+            }
+        }
+
         var shouldCloseWindow = isKeepAliveOk && _config.AutoCloseKeepAliveWindow;
         if (shouldCloseWindow)
         {
@@ -905,7 +960,22 @@ internal sealed partial class MainWindow : Window
     private Task<LocalVaultGetResult> OnBridgeVaultSaveAsync(LocalVaultSaveRequest req)
     {
         var res = LocalSecretVaultStore.Default.Upsert(req.ViaId, req.ViaLabel, req.ProfileDir, req.CookieRaw, req.TwoFaSecret);
-        AppendLog($"Đã lưu DPAPI Vault local từ Extension/Bridge cho '{res.ViaLabel}'.");
+        if (!string.IsNullOrWhiteSpace(req.CookieRaw))
+        {
+            var matched = _vias.FirstOrDefault(v =>
+                (!string.IsNullOrWhiteSpace(res.ViaId) && string.Equals(v.ViaId, res.ViaId, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(res.ViaLabel) && string.Equals(v.Label, res.ViaLabel, StringComparison.OrdinalIgnoreCase)));
+            ViaStewardshipStore.Default.RecordCookieRefresh(res.ViaId, res.ViaLabel, matched?.ClientGroup);
+            if (matched != null)
+            {
+                _ = Dispatcher.BeginInvoke(() => { matched.LastCookieRefreshUtc = DateTimeOffset.UtcNow; });
+            }
+            AppendLog($"🔄 Đã làm mới Cookie DPAPI Vault tự động cho '{res.ViaLabel}' (giữ nguyên 2FA).");
+        }
+        else
+        {
+            AppendLog($"Đã lưu DPAPI Vault local từ Extension/Bridge cho '{res.ViaLabel}'.");
+        }
         return Task.FromResult(ToVaultDto(res));
     }
 
@@ -1048,15 +1118,30 @@ internal sealed partial class MainWindow : Window
                 .ToList();
 
             var parsed = ViaMetadataParser.ParseNotes(r.Notes, r.Label, bmCount, matchedAdAccs.Count);
-            var warmup = ViaMetadataParser.ComputeWarmupStatus(parsed.WarmupStartIso);
+            var stew = ViaStewardshipStore.Default.GetOrTrackProxy(r.Id, r.Label, r.NetworkLabel);
+
+            var effectiveWarmupIso = parsed.WarmupStartIso;
+            if (_config.EnforceSoakQuarantine &&
+                !string.IsNullOrWhiteSpace(stew.ProxyChangedUtc) &&
+                DateTimeOffset.TryParse(stew.ProxyChangedUtc, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var pxChangedAt))
+            {
+                if (string.IsNullOrWhiteSpace(effectiveWarmupIso) ||
+                    (DateTimeOffset.TryParse(effectiveWarmupIso, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var curWm) &&
+                     pxChangedAt > curWm))
+                {
+                    effectiveWarmupIso = stew.ProxyChangedUtc;
+                }
+            }
+
+            var warmup = ViaMetadataParser.ComputeWarmupStatus(effectiveWarmupIso, null, _config.SoakQuarantineHours);
             quotaById.TryGetValue(r.Id, out var q);
 
             var profileDir = ExtensionProvisioner.ResolveProfileDirectory(r.BrowserProfileLabel, r.Label);
+            var localSecret = LocalSecretVaultStore.Default.Find(r.Id, profileDir, r.Label);
             var twoFa = ExtensionProvisioner.ExtractTwoFaSecret(r.VaultReference, r.Notes);
-            if (string.IsNullOrEmpty(twoFa))
+            if (string.IsNullOrEmpty(twoFa) && localSecret.Found)
             {
-                var localSecret = LocalSecretVaultStore.Default.Find(r.Id, profileDir, r.Label);
-                if (localSecret.Found) twoFa = localSecret.TwoFaSecret;
+                twoFa = localSecret.TwoFaSecret;
             }
 
             // Preserve any previously measured proxy state during silent resyncs
@@ -1090,6 +1175,20 @@ internal sealed partial class MainWindow : Window
                     ? (string.Equals(mappedProxy.Status, "LIVE", StringComparison.OrdinalIgnoreCase) ? "LIVE" : "DEAD")
                     : (old?.ProxyLastStatus ?? "UNCHECKED");
 
+            DateTimeOffset? cooldownUntilUtc = null;
+            if (!string.IsNullOrWhiteSpace(stew.CooldownUntilUtc) &&
+                DateTimeOffset.TryParse(stew.CooldownUntilUtc, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var cdParsed))
+            {
+                cooldownUntilUtc = cdParsed;
+            }
+
+            DateTimeOffset? lastCookieRefreshUtc = null;
+            if (!string.IsNullOrWhiteSpace(stew.LastCookieRefreshUtc) &&
+                DateTimeOffset.TryParse(stew.LastCookieRefreshUtc, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var ckRefParsed))
+            {
+                lastCookieRefreshUtc = ckRefParsed;
+            }
+
             var entry = new ViaWorkspaceEntry
             {
                 ViaId = r.Id,
@@ -1103,7 +1202,7 @@ internal sealed partial class MainWindow : Window
                 Notes = r.Notes ?? "",
                 CleanNotes = parsed.CleanNotes,
                 RoleTier = parsed.Tier,
-                WarmupStartIso = parsed.WarmupStartIso,
+                WarmupStartIso = effectiveWarmupIso,
                 WarmupLabel = warmup.Label,
                 WarmupPhase = warmup.Phase,
                 TwoFaSecret = twoFa,
@@ -1124,8 +1223,25 @@ internal sealed partial class MainWindow : Window
                 ProxyExitIp = mappedProxy?.ExitIp ?? old?.ProxyExitIp,
                 IsSelected = prevSelected.Contains(r.Id),
                 BundledAccounts = matchedAdAccs.Select(BundledExtensionAccountDto.FromApi).ToList(),
+                ClientGroup = parsed.ClientGroup,
+                DefaultWarmupMode = parsed.WarmupMode,
+                SoakHoursRemaining = warmup.Phase == "72h_lock" ? Math.Max(1, _config.SoakQuarantineHours - warmup.HoursElapsed) : 0,
+                IsInSoakQuarantine = warmup.Phase == "72h_lock",
+                CooldownUntilUtc = cooldownUntilUtc,
+                CooldownReason = stew.CooldownReason ?? "",
+                LastCookieRefreshUtc = lastCookieRefreshUtc,
+                KeepAliveSuccessCount = stew.KeepAliveSuccessCount,
             };
             list.Add(entry);
+        }
+
+        ViaTrustEvaluator.DetectClientSiloConflicts(list);
+        foreach (var v in list)
+        {
+            var localSec = LocalSecretVaultStore.Default.Find(v.ViaId, v.ProfileDir, v.Label);
+            var hasTwoFa = !string.IsNullOrWhiteSpace(v.TwoFaSecret) || (localSec.Found && !string.IsNullOrWhiteSpace(localSec.TwoFaSecret));
+            var hasCookie = localSec.Found && !string.IsNullOrWhiteSpace(localSec.CookieRaw);
+            (v.TrustScore, v.TrustSummary) = ViaTrustEvaluator.EvaluateTrustScore(v, hasTwoFa, hasCookie);
         }
 
         _vias = list;
@@ -1138,7 +1254,7 @@ internal sealed partial class MainWindow : Window
         {
             try
             {
-                v.ExtensionFolder = ExtensionProvisioner.ProvisionForVia(v);
+                v.ExtensionFolder = ExtensionProvisioner.ProvisionForVia(v, config: _config);
                 okCount++;
             }
             catch (Exception ex)
@@ -1148,7 +1264,7 @@ internal sealed partial class MainWindow : Window
         }
         if (!silent)
         {
-            AppendLog($"Đã cấp / cập nhật Chrome Extension Companion cho {okCount}/{_vias.Count} Via.");
+            AppendLog($"Đã cấp / cập nhật Chrome Extension Companion v{DesktopAppInfo.ExtVersion} cho {okCount}/{_vias.Count} Via.");
         }
         return okCount;
     }
@@ -1157,7 +1273,11 @@ internal sealed partial class MainWindow : Window
     {
         try
         {
-            via.ExtensionFolder = ExtensionProvisioner.ProvisionForVia(via);
+            if (via.IsInCooldown)
+            {
+                AppendLog($"⚠️ Lưu ý: Via '{via.Label}' đang trong thời gian Cooldown ({via.CooldownReason}). Mở Chrome để kiểm tra thủ công.");
+            }
+            via.ExtensionFolder = ExtensionProvisioner.ProvisionForVia(via, config: _config);
             var pid = ExtensionProvisioner.LaunchChrome(targetUrl, via.ProfileDir, via.ExtensionFolder, _config.UseIsolatedProfiles, via.Label);
             ChromeSessionTracker.Default.RecordLaunch(pid, via.ViaId, via.Label, via.ProfileDir, targetUrl);
             AppendLog($"Đã mở Chrome Profile '{via.ProfileDir}' ({via.Label}) -> {targetUrl}");
@@ -1246,12 +1366,15 @@ internal sealed partial class MainWindow : Window
                     var payload = launchedById.Select(item =>
                     {
                         var matched = _vias.FirstOrDefault(v => string.Equals(v.ViaId, item.ViaId, StringComparison.OrdinalIgnoreCase));
+                        var routeSummary = matched?.IsInSoakQuarantine == true
+                            ? "soak_72h (feed -> notif)"
+                            : ViaMetadataParser.NormalizeWarmupMode(matched?.DefaultWarmupMode ?? _config.DefaultWarmupMode);
                         return new
                         {
                             via_id = item.ViaId,
                             via_label = matched?.Label ?? item.ViaLabel,
                             browser_profile = matched?.ProfileDir ?? item.BrowserProfile,
-                            route_summary = "newsfeed -> notifications",
+                            route_summary = routeSummary,
                             duration_sec = 30,
                         };
                     });
@@ -1361,16 +1484,29 @@ internal sealed partial class MainWindow : Window
             if (!ok) return;
         }
 
-        var tasks = targetVias.Select(v => new QueueTaskItem(
-            v.ViaId,
-            v.Label,
-            v.ProfileDir,
-            v.NetworkLabel,
-            "https://www.facebook.com/?adsops_keepalive_session=1&adsops_auto_close=" + (_config.AutoCloseKeepAliveTab ? "1" : "0") +
-            "&adsops_via_tier=" + Uri.EscapeDataString(v.RoleTier) +
-            "&adsops_via_label=" + Uri.EscapeDataString(v.Label),
-            "Đảo Ấm Cookie thụ động",
-            v.BackendTier)).ToList();
+        var tasks = targetVias.Select(v =>
+        {
+            var effectiveMode = v.IsInSoakQuarantine && _config.EnforceSoakQuarantine
+                ? "soak_72h"
+                : ViaMetadataParser.NormalizeWarmupMode(!string.IsNullOrWhiteSpace(v.DefaultWarmupMode) ? v.DefaultWarmupMode : _config.DefaultWarmupMode);
+            var launchUrl = "https://www.facebook.com/?adsops_keepalive_session=1&adsops_auto_close=" + (_config.AutoCloseKeepAliveTab ? "1" : "0") +
+                            "&adsops_via_tier=" + Uri.EscapeDataString(v.RoleTier) +
+                            "&adsops_via_label=" + Uri.EscapeDataString(v.Label) +
+                            "&adsops_ka_mode=" + Uri.EscapeDataString(effectiveMode);
+            return new QueueTaskItem(
+                v.ViaId,
+                v.Label,
+                v.ProfileDir,
+                v.NetworkLabel,
+                launchUrl,
+                effectiveMode == "soak_72h" ? "Ngâm 72h thụ động" : "Đảo Ấm Cookie thụ động",
+                v.BackendTier,
+                v.ClientGroup,
+                v.IsInSoakQuarantine,
+                v.CooldownUntilUtc,
+                v.HasSiloConflict,
+                v.SiloConflictDetail);
+        }).ToList();
 
         _queue.StartQueue(
             QueueKind.KeepAlive,
@@ -1380,7 +1516,9 @@ internal sealed partial class MainWindow : Window
             _config.MaxViasPerProxyInBatch,
             _config.AutoKeepAliveStartHour,
             _config.AutoKeepAliveEndHour,
-            enforceDaytimeWindow: true);
+            enforceDaytimeWindow: true,
+            enforceSoakQuarantine: _config.EnforceSoakQuarantine,
+            enforceClientSilo: _config.EnforceClientSilo);
 
         AppendLog($"Đã xếp hàng {tasks.Count} Via vào Hàng đợi Đảo Ấm an toàn.");
         RenderCurrentView();
@@ -1396,7 +1534,7 @@ internal sealed partial class MainWindow : Window
         if ((DateTime.UtcNow - _lastKeepAliveCheckUtc).TotalMinutes < Math.Max(5, _config.AutoKeepAliveMinGapMinutes)) return;
 
         _lastKeepAliveCheckUtc = DateTime.UtcNow;
-        var due = _vias.Where(v => v.NeedsKeepAlive).Take(2).ToList();
+        var due = _vias.Where(v => v.NeedsKeepAlive && !v.IsInCooldown).Take(2).ToList();
         if (due.Count == 0) return;
 
         AppendLog($"Auto Keep-Alive phát hiện {due.Count} Via đến hạn -> tự động xếp lịch Đảo Ấm an toàn.");

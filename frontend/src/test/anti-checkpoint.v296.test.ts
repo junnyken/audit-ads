@@ -1,0 +1,128 @@
+import { describe, expect, it } from 'vitest';
+import {
+  buildExtensionFilesForVia,
+  buildViaKeepAliveUrl,
+  planHumanKeepAliveRoute,
+  type WarmupMode,
+} from '../lib/chromeProfileLauncher';
+
+const WARMUP_MODES: WarmupMode[] = ['soak_72h', 'human_organic', 'bm_warmup', 'pre_camp'];
+
+describe('AdsOps Companion v2.9.6 anti-checkpoint & stewardship builder', () => {
+  it('builds manifest v2.9.6 with alarms permission and valid JS syntax for all scripts', () => {
+    const files = buildExtensionFilesForVia(
+      'AdsOps-Chrome-Extension',
+      'Via Khách Hàng A',
+      'Profile 9',
+      'http://proxyuser:proxypass@103.10.20.30:8080',
+      [],
+      'JBSWY3DPEHPK3PXP',
+      'camp',
+      'via-cust-a-01',
+      {
+        clientGroup: 'KhachHangA',
+        warmupPhase: 'soak',
+        warmupStartIso: new Date().toISOString(),
+        soakHoursRemaining: 48,
+        defaultWarmupMode: 'soak_72h',
+        soakQuarantineEnabled: true,
+        ipKillSwitch: true,
+        autoVaultCookieRefresh: true,
+        trustScore: 85,
+      },
+    );
+
+    const byName = new Map(files.map((f) => [f.name, f.content]));
+    const manifestRaw = byName.get('AdsOps-Chrome-Extension/manifest.json');
+    expect(manifestRaw).toBeTruthy();
+
+    const manifest = JSON.parse(manifestRaw!);
+    expect(manifest.version).toBe('2.9.6');
+    expect(Array.isArray(manifest.permissions)).toBe(true);
+    expect(manifest.permissions).toContain('alarms');
+
+    for (const jsFile of ['passkey_shield.js', 'background.js', 'content.js', 'popup.js']) {
+      const code = byName.get(`AdsOps-Chrome-Extension/${jsFile}`);
+      expect(code, `missing ${jsFile}`).toBeTruthy();
+      expect(() => new Function(code!)).not.toThrow();
+    }
+  });
+
+  it('includes both legacy Manage IDs and new Automation/Anti-Checkpoint IDs in popup.html', () => {
+    const files = buildExtensionFilesForVia(
+      'AdsOps-Chrome-Extension',
+      'Via Test Popup',
+      'Default',
+      '',
+      [],
+      '',
+      'standby',
+      'via-popup-1',
+    );
+    const popupHtml = files.find((f) => f.name === 'AdsOps-Chrome-Extension/popup.html')?.content ?? '';
+    expect(popupHtml).toBeTruthy();
+
+    const requiredIds = [
+      'tab-btn-manage',
+      'tab-panel-manage',
+      'btn-copy-otp',
+      'btn-fill-otp',
+      'btn-vault-save',
+      'btn-push-token-cloud',
+      'btn-save-enable',
+      'btn-disable-proxy',
+      'tab-btn-auto',
+      'tab-panel-auto',
+      'auto-trust-score',
+      'ka-mode-select',
+      'chk-ip-killswitch',
+      'chk-soak-lock',
+      'chk-auto-vault-cookie',
+    ];
+
+    for (const id of requiredIds) {
+      expect(popupHtml, `popup.html missing #${id}`).toContain(`id="${id}"`);
+    }
+  });
+
+  it('generates distinct Keep-Alive plans and URLs for all 4 WarmupModes', () => {
+    const urls = new Set<string>();
+
+    for (const mode of WARMUP_MODES) {
+      const plan = planHumanKeepAliveRoute('camp', mode);
+      expect(plan).toBeTruthy();
+      expect(plan.mode).toBe(mode);
+      expect(plan.steps.length).toBeGreaterThan(0);
+      expect(plan.estimatedSeconds).toBeGreaterThan(0);
+
+      const url = buildViaKeepAliveUrl({
+        autoCloseTab: true,
+        viaLabel: 'ViaKeepAliveTest',
+        viaTier: 'camp',
+        warmupMode: mode,
+      });
+      expect(url).toMatch(/^https:\/\/([a-z0-9-]+\.)?facebook\.com/i);
+      expect(url).toContain(mode);
+      urls.add(url);
+    }
+
+    expect(urls.size).toBe(WARMUP_MODES.length);
+  });
+
+  it('contains zero mock or placeholder strings in generated extension files', () => {
+    const files = buildExtensionFilesForVia(
+      'AdsOps-Chrome-Extension',
+      'Via Real Check',
+      'Default',
+      '',
+      [],
+      '',
+      'vault',
+      'via-real-check',
+    );
+    const mockPattern = /\b(acme|john@doe|lorem ipsum|mock_data|fake_via)\b/i;
+    for (const file of files) {
+      expect(file.content, `mock token detected in ${file.name}`).not.toMatch(mockPattern);
+    }
+  });
+});

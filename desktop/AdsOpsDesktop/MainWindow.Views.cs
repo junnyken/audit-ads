@@ -544,6 +544,10 @@ internal sealed partial class MainWindow
         exportViasBtn.Margin = new Thickness(0, 0, 6, 0);
         rightHeaderBtns.Children.Add(exportViasBtn);
 
+        var shieldLogBtn = UiComponents.CreateButton("Nhật ký Bảo vệ", ButtonVariant.Secondary, FluentIcons.ShieldCheck, onClick: (_, _) => OpenStewardshipLogDialog(), tooltip: "Xem lịch sử chặn rò rỉ IP, Cooldown 24h & Cách ly Khách hàng (v2.4.0)");
+        shieldLogBtn.Margin = new Thickness(0, 0, 6, 0);
+        rightHeaderBtns.Children.Add(shieldLogBtn);
+
         var selectAllBtn = UiComponents.CreateButton("Chọn hết", ButtonVariant.Secondary, onClick: (_, _) =>
         {
             var visibleIds = FilterVias().Select(x => x.ViaId).ToList();
@@ -575,6 +579,8 @@ internal sealed partial class MainWindow
         AddViaChip("standby", $"Dự phòng ({_vias.Count(v => v.RoleTier == "standby")})");
         AddViaChip("keepalive_due", $"Quá hạn Đảo Ấm ({_vias.Count(v => v.NeedsKeepAlive)})");
         AddViaChip("72h_lock", $"Đang ngâm 72h ({_vias.Count(v => v.WarmupPhase == "72h_lock")})");
+        AddViaChip("cooldown", $"Đang Cooldown ({_vias.Count(v => v.IsInCooldown)})");
+        AddViaChip("silo_conflict", $"Trùng Silo ({_vias.Count(v => v.HasSiloConflict)})");
         AddViaChip("proxy_dead", $"Proxy Chết ({_vias.Count(v => v.ProxyLastStatus == "DEAD")})");
         filterCardStack.Children.Add(chipWrap);
 
@@ -600,6 +606,8 @@ internal sealed partial class MainWindow
                 "standby" => v.RoleTier == "standby",
                 "keepalive_due" => v.NeedsKeepAlive,
                 "72h_lock" => v.WarmupPhase == "72h_lock",
+                "cooldown" => v.IsInCooldown,
+                "silo_conflict" => v.HasSiloConflict,
                 "proxy_dead" => v.ProxyLastStatus == "DEAD",
                 _ => true,
             };
@@ -610,7 +618,8 @@ internal sealed partial class MainWindow
                 || v.DisplayName.Contains(q, StringComparison.OrdinalIgnoreCase)
                 || v.ExternalReferenceId.Contains(q, StringComparison.OrdinalIgnoreCase)
                 || v.ProfileDir.Contains(q, StringComparison.OrdinalIgnoreCase)
-                || v.NetworkLabel.Contains(q, StringComparison.OrdinalIgnoreCase);
+                || v.NetworkLabel.Contains(q, StringComparison.OrdinalIgnoreCase)
+                || v.ClientGroup.Contains(q, StringComparison.OrdinalIgnoreCase);
         });
     }
 
@@ -654,8 +663,8 @@ internal sealed partial class MainWindow
 
         var provSel = UiComponents.CreateButton("Cấp Extension", ButtonVariant.Secondary, FluentIcons.ShieldCheck, compact: true, onClick: (_, _) =>
         {
-            foreach (var v in selected) v.ExtensionFolder = ExtensionProvisioner.ProvisionForVia(v);
-            AppendLog($"Đã cấp Extension Companion cho {selected.Count} Via đã chọn.");
+            foreach (var v in selected) v.ExtensionFolder = ExtensionProvisioner.ProvisionForVia(v, config: _config);
+            AppendLog($"Đã cấp Extension Companion v{DesktopAppInfo.ExtVersion} cho {selected.Count} Via đã chọn.");
             MessageBox.Show(this, $"Đã cấp Extension cho {selected.Count} Via.", "Hoàn tất", MessageBoxButton.OK, MessageBoxImage.Information);
         });
         provSel.Margin = new Thickness(0, 0, 6, 0);
@@ -715,8 +724,42 @@ internal sealed partial class MainWindow
             _ => (ThemeTokens.SuccessText, ThemeTokens.SuccessBg, ThemeTokens.SuccessBorder),
         };
         var wmPill = UiComponents.CreateBadgePill(v.WarmupLabel, wmFg, wmBg, wmBd);
-        wmPill.Margin = new Thickness(0, 0, 8, 0);
+        wmPill.Margin = new Thickness(0, 0, 6, 0);
         titleRow.Children.Add(wmPill);
+
+        var (trFg, trBg, trBd) = v.TrustScore >= 75
+            ? (ThemeTokens.SuccessText, ThemeTokens.SuccessBg, ThemeTokens.SuccessBorder)
+            : v.TrustScore >= 50
+                ? (ThemeTokens.WarningText, ThemeTokens.WarningBg, ThemeTokens.WarningBorder)
+                : (ThemeTokens.DangerText, ThemeTokens.DangerBg, ThemeTokens.DangerBorder);
+        var trustPill = UiComponents.CreateBadgePill($"Trust {v.TrustScore}/100", trFg, trBg, trBd);
+        trustPill.ToolTip = string.IsNullOrWhiteSpace(v.TrustSummary) ? "Điểm Tin Cậy Môi Trường" : v.TrustSummary;
+        trustPill.Margin = new Thickness(0, 0, 6, 0);
+        titleRow.Children.Add(trustPill);
+
+        if (!string.IsNullOrWhiteSpace(v.ClientGroup))
+        {
+            var siloPill = UiComponents.CreateBadgePill($"Silo: {v.ClientGroup}", ThemeTokens.AccentText, ThemeTokens.InfoBg, ThemeTokens.InfoBorder);
+            siloPill.ToolTip = $"Khách hàng riêng: {v.ClientGroup} (cách ly chéo Proxy & Chrome Profile)";
+            siloPill.Margin = new Thickness(0, 0, 6, 0);
+            titleRow.Children.Add(siloPill);
+        }
+
+        if (v.IsInCooldown)
+        {
+            var cdPill = UiComponents.CreateBadgePill("❄️ COOLDOWN", ThemeTokens.DangerText, ThemeTokens.DangerBg, ThemeTokens.DangerBorder);
+            cdPill.ToolTip = $"Đóng băng đến {v.CooldownUntilUtc!.Value.ToLocalTime():dd/MM HH:mm}: {v.CooldownReason}";
+            cdPill.Margin = new Thickness(0, 0, 6, 0);
+            titleRow.Children.Add(cdPill);
+        }
+
+        if (v.HasSiloConflict)
+        {
+            var confPill = UiComponents.CreateBadgePill("⚠️ TRÙNG SILO", ThemeTokens.DangerText, ThemeTokens.DangerBg, ThemeTokens.DangerBorder);
+            confPill.ToolTip = v.SiloConflictDetail;
+            confPill.Margin = new Thickness(0, 0, 6, 0);
+            titleRow.Children.Add(confPill);
+        }
 
         titleRow.Children.Add(new TextBlock
         {
@@ -725,6 +768,7 @@ internal sealed partial class MainWindow
             FontWeight = FontWeights.Bold,
             Foreground = ThemeTokens.TextPrimary,
             VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(2, 0, 0, 0),
         });
         idStack.Children.Add(titleRow);
 
@@ -1013,14 +1057,23 @@ internal sealed partial class MainWindow
                     AppendLog($"Lưu ý Quota: {resp.QuotaWarningMessage}");
                 }
 
-                var tasks = resp.BatchItems.Select(b => new QueueTaskItem(
-                    b.ViaId,
-                    b.ViaLabel,
-                    b.BrowserProfile,
-                    b.NetworkLabel,
-                    string.IsNullOrWhiteSpace(b.LaunchUrl) ? "https://www.facebook.com/pages/creation" : b.LaunchUrl,
-                    $"Tạo Page: {b.PageName}",
-                    "standard_via")).ToList();
+                var tasks = resp.BatchItems.Select(b =>
+                {
+                    var mv = _vias.FirstOrDefault(v => string.Equals(v.ViaId, b.ViaId, StringComparison.OrdinalIgnoreCase));
+                    return new QueueTaskItem(
+                        b.ViaId,
+                        b.ViaLabel,
+                        b.BrowserProfile,
+                        b.NetworkLabel,
+                        string.IsNullOrWhiteSpace(b.LaunchUrl) ? "https://www.facebook.com/pages/creation" : b.LaunchUrl,
+                        $"Tạo Page: {b.PageName}",
+                        "standard_via",
+                        mv?.ClientGroup ?? "",
+                        mv?.IsInSoakQuarantine ?? false,
+                        mv?.CooldownUntilUtc,
+                        mv?.HasSiloConflict ?? false,
+                        mv?.SiloConflictDetail ?? "");
+                }).ToList();
 
                 if (tasks.Count == 0)
                 {
@@ -1036,7 +1089,9 @@ internal sealed partial class MainWindow
                     _config.MaxViasPerProxyInBatch,
                     _config.AutoKeepAliveStartHour,
                     _config.AutoKeepAliveEndHour,
-                    enforceDaytimeWindow: true);
+                    enforceDaytimeWindow: true,
+                    enforceSoakQuarantine: _config.EnforceSoakQuarantine,
+                    enforceClientSilo: _config.EnforceClientSilo);
             }
             catch (Exception ex)
             {
@@ -1120,6 +1175,91 @@ internal sealed partial class MainWindow
         var localCard = UiComponents.CreateCard(localGuardPanel);
         localCard.Margin = new Thickness(0, 0, 0, 14);
         rightStack.Children.Add(localCard);
+
+        // v2.4 Anti-Checkpoint Shield, 72h Soak & Client Silo Card
+        var shieldPanel = new StackPanel();
+        shieldPanel.Children.Add(new TextBlock
+        {
+            Text = "🛡️ Khiên Chống Checkpoint, Ngâm 72h & Cách Ly Đa Khách Hàng (v2.4.0)",
+            FontSize = 15,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeTokens.SuccessText,
+            Margin = new Thickness(0, 0, 0, 8),
+        });
+
+        var chkSoak72 = UiComponents.CreateCheckBox("Khóa Tạo Page 72h khi mới thêm Via hoặc đổi Proxy (chỉ cho Đảo Ấm thụ động)", _config.EnforceSoakQuarantine);
+        var chkSiloIso = UiComponents.CreateCheckBox("Cách ly Silo Khách hàng (Chặn trùng Proxy / Profile chéo giữa các khách)", _config.EnforceClientSilo);
+        var chkIpKill = UiComponents.CreateCheckBox("Bật IP Leak Kill-Switch thời gian thực trong Chrome Extension v2.9.6", _config.IpLeakKillSwitchEnabled);
+        var chkAutoCookie = UiComponents.CreateCheckBox("Tự đồng bộ làm mới Cookie về Két DPAPI sau mỗi phiên Đảo Ấm OK", _config.AutoRefreshCookieAfterKeepAlive);
+        chkSoak72.Margin = new Thickness(0, 0, 0, 5);
+        chkSiloIso.Margin = new Thickness(0, 0, 0, 5);
+        chkIpKill.Margin = new Thickness(0, 0, 0, 5);
+        chkAutoCookie.Margin = new Thickness(0, 0, 0, 10);
+
+        var shieldGrid = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+        shieldGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.4, GridUnitType.Star) });
+        shieldGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+        shieldGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.8, GridUnitType.Star) });
+        shieldGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+        shieldGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.8, GridUnitType.Star) });
+
+        var cbDefWMode = UiComponents.CreateComboBox(new[]
+        {
+            new ComboBoxItem { Content = "Nuôi Tương Tác Thật (Feed + Watch + Notif)", Tag = "human_organic" },
+            new ComboBoxItem { Content = "Ngâm 72h Thụ Động (Chỉ Feed + Notif)", Tag = "soak_72h" },
+            new ComboBoxItem { Content = "Nuôi Cầm BM (Anti-Deep-Link)", Tag = "bm_warmup" },
+            new ComboBoxItem { Content = "Trước Lên Camp (Feed + Pages)", Tag = "pre_camp" },
+        });
+        cbDefWMode.SelectedIndex = ViaMetadataParser.NormalizeWarmupMode(_config.DefaultWarmupMode) switch
+        {
+            "soak_72h" => 1,
+            "bm_warmup" => 2,
+            "pre_camp" => 3,
+            _ => 0,
+        };
+        var tbSoakHrs = UiComponents.CreateTextBox(_config.SoakQuarantineHours.ToString());
+        var tbCooldownHrs = UiComponents.CreateTextBox(_config.AutoCooldownHours.ToString());
+
+        var sb1 = BuildLabeledBox("Kịch bản Nuôi mặc định", cbDefWMode);
+        var sb2 = BuildLabeledBox("Ngâm (giờ)", tbSoakHrs);
+        var sb3 = BuildLabeledBox("Cooldown (giờ)", tbCooldownHrs);
+        Grid.SetColumn(sb1, 0);
+        Grid.SetColumn(sb2, 2);
+        Grid.SetColumn(sb3, 4);
+        shieldGrid.Children.Add(sb1);
+        shieldGrid.Children.Add(sb2);
+        shieldGrid.Children.Add(sb3);
+
+        var shieldBtns = new StackPanel { Orientation = Orientation.Horizontal };
+        var saveShieldBtn = UiComponents.CreateButton("Lưu Khiên Bảo vệ & Cập nhật Extension", ButtonVariant.Primary, FluentIcons.ShieldCheck, onClick: (_, _) =>
+        {
+            _config.EnforceSoakQuarantine = chkSoak72.IsChecked == true;
+            _config.EnforceClientSilo = chkSiloIso.IsChecked == true;
+            _config.IpLeakKillSwitchEnabled = chkIpKill.IsChecked == true;
+            _config.AutoRefreshCookieAfterKeepAlive = chkAutoCookie.IsChecked == true;
+            _config.DefaultWarmupMode = (cbDefWMode.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "human_organic";
+            if (int.TryParse(tbSoakHrs.Text, out var sh)) _config.SoakQuarantineHours = Math.Clamp(sh, 12, 336);
+            if (int.TryParse(tbCooldownHrs.Text, out var ch)) _config.AutoCooldownHours = Math.Clamp(ch, 1, 168);
+            _config.Save();
+            var provisioned = ProvisionAllViaExtensions(silent: true);
+            AppendLog($"Đã lưu Khiên Chống Checkpoint v2.4.0 (Soak {_config.SoakQuarantineHours}h, Cooldown {_config.AutoCooldownHours}h, Mode={_config.DefaultWarmupMode}) và cập nhật {provisioned} Extension v{DesktopAppInfo.ExtVersion}.");
+            RenderCurrentView();
+        });
+        saveShieldBtn.Margin = new Thickness(0, 0, 8, 0);
+        var openStewLogBtn = UiComponents.CreateButton("Nhật ký Bảo vệ", ButtonVariant.Secondary, FluentIcons.Diagnostic, onClick: (_, _) => OpenStewardshipLogDialog());
+        shieldBtns.Children.Add(saveShieldBtn);
+        shieldBtns.Children.Add(openStewLogBtn);
+
+        shieldPanel.Children.Add(chkSoak72);
+        shieldPanel.Children.Add(chkSiloIso);
+        shieldPanel.Children.Add(chkIpKill);
+        shieldPanel.Children.Add(chkAutoCookie);
+        shieldPanel.Children.Add(shieldGrid);
+        shieldPanel.Children.Add(shieldBtns);
+
+        var shieldCard = UiComponents.CreateCard(shieldPanel);
+        shieldCard.Margin = new Thickness(0, 0, 0, 14);
+        rightStack.Children.Add(shieldCard);
 
         // Active Chrome Session Tracker Card (PID & RAM)
         var chromeSessPanel = new StackPanel();
@@ -1931,7 +2071,7 @@ internal sealed partial class MainWindow
 
     private void ExportViasCsv()
     {
-        var headers = new[] { "Ten_Via", "UID_Facebook", "Chrome_Profile", "Nhom", "Ngam_Thiet_Bi", "Proxy_IP", "Trang_Thai_Proxy", "So_Page", "Can_Dao_Am", "Trang_Thai_2FA", "Cookie_DPAPI", "Ghi_Chu" };
+        var headers = new[] { "Ten_Via", "UID_Facebook", "Chrome_Profile", "Nhom", "Silo_Khach_Hang", "Trust_Score", "Ngam_Thiet_Bi", "Proxy_IP", "Trang_Thai_Proxy", "Trang_Thai_Cooldown", "So_Page", "Can_Dao_Am", "Trang_Thai_2FA", "Cookie_DPAPI", "Ghi_Chu" };
         var rows = _vias.Select(v =>
         {
             var sec = LocalSecretVaultStore.Default.Find(v.ViaId, v.ProfileDir, v.Label);
@@ -1943,9 +2083,12 @@ internal sealed partial class MainWindow
                 v.ExternalReferenceId,
                 v.ProfileDir,
                 v.RoleTier,
+                v.ClientGroup,
+                v.TrustScore.ToString(),
                 v.WarmupLabel,
                 AutomationQueueEngine.ExtractProxyHostPort(v.NetworkLabel),
                 v.ProxyLastStatus,
+                v.IsInCooldown ? $"COOLDOWN ({v.CooldownReason})" : "Binh thuong",
                 v.HoldingPagesCount.ToString(),
                 v.NeedsKeepAlive ? "Cần Đảo Ấm" : "Ổn định",
                 has2Fa ? "Đã gắn 2FA" : "Chưa có",
