@@ -119,6 +119,7 @@ internal sealed partial class MainWindow : Window
     private string? _lastErrorMessage;
     private DateTime? _lastSyncedAtLocal;
     private DateTime _lastKeepAliveCheckUtc = DateTime.MinValue;
+    private int _watchdogTickCount;
 
     // Filter & selection states
     private string _viaSearch = "";
@@ -176,10 +177,11 @@ internal sealed partial class MainWindow : Window
         _queue.SnapshotChanged += OnQueueSnapshotChanged;
 
         Title = $"AdsOps Desktop Pro v{DesktopAppInfo.Version}";
-        Width = 1320;
-        Height = 840;
-        MinWidth = 1040;
-        MinHeight = 680;
+        var wa = SystemParameters.WorkArea;
+        Width = Math.Min(1340, Math.Max(1020, wa.Width - 24));
+        Height = Math.Min(790, Math.Max(620, wa.Height - 28));
+        MinWidth = Math.Min(1000, Math.Max(880, wa.Width - 40));
+        MinHeight = Math.Min(620, Math.Max(540, wa.Height - 40));
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = ThemeTokens.BgCanvas;
         Foreground = ThemeTokens.TextPrimary;
@@ -258,7 +260,7 @@ internal sealed partial class MainWindow : Window
             Background = ThemeTokens.BgSidebar,
             BorderBrush = ThemeTokens.BorderSubtle,
             BorderThickness = new Thickness(0, 0, 1, 0),
-            Padding = new Thickness(12, 16, 12, 14),
+            Padding = new Thickness(12, 12, 12, 10),
         };
 
         var grid = new Grid();
@@ -267,7 +269,7 @@ internal sealed partial class MainWindow : Window
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         // Brand Header
-        var brand = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4, 0, 4, 18) };
+        var brand = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4, 0, 4, 12) };
         brand.Children.Add(new Border
         {
             Width = 34,
@@ -305,8 +307,14 @@ internal sealed partial class MainWindow : Window
         AddNavButton(navStack, AppView.HealthTokens, "Sức khỏe & Token", FluentIcons.Diagnostic);
         AddNavButton(navStack, AppView.WorkspaceOps, "Ngân sách & Team", FluentIcons.ShieldCheck);
         AddNavButton(navStack, AppView.Settings, "Két khóa & Cài đặt", FluentIcons.Settings);
-        Grid.SetRow(navStack, 1);
-        grid.Children.Add(navStack);
+        var navScroll = new ScrollViewer
+        {
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Content = navStack,
+        };
+        Grid.SetRow(navScroll, 1);
+        grid.Children.Add(navScroll);
 
         // Bottom Status Stack
         var footerStack = new StackPanel();
@@ -1499,6 +1507,8 @@ internal sealed partial class MainWindow : Window
             var localSec = LocalSecretVaultStore.Default.Find(v.ViaId, v.ProfileDir, v.Label);
             var hasTwoFa = !string.IsNullOrWhiteSpace(v.TwoFaSecret) || (localSec.Found && !string.IsNullOrWhiteSpace(localSec.TwoFaSecret));
             var hasCookie = localSec.Found && !string.IsNullOrWhiteSpace(localSec.CookieRaw);
+            v.HasLocalTwoFa = hasTwoFa;
+            v.HasVaultCookie = hasCookie;
             (v.TrustScore, v.TrustSummary) = ViaTrustEvaluator.EvaluateTrustScore(v, hasTwoFa, hasCookie, maxPerIp);
         }
     }
@@ -1844,18 +1854,21 @@ internal sealed partial class MainWindow : Window
 
         if (requireConfirm)
         {
+            var directCount = targetVias.Count(v => string.IsNullOrWhiteSpace(AutomationQueueEngine.ExtractProxyHostPort(v.NetworkLabel)));
             var ok = UiComponents.ShowConfirmActionDialog(
                 this,
                 title,
                 $"Chuẩn bị mở Chrome Profile thật & Proxy riêng để Đảo Ấm thụ động (chỉ cuộn Newsfeed & /notifications, tuyệt đối không Like/Comment) cho {targetVias.Count} Via.",
                 new (string, string)[]
                 {
-                    ("Số lượng Via:", $"{targetVias.Count} Via"),
+                    ("Số lượng Via:", $"{targetVias.Count} Via (Direct IP: {directCount})"),
                     ("Nghỉ giãn cách:", $"~{_config.DefaultStaggerSeconds}s + Jitter ngẫu nhiên ±35%"),
                     ("Pre-check Proxy:", _config.PreCheckProxyBeforeLaunch ? "Bật (Proxy die tự bỏ qua)" : "Tắt"),
-                    ("IP Cluster Guard:", $"Tối đa {_config.MaxViasPerProxyInBatch} Via / IP cùng lô"),
+                    ("IP Cluster Guard:", $"Proxy: {_config.MaxViasPerProxyInBatch}/IP · Direct IP: tối đa {_config.MaxDirectIpViasInBatch} Via / ca"),
                 },
-                "Khung giờ an toàn mặc định: 08:00 - 22:30. Có thể Tạm dừng hoặc Dừng hẳn bất cứ lúc nào.");
+                directCount > _config.MaxDirectIpViasInBatch
+                    ? $"CẢNH BÁO: Có {directCount} Via đang chạy Direct IP (Mạng gốc). Hệ thống sẽ chỉ chạy tối đa {_config.MaxDirectIpViasInBatch} Via Direct IP mỗi ca để chống liên đới. Hãy dùng nút 'Chia Proxy 1:4' để gắn Proxy Dân cư."
+                    : "Khung giờ an toàn mặc định: 08:00 - 22:30. Có thể Tạm dừng hoặc Dừng hẳn bất cứ lúc nào.");
             if (!ok) return;
         }
 
@@ -1883,6 +1896,12 @@ internal sealed partial class MainWindow : Window
                 v.SiloConflictDetail);
         }).ToList();
 
+        tasks = QueueResumeStateStore.FilterRemainingItems(QueueKind.KeepAlive, tasks, out var resumedSkippedCount);
+        if (resumedSkippedCount > 0)
+        {
+            AppendLog($"♻️ Khôi phục tiến độ Hàng đợi: Tự động bỏ qua {resumedSkippedCount} Via đã Đảo Ấm xong trước đó, chạy tiếp {tasks.Count} Via còn lại.");
+        }
+
         _queue.StartQueue(
             QueueKind.KeepAlive,
             tasks,
@@ -1896,7 +1915,8 @@ internal sealed partial class MainWindow : Window
             enforceClientSilo: _config.EnforceClientSilo,
             interleaveByProxy: true,
             sameProxyMinStaggerSeconds: _config.SameProxyMinStaggerSeconds,
-            maxConcurrentBrowsers: GetEffectiveMaxConcurrentBrowsers());
+            maxConcurrentBrowsers: GetEffectiveMaxConcurrentBrowsers(),
+            maxDirectIpVias: _config.MaxDirectIpViasInBatch);
 
         AppendLog($"Đã xếp hàng {tasks.Count} Via vào Hàng đợi Đảo Ấm an toàn.");
         RenderCurrentView();
@@ -1954,6 +1974,21 @@ internal sealed partial class MainWindow : Window
                 b.CodeBlock.Text = "Chưa gắn 2FA";
                 b.CodeBlock.Foreground = ThemeTokens.TextMuted;
                 b.CountdownBlock.Text = "—";
+            }
+        }
+
+        if (_queueSnapshot.Phase == QueuePhase.Running && (++_watchdogTickCount % 5 == 0))
+        {
+            var reaped = ChromeSessionTracker.Default.ReapHungSessions(_config.BrowserHangTimeoutSeconds);
+            foreach (var r in reaped)
+            {
+                ViaStewardshipStore.Default.AppendEvent(
+                    "BROWSER_HANG_REAPED",
+                    r.ViaId,
+                    r.ViaLabel,
+                    "",
+                    $"Tự đóng trình duyệt treo quá {_config.BrowserHangTimeoutSeconds}s ({r.ProfileDir}) để giải phóng hàng đợi");
+                AppendLog($"⏱️ Watchdog chống treo: Đã tự thu hồi trình duyệt '{r.ViaLabel}' ({r.ProfileDir}) treo quá {_config.BrowserHangTimeoutSeconds}s.");
             }
         }
     }
@@ -2033,7 +2068,7 @@ internal sealed partial class MainWindow : Window
         (_headerTitle.Text, _headerSubtitle.Text) = _activeView switch
         {
             AppView.Overview => ("Tổng quan vận hành", BuildSyncSubtitle("Bức tranh đa Via, cảnh báo hệ thống & hàng đợi")),
-            AppView.Vias => ("Quản lý Đa Via", BuildSyncSubtitle($"{_vias.Count} Via • 2FA local theo thời gian thực • Chế độ mở Chrome cô lập")),
+            AppView.Vias => ("Quản lý Đa Via", BuildSyncSubtitle($"{_vias.Count} Via • 2FA local thời gian thực • {(_config.UseIsolatedProfiles ? "Chế độ Chrome cô lập (--user-data-dir)" : "Chế độ Chrome chung Profile")}")),
             AppView.Automation => ("Trung tâm Tự động hóa", BuildSyncSubtitle("Tạo Page theo nhịp an toàn, Đảo Ấm đa Via & Cloud Cron")),
             AppView.PagesBm => ("Fanpage, BM, Pixel & Domain SEO", BuildSyncSubtitle($"{_pagesSummary?.Items.Count ?? 0} Fanpage • {_bms.Count} BM • {_pixels.Count} Pixel")),
             AppView.AdAccounts => ("Tài khoản Quảng cáo", BuildSyncSubtitle($"{_adAccounts.Count} TKQC liên kết • Số liệu căn lề Tabular chính xác")),

@@ -76,6 +76,9 @@ public sealed class AutomationQueueEngine : IDisposable
     private int _sameProxyMinStaggerSec = 55;
     private bool _preCheckProxy = true;
     private int _maxViasPerProxy = 4;
+    private int _maxDirectIpVias = 3;
+    private int _directIpBatchUseCount = 0;
+    private string? _resumeFilePath;
     private int _maxConcurrentBrowsers = 6;
     private int _startHour = 8;
     private int _endHour = 22;
@@ -189,7 +192,9 @@ public sealed class AutomationQueueEngine : IDisposable
         bool enforceClientSilo = false,
         bool interleaveByProxy = false,
         int sameProxyMinStaggerSeconds = 55,
-        int maxConcurrentBrowsers = 6)
+        int maxConcurrentBrowsers = 6,
+        int maxDirectIpVias = 3,
+        string? resumeStateFilePath = null)
     {
         if (items == null || items.Count == 0) return;
 
@@ -200,6 +205,9 @@ public sealed class AutomationQueueEngine : IDisposable
         _sameProxyMinStaggerSec = Math.Clamp(sameProxyMinStaggerSeconds, 15, 300);
         _preCheckProxy = preCheckProxy;
         _maxViasPerProxy = Math.Max(1, maxViasPerProxy);
+        _maxDirectIpVias = Math.Clamp(maxDirectIpVias, 1, 20);
+        _directIpBatchUseCount = 0;
+        _resumeFilePath = resumeStateFilePath;
         _maxConcurrentBrowsers = Math.Clamp(maxConcurrentBrowsers, 1, 30);
         _startHour = Math.Clamp(daytimeStartHour, 0, 23);
         _endHour = Math.Clamp(daytimeEndHour, 0, 23);
@@ -435,6 +443,27 @@ public sealed class AutomationQueueEngine : IDisposable
                 continue;
             }
 
+            if (string.IsNullOrEmpty(hostPort) &&
+                (kind == QueueKind.PageCreation || _items.Count > 1) &&
+                _directIpBatchUseCount >= _maxDirectIpVias)
+            {
+                skipped++;
+                var msg = $"Bỏ qua «{item.ViaLabel}»: Mạng gốc (Direct IP) đã mở tối đa {_directIpBatchUseCount}/{_maxDirectIpVias} Via trong ca này (chống liên đới IP). Hãy gắn Proxy Dân cư.";
+                _log($"⚠️ {msg}");
+                UpdateSnapshot(_snapshot with
+                {
+                    Phase = QueuePhase.Running,
+                    CurrentIndex = i,
+                    LaunchedCount = launched,
+                    SkippedCount = skipped,
+                    CurrentViaLabel = item.ViaLabel,
+                    CurrentTaskTitle = item.TaskTitle,
+                    CheckingProxy = false,
+                    LastNotice = msg,
+                });
+                continue;
+            }
+
             if (_preCheckProxy && !string.IsNullOrWhiteSpace(item.NetworkLabel))
             {
                 UpdateSnapshot(_snapshot with
@@ -500,6 +529,10 @@ public sealed class AutomationQueueEngine : IDisposable
                     _proxyClientGroupOwners[hostPort] = itemClientGroup;
                 }
             }
+            else
+            {
+                _directIpBatchUseCount++;
+            }
             if (!string.IsNullOrEmpty(itemProfile))
             {
                 _usedProfilesInBatch[itemProfile] = item.ViaLabel;
@@ -510,6 +543,10 @@ public sealed class AutomationQueueEngine : IDisposable
             }
 
             await _launchChrome(item).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(item.ViaId))
+            {
+                QueueResumeStateStore.RecordItemLaunched(kind, item.ViaId, _resumeFilePath);
+            }
             lock (_gate)
             {
                 _launchedItems.Add(item);
@@ -521,8 +558,8 @@ public sealed class AutomationQueueEngine : IDisposable
                 var effectiveBase = _baseStaggerSec;
                 var nextHostPort = ExtractProxyHostPort(_items[i + 1].NetworkLabel);
                 if (_baseStaggerSec >= 15 &&
-                    !string.IsNullOrEmpty(hostPort) &&
-                    string.Equals(hostPort, nextHostPort, StringComparison.OrdinalIgnoreCase))
+                    ((!string.IsNullOrEmpty(hostPort) && string.Equals(hostPort, nextHostPort, StringComparison.OrdinalIgnoreCase)) ||
+                     (string.IsNullOrEmpty(hostPort) && string.IsNullOrEmpty(nextHostPort))))
                 {
                     effectiveBase = Math.Max(_baseStaggerSec, _sameProxyMinStaggerSec);
                 }
@@ -576,6 +613,7 @@ public sealed class AutomationQueueEngine : IDisposable
             }
         }
 
+        QueueResumeStateStore.Clear(_resumeFilePath);
         UpdateSnapshot(_snapshot with
         {
             Phase = QueuePhase.Completed,

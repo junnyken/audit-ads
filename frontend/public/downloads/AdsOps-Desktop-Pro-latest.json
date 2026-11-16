@@ -1,13 +1,13 @@
 {
-    "version":  "2.6.0",
+    "version":  "2.6.1",
     "ext_version":  "2.9.8",
     "authenticode_signed":  true,
     "download_url":  "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
     "mirror_urls":  [
                         "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
                     ],
-    "sha256":  "fa3629d158362ffce459d4c5b73759642812b6dae55c9a45d61a87b3b6d0ace5",
-    "size_bytes":  66001886,
-    "published_at":  "2026-11-16T10:09:24.880943Z",
-    "release_notes":  "AdsOps Desktop Pro v2.6.0 + Extension v2.9.8: Bang dieu khien hop nhat 5 Engine Antidetect, Benchmark toc do \u0026 Auto-Failover, Giam sat RAM/CPU that + tu gioi han luong theo RAM, Doi chieu Mui gio Proxy IP, Cho Kich ban Team (Meta/Google/TikTok) chay Jitter lech pha, Phan quyen \u0026 Nhat ky Mo Profile + Onboarding 5 buoc."
+    "sha256":  "eff9f797df286a878424580d7692a79dadaf60c5431037af10e521162be9d275",
+    "size_bytes":  66012595,
+    "published_at":  "2026-11-16T18:04:42.889905Z",
+    "release_notes":  "AdsOps Desktop Pro v2.6.1 + Extension v2.9.8: Mac dinh Chrome Co lap (--user-data-dir), Khoa tran Direct IP/ca, Thanh Thao tac Chia Proxy 1:4 \u0026 Doi Lop/Profile hang loat, Den bao Cookie Ket DPAPI, Watchdog chong treo hang doi \u0026 Khoi phuc Hang doi khi khoi dong lai."
 }

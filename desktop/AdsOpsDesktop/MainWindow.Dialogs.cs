@@ -1078,36 +1078,73 @@ internal sealed partial class MainWindow
             cancelBtn.IsEnabled = false;
             statusTb.Visibility = Visibility.Visible;
             int created = 0;
+            int updated = 0;
             int failed = 0;
 
             foreach (var r in targets)
             {
                 statusTb.Foreground = ThemeTokens.AccentText;
-                statusTb.Text = $"Đang nhập {created + failed + 1}/{targets.Count}: {r.Label} ({r.AssignedProfile})...";
+                statusTb.Text = $"Đang nhập {created + updated + failed + 1}/{targets.Count}: {r.Label} ({r.AssignedProfile})...";
                 try
                 {
-                    var payload = new PersonalAccountUpsertRequestDto
+                    var matchedVia = _vias.FirstOrDefault(v =>
+                        (!string.IsNullOrWhiteSpace(r.ExternalReferenceId) &&
+                         string.Equals((v.ExternalReferenceId ?? "").Trim(), r.ExternalReferenceId.Trim(), StringComparison.OrdinalIgnoreCase)) ||
+                        (!string.IsNullOrWhiteSpace(r.Label) &&
+                         string.Equals((v.Label ?? "").Trim(), r.Label.Trim(), StringComparison.OrdinalIgnoreCase)));
+
+                    if (matchedVia != null)
                     {
-                        Label = r.Label,
-                        DisplayName = r.Label,
-                        ExternalReferenceId = string.IsNullOrWhiteSpace(r.ExternalReferenceId) ? null : r.ExternalReferenceId,
-                        Status = "active",
-                        BrowserProfileLabel = r.AssignedProfile,
-                        NetworkLabel = r.ProxyRaw,
-                        VaultReference = (!string.IsNullOrWhiteSpace(r.TwoFaSecret) || !string.IsNullOrWhiteSpace(r.CookieRaw))
-                            ? "Két DPAPI Local (Bulk)"
-                            : "",
-                        Notes = r.CleanNotes,
-                    };
-                    var saved = await _api.CreatePersonalAccountAsync(payload);
-                    LocalSecretVaultStore.Default.Upsert(
-                        saved.Id,
-                        saved.Label,
-                        r.AssignedProfile,
-                        r.CookieRaw,
-                        r.TwoFaSecret,
-                        allowOverwriteEmpty: false);
-                    created++;
+                        LocalSecretVaultStore.Default.Upsert(
+                            matchedVia.ViaId,
+                            matchedVia.Label,
+                            matchedVia.ProfileDir,
+                            r.CookieRaw,
+                            r.TwoFaSecret,
+                            allowOverwriteEmpty: false);
+
+                        var nextProxy = !string.IsNullOrWhiteSpace(r.ProxyRaw) ? r.ProxyRaw : matchedVia.NetworkLabel;
+                        var updPayload = new PersonalAccountUpsertRequestDto
+                        {
+                            Label = matchedVia.Label,
+                            DisplayName = string.IsNullOrWhiteSpace(matchedVia.DisplayName) ? matchedVia.Label : matchedVia.DisplayName,
+                            ExternalReferenceId = string.IsNullOrWhiteSpace(matchedVia.ExternalReferenceId) ? r.ExternalReferenceId : matchedVia.ExternalReferenceId,
+                            Status = string.IsNullOrWhiteSpace(matchedVia.Status) ? "active" : matchedVia.Status,
+                            BrowserProfileLabel = string.IsNullOrWhiteSpace(matchedVia.BrowserProfileLabel) ? r.AssignedProfile : matchedVia.BrowserProfileLabel,
+                            NetworkLabel = nextProxy,
+                            VaultReference = (!string.IsNullOrWhiteSpace(r.TwoFaSecret) || !string.IsNullOrWhiteSpace(r.CookieRaw))
+                                ? "Két DPAPI Local (Bulk)"
+                                : (matchedVia.HasVaultCookie || matchedVia.HasLocalTwoFa ? "Két DPAPI Local (Desktop)" : ""),
+                            Notes = string.IsNullOrWhiteSpace(matchedVia.Notes) ? r.CleanNotes : matchedVia.Notes,
+                        };
+                        await _api.UpdatePersonalAccountAsync(matchedVia.ViaId, updPayload);
+                        updated++;
+                    }
+                    else
+                    {
+                        var payload = new PersonalAccountUpsertRequestDto
+                        {
+                            Label = r.Label,
+                            DisplayName = r.Label,
+                            ExternalReferenceId = string.IsNullOrWhiteSpace(r.ExternalReferenceId) ? null : r.ExternalReferenceId,
+                            Status = "active",
+                            BrowserProfileLabel = r.AssignedProfile,
+                            NetworkLabel = r.ProxyRaw,
+                            VaultReference = (!string.IsNullOrWhiteSpace(r.TwoFaSecret) || !string.IsNullOrWhiteSpace(r.CookieRaw))
+                                ? "Két DPAPI Local (Bulk)"
+                                : "",
+                            Notes = r.CleanNotes,
+                        };
+                        var saved = await _api.CreatePersonalAccountAsync(payload);
+                        LocalSecretVaultStore.Default.Upsert(
+                            saved.Id,
+                            saved.Label,
+                            r.AssignedProfile,
+                            r.CookieRaw,
+                            r.TwoFaSecret,
+                            allowOverwriteEmpty: false);
+                        created++;
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -1116,7 +1153,7 @@ internal sealed partial class MainWindow
                 }
             }
 
-            AppendLog($"Nhập Lô hoàn tất: thành công {created}/{targets.Count} Via" + (failed > 0 ? $", lỗi {failed}." : "."));
+            AppendLog($"Nhập Lô hoàn tất: tạo mới {created}, cập nhật {updated}/{targets.Count} Via" + (failed > 0 ? $", lỗi {failed}." : "."));
             await SyncCloudAsync(silent: false);
             dlg.DialogResult = true;
         });
@@ -2188,7 +2225,7 @@ internal sealed partial class MainWindow
     {
         var dlg = new Window
         {
-            Title = "Nhật ký Khiên Chống Checkpoint & Cách Ly Đa Khách Hàng (v2.4.2)",
+            Title = $"Nhật ký Khiên Chống Checkpoint & Cách Ly Đa Khách Hàng (v{DesktopAppInfo.Version})",
             Width = 800,
             Height = 680,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
@@ -2624,6 +2661,293 @@ internal sealed partial class MainWindow
         btns.Children.Add(cancelBtn);
         btns.Children.Add(saveBtn);
         root.Children.Add(btns);
+
+        dlg.Content = root;
+        dlg.ShowDialog();
+    }
+
+    internal void OpenBulkDistributeProxiesDialog(IReadOnlyList<ViaWorkspaceEntry>? preselected = null)
+    {
+        var targets = (preselected != null && preselected.Count > 0)
+            ? preselected.ToList()
+            : (_selectedViaIds.Count > 0
+                ? _vias.Where(v => _selectedViaIds.Contains(v.ViaId)).ToList()
+                : _vias.Where(v => string.IsNullOrWhiteSpace(AutomationQueueEngine.ExtractProxyHostPort(v.NetworkLabel))).ToList());
+        if (targets.Count == 0) targets = _vias.ToList();
+        if (targets.Count == 0)
+        {
+            MessageBox.Show(this, "Chưa có Via nào trong danh sách để gán Proxy.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dlg = new Window
+        {
+            Title = $"Chia Proxy Tự Động 1:{_config.MaxViasPerProxyInBatch} ({targets.Count} Via)",
+            Width = 640,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            ResizeMode = ResizeMode.NoResize,
+            Background = ThemeTokens.BgCanvas,
+            Foreground = ThemeTokens.TextPrimary,
+            ShowInTaskbar = false,
+        };
+        ThemeTokens.ApplyDarkTitleBar(dlg);
+
+        var root = new StackPanel { Margin = new Thickness(20) };
+        root.Children.Add(new TextBlock
+        {
+            Text = $"Hệ thống sẽ rải đều các Proxy hợp lệ (IP:Port:User:Pass hoặc http://...) cho {targets.Count} Via mục tiêu, giới hạn mỗi Proxy tối đa đúng số Via bên dưới.",
+            FontSize = 12,
+            Foreground = ThemeTokens.TextSecondary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 12),
+        });
+
+        var topGrid = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+        topGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(140) });
+        topGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+        topGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var tbPerProxy = UiComponents.CreateTextBox(_config.MaxViasPerProxyInBatch.ToString());
+        var tbSilo = UiComponents.CreateTextBox("", "Để trống = giữ Silo cũ (VD: KhachA)");
+        var b1 = BuildLabeledBox("Số Via / 1 Proxy (1–50)", tbPerProxy);
+        var b2 = BuildLabeledBox("Nhóm Khách / Client Silo (Tùy chọn)", tbSilo);
+        Grid.SetColumn(b1, 0);
+        Grid.SetColumn(b2, 2);
+        topGrid.Children.Add(b1);
+        topGrid.Children.Add(b2);
+        root.Children.Add(topGrid);
+
+        var tbProxies = UiComponents.CreateTextBox("", "Mỗi dòng 1 Proxy (VD: 103.10.20.30:8080:user:pass)", multiline: true, height: 120);
+        tbProxies.FontFamily = ThemeTokens.MonoFont;
+        root.Children.Add(BuildLabeledBox("Danh sách Proxy Dân cư / IPv4 (1 dòng / Proxy)", tbProxies));
+
+        var previewTb = new TextBlock
+        {
+            Text = "Dán danh sách Proxy vào ô trên để xem trước phân bổ...",
+            FontSize = 12,
+            Foreground = ThemeTokens.AccentText,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 10, 0, 0),
+        };
+        root.Children.Add(previewTb);
+
+        List<(ViaWorkspaceEntry Via, string AssignedProxy)> currentPlan = new();
+        void RefreshPlan()
+        {
+            var cap = int.TryParse(tbPerProxy.Text, out var n) ? Math.Clamp(n, 1, 50) : _config.MaxViasPerProxyInBatch;
+            var lines = (tbProxies.Text ?? "").Replace("\r\n", "\n").Split('\n');
+            currentPlan = ViaBulkDistributor.DistributeProxies(targets, lines, cap);
+            if (currentPlan.Count == 0)
+            {
+                previewTb.Text = "Chưa có dòng Proxy hợp lệ nào (hỗ trợ IP:Port hoặc IP:Port:User:Pass).";
+                previewTb.Foreground = ThemeTokens.TextMuted;
+            }
+            else
+            {
+                var sample = string.Join(" | ", currentPlan.Take(3).Select(x => $"{x.Via.Label} -> {AutomationQueueEngine.ExtractProxyHostPort(x.AssignedProxy)}"));
+                previewTb.Text = $"Sẵn sàng gắn Proxy cho {currentPlan.Count}/{targets.Count} Via ({cap} Via/IP). Mẫu: {sample}" + (currentPlan.Count > 3 ? "..." : "");
+                previewTb.Foreground = ThemeTokens.SuccessText;
+            }
+        }
+        tbProxies.TextChanged += (_, _) => RefreshPlan();
+        tbPerProxy.TextChanged += (_, _) => RefreshPlan();
+
+        var errTb = new TextBlock { Text = "", FontSize = 12, Foreground = ThemeTokens.DangerText, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
+        root.Children.Add(errTb);
+
+        var btnRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
+        var cancelBtn = UiComponents.CreateButton("Hủy", ButtonVariant.Secondary, onClick: (_, _) => dlg.Close());
+        cancelBtn.Margin = new Thickness(0, 0, 8, 0);
+        Button applyBtn = null!;
+        applyBtn = UiComponents.CreateButton("Áp dụng & Cập nhật Cloud", ButtonVariant.Primary, FluentIcons.CheckCircle, onClick: async (_, _) =>
+        {
+            RefreshPlan();
+            if (currentPlan.Count == 0)
+            {
+                errTb.Text = "Vui lòng nhập ít nhất 1 Proxy hợp lệ.";
+                return;
+            }
+            applyBtn.IsEnabled = false;
+            cancelBtn.IsEnabled = false;
+            var siloOverride = tbSilo.Text.Trim();
+            int okCnt = 0;
+            try
+            {
+                foreach (var (via, px) in currentPlan)
+                {
+                    var effSilo = string.IsNullOrWhiteSpace(siloOverride) ? via.ClientGroup : siloOverride;
+                    var builtNotes = ViaMetadataParser.BuildNotes(
+                        via.CleanNotes,
+                        via.RoleTier,
+                        via.WarmupStartIso,
+                        effSilo,
+                        via.DefaultWarmupMode,
+                        via.AntidetectEngine,
+                        via.AntidetectProfileId);
+                    await _api.UpdatePersonalAccountAsync(via.ViaId, new PersonalAccountUpsertRequestDto
+                    {
+                        Label = via.Label,
+                        DisplayName = string.IsNullOrWhiteSpace(via.DisplayName) ? via.Label : via.DisplayName,
+                        ExternalReferenceId = string.IsNullOrWhiteSpace(via.ExternalReferenceId) ? null : via.ExternalReferenceId,
+                        Status = string.IsNullOrWhiteSpace(via.Status) ? "active" : via.Status,
+                        BrowserProfileLabel = string.IsNullOrWhiteSpace(via.BrowserProfileLabel) ? via.ProfileDir : via.BrowserProfileLabel,
+                        NetworkLabel = px,
+                        VaultReference = (via.HasVaultCookie || via.HasLocalTwoFa) ? "Két DPAPI Local (Desktop)" : "",
+                        Notes = builtNotes,
+                    });
+                    ViaStewardshipStore.Default.GetOrTrackProxy(via.ViaId, via.Label, px);
+                    okCnt++;
+                }
+                AppendLog($"🌐 Đã chia Proxy tự động cho {okCnt}/{targets.Count} Via thành công.");
+                await SyncCloudAsync(silent: false);
+                dlg.Close();
+                RenderCurrentView();
+            }
+            catch (Exception ex)
+            {
+                errTb.Text = $"Đã cập nhật {okCnt}/{currentPlan.Count} Via, lỗi: {ex.Message}";
+                applyBtn.IsEnabled = true;
+                cancelBtn.IsEnabled = true;
+            }
+        });
+        btnRow.Children.Add(cancelBtn);
+        btnRow.Children.Add(applyBtn);
+        root.Children.Add(btnRow);
+
+        dlg.Content = root;
+        dlg.ShowDialog();
+    }
+
+    internal void OpenBulkChangeTierAndSiloDialog(IReadOnlyList<ViaWorkspaceEntry>? preselected = null)
+    {
+        var targets = (preselected != null && preselected.Count > 0)
+            ? preselected.ToList()
+            : (_selectedViaIds.Count > 0
+                ? _vias.Where(v => _selectedViaIds.Contains(v.ViaId)).ToList()
+                : _vias.ToList());
+        if (targets.Count == 0)
+        {
+            MessageBox.Show(this, "Chưa có Via nào trong danh sách để chỉnh sửa.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dlg = new Window
+        {
+            Title = $"Đổi Lớp Via, Silo & Tách Chrome Profile ({targets.Count} Via)",
+            Width = 560,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            ResizeMode = ResizeMode.NoResize,
+            Background = ThemeTokens.BgCanvas,
+            Foreground = ThemeTokens.TextPrimary,
+            ShowInTaskbar = false,
+        };
+        ThemeTokens.ApplyDarkTitleBar(dlg);
+
+        var root = new StackPanel { Margin = new Thickness(20) };
+        root.Children.Add(new TextBlock
+        {
+            Text = $"Cập nhật hàng loạt cho {targets.Count} Via đang chọn. Bạn có thể chuyển nhanh từ HOLD BM sang LÊN CAMP hoặc tách sạch Profile trùng.",
+            FontSize = 12,
+            Foreground = ThemeTokens.TextSecondary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 12),
+        });
+
+        var cbTier = UiComponents.CreateComboBox(new[]
+        {
+            new ComboBoxItem { Content = "— Giữ nguyên Lớp hiện tại —", Tag = "keep" },
+            new ComboBoxItem { Content = "🚀 LÊN CAMP (Via Chạy Ads Chính)", Tag = "camp" },
+            new ComboBoxItem { Content = "🛡️ HOLD BM (Chỉ Cầm Tài Sản / BM)", Tag = "vault" },
+            new ComboBoxItem { Content = "🌱 DỰ PHÒNG (Standby Ngâm Sẵn)", Tag = "standby" },
+        });
+        cbTier.SelectedIndex = 0;
+
+        var tbSilo = UiComponents.CreateTextBox("", "Để trống = giữ Silo cũ (VD: Khach_Spa_A)");
+        var chkSplitProfiles = UiComponents.CreateCheckBox("Tự động tách Chrome Profile riêng (Profile 1, Profile 2...) cho các Via đang trùng/Default", true);
+        chkSplitProfiles.Margin = new Thickness(0, 10, 0, 10);
+
+        var twoCol = new Grid { Margin = new Thickness(0, 0, 0, 6) };
+        twoCol.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        twoCol.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+        twoCol.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var l1 = BuildLabeledBox("Đổi Lớp Vận Hành (Tier)", cbTier);
+        var l2 = BuildLabeledBox("Gán Client Silo (Tùy chọn)", tbSilo);
+        Grid.SetColumn(l1, 0);
+        Grid.SetColumn(l2, 2);
+        twoCol.Children.Add(l1);
+        twoCol.Children.Add(l2);
+
+        root.Children.Add(twoCol);
+        root.Children.Add(chkSplitProfiles);
+
+        var errTb = new TextBlock { Text = "", FontSize = 12, Foreground = ThemeTokens.DangerText, Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap };
+        root.Children.Add(errTb);
+
+        var btnRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
+        var cancelBtn = UiComponents.CreateButton("Hủy", ButtonVariant.Secondary, onClick: (_, _) => dlg.Close());
+        cancelBtn.Margin = new Thickness(0, 0, 8, 0);
+        Button saveBtn = null!;
+        saveBtn = UiComponents.CreateButton($"Cập nhật {targets.Count} Via", ButtonVariant.Primary, FluentIcons.CheckCircle, onClick: async (_, _) =>
+        {
+            saveBtn.IsEnabled = false;
+            cancelBtn.IsEnabled = false;
+            var tierChoice = (cbTier.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "keep";
+            var siloOverride = tbSilo.Text.Trim();
+            var profileUpdates = chkSplitProfiles.IsChecked == true
+                ? ViaBulkDistributor.AllocateDistinctChromeProfiles(targets, _vias).ToDictionary(x => x.Via.ViaId, x => x.NewProfileDir, StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            int okCnt = 0;
+            try
+            {
+                foreach (var via in targets)
+                {
+                    var effTier = tierChoice == "keep" ? via.RoleTier : tierChoice;
+                    var effSilo = string.IsNullOrWhiteSpace(siloOverride) ? via.ClientGroup : siloOverride;
+                    var effProf = profileUpdates.TryGetValue(via.ViaId, out var newProf)
+                        ? newProf
+                        : (string.IsNullOrWhiteSpace(via.BrowserProfileLabel) ? via.ProfileDir : via.BrowserProfileLabel);
+
+                    var builtNotes = ViaMetadataParser.BuildNotes(
+                        via.CleanNotes,
+                        effTier,
+                        via.WarmupStartIso,
+                        effSilo,
+                        via.DefaultWarmupMode,
+                        via.AntidetectEngine,
+                        via.AntidetectProfileId);
+                    await _api.UpdatePersonalAccountAsync(via.ViaId, new PersonalAccountUpsertRequestDto
+                    {
+                        Label = via.Label,
+                        DisplayName = string.IsNullOrWhiteSpace(via.DisplayName) ? via.Label : via.DisplayName,
+                        ExternalReferenceId = string.IsNullOrWhiteSpace(via.ExternalReferenceId) ? null : via.ExternalReferenceId,
+                        Status = string.IsNullOrWhiteSpace(via.Status) ? "active" : via.Status,
+                        BrowserProfileLabel = effProf,
+                        NetworkLabel = via.NetworkLabel,
+                        VaultReference = (via.HasVaultCookie || via.HasLocalTwoFa) ? "Két DPAPI Local (Desktop)" : "",
+                        Notes = builtNotes,
+                    });
+                    okCnt++;
+                }
+                AppendLog($"⚡ Đã cập nhật hàng loạt Lớp/Silo/Profile cho {okCnt}/{targets.Count} Via.");
+                await SyncCloudAsync(silent: false);
+                dlg.Close();
+                RenderCurrentView();
+            }
+            catch (Exception ex)
+            {
+                errTb.Text = $"Đã cập nhật {okCnt}/{targets.Count} Via, lỗi: {ex.Message}";
+                saveBtn.IsEnabled = true;
+                cancelBtn.IsEnabled = true;
+            }
+        });
+        btnRow.Children.Add(cancelBtn);
+        btnRow.Children.Add(saveBtn);
+        root.Children.Add(btnRow);
 
         dlg.Content = root;
         dlg.ShowDialog();

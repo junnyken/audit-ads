@@ -134,19 +134,21 @@ public sealed class DesktopConfig
     public string WebAppUrl { get; set; } = DefaultWebAppUrl;
     public string UserEmail { get; set; } = "";
     public string EncryptedJwtBase64 { get; set; } = "";
-    public bool UseIsolatedProfiles { get; set; } = false;
+    public bool UseIsolatedProfiles { get; set; } = true;
     public bool AutoKeepAliveScheduler { get; set; } = true;
     public int BridgePort { get; set; } = 17890;
 
-    // Automation Suite Preferences (v2.0 -> v2.4 Anti-Checkpoint)
+    // Automation Suite Preferences (v2.0 -> v2.6.1 Anti-Checkpoint)
     public int AutoKeepAliveStartHour { get; set; } = 8;
     public int AutoKeepAliveEndHour { get; set; } = 22;
     public int AutoKeepAliveMinGapMinutes { get; set; } = 20;
     public int DefaultStaggerSeconds { get; set; } = 65;
     public bool PreCheckProxyBeforeLaunch { get; set; } = true;
     public int MaxViasPerProxyInBatch { get; set; } = 4;
+    public int MaxDirectIpViasInBatch { get; set; } = 3;
     public int MaxPagesPerProxyInBatch { get; set; } = 2;
     public int SameProxyMinStaggerSeconds { get; set; } = 55;
+    public int BrowserHangTimeoutSeconds { get; set; } = 210;
     public bool WarmupBeforeCreate { get; set; } = true;
     public bool AutoUploadMedia { get; set; } = true;
     public bool AutoCloseKeepAliveTab { get; set; } = true;
@@ -256,23 +258,21 @@ public sealed class DesktopConfig
                     if (cfg.BridgePort <= 0) cfg.BridgePort = 17890;
                     if (cfg.DefaultStaggerSeconds < 18) cfg.DefaultStaggerSeconds = 65;
                     cfg.MaxViasPerProxyInBatch = Math.Clamp(cfg.MaxViasPerProxyInBatch < 1 ? 4 : cfg.MaxViasPerProxyInBatch, 1, 50);
+                    cfg.MaxDirectIpViasInBatch = Math.Clamp(cfg.MaxDirectIpViasInBatch < 1 ? 3 : cfg.MaxDirectIpViasInBatch, 1, 20);
                     cfg.MaxPagesPerProxyInBatch = Math.Clamp(cfg.MaxPagesPerProxyInBatch < 1 ? 2 : cfg.MaxPagesPerProxyInBatch, 1, 20);
                     cfg.SameProxyMinStaggerSeconds = Math.Clamp(cfg.SameProxyMinStaggerSeconds < 15 ? 55 : cfg.SameProxyMinStaggerSeconds, 15, 300);
+                    cfg.BrowserHangTimeoutSeconds = Math.Clamp(cfg.BrowserHangTimeoutSeconds < 60 ? 210 : cfg.BrowserHangTimeoutSeconds, 60, 900);
                     cfg.MaxConcurrentBrowsers = Math.Clamp(cfg.MaxConcurrentBrowsers < 1 ? 6 : cfg.MaxConcurrentBrowsers, 1, 30);
                     cfg.DefaultBrowserEngine = AntidetectBrowserConnector.NormalizeEngine(cfg.DefaultBrowserEngine);
                     if (cfg.AutoKeepAliveMinGapMinutes < 5) cfg.AutoKeepAliveMinGapMinutes = 20;
                     if (cfg.SoakQuarantineHours < 12 || cfg.SoakQuarantineHours > 336) cfg.SoakQuarantineHours = 72;
                     if (cfg.AutoCooldownHours < 1 || cfg.AutoCooldownHours > 168) cfg.AutoCooldownHours = 24;
                     if (string.IsNullOrWhiteSpace(cfg.DefaultWarmupMode)) cfg.DefaultWarmupMode = "human_organic";
-                    if (cfg.ConfigMigrationVersion < 241)
+                    if (cfg.ConfigMigrationVersion < 261)
                     {
                         if (cfg.MaxViasPerProxyInBatch == 2) cfg.MaxViasPerProxyInBatch = 4;
-                        cfg.ConfigMigrationVersion = 250;
-                        try { cfg.Save(path); } catch { }
-                    }
-                    else if (cfg.ConfigMigrationVersion < 250)
-                    {
-                        cfg.ConfigMigrationVersion = 250;
+                        cfg.UseIsolatedProfiles = true;
+                        cfg.ConfigMigrationVersion = 261;
                         try { cfg.Save(path); } catch { }
                     }
                     return cfg;
@@ -308,8 +308,10 @@ public sealed class DesktopConfig
         DefaultStaggerSeconds = Math.Max(18, src.DefaultStaggerSeconds);
         PreCheckProxyBeforeLaunch = src.PreCheckProxyBeforeLaunch;
         MaxViasPerProxyInBatch = Math.Clamp(src.MaxViasPerProxyInBatch < 1 ? 4 : src.MaxViasPerProxyInBatch, 1, 50);
+        MaxDirectIpViasInBatch = Math.Clamp(src.MaxDirectIpViasInBatch < 1 ? 3 : src.MaxDirectIpViasInBatch, 1, 20);
         MaxPagesPerProxyInBatch = Math.Clamp(src.MaxPagesPerProxyInBatch < 1 ? 2 : src.MaxPagesPerProxyInBatch, 1, 20);
         SameProxyMinStaggerSeconds = Math.Clamp(src.SameProxyMinStaggerSeconds < 15 ? 55 : src.SameProxyMinStaggerSeconds, 15, 300);
+        BrowserHangTimeoutSeconds = Math.Clamp(src.BrowserHangTimeoutSeconds < 60 ? 210 : src.BrowserHangTimeoutSeconds, 60, 900);
         WarmupBeforeCreate = src.WarmupBeforeCreate;
         AutoUploadMedia = src.AutoUploadMedia;
         AutoCloseKeepAliveTab = src.AutoCloseKeepAliveTab;
@@ -326,7 +328,7 @@ public sealed class DesktopConfig
         EnableChromeAntidetectShield = src.EnableChromeAntidetectShield;
         LowRamFarmMode = src.LowRamFarmMode;
         MaxConcurrentBrowsers = Math.Clamp(src.MaxConcurrentBrowsers < 1 ? 6 : src.MaxConcurrentBrowsers, 1, 30);
-        ConfigMigrationVersion = 250;
+        ConfigMigrationVersion = 261;
     }
 
     public void Save(string? customPath = null)
@@ -1100,6 +1102,8 @@ public sealed class ViaWorkspaceEntry
     public bool IsBrowserRunning { get; set; }
     public double ActiveRamMb { get; set; }
     public double ActiveCpuPercent { get; set; }
+    public bool HasVaultCookie { get; set; }
+    public bool HasLocalTwoFa { get; set; }
 }
 
 public sealed class AutomationPlaybookStepDto
@@ -1970,6 +1974,7 @@ public sealed class TrackedChromeSessionDto
     [JsonPropertyName("url")] public string Url { get; set; } = "";
     [JsonPropertyName("started_at")] public DateTimeOffset StartedAt { get; set; }
     [JsonPropertyName("keep_alive_closed")] public bool KeepAliveClosed { get; set; }
+    [JsonPropertyName("hung_reaped")] public bool HungReaped { get; set; }
     [JsonPropertyName("closed_at")] public DateTimeOffset? ClosedAt { get; set; }
     [JsonPropertyName("alive")] public bool Alive { get; set; }
     [JsonPropertyName("ram_mb")] public double RamMb { get; set; }
@@ -2159,15 +2164,17 @@ public sealed class ChromeSessionTracker
             }
         }
 
-        string status = src.KeepAliveClosed
-            ? "Đã tự đóng sau Keep-Alive"
-            : alive
-                ? $"Đang mở (PID {src.Pid} • {ramMb:0.0} MB • {cpuPct:0.0}% CPU)"
-                : src.ClosedAt.HasValue
-                    ? "Đã đóng"
-                    : src.Pid.HasValue
-                        ? "Đã chuyển tab vào Chrome sẵn / thoát"
-                        : "Không có PID";
+        string status = src.HungReaped
+            ? "⏱️ Đã tự đóng do treo quá hạn"
+            : src.KeepAliveClosed
+                ? "Đã tự đóng sau Keep-Alive"
+                : alive
+                    ? $"Đang mở (PID {src.Pid} • {ramMb:0.0} MB • {cpuPct:0.0}% CPU)"
+                    : src.ClosedAt.HasValue
+                        ? "Đã đóng"
+                        : src.Pid.HasValue
+                            ? "Đã chuyển tab vào Chrome sẵn / thoát"
+                            : "Không có PID";
 
         return new TrackedChromeSessionDto
         {
@@ -2179,6 +2186,7 @@ public sealed class ChromeSessionTracker
             Url = src.Url,
             StartedAt = src.StartedAt,
             KeepAliveClosed = src.KeepAliveClosed,
+            HungReaped = src.HungReaped,
             ClosedAt = src.ClosedAt,
             Alive = alive,
             RamMb = ramMb,
@@ -2187,12 +2195,51 @@ public sealed class ChromeSessionTracker
             StatusText = status,
         };
     }
+
+    public List<TrackedChromeSessionDto> ReapHungSessions(int timeoutSeconds)
+    {
+        var reaped = new List<TrackedChromeSessionDto>();
+        if (timeoutSeconds < 0) return reaped;
+        var now = DateTimeOffset.UtcNow;
+        List<TrackedChromeSessionDto> candidates;
+        lock (_gate)
+        {
+            candidates = _sessions
+                .Where(s => !s.ClosedAt.HasValue &&
+                            s.Pid.HasValue &&
+                            s.Pid.Value > 0 &&
+                            (now - s.StartedAt).TotalSeconds >= timeoutSeconds)
+                .ToList();
+            foreach (var c in candidates)
+            {
+                try
+                {
+                    using var proc = System.Diagnostics.Process.GetProcessById(c.Pid!.Value);
+                    if (!proc.HasExited && IsSupportedBrowserProcessName(proc.ProcessName))
+                    {
+                        if (!proc.CloseMainWindow())
+                        {
+                            proc.Kill(entireProcessTree: false);
+                        }
+                    }
+                }
+                catch
+                {
+                    // Process already exited or unreachable; mark closed so queue doesn't stall
+                }
+                c.HungReaped = true;
+                c.ClosedAt = now;
+                reaped.Add(CloneWithProcessProbe(c, _cpuSamples, _gate));
+            }
+        }
+        return reaped;
+    }
 }
 
 public static class DesktopAppInfo
 {
-    public const string Version = "2.6.0";
-    public const string DisplayVersion = "v2.6.0";
+    public const string Version = "2.6.1";
+    public const string DisplayVersion = "v2.6.1";
     public const string ExtVersion = "2.9.8";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 
@@ -3511,5 +3558,201 @@ public static class ViaTrustEvaluator
 
         score = Math.Clamp(score, 0, 100);
         return (score, string.Join(" • ", notes));
+    }
+}
+
+public static class ViaBulkDistributor
+{
+    public static List<(ViaWorkspaceEntry Via, string AssignedProxy)> DistributeProxies(
+        IReadOnlyList<ViaWorkspaceEntry> vias,
+        IEnumerable<string> rawProxyLines,
+        int maxPerProxy = 4)
+    {
+        var result = new List<(ViaWorkspaceEntry Via, string AssignedProxy)>();
+        if (vias == null || vias.Count == 0 || rawProxyLines == null) return result;
+
+        var cleanProxies = rawProxyLines
+            .Select(x => (x ?? "").Trim())
+            .Where(x => !string.IsNullOrWhiteSpace(x) && ExtensionProvisioner.ParseProxy(x) != null)
+            .ToList();
+        if (cleanProxies.Count == 0) return result;
+
+        var cap = Math.Clamp(maxPerProxy, 1, 50);
+        int proxyIdx = 0;
+        int usedOnCurrent = 0;
+        foreach (var v in vias)
+        {
+            if (proxyIdx >= cleanProxies.Count) break;
+            result.Add((v, cleanProxies[proxyIdx]));
+            usedOnCurrent++;
+            if (usedOnCurrent >= cap)
+            {
+                proxyIdx++;
+                usedOnCurrent = 0;
+            }
+        }
+        return result;
+    }
+
+    public static List<(ViaWorkspaceEntry Via, string NewProfileDir)> AllocateDistinctChromeProfiles(
+        IReadOnlyList<ViaWorkspaceEntry> targetVias,
+        IReadOnlyList<ViaWorkspaceEntry> allVias)
+    {
+        var result = new List<(ViaWorkspaceEntry Via, string NewProfileDir)>();
+        if (targetVias == null || targetVias.Count == 0) return result;
+
+        var targetIds = new HashSet<string>(targetVias.Select(v => v.ViaId), StringComparer.OrdinalIgnoreCase);
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (allVias != null)
+        {
+            foreach (var v in allVias)
+            {
+                if (!targetIds.Contains(v.ViaId) && !string.IsNullOrWhiteSpace(v.ProfileDir))
+                {
+                    used.Add(v.ProfileDir.Trim());
+                }
+            }
+        }
+
+        int nextNum = 1;
+        string NextFreeProfile()
+        {
+            while (nextNum <= 9999)
+            {
+                var candidate = $"Profile {nextNum}";
+                nextNum++;
+                if (used.Add(candidate)) return candidate;
+            }
+            return $"Profile {Guid.NewGuid().ToString("N")[..4]}";
+        }
+
+        foreach (var v in targetVias)
+        {
+            var cur = (v.ProfileDir ?? "").Trim();
+            if (!string.IsNullOrEmpty(cur) &&
+                !string.Equals(cur, "Default", StringComparison.OrdinalIgnoreCase) &&
+                used.Add(cur))
+            {
+                continue;
+            }
+            result.Add((v, NextFreeProfile()));
+        }
+        return result;
+    }
+}
+
+public sealed class QueueResumeStateDto
+{
+    [JsonPropertyName("kind")] public string Kind { get; set; } = "";
+    [JsonPropertyName("updated_at_utc")] public string UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow.ToString("O");
+    [JsonPropertyName("completed_via_ids")] public List<string> CompletedViaIds { get; set; } = new();
+}
+
+public static class QueueResumeStateStore
+{
+    private static readonly object _gate = new();
+    public static string DefaultFilePath => Path.Combine(DesktopConfig.AppDataRoot, "queue_resume.json");
+
+    public static void RecordItemLaunched(QueueKind kind, string viaId, string? customPath = null)
+    {
+        var cleanId = (viaId ?? "").Trim();
+        if (string.IsNullOrEmpty(cleanId)) return;
+        var path = customPath ?? DefaultFilePath;
+        var kindStr = kind.ToString();
+        lock (_gate)
+        {
+            QueueResumeStateDto? state = null;
+            try
+            {
+                if (File.Exists(path))
+                {
+                    state = JsonSerializer.Deserialize<QueueResumeStateDto>(File.ReadAllText(path, Encoding.UTF8));
+                }
+            }
+            catch { state = null; }
+
+            var validExisting = state != null &&
+                                string.Equals(state.Kind, kindStr, StringComparison.OrdinalIgnoreCase) &&
+                                DateTimeOffset.TryParse(state.UpdatedAtUtc, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var ts) &&
+                                (DateTimeOffset.UtcNow - ts).TotalHours < 6.0;
+
+            if (!validExisting)
+            {
+                state = new QueueResumeStateDto { Kind = kindStr };
+            }
+            state!.CompletedViaIds ??= new List<string>();
+            if (!state.CompletedViaIds.Any(x => string.Equals(x, cleanId, StringComparison.OrdinalIgnoreCase)))
+            {
+                state.CompletedViaIds.Add(cleanId);
+            }
+            state.UpdatedAtUtc = DateTimeOffset.UtcNow.ToString("O");
+
+            try
+            {
+                var dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                File.WriteAllText(path, JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
+            }
+            catch { }
+        }
+    }
+
+    public static void Clear(string? customPath = null)
+    {
+        var path = customPath ?? DefaultFilePath;
+        lock (_gate)
+        {
+            try
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+            catch { }
+        }
+    }
+
+    public static List<QueueTaskItem> FilterRemainingItems(
+        QueueKind kind,
+        IReadOnlyList<QueueTaskItem> items,
+        out int skippedCompletedCount,
+        string? customPath = null)
+    {
+        skippedCompletedCount = 0;
+        if (items == null || items.Count == 0) return new List<QueueTaskItem>();
+
+        var path = customPath ?? DefaultFilePath;
+        var kindStr = kind.ToString();
+        QueueResumeStateDto? state = null;
+        lock (_gate)
+        {
+            try
+            {
+                if (!File.Exists(path)) return items.ToList();
+                state = JsonSerializer.Deserialize<QueueResumeStateDto>(File.ReadAllText(path, Encoding.UTF8));
+            }
+            catch
+            {
+                return items.ToList();
+            }
+        }
+
+        if (state == null ||
+            !string.Equals(state.Kind, kindStr, StringComparison.OrdinalIgnoreCase) ||
+            state.CompletedViaIds == null ||
+            state.CompletedViaIds.Count == 0 ||
+            !DateTimeOffset.TryParse(state.UpdatedAtUtc, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var ts) ||
+            (DateTimeOffset.UtcNow - ts).TotalHours >= 4.0)
+        {
+            return items.ToList();
+        }
+
+        var done = new HashSet<string>(state.CompletedViaIds.Where(x => !string.IsNullOrWhiteSpace(x)), StringComparer.OrdinalIgnoreCase);
+        var remaining = items.Where(it => string.IsNullOrWhiteSpace(it.ViaId) || !done.Contains(it.ViaId.Trim())).ToList();
+        if (remaining.Count == 0)
+        {
+            Clear(customPath);
+            return items.ToList();
+        }
+        skippedCompletedCount = items.Count - remaining.Count;
+        return remaining;
     }
 }

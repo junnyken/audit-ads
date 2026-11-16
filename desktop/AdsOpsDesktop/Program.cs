@@ -277,8 +277,8 @@ internal static class Program
             healthResp.EnsureSuccessStatusCode();
             var healthBody = await healthResp.Content.ReadAsStringAsync();
             if (!healthBody.Contains("\"app\":\"AdsOpsDesktop\"", StringComparison.Ordinal) ||
-                !healthBody.Contains("\"version\":\"2.6.0\"", StringComparison.Ordinal) ||
-                !healthBody.Contains("\"extVersion\":\"2.9.8\"", StringComparison.Ordinal))
+                !healthBody.Contains($"\"version\":\"{DesktopAppInfo.Version}\"", StringComparison.Ordinal) ||
+                !healthBody.Contains($"\"extVersion\":\"{DesktopAppInfo.ExtVersion}\"", StringComparison.Ordinal))
             {
                 throw new InvalidOperationException($"Unexpected /health response: {healthBody}");
             }
@@ -790,12 +790,12 @@ internal static class Program
             if (string.Join(",", interleaved.Select(x => x.ViaId)) != "a1,b1,a2,b2")
                 throw new InvalidOperationException($"InterleaveByProxy mismatch: {string.Join(",", interleaved.Select(x => x.ViaId))}");
 
-            // ConfigMigrationVersion 2 -> 4 check
+            // ConfigMigrationVersion 2 -> 4 check + Isolated Chrome default
             var legCfgPath = Path.Combine(tempRoot, "legacy_cfg.json");
             File.WriteAllText(legCfgPath, "{\"MaxViasPerProxyInBatch\":2}");
             var migratedCfg = DesktopConfig.Load(legCfgPath);
-            if (migratedCfg.MaxViasPerProxyInBatch != 4 || migratedCfg.ConfigMigrationVersion != 250)
-                throw new InvalidOperationException($"DesktopConfig migration failed: max={migratedCfg.MaxViasPerProxyInBatch}, mig={migratedCfg.ConfigMigrationVersion}");
+            if (migratedCfg.MaxViasPerProxyInBatch != 4 || migratedCfg.ConfigMigrationVersion != 261 || !migratedCfg.UseIsolatedProfiles)
+                throw new InvalidOperationException($"DesktopConfig migration failed: max={migratedCfg.MaxViasPerProxyInBatch}, mig={migratedCfg.ConfigMigrationVersion}, iso={migratedCfg.UseIsolatedProfiles}");
 
             // 18. v2.4.2 Custom Proxy Cluster Capacity (1-50) & 5-Layer Workstation Migration Backup
             var eightCluster = Enumerable.Range(1, 8).Select(i => new ViaWorkspaceEntry
@@ -1199,6 +1199,83 @@ internal static class Program
 
                 fbBridge.Dispose();
                 busyListener.Stop();
+            }
+
+            // 29. v2.6.1 Stability & Bulk Ops Verification (Isolated Default, Direct IP Cap, Bulk Proxy/Profile, Crash-Safe Resume, Hang Watchdog)
+            {
+                var defCfg = new DesktopConfig();
+                if (!defCfg.UseIsolatedProfiles || defCfg.MaxDirectIpViasInBatch != 3)
+                    throw new InvalidOperationException($"Default config mismatch: UseIsolated={defCfg.UseIsolatedProfiles}, MaxDirect={defCfg.MaxDirectIpViasInBatch}");
+
+                // Direct IP batch cap test
+                var dirLaunched = new List<string>();
+                using var dirEngine = new AutomationQueueEngine(
+                    _ => Task.FromResult((true, "Direct")),
+                    item => { dirLaunched.Add(item.ViaId); return Task.CompletedTask; },
+                    _ => Task.CompletedTask,
+                    _ => { });
+                dirEngine.ConfigureTiming(tickIntervalMs: 12, syncWaitSeconds: 1);
+                dirEngine.StartQueue(
+                    QueueKind.KeepAlive,
+                    Enumerable.Range(1, 4).Select(i => new QueueTaskItem($"dip-{i}", $"Via Direct {i}", $"Profile {40 + i}", "", "https://www.facebook.com/", "KA", "standard_via")).ToList(),
+                    baseStaggerSeconds: 1,
+                    preCheckProxy: false,
+                    maxViasPerProxy: 4,
+                    enforceDaytimeWindow: false,
+                    maxDirectIpVias: 2,
+                    resumeStateFilePath: Path.Combine(tempRoot, "direct_cap_resume.json"));
+                var dirDeadline = DateTime.UtcNow.AddSeconds(5);
+                while (dirEngine.Current.Phase != QueuePhase.Completed && DateTime.UtcNow < dirDeadline)
+                {
+                    await Task.Delay(20);
+                }
+                if (dirEngine.Current.LaunchedCount != 2 || dirEngine.Current.SkippedCount != 2)
+                    throw new InvalidOperationException($"Direct IP Batch Cap failed: launched={dirEngine.Current.LaunchedCount}, skipped={dirEngine.Current.SkippedCount}");
+
+                // Bulk 1:4 Proxy Distributor + Distinct Profile Allocator
+                var bulkVias = Enumerable.Range(1, 9).Select(i => new ViaWorkspaceEntry
+                {
+                    ViaId = $"bv-{i}",
+                    Label = $"Via Bulk {i}",
+                    ProfileDir = "Default",
+                }).ToList();
+                var distPlan = ViaBulkDistributor.DistributeProxies(
+                    bulkVias,
+                    new[] { "103.10.20.1:8080:u1:p1", "103.10.20.2:8080:u2:p2" },
+                    maxPerProxy: 4);
+                if (distPlan.Count != 8 ||
+                    distPlan.Count(x => x.AssignedProxy.StartsWith("103.10.20.1", StringComparison.Ordinal)) != 4 ||
+                    distPlan.Count(x => x.AssignedProxy.StartsWith("103.10.20.2", StringComparison.Ordinal)) != 4)
+                {
+                    throw new InvalidOperationException($"ViaBulkDistributor.DistributeProxies count mismatch: {distPlan.Count}");
+                }
+                var profPlan = ViaBulkDistributor.AllocateDistinctChromeProfiles(bulkVias.Take(3).ToList(), bulkVias);
+                if (profPlan.Count != 3 ||
+                    profPlan[0].NewProfileDir != "Profile 1" ||
+                    profPlan[1].NewProfileDir != "Profile 2" ||
+                    profPlan[2].NewProfileDir != "Profile 3")
+                {
+                    throw new InvalidOperationException($"AllocateDistinctChromeProfiles mismatch: {string.Join(",", profPlan.Select(p => p.NewProfileDir))}");
+                }
+
+                // Crash-Safe Queue Resume Store
+                var resumePath = Path.Combine(tempRoot, "queue_resume_test.json");
+                QueueResumeStateStore.RecordItemLaunched(QueueKind.KeepAlive, "r-1", resumePath);
+                QueueResumeStateStore.RecordItemLaunched(QueueKind.KeepAlive, "r-2", resumePath);
+                var allResumeItems = Enumerable.Range(1, 4).Select(i => new QueueTaskItem($"r-{i}", $"Via R{i}", $"Profile {50 + i}", "", "https://www.facebook.com/", "KA", "standard_via")).ToList();
+                var remainingItems = QueueResumeStateStore.FilterRemainingItems(QueueKind.KeepAlive, allResumeItems, out var skippedResume, resumePath);
+                if (skippedResume != 2 || remainingItems.Count != 2 || remainingItems[0].ViaId != "r-3" || remainingItems[1].ViaId != "r-4")
+                    throw new InvalidOperationException($"QueueResumeStateStore failed: skipped={skippedResume}, rem={remainingItems.Count}");
+                QueueResumeStateStore.Clear(resumePath);
+                if (File.Exists(resumePath))
+                    throw new InvalidOperationException("QueueResumeStateStore.Clear failed to delete state file");
+
+                // Browser Hang Watchdog (ReapHungSessions)
+                var hangTracker = new ChromeSessionTracker();
+                var trackedHung = hangTracker.RecordLaunch(999999, "vh-1", "Via Hung", "Profile 77", "https://www.facebook.com/");
+                var reaped = hangTracker.ReapHungSessions(0);
+                if (reaped.Count != 1 || !reaped[0].HungReaped || reaped[0].SessionId != trackedHung.SessionId)
+                    throw new InvalidOperationException($"ChromeSessionTracker.ReapHungSessions failed: count={reaped.Count}");
             }
 
             Console.WriteLine("ADSOPS_DESKTOP_V260_SELFTEST_100_PASS");
