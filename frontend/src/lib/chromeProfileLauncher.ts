@@ -437,11 +437,180 @@ export async function probeLocalDesktopBridge(timeoutMs = 1100): Promise<LocalBr
   }
 }
 
+export type AntidetectEngineKey =
+  | 'chrome_native'
+  | 'adspower'
+  | 'dolphin_anty'
+  | 'hidemyacc'
+  | 'genlogin'
+  | 'gologin'
+
+export const ANTIDETECT_ENGINE_OPTIONS: Array<{ key: AntidetectEngineKey; label: string }> = [
+  { key: 'chrome_native', label: 'Chrome Gốc (Khiên WebRTC)' },
+  { key: 'adspower', label: 'AdsPower (:50325)' },
+  { key: 'dolphin_anty', label: 'Dolphin{anty} (:3001)' },
+  { key: 'hidemyacc', label: 'Hidemyacc (:12368)' },
+  { key: 'genlogin', label: 'Genlogin (:55550)' },
+  { key: 'gologin', label: 'GoLogin Orbita (:36912)' },
+]
+
+export function normalizeAntidetectEngine(raw?: string | null): AntidetectEngineKey {
+  const s = (raw || '').trim().toLowerCase()
+  if (s === 'adspower') return 'adspower'
+  if (s === 'dolphin' || s === 'dolphin_anty' || s === 'dolphin-anty') return 'dolphin_anty'
+  if (s === 'hidemyacc') return 'hidemyacc'
+  if (s === 'genlogin') return 'genlogin'
+  if (s === 'gologin' || s === 'orbita') return 'gologin'
+  return 'chrome_native'
+}
+
+export function getAntidetectEngineLabel(raw?: string | null): string {
+  const k = normalizeAntidetectEngine(raw)
+  return {
+    chrome_native: 'Chrome Gốc',
+    adspower: 'AdsPower',
+    dolphin_anty: 'Dolphin{anty}',
+    hidemyacc: 'Hidemyacc',
+    genlogin: 'Genlogin',
+    gologin: 'GoLogin',
+  }[k]
+}
+
+export function parseAntidetectFromNotes(notesRaw?: string | null): {
+  engine: AntidetectEngineKey
+  profileId: string
+  cleanNotes: string
+} {
+  const raw = String(notesRaw || '')
+  const engM = raw.match(/\[ADENG:([a-z0-9_-]+)\]/i)
+  const idM = raw.match(/\[ADID:([^\]]+)\]/i)
+  const engine = normalizeAntidetectEngine(engM?.[1])
+  const profileId = (idM?.[1] || '').trim()
+  const cleanNotes = raw
+    .replace(/\[ADENG:[a-z0-9_-]+\]/gi, '')
+    .replace(/\[ADID:[^\]]+\]/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return { engine, profileId, cleanNotes }
+}
+
+export function canMemberLaunchVia(
+  userRole?: string | null,
+  currentMemberId?: string | null,
+  viaOwnerMemberId?: string | null,
+): { allowed: boolean; reason: string } {
+  const role = (userRole || '').trim().toLowerCase()
+  if (role === 'viewer' || role === 'auditor') {
+    return {
+      allowed: false,
+      reason: `Vai trò ${role} chỉ có quyền xem/kiểm toán, không được phép mở trình duyệt Via.`,
+    }
+  }
+  const ownerId = (viaOwnerMemberId || '').trim()
+  if (ownerId && role !== 'owner' && role !== 'admin') {
+    if (!currentMemberId || ownerId.toLowerCase() !== currentMemberId.trim().toLowerCase()) {
+      return {
+        allowed: false,
+        reason: 'Via này đã phân công riêng cho thành viên khác phụ trách.',
+      }
+    }
+  }
+  return { allowed: true, reason: '' }
+}
+
+export interface WorkstationMemoryTelemetry {
+  total_physical_mb: number
+  available_physical_mb: number
+  memory_load_percent: number
+  recommended_max_concurrent: number
+}
+
+export interface WorkstationSessionItem {
+  session_id: string
+  pid: number | null
+  via_id: string
+  via_label: string
+  profile_dir: string
+  alive: boolean
+  ram_mb: number
+  cpu_percent?: number
+  antidetect_engine?: string
+  status_text: string
+}
+
+export interface AntidetectBenchmarkItem {
+  Online: boolean
+  Engine: string
+  BaseUrl: string
+  Message: string
+  ProfileCount: number
+  LatencyMs: number
+}
+
+export async function fetchWorkstationTelemetry(timeoutMs = 1500): Promise<{
+  ok: boolean
+  active_count: number
+  sessions: WorkstationSessionItem[]
+  workstation_memory?: WorkstationMemoryTelemetry
+}> {
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    const resp = await fetch('http://127.0.0.1:17890/chrome-sessions', {
+      method: 'GET',
+      headers: buildWebBridgeHeaders(),
+      signal: controller.signal,
+    })
+    clearTimeout(timer)
+    if (!resp.ok) return { ok: false, active_count: 0, sessions: [] }
+    return (await resp.json()) as {
+      ok: boolean
+      active_count: number
+      sessions: WorkstationSessionItem[]
+      workstation_memory?: WorkstationMemoryTelemetry
+    }
+  } catch {
+    return { ok: false, active_count: 0, sessions: [] }
+  }
+}
+
+export async function fetchAntidetectBenchmark(timeoutMs = 7000): Promise<{
+  ok: boolean
+  recommended_engine: AntidetectEngineKey
+  probes: AntidetectBenchmarkItem[]
+  workstation_memory?: WorkstationMemoryTelemetry
+} | null> {
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    const resp = await fetch('http://127.0.0.1:17890/antidetect/benchmark', {
+      method: 'GET',
+      headers: buildWebBridgeHeaders(),
+      signal: controller.signal,
+    })
+    clearTimeout(timer)
+    if (!resp.ok) return null
+    return (await resp.json()) as {
+      ok: boolean
+      recommended_engine: AntidetectEngineKey
+      probes: AntidetectBenchmarkItem[]
+      workstation_memory?: WorkstationMemoryTelemetry
+    }
+  } catch {
+    return null
+  }
+}
+
 export async function launchInAssignedChromeProfile(
   targetUrl: string,
   browserProfileLabel?: string | null,
   viaLabel?: string | null,
   proxyLabel?: string | null,
+  extra?: {
+    viaId?: string | null
+    antidetectEngine?: string | null
+    antidetectProfileId?: string | null
+  },
 ): Promise<'bridge' | 'protocol'> {
   const profileDir = resolveChromeProfileDirectory(browserProfileLabel, viaLabel)
   const nameHint = (browserProfileLabel || viaLabel || '').trim()
@@ -458,10 +627,13 @@ export async function launchInAssignedChromeProfile(
       method: 'POST',
       headers: buildWebBridgeHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
+        via_id: extra?.viaId || undefined,
         profile: profileDir,
         name: nameHint,
         proxy: cleanProxy,
         url: targetUrl,
+        antidetect_engine: extra?.antidetectEngine || undefined,
+        antidetect_profile_id: extra?.antidetectProfileId || undefined,
       }),
       signal: controller.signal,
     })
@@ -878,9 +1050,9 @@ export function buildExtensionFilesForVia(
       ? `AdsOps Companion Pro · ${profileDir} · Proxy ${parsed!.host}:${parsed!.port}`
       : `AdsOps Companion Pro · ${profileDir} (${viaName})`,
     short_name: 'AdsOps Companion Pro',
-    version: '2.9.7',
+    version: '2.9.8',
     description:
-      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.9.7 Pro: Bảo mật Zero-Trust Bridge Token, Antidetect & Tab Automatic Nuôi Trust, Kill-Switch chống rò rỉ IP Proxy, Ngâm 72h + Cooldown 24h, Két DPAPI, Anti-Passkey & 2FA.',
+      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.9.8 Pro: Đa Engine Antidetect (AdsPower/Dolphin/Hidemyacc/Genlogin/GoLogin), Benchmark Tốc độ & Auto-Failover, Zero-Trust Bridge Token, IP-Timezone Guard, Ngâm 72h & Két DPAPI.',
     permissions: [
       'proxy',
       'privacy',
@@ -952,7 +1124,7 @@ export function buildExtensionFilesForVia(
 
   // Runs in MAIN world at document_start BEFORE Facebook's scripts load:
   // Completely blocks Windows Hello / WebAuthn / Passkey popup from ever appearing!
-  const passkeyShieldJs = `// AdsOps Companion Pro v2.9.7 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
+  const passkeyShieldJs = `// AdsOps Companion Pro v2.9.8 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
 (function() {
   try {
     if (window.PublicKeyCredential) {
@@ -1846,7 +2018,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   <div class="header">
     <div class="brand">
       <span class="logo">AO</span>
-      <span>AdsOps Companion v2.9.7 Pro</span>
+      <span>AdsOps Companion v2.9.8 Pro</span>
     </div>
     <div style="display:flex; align-items:center; gap:5px;">
       <span id="hdr-trust-badge" class="badge badge-ok" title="Điểm Tin Cậy Môi Trường">🛡️ --/100</span>
@@ -1964,7 +2136,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           <button id="btn-export-cookie" type="button" class="btn btn-primary">🍪 Chép Cookie FB</button>
           <button id="btn-extract-token" type="button" class="btn btn-emerald">⚡ Bắt Token EAAB</button>
         </div>
-        <button id="btn-jump-auto" type="button" class="btn btn-amber" style="width:100%; margin-bottom:6px;">🤖 Mở Tab Automatic &amp; Đảo Ấm Sinh Học v2.9.7 →</button>
+        <button id="btn-jump-auto" type="button" class="btn btn-amber" style="width:100%; margin-bottom:6px;">🤖 Mở Tab Automatic &amp; Đảo Ấm Sinh Học v2.9.8 →</button>
         <textarea id="cookie-box" rows="2" class="mono" placeholder="Dán Cookie JSON hoặc c_user=...; xs=... vào đây để đăng nhập Via không cần mật khẩu"></textarea>
         <div class="btn-row">
           <button id="btn-import-cookie" type="button" class="btn">📥 Nạp Cookie vào Chrome này</button>
@@ -2058,7 +2230,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     <div class="card">
       <div class="section-title">
         <span>4. ☕ Automatic Đảo Ấm Sinh Học (4 Chế Độ)</span>
-        <span style="font-size:9.5px; color:#fcd34d;">v2.9.7</span>
+        <span style="font-size:9.5px; color:#fcd34d;">v2.9.8</span>
       </div>
       <select id="ka-mode-select" style="margin-bottom:6px; font-weight:600;">
         <option value="human_organic">☕ Đảo Ấm Sinh Học (Feed → Watch / Thông báo / Profile)</option>

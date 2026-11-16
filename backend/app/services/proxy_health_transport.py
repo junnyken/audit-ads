@@ -116,12 +116,17 @@ def _resolve_safe_public_ip(host: str, port: int) -> str:
 def _parse_geo_json(data: dict[str, Any]) -> dict[str, str | None]:
     if data.get("ip"):
         conn = data.get("connection") if isinstance(data.get("connection"), dict) else {}
+        tz_raw = data.get("timezone")
+        tz_id = tz_raw.get("id") if isinstance(tz_raw, dict) else tz_raw
+        tz_utc = tz_raw.get("utc") if isinstance(tz_raw, dict) else None
         return {
             "exit_ip": str(data.get("ip") or "").strip()[:64] or None,
             "country_code": str(data.get("country_code") or "").strip()[:8] or None,
             "country_name": str(data.get("country") or "").strip()[:80] or None,
             "city": str(data.get("city") or "").strip()[:80] or None,
             "isp": str(conn.get("isp") or conn.get("org") or "").strip()[:100] or None,
+            "timezone": str(tz_id or "").strip()[:64] or None,
+            "utc_offset": str(tz_utc or "").strip()[:16] or None,
         }
     return {
         "exit_ip": str(data.get("query") or "").strip()[:64] or None,
@@ -129,7 +134,44 @@ def _parse_geo_json(data: dict[str, Any]) -> dict[str, str | None]:
         "country_name": str(data.get("country") or "").strip()[:80] or None,
         "city": str(data.get("city") or "").strip()[:80] or None,
         "isp": str(data.get("isp") or data.get("org") or "").strip()[:100] or None,
+        "timezone": str(data.get("timezone") or "").strip()[:64] or None,
+        "utc_offset": None,
     }
+
+
+_TZ_ALIASES = {
+    "asia/saigon": "asia/ho_chi_minh",
+    "asia/ho_chi_minh": "asia/ho_chi_minh",
+    "asia/calcutta": "asia/kolkata",
+    "europe/kiev": "europe/kyiv",
+    "us/eastern": "america/new_york",
+    "us/central": "america/chicago",
+    "us/pacific": "america/los_angeles",
+}
+
+
+def normalize_timezone_iana(tz: str | None) -> str:
+    clean = (tz or "").strip().lower()
+    return _TZ_ALIASES.get(clean, clean)
+
+
+def evaluate_proxy_timezone_match(
+    exit_timezone: str | None,
+    exit_country: str | None,
+    expected_timezone: str | None,
+) -> tuple[bool | None, str | None]:
+    """Compare proxy exit IP timezone against expected Via/workstation timezone."""
+    norm_exit = normalize_timezone_iana(exit_timezone)
+    norm_expected = normalize_timezone_iana(expected_timezone)
+    if not norm_exit or not norm_expected:
+        return None, None
+    if norm_exit == norm_expected:
+        return True, None
+    country_hint = f" ({exit_country})" if exit_country else ""
+    return (
+        False,
+        f"Lệch múi giờ: Proxy IP ở {exit_timezone}{country_hint} nhưng cấu hình Via/Máy là {expected_timezone}",
+    )
 
 
 def _check_socks5(spec: dict[str, Any], target_ip: str, timeout: float) -> dict[str, str | None]:
@@ -172,7 +214,7 @@ def _check_socks5(spec: dict[str, Any], target_ip: str, timeout: float) -> dict[
         ctx = ssl.create_default_context()
         with ctx.wrap_socket(sock, server_hostname="ipwho.is") as ssock:
             http_req = (
-                b"GET /?fields=success,ip,country,country_code,city,connection HTTP/1.1\r\n"
+                b"GET /?fields=success,ip,country,country_code,city,connection,timezone HTTP/1.1\r\n"
                 b"Host: ipwho.is\r\n"
                 b"User-Agent: AdsOps-Proxy-Check/1.0\r\n"
                 b"Connection: close\r\n\r\n"
@@ -214,6 +256,8 @@ def check_proxy_live(raw_proxy: str, timeout_seconds: float = 6.0) -> dict[str, 
             "country_name": None,
             "city": None,
             "isp": None,
+            "timezone": None,
+            "utc_offset": None,
             "latency_ms": None,
             "normalized_key": "",
             "masked_label": "",
@@ -233,6 +277,8 @@ def check_proxy_live(raw_proxy: str, timeout_seconds: float = 6.0) -> dict[str, 
             "country_name": None,
             "city": None,
             "isp": None,
+            "timezone": None,
+            "utc_offset": None,
             "latency_ms": None,
             "normalized_key": spec["normalized_key"],
             "masked_label": spec["masked_label"],
@@ -249,6 +295,8 @@ def check_proxy_live(raw_proxy: str, timeout_seconds: float = 6.0) -> dict[str, 
             "country_name": None,
             "city": None,
             "isp": None,
+            "timezone": None,
+            "utc_offset": None,
             "latency_ms": None,
             "normalized_key": spec["normalized_key"],
             "masked_label": spec["masked_label"],
@@ -270,13 +318,13 @@ def check_proxy_live(raw_proxy: str, timeout_seconds: float = 6.0) -> dict[str, 
                 verify=True,
             ) as client:
                 try:
-                    resp = client.get("https://ipwho.is/?fields=success,ip,country,country_code,city,connection")
+                    resp = client.get("https://ipwho.is/?fields=success,ip,country,country_code,city,connection,timezone")
                     if resp.status_code == 200:
                         geo = _parse_geo_json(resp.json())
                     else:
                         raise RuntimeError(f"HTTP {resp.status_code}")
                 except Exception:
-                    resp2 = client.get("http://ip-api.com/json/?fields=status,query,country,countryCode,city,isp")
+                    resp2 = client.get("http://ip-api.com/json/?fields=status,query,country,countryCode,city,isp,timezone")
                     if resp2.status_code != 200:
                         raise RuntimeError(f"Proxy HTTP {resp2.status_code}")
                     geo = _parse_geo_json(resp2.json())
@@ -293,6 +341,8 @@ def check_proxy_live(raw_proxy: str, timeout_seconds: float = 6.0) -> dict[str, 
             "country_name": geo["country_name"],
             "city": geo["city"],
             "isp": geo["isp"],
+            "timezone": geo.get("timezone"),
+            "utc_offset": geo.get("utc_offset"),
             "latency_ms": latency_ms,
             "normalized_key": spec["normalized_key"],
             "masked_label": spec["masked_label"],
@@ -316,6 +366,8 @@ def check_proxy_live(raw_proxy: str, timeout_seconds: float = 6.0) -> dict[str, 
             "country_name": None,
             "city": None,
             "isp": None,
+            "timezone": None,
+            "utc_offset": None,
             "latency_ms": latency_ms,
             "normalized_key": spec["normalized_key"],
             "masked_label": spec["masked_label"],

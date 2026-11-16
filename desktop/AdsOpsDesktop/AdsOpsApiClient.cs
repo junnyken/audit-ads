@@ -203,11 +203,22 @@ public sealed class AdsOpsApiClient : IDisposable
     public Task<JsonElement> DiscardPageDraftAsync(string pageId, CancellationToken ct = default) =>
         SendJsonAsync<JsonElement>(HttpMethod.Delete, $"/api/v1/facebook-pages/{Uri.EscapeDataString(pageId)}/draft", null, ct);
 
-    public Task<ProxyCheckResultDto> CheckProxyLiveAsync(string proxyString, string viaLabel, CancellationToken ct = default) =>
+    public Task<ProxyCheckResultDto> CheckProxyLiveAsync(
+        string proxyString,
+        string viaLabel,
+        string? expectedTimezone = null,
+        CancellationToken ct = default) =>
         SendJsonAsync<ProxyCheckResultDto>(
             HttpMethod.Post,
             "/api/v1/proxies/check-live",
-            new { proxy_string = proxyString, timeout_seconds = 4.5, via_label = viaLabel, notify_on_dead = true },
+            new
+            {
+                proxy_string = proxyString,
+                timeout_seconds = 4.5,
+                via_label = viaLabel,
+                expected_timezone = string.IsNullOrWhiteSpace(expectedTimezone) ? null : expectedTimezone.Trim(),
+                notify_on_dead = true,
+            },
             ct);
 
     public Task<ProxyBatchCheckResponseDto> CheckProxyBatchAsync(CancellationToken ct = default) =>
@@ -556,6 +567,70 @@ public sealed class AdsOpsApiClient : IDisposable
             "/api/v1/community/redeem-code",
             new { code = code.Trim().ToUpperInvariant() },
             ct);
+
+    public Task<List<AutomationPlaybookDto>> ListPlaybooksAsync(string? platform = null, CancellationToken ct = default)
+    {
+        var qs = string.IsNullOrWhiteSpace(platform) || string.Equals(platform, "all", StringComparison.OrdinalIgnoreCase)
+            ? ""
+            : $"?platform={Uri.EscapeDataString(platform.Trim().ToLowerInvariant())}";
+        return SendJsonAsync<List<AutomationPlaybookDto>>(HttpMethod.Get, $"/api/v1/playbooks{qs}", null, ct);
+    }
+
+    public Task<AutomationPlaybookDto> CreatePlaybookAsync(
+        string title,
+        string platform,
+        string description,
+        int defaultStaggerSec,
+        int jitterPct,
+        List<AutomationPlaybookStepDto> steps,
+        CancellationToken ct = default) =>
+        SendJsonAsync<AutomationPlaybookDto>(
+            HttpMethod.Post,
+            "/api/v1/playbooks",
+            new
+            {
+                title = title.Trim(),
+                platform = platform.Trim().ToLowerInvariant(),
+                category = "custom",
+                description = description.Trim(),
+                version_tag = "1.0.0",
+                changelog = "Tạo bởi thành viên từ AdsOps Desktop Pro",
+                default_stagger_sec = Math.Clamp(defaultStaggerSec, 25, 600),
+                jitter_pct = Math.Clamp(jitterPct, 10, 60),
+                steps,
+            },
+            ct);
+
+    public Task<AutomationPlaybookDto> RatePlaybookAsync(string playbookId, int stars, string comment = "", CancellationToken ct = default) =>
+        SendJsonAsync<AutomationPlaybookDto>(
+            HttpMethod.Post,
+            $"/api/v1/playbooks/{Uri.EscapeDataString(playbookId)}/rate",
+            new { stars = Math.Clamp(stars, 1, 5), comment = comment.Trim() },
+            ct);
+
+    public Task<AutomationPlaybookDto> RecordPlaybookRunAsync(
+        string playbookId,
+        IEnumerable<string> viaIds,
+        string engine,
+        int staggerSec,
+        int jitterPct,
+        string workstation,
+        CancellationToken ct = default) =>
+        SendJsonAsync<AutomationPlaybookDto>(
+            HttpMethod.Post,
+            $"/api/v1/playbooks/{Uri.EscapeDataString(playbookId)}/record-run",
+            new
+            {
+                via_ids = new List<string>(viaIds),
+                engine,
+                stagger_sec = staggerSec,
+                jitter_pct = jitterPct,
+                workstation,
+            },
+            ct);
+
+    public Task<List<ProfileLaunchAuditDto>> GetProfileLaunchAuditAsync(int limit = 60, CancellationToken ct = default) =>
+        SendJsonAsync<List<ProfileLaunchAuditDto>>(HttpMethod.Get, $"/api/v1/playbooks/launch-audit?limit={Math.Clamp(limit, 1, 200)}", null, ct);
 
     public void Dispose() => _http.Dispose();
 }

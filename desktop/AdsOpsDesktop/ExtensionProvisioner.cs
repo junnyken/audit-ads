@@ -529,9 +529,59 @@ public static class ExtensionProvisioner
     }
 }
 
-/// <summary>Dọn cache tạm của Chrome Profile không hoạt động và nén bộ nhớ tiến trình Desktop.</summary>
+public sealed record WorkstationMemorySnapshot(
+    ulong TotalPhysicalMb,
+    ulong AvailablePhysicalMb,
+    uint MemoryLoadPercent);
+
+/// <summary>Dọn cache tạm của Chrome Profile không hoạt động, đọc RAM khả dụng Win32 và tính ngưỡng luồng tối đa.</summary>
 public static class WorkstationPerformanceOptimizer
 {
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+    private struct MemoryStatusEx
+    {
+        public uint dwLength;
+        public uint dwMemoryLoad;
+        public ulong ullTotalPhys;
+        public ulong ullAvailPhys;
+        public ulong ullTotalPageFile;
+        public ulong ullAvailPageFile;
+        public ulong ullTotalVirtual;
+        public ulong ullAvailVirtual;
+        public ulong ullAvailExtendedVirtual;
+    }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto, SetLastError = true)]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool GlobalMemoryStatusEx(ref MemoryStatusEx lpBuffer);
+
+    public static WorkstationMemorySnapshot ReadWorkstationMemory()
+    {
+        try
+        {
+            var mem = new MemoryStatusEx { dwLength = (uint)System.Runtime.InteropServices.Marshal.SizeOf<MemoryStatusEx>() };
+            if (GlobalMemoryStatusEx(ref mem) && mem.ullTotalPhys > 0)
+            {
+                return new WorkstationMemorySnapshot(
+                    mem.ullTotalPhys / (1024UL * 1024UL),
+                    mem.ullAvailPhys / (1024UL * 1024UL),
+                    mem.dwMemoryLoad);
+            }
+        }
+        catch { }
+
+        var info = GC.GetGCMemoryInfo();
+        var totalMb = (ulong)Math.Max(1024, info.TotalAvailableMemoryBytes / (1024 * 1024));
+        return new WorkstationMemorySnapshot(totalMb, totalMb / 2, 50);
+    }
+
+    public static int ComputeRecommendedMaxConcurrent(bool lowRamMode, WorkstationMemorySnapshot? overrideSnap = null)
+    {
+        var snap = overrideSnap ?? ReadWorkstationMemory();
+        var perProfileMb = lowRamMode ? 550.0 : 850.0;
+        var usableMb = Math.Max(550.0, snap.AvailablePhysicalMb - 1800.0);
+        return Math.Clamp((int)Math.Floor(usableMb / perProfileMb), 1, 30);
+    }
     public static (int CleanedFolders, long BytesFreed) CleanProfileCachesAndTrimMemory(
         string? isolatedRootOverride = null,
         ISet<string>? activeSlugs = null)

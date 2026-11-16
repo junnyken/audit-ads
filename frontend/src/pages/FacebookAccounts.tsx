@@ -3,7 +3,14 @@ import { Pencil, RefreshCw, ShieldAlert, ShieldCheck, Sparkles, Trash2 } from 'l
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, query } from '../lib/api'
-import type { FacebookIdentitySummary, Paged, ReferenceRecord, TeamMember } from '../lib/types'
+import type {
+  AutomationPlaybook,
+  FacebookIdentitySummary,
+  Paged,
+  ProfileLaunchAuditRow,
+  ReferenceRecord,
+  TeamMember,
+} from '../lib/types'
 import { useAuth } from '../hooks/useAuth'
 import { useI18n } from '../i18n'
 import { useEnumLabel } from '../i18n/labels'
@@ -19,12 +26,18 @@ import { FacebookAccountFormSheet } from '../components/facebook/FacebookAccount
 import { twoFactorTone } from '../lib/readiness'
 import { useMaxViasPerProxy } from '../lib/proxyClusterPrefs'
 import {
+  ANTIDETECT_ENGINE_OPTIONS,
   WORKSTATION_REAL_CHROME_PROFILES,
+  canMemberLaunchVia,
   downloadSwitchyOmegaConfig,
   downloadWindowsChromeLauncherBat,
+  fetchAntidetectBenchmark,
   fetchRealLocalChromeProfiles,
+  fetchWorkstationTelemetry,
+  getAntidetectEngineLabel,
   launchInAssignedChromeProfile,
   normalizeProxyKey,
+  parseAntidetectFromNotes,
   probeLocalDesktopBridge,
 } from '../lib/chromeProfileLauncher'
 
@@ -53,6 +66,9 @@ interface ProxyHealthItem {
   exit_ip: string | null
   country_code: string | null
   country_name: string | null
+  timezone?: string | null
+  timezone_match?: boolean | null
+  timezone_warning?: string | null
   latency_ms: number | null
   normalized_key: string
   error_summary?: string | null
@@ -351,6 +367,17 @@ export default function FacebookAccounts() {
   const [holder, setHolder] = useState('')
   const [ownershipFilter, setOwnershipFilter] = useState('')
   const [tierFilter, setTierFilter] = useState<'all' | ViaRoleTier | 'risk'>('all')
+  const [engineFilter, setEngineFilter] = useState('')
+  const [proxyFilter, setProxyFilter] = useState('')
+  const [showHubPanel, setShowHubPanel] = useState<'none' | 'playbooks' | 'audit' | 'onboarding'>('none')
+  const [playbookPlatform, setPlaybookPlatform] = useState('all')
+  const [creatingPlaybook, setCreatingPlaybook] = useState(false)
+  const [pbTitle, setPbTitle] = useState('')
+  const [pbPlatform, setPbPlatform] = useState<'meta' | 'google_ads' | 'tiktok' | 'multi'>('meta')
+  const [pbTargetUrl, setPbTargetUrl] = useState('https://www.facebook.com/')
+  const [pbStagger, setPbStagger] = useState(60)
+  const [pbJitter, setPbJitter] = useState(35)
+  const [pbDesc, setPbDesc] = useState('')
   const [creating, setCreating] = useState(false)
   const [editingRecord, setEditingRecord] = useState<ReferenceRecord | null>(null)
   const [syncNotice, setSyncNotice] = useState<string | null>(null)
@@ -386,14 +413,79 @@ export default function FacebookAccounts() {
     queryFn: () => api.get<{ health_map: Record<string, ProxyHealthItem> }>('/api/v1/proxies/health-map'),
     retry: false,
   })
+  const workstationQ = useQuery({
+    queryKey: ['local-workstation-telemetry'],
+    queryFn: () => fetchWorkstationTelemetry(),
+    enabled: Boolean(bridgeProbe?.isDesktopApp),
+    refetchInterval: 8000,
+    retry: false,
+  })
+  const benchmarkQ = useMutation({
+    mutationFn: () => fetchAntidetectBenchmark(),
+  })
+  const playbooksQ = useQuery({
+    queryKey: ['automation-playbooks', playbookPlatform],
+    queryFn: () =>
+      api.get<AutomationPlaybook[]>(
+        playbookPlatform === 'all' ? '/api/v1/playbooks' : `/api/v1/playbooks?platform=${playbookPlatform}`,
+      ),
+    retry: false,
+  })
+  const launchAuditQ = useQuery({
+    queryKey: ['profile-launch-audit'],
+    queryFn: () => api.get<ProfileLaunchAuditRow[]>('/api/v1/playbooks/launch-audit?limit=50'),
+    enabled: showHubPanel === 'audit',
+    retry: false,
+  })
+  const createPlaybookMut = useMutation({
+    mutationFn: () =>
+      api.post<AutomationPlaybook>('/api/v1/playbooks', {
+        title: pbTitle,
+        platform: pbPlatform,
+        category: 'custom',
+        description: pbDesc,
+        version_tag: '1.0.0',
+        default_stagger_sec: pbStagger,
+        jitter_pct: pbJitter,
+        steps: [{ action: 'open_url', target: pbTargetUrl, wait_sec: 15, note: 'Jitter batch step' }],
+      }),
+    onSuccess: () => {
+      setCreatingPlaybook(false)
+      setPbTitle('')
+      setPbDesc('')
+      void queryClient.invalidateQueries({ queryKey: ['automation-playbooks'] })
+      setSyncNotice('Đã tạo và chia sẻ Kịch bản Team mới.')
+    },
+  })
+  const ratePlaybookMut = useMutation({
+    mutationFn: ({ id, stars }: { id: string; stars: number }) =>
+      api.post<AutomationPlaybook>(`/api/v1/playbooks/${id}/rate`, { stars, comment: '' }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['automation-playbooks'] }),
+  })
+  const recordPlaybookRunMut = useMutation({
+    mutationFn: ({ id, via_ids, engine, stagger_sec, jitter_pct }: { id: string; via_ids: string[]; engine: string; stagger_sec: number; jitter_pct: number }) =>
+      api.post<AutomationPlaybook>(`/api/v1/playbooks/${id}/record-run`, {
+        via_ids,
+        engine,
+        stagger_sec,
+        jitter_pct,
+        workstation: 'Web Control Center',
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['automation-playbooks'] })
+      void queryClient.invalidateQueries({ queryKey: ['profile-launch-audit'] })
+    },
+  })
   const checkSingleProxy = useMutation({
-    mutationFn: (proxy_string: string) =>
-      api.post<ProxyHealthItem>('/api/v1/proxies/check-live', { proxy_string }),
+    mutationFn: (payload: string | { proxy_string: string; expected_timezone?: string | null; via_label?: string }) => {
+      const body = typeof payload === 'string' ? { proxy_string: payload } : payload
+      return api.post<ProxyHealthItem>('/api/v1/proxies/check-live', body)
+    },
     onSuccess: (res) => {
       void queryClient.invalidateQueries({ queryKey: ['proxy-health-map'] })
       setSyncNotice(
         res.status === 'LIVE'
-          ? `🟢 Proxy ${res.normalized_key} SỐNG — IP ra: ${res.exit_ip ?? '—'} (${res.country_code ?? '—'} · ${res.latency_ms ?? 0}ms)`
+          ? `🟢 Proxy ${res.normalized_key} SỐNG — IP ra: ${res.exit_ip ?? '—'} (${res.country_code ?? '—'}${res.timezone ? ` · ${res.timezone}` : ''} · ${res.latency_ms ?? 0}ms)${res.timezone_warning ? ` — ⚠️ ${res.timezone_warning}` : ''}`
           : `🔴 Proxy ${res.normalized_key || ''} LỖI/CHẾT: ${res.error_summary ?? 'Không phản hồi'}`,
       )
     },
@@ -515,6 +607,8 @@ export default function FacebookAccounts() {
         risks.push(`1 Proxy đang gắn cho ${sharedNetwork.length + 1} Via (Vượt mức ≤ ${maxViasPerProxy} Via/Proxy)`)
       }
 
+      const adMeta = parseAntidetectFromNotes(String(row.notes ?? ''))
+
       return {
         row,
         s,
@@ -523,13 +617,31 @@ export default function FacebookAccounts() {
         browserLabel,
         networkLabel,
         meta,
+        adMeta,
         warmup,
         sharedBrowser,
         sharedNetwork,
         risks,
       }
     })
-  }, [allBaseRows, bySummary])
+  }, [allBaseRows, bySummary, maxViasPerProxy])
+
+  const distinctProxyFilterOptions = useMemo(() => {
+    const keys = new Set<string>()
+    for (const item of enrichedRows) {
+      const k = normalizeProxyKey(item.networkLabel)
+      if (k) keys.add(k)
+    }
+    return Array.from(keys).sort()
+  }, [enrichedRows])
+
+  const currentMemberId = useMemo(() => {
+    const listMembers = members.data ?? []
+    const matched = listMembers.find(
+      (m) => (user?.id && m.user_id === user.id) || (user?.email && m.email.toLowerCase() === user.email.toLowerCase()),
+    )
+    return matched?.id ?? null
+  }, [members.data, user])
 
   const tierStats = useMemo(() => {
     let vault = 0
@@ -549,13 +661,16 @@ export default function FacebookAccounts() {
     return enrichedRows.filter((item) => {
       if (holder && item.row.owner_member_id !== holder) return false
       if (ownershipFilter && (item.row.ownership_type ?? 'agency_owned') !== ownershipFilter) return false
+      if (engineFilter && item.adMeta.engine !== engineFilter) return false
+      if (proxyFilter === 'direct' && Boolean(item.networkLabel)) return false
+      if (proxyFilter && proxyFilter !== 'direct' && normalizeProxyKey(item.networkLabel) !== proxyFilter) return false
       if (tierFilter === 'vault' && item.meta.tier !== 'vault') return false
       if (tierFilter === 'camp' && item.meta.tier !== 'camp') return false
       if (tierFilter === 'standby' && item.meta.tier !== 'standby') return false
       if (tierFilter === 'risk' && item.risks.length === 0) return false
       return true
     })
-  }, [enrichedRows, holder, ownershipFilter, tierFilter])
+  }, [enrichedRows, holder, ownershipFilter, engineFilter, proxyFilter, tierFilter])
 
   const chromeOptions = localChrome.data ?? WORKSTATION_REAL_CHROME_PROFILES
 
@@ -613,17 +728,41 @@ export default function FacebookAccounts() {
                 className="inline-flex items-center gap-1 rounded-md border border-emerald-500/50 bg-emerald-500/15 px-2.5 py-1.5 text-xs font-extrabold text-emerald-700 dark:text-emerald-300"
                 title="AdsOps Desktop Pro đang chạy ngầm tại 127.0.0.1:17890"
               >
-                💻 App Windows v{bridgeProbe.version || '2.4.2'} Đang Chạy
+                💻 App Windows v{bridgeProbe.version || '2.6.0'} Đang Chạy
               </span>
             )}
             <a
               href="/downloads/AdsOps-Desktop-Pro-v2.3.zip"
               download
               className="inline-flex h-9 items-center gap-1 rounded-md border border-indigo-500/45 bg-indigo-500/15 px-3 text-xs font-bold text-indigo-700 hover:bg-indigo-500/25 dark:text-indigo-300"
-              title="Tải App Windows AdsOps Desktop Pro v2.4.2 (Cầu nối 2 chiều + Két Cookie DPAPI + Tùy chỉnh Cụm Proxy 1–50 + Full Backup + Extension v2.9.6)"
+              title="Tải App Windows AdsOps Desktop Pro v2.6.0 (Bảng điều khiển 5 Engine Antidetect, Benchmark & Auto-Failover, Két Cookie DPAPI & Extension v2.9.8)"
             >
-              💻 Tải App Windows v2.4.2 (.zip)
+              💻 Tải App Windows v2.6.0 (.zip)
             </a>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setShowHubPanel((p) => (p === 'playbooks' ? 'none' : 'playbooks'))}
+              title="Mở Chợ Kịch bản Team (Meta / Google Ads / TikTok) & chạy lô lệch pha Jitter"
+            >
+              📚 Kịch bản Team ({playbooksQ.data?.length ?? 0})
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setShowHubPanel((p) => (p === 'audit' ? 'none' : 'audit'))}
+              title="Xem Nhật ký Team: Ai đã mở Profile nào, bằng Engine gì, lúc nào"
+            >
+              🕵️ Nhật ký Mở Profile
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setShowHubPanel((p) => (p === 'onboarding' ? 'none' : 'onboarding'))}
+              title="Hướng dẫn Thiết lập An toàn 5 bước cho người mới"
+            >
+              🛡️ Hướng dẫn 5 Bước
+            </Button>
             <Button
               type="button"
               variant="secondary"
@@ -646,6 +785,289 @@ export default function FacebookAccounts() {
         <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3.5 py-2 text-xs font-medium text-emerald-800 dark:text-emerald-300">
           ✓ {syncNotice}
         </div>
+      )}
+
+      {/* THANH GIÁM SÁT RAM MÁY TRẠM + BENCHMARK 5 ENGINE (CHỈ HIỆN DỮ LIỆU THẬT TỪ BRIDGE) */}
+      {bridgeProbe?.isDesktopApp && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-surface px-3.5 py-2 text-xs">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="font-bold text-ink">
+              💻 RAM máy trạm:{' '}
+              {workstationQ.data?.workstation_memory
+                ? `${workstationQ.data.workstation_memory.available_physical_mb.toLocaleString()}/${workstationQ.data.workstation_memory.total_physical_mb.toLocaleString()} MB trống (Khuyên tối đa ${workstationQ.data.workstation_memory.recommended_max_concurrent} luồng)`
+                : 'Đang đọc...'}
+            </span>
+            <span className="text-ink-muted">
+              • Phiên đang chạy: <strong className="text-ink">{workstationQ.data?.active_count ?? 0}</strong>
+            </span>
+            {benchmarkQ.data && (
+              <span className="font-semibold text-emerald-700 dark:text-emerald-300">
+                ⚡ Engine nhanh nhất: {getAntidetectEngineLabel(benchmarkQ.data.recommended_engine)} (
+                {benchmarkQ.data.probes
+                  .filter((p) => p.Online)
+                  .map((p) => `${getAntidetectEngineLabel(p.Engine)} ${p.LatencyMs}ms`)
+                  .join(' · ') || 'Chrome Gốc'}
+                )
+              </span>
+            )}
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={benchmarkQ.isPending}
+            onClick={() => benchmarkQ.mutate()}
+          >
+            {benchmarkQ.isPending ? '⏱️ Đang đo tốc độ...' : '⏱️ Benchmark 5 Engine'}
+          </Button>
+        </div>
+      )}
+
+      {/* BẢNG MỞ RỘNG: CHỢ KỊCH BẢN TEAM / NHẬT KÝ MỞ PROFILE / LỘ TRÌNH AN TOÀN 5 BƯỚC */}
+      {showHubPanel === 'onboarding' && (
+        <Card className="p-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-ink">🛡️ Lộ trình Thiết lập An toàn 5 Bước cho Người mới</h3>
+            <button type="button" onClick={() => setShowHubPanel('none')} className="text-xs text-ink-muted hover:underline">
+              Đóng ✕
+            </button>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-5 text-xs">
+            <div className="rounded-lg border border-line bg-surface-muted p-2.5">
+              <div className="font-bold">1. Cầu nối Desktop</div>
+              <div className="text-ink-muted mt-0.5">{bridgeProbe?.isDesktopApp ? '✓ Đã bật Zero-Trust :17890' : '○ Tải & bật AdsOps Desktop Pro'}</div>
+            </div>
+            <div className="rounded-lg border border-line bg-surface-muted p-2.5">
+              <div className="font-bold">2. Phân tầng 3 lớp</div>
+              <div className="text-ink-muted mt-0.5">{tierStats.vault > 0 ? `✓ Có ${tierStats.vault} Via Hold BM` : '○ Gắn ít nhất 1 Via Tổng Hold BM'}</div>
+            </div>
+            <div className="rounded-lg border border-line bg-surface-muted p-2.5">
+              <div className="font-bold">3. Cách ly Profile</div>
+              <div className="text-ink-muted mt-0.5">{tierStats.risk === 0 && tierStats.total > 0 ? '✓ Sạch 0 trùng Silo' : `⚠ ${tierStats.risk} Via cần tách Profile/Proxy`}</div>
+            </div>
+            <div className="rounded-lg border border-line bg-surface-muted p-2.5">
+              <div className="font-bold">4. Proxy & Múi giờ</div>
+              <div className="text-ink-muted mt-0.5">Bấm «Kiểm tra tất cả Proxy» để xác nhận IP khớp Múi giờ Via.</div>
+            </div>
+            <div className="rounded-lg border border-line bg-surface-muted p-2.5">
+              <div className="font-bold">5. Jitter thay đồng bộ</div>
+              <div className="text-ink-muted mt-0.5">Chạy kịch bản với nghỉ trễ ±35% Jitter để tránh Checkpoint hàng loạt.</div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {showHubPanel === 'playbooks' && (
+        <Card className="p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-bold text-ink">📚 Chợ Kịch Bản Team (Meta / Google Ads / TikTok) &amp; Chạy Lô Lệch Pha (Jitter)</h3>
+              <p className="text-xs text-ink-muted">Thay vì nhân bản chuột đồng thời dễ dính Checkpoint chùm, hệ thống chạy tuần tự có nghỉ lệch pha ±35% và ghi lịch sử nhóm.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              {canWrite && (
+                <Button type="button" size="sm" variant="secondary" onClick={() => setCreatingPlaybook((v) => !v)}>
+                  {creatingPlaybook ? 'Hủy tạo' : '➕ Tạo Kịch bản Team'}
+                </Button>
+              )}
+              <button type="button" onClick={() => setShowHubPanel('none')} className="text-xs text-ink-muted hover:underline">
+                Đóng ✕
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            {([
+              ['all', 'Tất cả'],
+              ['meta', 'Meta Ads'],
+              ['google_ads', 'Google Ads'],
+              ['tiktok', 'TikTok Ads'],
+              ['multi', 'Đa nền tảng'],
+            ] as const).map(([pk, pl]) => (
+              <button
+                key={pk}
+                type="button"
+                onClick={() => setPlaybookPlatform(pk)}
+                className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
+                  playbookPlatform === pk ? 'border-brand bg-brand text-brand-fg' : 'border-line bg-surface text-ink'
+                }`}
+              >
+                {pl}
+              </button>
+            ))}
+          </div>
+
+          {creatingPlaybook && (
+            <div className="grid gap-2 rounded-lg border border-line bg-surface-muted p-3 sm:grid-cols-3 text-xs">
+              <input
+                type="text"
+                value={pbTitle}
+                onChange={(e) => setPbTitle(e.target.value)}
+                placeholder="Tên kịch bản mới..."
+                className="rounded border border-line bg-surface px-2 py-1.5 text-ink"
+              />
+              <select
+                value={pbPlatform}
+                onChange={(e) => setPbPlatform(e.target.value as 'meta' | 'google_ads' | 'tiktok' | 'multi')}
+                className="rounded border border-line bg-surface px-2 py-1.5 text-ink"
+              >
+                <option value="meta">Meta Ads</option>
+                <option value="google_ads">Google Ads</option>
+                <option value="tiktok">TikTok Ads</option>
+                <option value="multi">Đa nền tảng</option>
+              </select>
+              <input
+                type="text"
+                value={pbTargetUrl}
+                onChange={(e) => setPbTargetUrl(e.target.value)}
+                placeholder="https://..."
+                className="rounded border border-line bg-surface px-2 py-1.5 text-ink font-mono"
+              />
+              <input
+                type="number"
+                value={pbStagger}
+                onChange={(e) => setPbStagger(Number(e.target.value) || 60)}
+                placeholder="Nghỉ (giây)"
+                className="rounded border border-line bg-surface px-2 py-1.5 text-ink"
+              />
+              <input
+                type="number"
+                value={pbJitter}
+                onChange={(e) => setPbJitter(Number(e.target.value) || 35)}
+                placeholder="Jitter (%)"
+                className="rounded border border-line bg-surface px-2 py-1.5 text-ink"
+              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={pbDesc}
+                  onChange={(e) => setPbDesc(e.target.value)}
+                  placeholder="Mô tả..."
+                  className="flex-1 rounded border border-line bg-surface px-2 py-1.5 text-ink"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={!pbTitle.trim() || createPlaybookMut.isPending}
+                  onClick={() => createPlaybookMut.mutate()}
+                >
+                  Lưu
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <div className="grid gap-2 md:grid-cols-2">
+            {(playbooksQ.data ?? []).map((pb) => (
+              <div key={pb.id} className="rounded-lg border border-line bg-surface-muted p-3 text-xs space-y-1.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <Badge tone="info">{pb.platform.toUpperCase()}</Badge>{' '}
+                    <strong className="text-ink">{pb.title}</strong>{' '}
+                    <span className="font-mono text-[10px] text-ink-muted">v{pb.version_tag}</span>
+                  </div>
+                  <span className="shrink-0 font-mono text-[11px] text-ink-muted">
+                    {pb.rating_count > 0 && pb.avg_rating != null ? `★${pb.avg_rating.toFixed(1)} (${pb.rating_count})` : 'Chưa chấm sao'} • {pb.run_count} lượt
+                  </span>
+                </div>
+                <div className="text-ink-muted">{pb.description}</div>
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  <div className="flex items-center gap-1">
+                    {[1, 2, 3, 4, 5].map((st) => (
+                      <button
+                        key={st}
+                        type="button"
+                        onClick={() => ratePlaybookMut.mutate({ id: pb.id, stars: st })}
+                        className={`rounded px-1.5 py-0.5 text-[11px] ${
+                          pb.my_rating === st ? 'bg-amber-500/20 font-bold text-amber-600' : 'text-ink-muted hover:text-amber-500'
+                        }`}
+                        title={`Chấm ${st} sao`}
+                      >
+                        {pb.my_rating === st ? `★${st}` : `☆${st}`}
+                      </button>
+                    ))}
+                    <span className="ml-1 text-[10px] text-ink-muted">Tác giả: {pb.author_name}</span>
+                  </div>
+                  {canWrite && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        const eligible = filteredItems.filter((it) =>
+                          canMemberLaunchVia(
+                            role,
+                            currentMemberId,
+                            typeof it.row.owner_member_id === 'string' ? it.row.owner_member_id : null,
+                          ).allowed,
+                        )
+                        if (eligible.length === 0) return
+                        const firstUrl = pb.steps[0]?.target || 'https://www.facebook.com/'
+                        const targetList = eligible.slice(0, 6)
+                        recordPlaybookRunMut.mutate({
+                          id: pb.id,
+                          via_ids: targetList.map((t) => t.row.id),
+                          engine: engineFilter || 'chrome_native',
+                          stagger_sec: pb.default_stagger_sec,
+                          jitter_pct: pb.jitter_pct,
+                        })
+                        targetList.forEach((t, idx) => {
+                          const jitterMult = 1 + ((Math.random() * 2 - 1) * pb.jitter_pct) / 100
+                          const delayMs = idx === 0 ? 0 : Math.max(1500, Math.round(idx * 1800 * jitterMult))
+                          window.setTimeout(() => {
+                            void launchInAssignedChromeProfile(firstUrl, t.browserLabel, String(t.row.label), t.networkLabel, {
+                              viaId: t.row.id,
+                              antidetectEngine: t.adMeta.engine,
+                              antidetectProfileId: t.adMeta.profileId,
+                            })
+                          }, delayMs)
+                        })
+                        setSyncNotice(`🚀 Đang chạy kịch bản "${pb.title}" với Jitter ±${pb.jitter_pct}% cho ${targetList.length} Via đã lọc.`)
+                      }}
+                    >
+                      🚀 Chạy Jitter ({Math.min(6, filteredItems.length)} Via)
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {showHubPanel === 'audit' && (
+        <Card className="p-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-ink">🕵️ Nhật ký Team Mở Profile, Chạy Kịch bản &amp; Failover (Audit)</h3>
+            <button type="button" onClick={() => setShowHubPanel('none')} className="text-xs text-ink-muted hover:underline">
+              Đóng ✕
+            </button>
+          </div>
+          {launchAuditQ.isLoading ? (
+            <div className="text-xs text-ink-muted">Đang tải nhật ký Team...</div>
+          ) : (launchAuditQ.data ?? []).length === 0 ? (
+            <div className="text-xs text-ink-muted">Chưa có sự kiện Mở Profile nào được ghi nhận trong Workspace.</div>
+          ) : (
+            <div className="max-h-64 overflow-y-auto divide-y divide-line text-xs">
+              {(launchAuditQ.data ?? []).map((row) => (
+                <div key={row.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                  <div>
+                    <Badge tone={row.action === 'via.engine_failover' ? 'caution' : 'info'}>{row.action}</Badge>{' '}
+                    <strong className="text-ink">{row.via_label || '—'}</strong> · Engine:{' '}
+                    <span className="font-mono">{getAntidetectEngineLabel(row.antidetect_engine)}</span>{' '}
+                    {row.browser_profile && <span className="text-ink-muted">({row.browser_profile})</span>} · Người mở:{' '}
+                    <strong className="text-brand-text">{row.actor_name || row.actor_email || '—'}</strong>
+                    {row.workstation && <span className="text-ink-muted"> · Máy: {row.workstation}</span>}
+                    {row.startup_ms != null && <span className="text-ink-muted"> · {row.startup_ms}ms</span>}
+                  </div>
+                  <span className="font-mono text-[11px] text-ink-muted">
+                    {row.created_at ? new Date(row.created_at).toLocaleString() : '—'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
       )}
 
       {/* THANH LỌC 1 CHẠM THEO LỚP VẬN HÀNH + NÚT MỞ TRANG HƯỚNG DẪN & CÔNG THỨC */}
@@ -705,6 +1127,22 @@ export default function FacebookAccounts() {
             options={[['', t('fb.anyOwner')], ...members.data.map((m) => [m.id, m.full_name || m.email] as [string, string])]}
           />
         )}
+        <SelectField
+          label="Engine Antidetect"
+          value={engineFilter}
+          onChange={setEngineFilter}
+          options={[['', 'Tất cả Engine (5+1)'], ...ANTIDETECT_ENGINE_OPTIONS.map((o) => [o.key, o.label] as [string, string])]}
+        />
+        <SelectField
+          label="Cụm Proxy"
+          value={proxyFilter}
+          onChange={setProxyFilter}
+          options={[
+            ['', 'Tất cả cụm Proxy'],
+            ['direct', 'Mạng gốc (Direct IP)'],
+            ...distinctProxyFilterOptions.map((px) => [px, px] as [string, string]),
+          ]}
+        />
       </div>
 
       {list.isLoading ? (
@@ -735,17 +1173,45 @@ export default function FacebookAccounts() {
             </TableHeader>
             <TableBody>
               {filteredItems.map((item) => {
-                const { row, s, browserLabel, networkLabel, meta, warmup, sharedNetwork, risks } = item
+                const { row, s, browserLabel, networkLabel, meta, adMeta, warmup, sharedNetwork, risks } = item
                 const proxyNormKey = normalizeProxyKey(networkLabel)
                 const proxyHealth = proxyNormKey ? proxyHealthQ.data?.health_map?.[proxyNormKey] : undefined
+                const launchPerm = canMemberLaunchVia(
+                  role,
+                  currentMemberId,
+                  typeof row.owner_member_id === 'string' ? row.owner_member_id : null,
+                )
+                const activeSess = workstationQ.data?.sessions?.find(
+                  (ws) => ws.alive && (ws.via_id === row.id || ws.via_label === String(row.label)),
+                )
                 const safeLaunchChrome = (targetUrl: string) => {
+                  if (!launchPerm.allowed) {
+                    setSyncNotice(`🔒 ${launchPerm.reason}`)
+                    return
+                  }
                   if (proxyHealth?.status === 'DEAD') {
                     const proceed = window.confirm(
                       '⚠️ CẢNH BÁO PROXY ĐÃ CHẾT / LỖI: Lần kiểm tra gần nhất cho thấy Proxy của Via này không phản hồi. Mở Chrome lúc này có thể lộ IP thật hoặc gây Checkpoint! Bạn vẫn muốn mở?',
                     )
                     if (!proceed) return
                   }
-                  launchInAssignedChromeProfile(targetUrl, browserLabel, String(row.label), networkLabel)
+                  void launchInAssignedChromeProfile(targetUrl, browserLabel, String(row.label), networkLabel, {
+                    viaId: row.id,
+                    antidetectEngine: adMeta.engine,
+                    antidetectProfileId: adMeta.profileId,
+                  })
+                  void api
+                    .post('/api/v1/facebook-pages/browser-event', {
+                      event_type: 'PROFILE_LAUNCHED',
+                      via_id: row.id,
+                      via_label: String(row.label),
+                      browser_profile: browserLabel,
+                      antidetect_engine: adMeta.engine,
+                      antidetect_profile_id: adMeta.profileId,
+                      workstation: 'Web Control Center',
+                      target_url: targetUrl,
+                    })
+                    .catch(() => {})
                 }
                 const ownership = String(row.ownership_type ?? 'agency_owned')
                 const clientName = String(row.client_name ?? '').trim()
@@ -766,6 +1232,16 @@ export default function FacebookAccounts() {
                           <Badge tone={ownership === 'client_provided' ? 'info' : 'neutral'}>
                             {t(`fb.ownership.${ownership}` as never)}
                           </Badge>
+                          <Badge tone={adMeta.engine === 'chrome_native' ? 'muted' : 'info'}>
+                            {adMeta.engine === 'chrome_native'
+                              ? 'Chrome Gốc'
+                              : `🎭 ${getAntidetectEngineLabel(adMeta.engine)}${adMeta.profileId ? ` #${adMeta.profileId}` : ''}`}
+                          </Badge>
+                          {activeSess && (
+                            <Badge tone="positive" title={activeSess.status_text}>
+                              ⚡ {Math.round(activeSess.ram_mb)}MB · {(activeSess.cpu_percent ?? 0).toFixed(1)}%
+                            </Badge>
+                          )}
                           {clientName && <span className="text-xs text-ink-muted">{clientName}</span>}
                         </div>
 
@@ -856,15 +1332,24 @@ export default function FacebookAccounts() {
                             <span className="font-semibold text-ink">{browserLabel || '—'}</span>
                           )}
 
-                          {browserLabel && (
+                          {(browserLabel || adMeta.profileId) && (
                             <>
                               <button
                                 type="button"
+                                disabled={!launchPerm.allowed}
                                 onClick={() => safeLaunchChrome('https://business.facebook.com/overview')}
-                                className="inline-flex items-center gap-1 rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
-                                title={`Mở đúng cửa sổ Chrome (${browserLabel}) của Via ${String(row.label)}`}
+                                className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-semibold ${
+                                  launchPerm.allowed
+                                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300'
+                                    : 'cursor-not-allowed border-line bg-surface-muted text-ink-muted'
+                                }`}
+                                title={
+                                  launchPerm.allowed
+                                    ? `Mở ${getAntidetectEngineLabel(adMeta.engine)} (${adMeta.profileId || browserLabel}) cho Via ${String(row.label)}`
+                                    : launchPerm.reason
+                                }
                               >
-                                🚀 Mở Chrome
+                                {launchPerm.allowed ? `🚀 Mở ${getAntidetectEngineLabel(adMeta.engine)}` : '🔒 Phân quyền khác'}
                               </button>
                               <button
                                 type="button"
@@ -923,16 +1408,27 @@ export default function FacebookAccounts() {
                                 <>
                                   <Badge tone={proxyHealth?.status === 'LIVE' ? 'positive' : proxyHealth?.status === 'DEAD' ? 'attention' : 'neutral'}>
                                     {proxyHealth?.status === 'LIVE'
-                                      ? `🟢 Sống · ${proxyHealth.country_code ?? '—'} · ${proxyHealth.latency_ms ?? 0}ms (${proxyHealth.exit_ip ?? '—'})`
+                                      ? `🟢 Sống · ${proxyHealth.country_code ?? '—'}${proxyHealth.timezone ? ` (${proxyHealth.timezone})` : ''} · ${proxyHealth.latency_ms ?? 0}ms (${proxyHealth.exit_ip ?? '—'})`
                                       : proxyHealth?.status === 'DEAD'
                                         ? '🔴 Proxy Chết / Lỗi'
                                         : '⚪ Chưa kiểm tra'}
                                   </Badge>
+                                  {proxyHealth?.timezone_match === false && (
+                                    <Badge tone="caution" title={proxyHealth.timezone_warning || 'Lệch múi giờ IP Proxy'}>
+                                      🕒 Lệch múi giờ IP
+                                    </Badge>
+                                  )}
                                   {canWrite && (
                                     <button
                                       type="button"
                                       disabled={checkSingleProxy.isPending}
-                                      onClick={() => checkSingleProxy.mutate(networkLabel)}
+                                      onClick={() =>
+                                        checkSingleProxy.mutate({
+                                          proxy_string: networkLabel,
+                                          expected_timezone: (row.timezone as string | null) ?? null,
+                                          via_label: String(row.label),
+                                        })
+                                      }
                                       className="inline-flex items-center gap-1 rounded border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
                                     >
                                       🩺 Test Proxy

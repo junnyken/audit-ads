@@ -168,6 +168,9 @@ public sealed class DesktopConfig
     public bool EnableChromeAntidetectShield { get; set; } = true;
     public bool LowRamFarmMode { get; set; } = true;
     public int MaxConcurrentBrowsers { get; set; } = 6;
+    // v2.6.0 Workstation RAM Auto-Cap & Auto-Failover
+    public bool AutoScaleConcurrentByRam { get; set; } = true;
+    public bool AutoFailoverToChromeNative { get; set; } = false;
 
     [JsonIgnore]
     public string AccessToken
@@ -542,6 +545,8 @@ public sealed class PersonalAccountRefDto
     [JsonPropertyName("display_name")] public string DisplayName { get; set; } = "";
     [JsonPropertyName("external_reference_id")] public string? ExternalReferenceId { get; set; }
     [JsonPropertyName("status")] public string Status { get; set; } = "unknown";
+    [JsonPropertyName("timezone")] public string? Timezone { get; set; }
+    [JsonPropertyName("owner_member_id")] public string? OwnerMemberId { get; set; }
     [JsonPropertyName("browser_profile_label")] public string BrowserProfileLabel { get; set; } = "";
     [JsonPropertyName("network_label")] public string NetworkLabel { get; set; } = "";
     [JsonPropertyName("vault_reference")] public string VaultReference { get; set; } = "";
@@ -776,11 +781,50 @@ public sealed class ProxyCheckResultDto
     [JsonPropertyName("normalized_key")] public string? NormalizedKey { get; set; }
     [JsonPropertyName("exit_ip")] public string? ExitIp { get; set; }
     [JsonPropertyName("country_code")] public string? CountryCode { get; set; }
+    [JsonPropertyName("timezone")] public string? Timezone { get; set; }
+    [JsonPropertyName("expected_timezone")] public string? ExpectedTimezone { get; set; }
+    [JsonPropertyName("timezone_match")] public bool? TimezoneMatch { get; set; }
+    [JsonPropertyName("timezone_warning")] public string? TimezoneWarning { get; set; }
     [JsonPropertyName("latency_ms")] public int? LatencyMs { get; set; }
     [JsonPropertyName("message")] public string? Message { get; set; }
     [JsonPropertyName("error_summary")] public string? ErrorSummary { get; set; }
     [JsonPropertyName("checked_at")] public string? CheckedAt { get; set; }
     [JsonPropertyName("telegram_notified")] public bool TelegramNotified { get; set; }
+}
+
+public static class ProxyTimezoneHelper
+{
+    public static string NormalizeTimezone(string? raw)
+    {
+        var s = (raw ?? "").Trim().ToLowerInvariant();
+        return s switch
+        {
+            "asia/saigon" => "asia/ho_chi_minh",
+            "asia/ho_chi_minh" => "asia/ho_chi_minh",
+            "asia/calcutta" => "asia/kolkata",
+            "europe/kiev" => "europe/kyiv",
+            "us/eastern" => "america/new_york",
+            "us/central" => "america/chicago",
+            "us/pacific" => "america/los_angeles",
+            _ => s,
+        };
+    }
+
+    public static (bool? Match, string? Warning) EvaluateMatch(string? exitTimezone, string? exitCountry, string? expectedTimezone)
+    {
+        var exNorm = NormalizeTimezone(exitTimezone);
+        var expNorm = NormalizeTimezone(expectedTimezone);
+        if (string.IsNullOrEmpty(exNorm) || string.IsNullOrEmpty(expNorm))
+        {
+            return (null, null);
+        }
+        if (string.Equals(exNorm, expNorm, StringComparison.OrdinalIgnoreCase))
+        {
+            return (true, null);
+        }
+        var countrySuffix = string.IsNullOrWhiteSpace(exitCountry) ? "" : $" ({exitCountry})";
+        return (false, $"Lệch múi giờ: Proxy IP ở {exitTimezone}{countrySuffix} nhưng cấu hình Via/Máy là {expectedTimezone}");
+    }
 }
 
 public sealed class ProxyBatchCheckResponseDto
@@ -932,6 +976,12 @@ public sealed class BrowserEventPayloadDto
     [JsonPropertyName("route_summary")] public string RouteSummary { get; set; } = "";
     [JsonPropertyName("duration_sec")] public int DurationSec { get; set; }
     [JsonPropertyName("via_tier")] public string ViaTier { get; set; } = "standard_via";
+    [JsonPropertyName("antidetect_engine")] public string AntidetectEngine { get; set; } = "chrome_native";
+    [JsonPropertyName("antidetect_profile_id")] public string AntidetectProfileId { get; set; } = "";
+    [JsonPropertyName("workstation")] public string Workstation { get; set; } = "";
+    [JsonPropertyName("startup_ms")] public int? StartupMs { get; set; }
+    [JsonPropertyName("failover_from")] public string FailoverFrom { get; set; } = "";
+    [JsonPropertyName("target_url")] public string TargetUrl { get; set; } = "";
 }
 
 public sealed class BrowserEventResponseDto
@@ -1041,6 +1091,63 @@ public sealed class ViaWorkspaceEntry
     public int KeepAliveSuccessCount { get; set; }
     public string AntidetectEngine { get; set; } = "chrome_native";
     public string AntidetectProfileId { get; set; } = "";
+    public string OwnerMemberId { get; set; } = "";
+    public string OwnerMemberName { get; set; } = "";
+    public string Timezone { get; set; } = "";
+    public string ProxyTimezone { get; set; } = "";
+    public bool HasTimezoneMismatch { get; set; }
+    public string TimezoneWarning { get; set; } = "";
+    public bool IsBrowserRunning { get; set; }
+    public double ActiveRamMb { get; set; }
+    public double ActiveCpuPercent { get; set; }
+}
+
+public sealed class AutomationPlaybookStepDto
+{
+    [JsonPropertyName("action")] public string Action { get; set; } = "open_url";
+    [JsonPropertyName("target")] public string Target { get; set; } = "";
+    [JsonPropertyName("wait_sec")] public int WaitSec { get; set; } = 10;
+    [JsonPropertyName("note")] public string Note { get; set; } = "";
+}
+
+public sealed class AutomationPlaybookDto
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+    [JsonPropertyName("slug")] public string Slug { get; set; } = "";
+    [JsonPropertyName("title")] public string Title { get; set; } = "";
+    [JsonPropertyName("platform")] public string Platform { get; set; } = "meta";
+    [JsonPropertyName("category")] public string Category { get; set; } = "warmup";
+    [JsonPropertyName("description")] public string Description { get; set; } = "";
+    [JsonPropertyName("version_tag")] public string VersionTag { get; set; } = "1.0.0";
+    [JsonPropertyName("changelog")] public string Changelog { get; set; } = "";
+    [JsonPropertyName("steps")] public List<AutomationPlaybookStepDto> Steps { get; set; } = new();
+    [JsonPropertyName("default_stagger_sec")] public int DefaultStaggerSec { get; set; } = 55;
+    [JsonPropertyName("jitter_pct")] public int JitterPct { get; set; } = 35;
+    [JsonPropertyName("is_builtin")] public bool IsBuiltin { get; set; }
+    [JsonPropertyName("author_name")] public string AuthorName { get; set; } = "";
+    [JsonPropertyName("avg_rating")] public double? AvgRating { get; set; }
+    [JsonPropertyName("rating_count")] public int RatingCount { get; set; }
+    [JsonPropertyName("run_count")] public int RunCount { get; set; }
+    [JsonPropertyName("my_rating")] public int? MyRating { get; set; }
+    [JsonPropertyName("updated_at")] public string? UpdatedAt { get; set; }
+}
+
+public sealed class ProfileLaunchAuditDto
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+    [JsonPropertyName("action")] public string Action { get; set; } = "";
+    [JsonPropertyName("created_at")] public string? CreatedAt { get; set; }
+    [JsonPropertyName("actor_email")] public string ActorEmail { get; set; } = "";
+    [JsonPropertyName("actor_name")] public string ActorName { get; set; } = "";
+    [JsonPropertyName("via_id")] public string ViaId { get; set; } = "";
+    [JsonPropertyName("via_label")] public string ViaLabel { get; set; } = "";
+    [JsonPropertyName("antidetect_engine")] public string AntidetectEngine { get; set; } = "chrome_native";
+    [JsonPropertyName("antidetect_profile_id")] public string AntidetectProfileId { get; set; } = "";
+    [JsonPropertyName("browser_profile")] public string BrowserProfile { get; set; } = "";
+    [JsonPropertyName("workstation")] public string Workstation { get; set; } = "";
+    [JsonPropertyName("startup_ms")] public int? StartupMs { get; set; }
+    [JsonPropertyName("failover_from")] public string FailoverFrom { get; set; } = "";
+    [JsonPropertyName("detail")] public string Detail { get; set; } = "";
 }
 
 public sealed class LocalViaSecretRecord
@@ -1866,6 +1973,8 @@ public sealed class TrackedChromeSessionDto
     [JsonPropertyName("closed_at")] public DateTimeOffset? ClosedAt { get; set; }
     [JsonPropertyName("alive")] public bool Alive { get; set; }
     [JsonPropertyName("ram_mb")] public double RamMb { get; set; }
+    [JsonPropertyName("cpu_percent")] public double CpuPercent { get; set; }
+    [JsonPropertyName("antidetect_engine")] public string AntidetectEngine { get; set; } = "chrome_native";
     [JsonPropertyName("status_text")] public string StatusText { get; set; } = "";
 }
 
@@ -1875,8 +1984,31 @@ public sealed class ChromeSessionTracker
 
     private readonly object _gate = new();
     private readonly List<TrackedChromeSessionDto> _sessions = new();
+    private readonly Dictionary<int, (TimeSpan TotalCpu, DateTime SampleUtc)> _cpuSamples = new();
 
-    public TrackedChromeSessionDto RecordLaunch(int? pid, string? viaId, string? viaLabel, string? profileDir, string url)
+    public static bool IsSupportedBrowserProcessName(string? name)
+    {
+        var s = (name ?? "").Trim().ToLowerInvariant();
+        if (string.IsNullOrEmpty(s)) return false;
+        return s.Contains("chrome", StringComparison.Ordinal)
+            || s.Contains("orbita", StringComparison.Ordinal)
+            || s.Contains("sunbrowser", StringComparison.Ordinal)
+            || s.Contains("anty", StringComparison.Ordinal)
+            || s.Contains("dolphin", StringComparison.Ordinal)
+            || s.Contains("hidemyacc", StringComparison.Ordinal)
+            || s.Contains("genlogin", StringComparison.Ordinal)
+            || s.Contains("chromium", StringComparison.Ordinal)
+            || s.Contains("brave", StringComparison.Ordinal)
+            || s.Contains("msedge", StringComparison.Ordinal);
+    }
+
+    public TrackedChromeSessionDto RecordLaunch(
+        int? pid,
+        string? viaId,
+        string? viaLabel,
+        string? profileDir,
+        string url,
+        string antidetectEngine = "chrome_native")
     {
         var entry = new TrackedChromeSessionDto
         {
@@ -1886,6 +2018,7 @@ public sealed class ChromeSessionTracker
             ViaLabel = string.IsNullOrWhiteSpace(viaLabel) ? (profileDir ?? "Chrome Profile") : viaLabel.Trim(),
             ProfileDir = string.IsNullOrWhiteSpace(profileDir) ? "Default" : profileDir.Trim(),
             Url = url,
+            AntidetectEngine = AntidetectBrowserConnector.NormalizeEngine(antidetectEngine),
             StartedAt = DateTimeOffset.UtcNow,
         };
         lock (_gate)
@@ -1896,7 +2029,7 @@ public sealed class ChromeSessionTracker
                 _sessions.RemoveRange(30, _sessions.Count - 30);
             }
         }
-        return CloneWithProcessProbe(entry);
+        return CloneWithProcessProbe(entry, _cpuSamples, _gate);
     }
 
     public void MarkKeepAliveClosed(string? viaId, string? viaLabel, string? profileDir)
@@ -1922,8 +2055,8 @@ public sealed class ChromeSessionTracker
         lock (_gate)
         {
             copy = _sessions.ToList();
+            return copy.Select(s => CloneWithProcessProbe(s, _cpuSamples, _gate)).ToList();
         }
-        return copy.Select(CloneWithProcessProbe).ToList();
     }
 
     public bool TryCloseSession(string sessionId, out string message)
@@ -1941,7 +2074,7 @@ public sealed class ChromeSessionTracker
         if (!target.Pid.HasValue || target.Pid.Value <= 0)
         {
             target.ClosedAt ??= DateTimeOffset.UtcNow;
-            message = "Phiên Chrome này đã nhập chung vào cửa sổ Chrome có sẵn nên không có PID riêng.";
+            message = "Phiên trình duyệt này không có PID trực tiếp.";
             return false;
         }
         try
@@ -1950,12 +2083,12 @@ public sealed class ChromeSessionTracker
             if (proc.HasExited)
             {
                 target.ClosedAt ??= DateTimeOffset.UtcNow;
-                message = $"Tiến trình Chrome PID {target.Pid.Value} đã thoát trước đó.";
+                message = $"Tiến trình trình duyệt PID {target.Pid.Value} đã thoát trước đó.";
                 return true;
             }
-            if (!proc.ProcessName.Contains("chrome", StringComparison.OrdinalIgnoreCase))
+            if (!IsSupportedBrowserProcessName(proc.ProcessName))
             {
-                message = $"PID {target.Pid.Value} không còn là tiến trình Chrome ({proc.ProcessName}).";
+                message = $"PID {target.Pid.Value} không còn là tiến trình trình duyệt ({proc.ProcessName}).";
                 return false;
             }
             var sent = proc.CloseMainWindow();
@@ -1964,13 +2097,13 @@ public sealed class ChromeSessionTracker
                 proc.Kill(entireProcessTree: false);
             }
             target.ClosedAt = DateTimeOffset.UtcNow;
-            message = $"Đã đóng an toàn cửa sổ Chrome PID {target.Pid.Value} ({target.ProfileDir}).";
+            message = $"Đã đóng an toàn cửa sổ trình duyệt PID {target.Pid.Value} ({target.ProfileDir}).";
             return true;
         }
         catch (ArgumentException)
         {
             target.ClosedAt ??= DateTimeOffset.UtcNow;
-            message = $"Tiến trình Chrome PID {target.Pid.Value} đã kết thúc (hoặc chuyển tab sang cửa sổ chính).";
+            message = $"Tiến trình trình duyệt PID {target.Pid.Value} đã kết thúc.";
             return true;
         }
         catch (Exception ex)
@@ -1980,20 +2113,44 @@ public sealed class ChromeSessionTracker
         }
     }
 
-    private static TrackedChromeSessionDto CloneWithProcessProbe(TrackedChromeSessionDto src)
+    private static TrackedChromeSessionDto CloneWithProcessProbe(
+        TrackedChromeSessionDto src,
+        Dictionary<int, (TimeSpan TotalCpu, DateTime SampleUtc)> cpuSamples,
+        object gate)
     {
         bool alive = false;
         double ramMb = 0;
+        double cpuPct = 0;
         if (!src.ClosedAt.HasValue && src.Pid.HasValue && src.Pid.Value > 0)
         {
             try
             {
                 using var proc = System.Diagnostics.Process.GetProcessById(src.Pid.Value);
-                if (!proc.HasExited && proc.ProcessName.Contains("chrome", StringComparison.OrdinalIgnoreCase))
+                if (!proc.HasExited && IsSupportedBrowserProcessName(proc.ProcessName))
                 {
                     alive = true;
                     proc.Refresh();
                     ramMb = Math.Round(proc.WorkingSet64 / (1024.0 * 1024.0), 1);
+
+                    var nowUtc = DateTime.UtcNow;
+                    var curCpu = proc.TotalProcessorTime;
+                    lock (gate)
+                    {
+                        if (cpuSamples.TryGetValue(proc.Id, out var prev))
+                        {
+                            var wallMs = (nowUtc - prev.SampleUtc).TotalMilliseconds;
+                            if (wallMs >= 150)
+                            {
+                                var cpuDeltaMs = Math.Max(0, (curCpu - prev.TotalCpu).TotalMilliseconds);
+                                cpuPct = Math.Round(cpuDeltaMs / (wallMs * Math.Max(1, Environment.ProcessorCount)) * 100.0, 1);
+                                cpuSamples[proc.Id] = (curCpu, nowUtc);
+                            }
+                        }
+                        else
+                        {
+                            cpuSamples[proc.Id] = (curCpu, nowUtc);
+                        }
+                    }
                 }
             }
             catch
@@ -2005,7 +2162,7 @@ public sealed class ChromeSessionTracker
         string status = src.KeepAliveClosed
             ? "Đã tự đóng sau Keep-Alive"
             : alive
-                ? $"Đang mở (PID {src.Pid} • {ramMb:0.0} MB)"
+                ? $"Đang mở (PID {src.Pid} • {ramMb:0.0} MB • {cpuPct:0.0}% CPU)"
                 : src.ClosedAt.HasValue
                     ? "Đã đóng"
                     : src.Pid.HasValue
@@ -2025,6 +2182,8 @@ public sealed class ChromeSessionTracker
             ClosedAt = src.ClosedAt,
             Alive = alive,
             RamMb = ramMb,
+            CpuPercent = cpuPct,
+            AntidetectEngine = src.AntidetectEngine,
             StatusText = status,
         };
     }
@@ -2032,9 +2191,9 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "2.5.0";
-    public const string DisplayVersion = "v2.5.0";
-    public const string ExtVersion = "2.9.7";
+    public const string Version = "2.6.0";
+    public const string DisplayVersion = "v2.6.0";
+    public const string ExtVersion = "2.9.8";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 
     /// <summary>

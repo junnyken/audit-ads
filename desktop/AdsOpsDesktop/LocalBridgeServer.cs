@@ -19,10 +19,13 @@ namespace AdsOpsDesktop;
 
 public sealed class OpenChromeBridgeRequest
 {
+    [JsonPropertyName("via_id")] public string? ViaId { get; set; }
     [JsonPropertyName("profile")] public string? Profile { get; set; }
     [JsonPropertyName("name")] public string? Name { get; set; }
     [JsonPropertyName("proxy")] public string? Proxy { get; set; }
     [JsonPropertyName("url")] public string? Url { get; set; }
+    [JsonPropertyName("antidetect_engine")] public string? AntidetectEngine { get; set; }
+    [JsonPropertyName("antidetect_profile_id")] public string? AntidetectProfileId { get; set; }
 }
 
 public sealed class LocalVaultSaveRequest
@@ -68,6 +71,7 @@ public sealed class LocalBridgeServer : IDisposable
     private readonly Func<TileWindowsRequestDto?, TileWindowsResultDto> _onTileWindows;
     private readonly Func<string> _getBridgeToken;
     private readonly Func<string> _getAllowedWebAppUrl;
+    private readonly Func<Task<object>> _onBenchmarkEngines;
     private readonly Action<string> _log;
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -87,7 +91,8 @@ public sealed class LocalBridgeServer : IDisposable
         Func<BillingSyncRequestDto, Task<BillingSyncResponseDto>>? onSyncBilling = null,
         Func<TileWindowsRequestDto?, TileWindowsResultDto>? onTileWindows = null,
         Func<string>? getBridgeToken = null,
-        Func<string>? getAllowedWebAppUrl = null)
+        Func<string>? getAllowedWebAppUrl = null,
+        Func<Task<object>>? onBenchmarkEngines = null)
     {
         _requestedPort = port;
         _onOpenChrome = onOpenChrome;
@@ -109,6 +114,14 @@ public sealed class LocalBridgeServer : IDisposable
         _onTileWindows = onTileWindows ?? (req => WindowTilerService.TileChromeWindows(req?.Grid, req?.Pids));
         _getBridgeToken = getBridgeToken ?? (() => DesktopConfig.Load().GetOrCreateBridgeToken());
         _getAllowedWebAppUrl = getAllowedWebAppUrl ?? (() => DesktopConfig.DefaultWebAppUrl);
+        _onBenchmarkEngines = onBenchmarkEngines ?? (async () =>
+        {
+            var cfg = DesktopConfig.Load();
+            var probes = await AntidetectBrowserConnector.BenchmarkAllEnginesAsync(cfg.AntidetectApiBaseUrl, cfg.AntidetectApiKey).ConfigureAwait(false);
+            var rec = AntidetectBrowserConnector.RecommendFastestOnlineEngine(probes);
+            var history = AntidetectEngineBenchmarkStore.Default.GetAll();
+            return new { ok = true, recommended_engine = rec, probes, history };
+        });
     }
 
     public static bool RetireLegacyBridgeHoldingPort(int port, Action<string> log)
@@ -445,12 +458,29 @@ public sealed class LocalBridgeServer : IDisposable
                 if (method == "GET" && path == "/chrome-sessions")
                 {
                     var sessions = ChromeSessionTracker.Default.GetSnapshot();
+                    var mem = WorkstationPerformanceOptimizer.ReadWorkstationMemory();
+                    var recMax = WorkstationPerformanceOptimizer.ComputeRecommendedMaxConcurrent(true, mem);
                     var json = JsonSerializer.Serialize(new
                     {
                         ok = true,
                         active_count = sessions.Count(s => s.Alive),
                         sessions,
+                        workstation_memory = new
+                        {
+                            total_physical_mb = mem.TotalPhysicalMb,
+                            available_physical_mb = mem.AvailablePhysicalMb,
+                            memory_load_percent = mem.MemoryLoadPercent,
+                            recommended_max_concurrent = recMax,
+                        },
                     });
+                    await WriteHttpResponseAsync(stream, 200, "OK", json, validatedOrigin, ct).ConfigureAwait(false);
+                    return;
+                }
+
+                if (method == "GET" && path == "/antidetect/benchmark")
+                {
+                    var benchPayload = await _onBenchmarkEngines().ConfigureAwait(false);
+                    var json = JsonSerializer.Serialize(benchPayload);
                     await WriteHttpResponseAsync(stream, 200, "OK", json, validatedOrigin, ct).ConfigureAwait(false);
                     return;
                 }

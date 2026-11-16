@@ -1590,3 +1590,48 @@ export interface FacebookIdentityProfile {
 }
 
 export interface RevealPinStatus { is_set: boolean; locked_until: string | null }
+
+export interface AutomationPlaybookStep {
+  action: string
+  target: string
+  wait_sec: number
+  note?: string
+}
+
+export interface AutomationPlaybook {
+  id: string
+  slug: string
+  title: string
+  platform: 'meta' | 'google_ads' | 'tiktok' | 'multi'
+  category: string
+  description: string
+  version_tag: string
+  changelog?: string
+  steps: AutomationPlaybookStep[]
+  default_stagger_sec: number
+  jitter_pct: number
+  is_builtin: boolean
+  author_name: string
+  avg_rating: number | null
+  rating_count: number
+  run_count: number
+  my_rating: number | null
+  updated_at?: string | null
+}
+
+export interface ProfileLaunchAuditRow {
+  id: string
+  action: string
+  created_at: string | null
+  actor_email: string
+  actor_name: string
+  via_id: string
+  via_label: string
+  antidetect_engine: string
+  antidetect_profile_id: string
+  browser_profile: string
+  workstation: string
+  startup_ms: number | null
+  failover_from: string
+  detail: string
+}

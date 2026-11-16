@@ -24,8 +24,8 @@ from fastapi import APIRouter, Query
 from app.api.deps import Ctx, OwnerCtx, WriteCtx
 from app.core.config import get_settings
 from app.core.email_and_bot_guard import is_bootstrap_owner_workspace
-from app.core.enums import DataFreshness, DiscoveryRunStatus, MetaEnvironment
-from app.core.errors import ConflictError, NotFoundError, ValidationError
+from app.core.enums import DataFreshness, DiscoveryRunStatus, MetaEnvironment, WorkspaceRole
+from app.core.errors import AuthorizationError, ConflictError, NotFoundError, ValidationError
 from app.models.entities import AuditLog
 from app.models.meta_discovery import BusinessManagerDiscoveryRun
 from app.models.meta_operations import (
@@ -4853,7 +4853,17 @@ def ingest_browser_event(
 
     body = payload or {}
     event_type = str(body.get("event_type") or "").strip().upper()
-    if event_type not in ("PAGE_CREATED", "COOKIE_LOGGED_OUT", "SAFETY_CHALLENGE", "KEEPALIVE_OK", "IP_LEAK_BLOCKED"):
+    allowed_events = (
+        "PAGE_CREATED",
+        "COOKIE_LOGGED_OUT",
+        "SAFETY_CHALLENGE",
+        "KEEPALIVE_OK",
+        "IP_LEAK_BLOCKED",
+        "PROFILE_LAUNCHED",
+        "PROFILE_STOPPED",
+        "ENGINE_FAILOVER",
+    )
+    if event_type not in allowed_events:
         raise ValidationError("Loại sự kiện trình duyệt không hợp lệ.")
 
     via_id_raw = str(body.get("via_id") or "").strip()[:80]
@@ -4863,6 +4873,17 @@ def ingest_browser_event(
             cand_v = ctx.session.get(PersonalAccountReference, uuid.UUID(via_id_raw))
             if cand_v and cand_v.workspace_id == ctx.workspace_id and cand_v.archived_at is None:
                 via_obj = cand_v
+
+    if (
+        event_type == "PROFILE_LAUNCHED"
+        and via_obj is not None
+        and via_obj.owner_member_id is not None
+        and ctx.membership.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+        and via_obj.owner_member_id != ctx.membership.id
+    ):
+        raise AuthorizationError(
+            "Via này đã được phân quyền riêng cho thành viên khác phụ trách. Chỉ Owner/Admin hoặc người được giao mới được mở."
+        )
 
     via_label_val = str(body.get("via_label") or (via_obj.label if via_obj else "") or "Via Quản trị").strip()[:120]
     browser_prof_val = str(
@@ -5022,6 +5043,42 @@ def ingest_browser_event(
                 "category": "Keep-Alive Cookie",
                 "mode": "DESKTOP_EXTENSION_KEEPALIVE_V29",
                 "note": ent["note"] or default_note,
+                "recorded_at": now_iso,
+            },
+        )
+
+    elif event_type in ("PROFILE_LAUNCHED", "PROFILE_STOPPED", "ENGINE_FAILOVER"):
+        audit_action = {
+            "PROFILE_LAUNCHED": "via.profile_launched",
+            "PROFILE_STOPPED": "via.profile_stopped",
+            "ENGINE_FAILOVER": "via.engine_failover",
+        }[event_type]
+        engine_val = str(body.get("antidetect_engine") or "chrome_native").strip()[:40]
+        ad_id_val = str(body.get("antidetect_profile_id") or "").strip()[:80]
+        workstation_val = str(body.get("workstation") or "").strip()[:120]
+        failover_from = str(body.get("failover_from") or "").strip()[:40]
+        target_url_val = str(body.get("target_url") or raw_page_url or "").strip()[:300]
+        startup_ms_val: int | None = None
+        with contextlib.suppress(Exception):
+            if body.get("startup_ms") is not None:
+                startup_ms_val = max(0, int(body.get("startup_ms") or 0))
+        ctx.audit.record(
+            action=audit_action,
+            entity_type="personal_account_reference",
+            entity_id=str(via_obj.id) if via_obj else (via_id_raw or f"via:{via_label_val}"),
+            metadata={
+                "via_id": str(via_obj.id) if via_obj else via_id_raw,
+                "via_label": via_label_val,
+                "browser_profile": browser_prof_val,
+                "antidetect_engine": engine_val,
+                "antidetect_profile_id": ad_id_val,
+                "workstation": workstation_val,
+                "startup_ms": startup_ms_val,
+                "failover_from": failover_from,
+                "target_url": target_url_val,
+                "actor_email": ctx.user.email,
+                "actor_name": ctx.user.full_name,
+                "detail": detail_txt,
                 "recorded_at": now_iso,
             },
         )

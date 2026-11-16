@@ -15,6 +15,7 @@ from app.api.v1.routers import (
     meta_operations,
     meta_reader_credentials,
     operations,
+    playbooks,
     preflight,
     readiness,
     references,
@@ -48,3 +49,4 @@ api_router.include_router(spend.router)
 api_router.include_router(facebook_identities.router)
 api_router.include_router(automation_ops.router)
 api_router.include_router(community.router)
+api_router.include_router(playbooks.router)

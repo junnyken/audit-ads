@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -22,7 +25,8 @@ public sealed record AntidetectProbeResult(
     string Engine,
     string BaseUrl,
     string Message,
-    int ProfileCount = 0);
+    int ProfileCount = 0,
+    int LatencyMs = 0);
 
 public sealed record AntidetectLaunchResult(
     bool Ok,
@@ -31,7 +35,123 @@ public sealed record AntidetectLaunchResult(
     string DebugWsUrl,
     int? DebugPort,
     int? Pid,
-    string Message);
+    string Message,
+    int StartupMs = 0);
+
+public sealed class EngineBenchmarkRecord
+{
+    [JsonPropertyName("engine")] public string Engine { get; set; } = "chrome_native";
+    [JsonPropertyName("last_probe_ms")] public int LastProbeMs { get; set; }
+    [JsonPropertyName("avg_startup_ms")] public int AvgStartupMs { get; set; }
+    [JsonPropertyName("sample_count")] public int SampleCount { get; set; }
+    [JsonPropertyName("online")] public bool Online { get; set; }
+    [JsonPropertyName("profile_count")] public int ProfileCount { get; set; }
+    [JsonPropertyName("updated_at_utc")] public string UpdatedAtUtc { get; set; } = "";
+}
+
+/// <summary>Lưu thống kê đo tốc độ thật (probe &amp; startup ms) của từng Engine trên máy hiện tại (0% dữ liệu ảo).</summary>
+public sealed class AntidetectEngineBenchmarkStore
+{
+    private static readonly string DefaultPath = Path.Combine(DesktopConfig.AppDataRoot, "engine_benchmarks.json");
+    private readonly string _path;
+    private readonly object _gate = new();
+    private Dictionary<string, EngineBenchmarkRecord> _records = new(StringComparer.OrdinalIgnoreCase);
+
+    public static AntidetectEngineBenchmarkStore Default { get; } = new();
+
+    public AntidetectEngineBenchmarkStore(string? customPath = null)
+    {
+        _path = string.IsNullOrWhiteSpace(customPath) ? DefaultPath : customPath;
+        LoadFromDisk();
+    }
+
+    private void LoadFromDisk()
+    {
+        lock (_gate)
+        {
+            try
+            {
+                if (!File.Exists(_path)) return;
+                var json = File.ReadAllText(_path, Encoding.UTF8);
+                var doc = JsonSerializer.Deserialize<List<EngineBenchmarkRecord>>(json);
+                if (doc != null)
+                {
+                    _records = doc.ToDictionary(r => AntidetectBrowserConnector.NormalizeEngine(r.Engine), r => r, StringComparer.OrdinalIgnoreCase);
+                }
+            }
+            catch { }
+        }
+    }
+
+    private void SaveToDiskLocked()
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(_path);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            var json = JsonSerializer.Serialize(_records.Values.OrderBy(r => r.Engine).ToList(), new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(_path, json, Encoding.UTF8);
+        }
+        catch { }
+    }
+
+    public void RecordProbe(AntidetectProbeResult probe)
+    {
+        var key = AntidetectBrowserConnector.NormalizeEngine(probe.Engine);
+        lock (_gate)
+        {
+            if (!_records.TryGetValue(key, out var rec))
+            {
+                rec = new EngineBenchmarkRecord { Engine = key };
+                _records[key] = rec;
+            }
+            rec.LastProbeMs = Math.Max(0, probe.LatencyMs);
+            rec.Online = probe.Online;
+            rec.ProfileCount = probe.ProfileCount;
+            rec.UpdatedAtUtc = DateTimeOffset.UtcNow.ToString("O");
+            SaveToDiskLocked();
+        }
+    }
+
+    public void RecordStartup(string engine, int startupMs)
+    {
+        if (startupMs < 0) return;
+        var key = AntidetectBrowserConnector.NormalizeEngine(engine);
+        lock (_gate)
+        {
+            if (!_records.TryGetValue(key, out var rec))
+            {
+                rec = new EngineBenchmarkRecord { Engine = key, Online = true };
+                _records[key] = rec;
+            }
+            long total = (long)rec.AvgStartupMs * rec.SampleCount + startupMs;
+            rec.SampleCount++;
+            rec.AvgStartupMs = (int)Math.Round((double)total / rec.SampleCount);
+            rec.Online = true;
+            rec.UpdatedAtUtc = DateTimeOffset.UtcNow.ToString("O");
+            SaveToDiskLocked();
+        }
+    }
+
+    public List<EngineBenchmarkRecord> GetAll()
+    {
+        lock (_gate)
+        {
+            return _records.Values
+                .Select(r => new EngineBenchmarkRecord
+                {
+                    Engine = r.Engine,
+                    LastProbeMs = r.LastProbeMs,
+                    AvgStartupMs = r.AvgStartupMs,
+                    SampleCount = r.SampleCount,
+                    Online = r.Online,
+                    ProfileCount = r.ProfileCount,
+                    UpdatedAtUtc = r.UpdatedAtUtc,
+                })
+                .ToList();
+        }
+    }
+}
 
 /// <summary>
 /// Cổng kết nối API nội bộ cho 5 trình duyệt Antidetect phổ biến (AdsPower, Dolphin{anty}, Hidemyacc, Genlogin, GoLogin)
@@ -188,17 +308,20 @@ public static class AntidetectBrowserConnector
         CancellationToken ct = default,
         HttpClient? httpOverride = null)
     {
+        var sw = Stopwatch.StartNew();
         var norm = NormalizeEngine(engine);
         var baseUrl = ResolveEffectiveBaseUrl(norm, customBaseUrl);
         if (norm == "chrome_native")
         {
             var localProfiles = ExtensionProvisioner.ReadLocalChromeProfiles();
+            sw.Stop();
             return new AntidetectProbeResult(
                 true,
                 norm,
                 baseUrl,
                 $"Chrome Gốc + Khiên WebRTC sẵn sàng ({localProfiles.Count} Chrome Profile trên máy).",
-                localProfiles.Count);
+                localProfiles.Count,
+                (int)sw.ElapsedMilliseconds);
         }
 
         var ownsHttp = httpOverride == null;
@@ -222,13 +345,15 @@ public static class AntidetectBrowserConnector
                 using var respAlt = await http.GetAsync($"{baseUrl}/me", ct).ConfigureAwait(false);
                 if (respAlt.IsSuccessStatusCode)
                 {
-                    return new AntidetectProbeResult(true, norm, baseUrl, $"{GetDisplayName(norm)} Local API đang bật tại {baseUrl}.");
+                    sw.Stop();
+                    return new AntidetectProbeResult(true, norm, baseUrl, $"{GetDisplayName(norm)} Local API đang bật tại {baseUrl}.", 0, (int)sw.ElapsedMilliseconds);
                 }
             }
 
             if (!resp.IsSuccessStatusCode)
             {
-                return new AntidetectProbeResult(false, norm, baseUrl, $"{GetDisplayName(norm)} phản hồi HTTP {(int)resp.StatusCode} tại {baseUrl}.");
+                sw.Stop();
+                return new AntidetectProbeResult(false, norm, baseUrl, $"{GetDisplayName(norm)} phản hồi HTTP {(int)resp.StatusCode} tại {baseUrl}.", 0, (int)sw.ElapsedMilliseconds);
             }
 
             var profiles = new List<AntidetectProfileSummary>();
@@ -255,25 +380,74 @@ public static class AntidetectBrowserConnector
                 catch { }
             }
 
+            sw.Stop();
             return new AntidetectProbeResult(
                 true,
                 norm,
                 baseUrl,
                 $"✓ Kết nối thành công {GetDisplayName(norm)} tại {baseUrl} ({profiles.Count} Profile đọc được).",
-                profiles.Count);
+                profiles.Count,
+                (int)sw.ElapsedMilliseconds);
         }
         catch (Exception ex)
         {
+            sw.Stop();
             return new AntidetectProbeResult(
                 false,
                 norm,
                 baseUrl,
-                $"Chưa kết nối được {GetDisplayName(norm)} tại {baseUrl} (hãy mở app {GetDisplayName(norm)} trước): {ex.Message}");
+                $"Chưa kết nối được {GetDisplayName(norm)} tại {baseUrl} (hãy mở app {GetDisplayName(norm)} trước): {ex.Message}",
+                0,
+                (int)sw.ElapsedMilliseconds);
         }
         finally
         {
             if (ownsHttp) http.Dispose();
         }
+    }
+
+    public static async Task<List<AntidetectProbeResult>> BenchmarkAllEnginesAsync(
+        string? customBaseUrl = null,
+        string? apiKey = null,
+        CancellationToken ct = default,
+        Func<string, HttpClient?>? httpFactory = null,
+        AntidetectEngineBenchmarkStore? storeOverride = null)
+    {
+        var tasks = SupportedEngines.Select(async eng =>
+        {
+            var customUrlForEng = !string.IsNullOrWhiteSpace(customBaseUrl) ? customBaseUrl : null;
+            var overrideHttp = httpFactory?.Invoke(eng.Key);
+            var res = await ProbeEngineAsync(eng.Key, customUrlForEng, apiKey, ct, overrideHttp).ConfigureAwait(false);
+            (storeOverride ?? AntidetectEngineBenchmarkStore.Default).RecordProbe(res);
+            return res;
+        }).ToArray();
+
+        var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+        return results.ToList();
+    }
+
+    public static string RecommendFastestOnlineEngine(
+        IReadOnlyList<AntidetectProbeResult> probes,
+        AntidetectEngineBenchmarkStore? storeOverride = null,
+        bool preferAntidetectOverChrome = true)
+    {
+        var records = (storeOverride ?? AntidetectEngineBenchmarkStore.Default)
+            .GetAll()
+            .ToDictionary(r => r.Engine, r => r, StringComparer.OrdinalIgnoreCase);
+
+        var online = probes.Where(p => p.Online).ToList();
+        if (online.Count == 0) return "chrome_native";
+
+        var candidates = preferAntidetectOverChrome && online.Any(p => p.Engine != "chrome_native")
+            ? online.Where(p => p.Engine != "chrome_native").ToList()
+            : online;
+
+        var best = candidates
+            .OrderBy(p => records.TryGetValue(p.Engine, out var r) && r.SampleCount > 0 ? r.AvgStartupMs : int.MaxValue)
+            .ThenBy(p => p.LatencyMs)
+            .FirstOrDefault();
+
+        return best?.Engine ?? "chrome_native";
     }
 
     public static async Task<List<AntidetectProfileSummary>> ListProfilesAsync(
@@ -342,13 +516,15 @@ public static class AntidetectBrowserConnector
         string? apiKey,
         string profileId,
         CancellationToken ct = default,
-        HttpClient? httpOverride = null)
+        HttpClient? httpOverride = null,
+        AntidetectEngineBenchmarkStore? storeOverride = null)
     {
+        var sw = Stopwatch.StartNew();
         var norm = NormalizeEngine(engine);
         var cleanId = (profileId ?? "").Trim();
         if (norm == "chrome_native" || string.IsNullOrWhiteSpace(cleanId))
         {
-            return new AntidetectLaunchResult(false, norm, cleanId, "", null, null, "Thiếu Antidetect Profile ID hợp lệ.");
+            return new AntidetectLaunchResult(false, norm, cleanId, "", null, null, "Thiếu Antidetect Profile ID hợp lệ.", (int)sw.ElapsedMilliseconds);
         }
 
         var baseUrl = ResolveEffectiveBaseUrl(norm, customBaseUrl);
@@ -445,9 +621,13 @@ public static class AntidetectBrowserConnector
 
                 if (!okFlag)
                 {
-                    return new AntidetectLaunchResult(false, norm, cleanId, wsUrl, debugPort, pid, string.IsNullOrWhiteSpace(apiMsg) ? $"Lỗi mở Profile trên {GetDisplayName(norm)}" : apiMsg);
+                    sw.Stop();
+                    return new AntidetectLaunchResult(false, norm, cleanId, wsUrl, debugPort, pid, string.IsNullOrWhiteSpace(apiMsg) ? $"Lỗi mở Profile trên {GetDisplayName(norm)}" : apiMsg, (int)sw.ElapsedMilliseconds);
                 }
 
+                sw.Stop();
+                var startupMs = (int)sw.ElapsedMilliseconds;
+                (storeOverride ?? AntidetectEngineBenchmarkStore.Default).RecordStartup(norm, startupMs);
                 return new AntidetectLaunchResult(
                     true,
                     norm,
@@ -455,12 +635,14 @@ public static class AntidetectBrowserConnector
                     wsUrl,
                     debugPort,
                     pid,
-                    $"Đã mở Profile '{cleanId}' qua {GetDisplayName(norm)}" + (debugPort.HasValue ? $" (CDP :{debugPort})" : ""));
+                    $"Đã mở Profile '{cleanId}' qua {GetDisplayName(norm)} ({startupMs}ms)" + (debugPort.HasValue ? $" • CDP :{debugPort}" : ""),
+                    startupMs);
             }
         }
         catch (Exception ex)
         {
-            return new AntidetectLaunchResult(false, norm, cleanId, "", null, null, $"Không gọi được API {GetDisplayName(norm)}: {ex.Message}");
+            sw.Stop();
+            return new AntidetectLaunchResult(false, norm, cleanId, "", null, null, $"Không gọi được API {GetDisplayName(norm)}: {ex.Message}", (int)sw.ElapsedMilliseconds);
         }
         finally
         {

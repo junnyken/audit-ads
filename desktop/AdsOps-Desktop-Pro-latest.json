@@ -1,13 +1,13 @@
 {
-    "version":  "2.5.0",
-    "ext_version":  "2.9.7",
+    "version":  "2.6.0",
+    "ext_version":  "2.9.8",
     "authenticode_signed":  true,
     "download_url":  "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
     "mirror_urls":  [
                         "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
                     ],
-    "sha256":  "fc3ccfc5aa681129fb3bbebcbbe1c48478004e542ccbd9e47f9474c06f3aebae",
-    "size_bytes":  62148988,
-    "published_at":  "2026-11-16T04:33:40.748364Z",
-    "release_notes":  "AdsOps Desktop Pro v2.5.0 + Extension v2.9.7: Khoa Zero-Trust Bridge Token (127.0.0.1:17890), tich hop 5 API Antidetect (AdsPower/Dolphin/Hidemyacc/Genlogin/GoLogin), Toi uu RAM Dan Nuoi + Dọn Cache, Ban dem Offline DPAPI, Go Cong dong + Ma Moi \u0026 Trinh cai dat kem SHA-256/Authenticode."
+    "sha256":  "613a57338d2818a633eb595af2d4a842a5cd9bc0648858d6fb74b29ba1a8a378",
+    "size_bytes":  65916981,
+    "published_at":  "2026-11-16T07:30:32.048416Z",
+    "release_notes":  "AdsOps Desktop Pro v2.6.0 + Extension v2.9.8: Bang dieu khien hop nhat 5 Engine Antidetect, Benchmark toc do \u0026 Auto-Failover, Giam sat RAM/CPU that + tu gioi han luong theo RAM, Doi chieu Mui gio Proxy IP, Cho Kich ban Team (Meta/Google/TikTok) chay Jitter lech pha, Phan quyen \u0026 Nhat ky Mo Profile + Onboarding 5 buoc."
 }

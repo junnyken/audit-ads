@@ -142,11 +142,11 @@ internal static class Program
             }
             using (var mfDoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(extDir, "manifest.json"))))
             {
-                if (mfDoc.RootElement.GetProperty("version").GetString() != "2.9.7")
-                    throw new InvalidOperationException("Manifest version is not 2.9.7");
+                if (mfDoc.RootElement.GetProperty("version").GetString() != "2.9.8")
+                    throw new InvalidOperationException("Manifest version is not 2.9.8");
                 var perms = mfDoc.RootElement.GetProperty("permissions").EnumerateArray().Select(e => e.GetString()).ToList();
                 if (!perms.Contains("alarms"))
-                    throw new InvalidOperationException("Manifest permissions missing alarms for v2.9.7 IP Leak Watchdog");
+                    throw new InvalidOperationException("Manifest permissions missing alarms for v2.9.8 IP Leak Watchdog");
             }
             var bgText = File.ReadAllText(Path.Combine(extDir, "background.js"));
             if (!bgText.Contains("ADSOPS_REPORT_BROWSER_EVENT", StringComparison.Ordinal) ||
@@ -277,8 +277,8 @@ internal static class Program
             healthResp.EnsureSuccessStatusCode();
             var healthBody = await healthResp.Content.ReadAsStringAsync();
             if (!healthBody.Contains("\"app\":\"AdsOpsDesktop\"", StringComparison.Ordinal) ||
-                !healthBody.Contains("\"version\":\"2.5.0\"", StringComparison.Ordinal) ||
-                !healthBody.Contains("\"extVersion\":\"2.9.7\"", StringComparison.Ordinal))
+                !healthBody.Contains("\"version\":\"2.6.0\"", StringComparison.Ordinal) ||
+                !healthBody.Contains("\"extVersion\":\"2.9.8\"", StringComparison.Ordinal))
             {
                 throw new InvalidOperationException($"Unexpected /health response: {healthBody}");
             }
@@ -287,7 +287,8 @@ internal static class Program
             sessResp.EnsureSuccessStatusCode();
             var sessBody = await sessResp.Content.ReadAsStringAsync();
             if (!sessBody.Contains("\"ok\":true", StringComparison.Ordinal) ||
-                !sessBody.Contains("\"sessions\":", StringComparison.Ordinal))
+                !sessBody.Contains("\"sessions\":", StringComparison.Ordinal) ||
+                !sessBody.Contains("\"workstation_memory\":", StringComparison.Ordinal))
             {
                 throw new InvalidOperationException($"Unexpected /chrome-sessions response: {sessBody}");
             }
@@ -468,9 +469,9 @@ internal static class Program
                     throw new InvalidOperationException($"WCAG AA contrast failure for {pair.Name}: {pair.Ratio}:1 < 4.5:1");
             }
 
-            // 10. Extension v2.9.7 template verification (Zero-Trust Bridge Token + 2FA bridge + billing sync + cookie bootstrap + keepalive auto-close + cloud token push)
+            // 10. Extension v2.9.8 template verification (Zero-Trust Bridge Token + 2FA bridge + billing sync + cookie bootstrap + keepalive auto-close + cloud token push)
             var extTpl = ExtensionProvisioner.LoadTemplates();
-            if (extTpl.Version != "2.9.7" ||
+            if (extTpl.Version != "2.9.8" ||
                 !extTpl.BackgroundJsAfterDefaultState.Contains("getBridgeHeaders", StringComparison.Ordinal) ||
                 !extTpl.BackgroundJsAfterDefaultState.Contains("X-AdsOps-Bridge-Token", StringComparison.Ordinal) ||
                 !extTpl.BackgroundJsAfterDefaultState.Contains("ADSOPS_GET_LOCAL_TOTP", StringComparison.Ordinal) ||
@@ -1096,7 +1097,80 @@ internal static class Program
                     throw new InvalidOperationException($"BinaryIntegrityInspector failed: sha={report.Sha256Hex}, size={report.SizeBytes}");
             }
 
-            Console.WriteLine("ADSOPS_DESKTOP_V250_SELFTEST_100_PASS");
+            // 24. v2.6.0 5-Engine Benchmark Store + RecommendFastestOnlineEngine + Bridge /antidetect/benchmark
+            {
+                var benchPath = Path.Combine(tempRoot, "benchmarks_v260.json");
+                var benchStore = new AntidetectEngineBenchmarkStore(benchPath);
+                benchStore.RecordStartup("dolphin_anty", 8700);
+                benchStore.RecordStartup("adspower", 3800);
+
+                var probes = new List<AntidetectProbeResult>
+                {
+                    new(true, "chrome_native", "http://127.0.0.1:17890", "OK", 2, 4),
+                    new(false, "hidemyacc", "http://127.0.0.1:12368", "Offline", 0, 150),
+                    new(true, "dolphin_anty", "http://127.0.0.1:3001", "OK", 12, 45),
+                    new(true, "adspower", "http://127.0.0.1:50325", "OK", 25, 22),
+                };
+                foreach (var p in probes) benchStore.RecordProbe(p);
+                var fastest = AntidetectBrowserConnector.RecommendFastestOnlineEngine(probes, benchStore);
+                if (fastest != "adspower")
+                    throw new InvalidOperationException($"Expected fastest online engine 'adspower', got '{fastest}'");
+                var benchHistory = new AntidetectEngineBenchmarkStore(benchPath).GetAll();
+                if (benchHistory.First(r => r.Engine == "adspower").AvgStartupMs != 3800)
+                    throw new InvalidOperationException("Benchmark persistence roundtrip mismatch");
+            }
+
+            // 25. v2.6.0 Workstation RAM Snapshot + Auto-Cap + Multi-Engine Process Recognition
+            {
+                var mem = WorkstationPerformanceOptimizer.ReadWorkstationMemory();
+                if (mem.TotalPhysicalMb == 0)
+                    throw new InvalidOperationException("TotalPhysicalMb returned 0");
+                var cap16g = WorkstationPerformanceOptimizer.ComputeRecommendedMaxConcurrent(lowRamMode: true, new WorkstationMemorySnapshot(16384, 10000, 39));
+                var cap8g = WorkstationPerformanceOptimizer.ComputeRecommendedMaxConcurrent(lowRamMode: false, new WorkstationMemorySnapshot(8192, 3500, 57));
+                if (cap16g <= cap8g || cap16g < 10 || cap8g < 2)
+                    throw new InvalidOperationException($"Unexpected RAM concurrency cap: 16G={cap16g}, 8G={cap8g}");
+                if (!ChromeSessionTracker.IsSupportedBrowserProcessName("sunbrowser") ||
+                    !ChromeSessionTracker.IsSupportedBrowserProcessName("orbita") ||
+                    !ChromeSessionTracker.IsSupportedBrowserProcessName("anty") ||
+                    ChromeSessionTracker.IsSupportedBrowserProcessName("notepad"))
+                {
+                    throw new InvalidOperationException("ChromeSessionTracker browser process classifier failed");
+                }
+            }
+
+            // 26. v2.6.0 Proxy IP-Timezone Match Guard
+            {
+                var (okVn, warnVn) = ProxyTimezoneHelper.EvaluateMatch("Asia/Saigon", "VN", "Asia/Ho_Chi_Minh");
+                var (okUs, warnUs) = ProxyTimezoneHelper.EvaluateMatch("America/New_York", "US", "Asia/Ho_Chi_Minh");
+                if (okVn != true || !string.IsNullOrEmpty(warnVn) || okUs != false || string.IsNullOrEmpty(warnUs))
+                    throw new InvalidOperationException($"ProxyTimezoneHelper mismatch: okVn={okVn}, okUs={okUs}, warnUs={warnUs}");
+            }
+
+            // 27. v2.6.0 Unified Multi-Engine Filter + Team Assignee Launch RBAC Guard
+            {
+                var sampleVias = new List<ViaWorkspaceEntry>
+                {
+                    new() { ViaId = "1", Label = "Via AdsPower A", AntidetectEngine = "adspower", AntidetectProfileId = "p1", NetworkLabel = "10.20.30.40:8080:u:p", OwnerMemberId = "m-buyer-a", IsBrowserRunning = true },
+                    new() { ViaId = "2", Label = "Via Dolphin B", AntidetectEngine = "dolphin_anty", AntidetectProfileId = "p2", NetworkLabel = "", OwnerMemberId = "m-buyer-b", HasTimezoneMismatch = true },
+                };
+                var adsOnly = MainWindow.ApplyUnifiedViaFilters(sampleVias, "", "all", "adspower", "all", "all").ToList();
+                var directOnly = MainWindow.ApplyUnifiedViaFilters(sampleVias, "", "all", "all", "direct", "all").ToList();
+                var ownerBOnly = MainWindow.ApplyUnifiedViaFilters(sampleVias, "", "tz_mismatch", "all", "all", "m-buyer-b").ToList();
+                if (adsOnly.Count != 1 || adsOnly[0].ViaId != "1" || directOnly.Count != 1 || directOnly[0].ViaId != "2" || ownerBOnly.Count != 1 || ownerBOnly[0].ViaId != "2")
+                    throw new InvalidOperationException("Unified multi-engine filter failed");
+
+                if (MainWindow.CanUserLaunchVia("viewer", "m-viewer", "", out _))
+                    throw new InvalidOperationException("Viewer should not be allowed to launch Via");
+                if (MainWindow.CanUserLaunchVia("buyer", "m-buyer-b", "m-buyer-a", out _))
+                    throw new InvalidOperationException("Buyer B should not launch Via owned by Buyer A");
+                if (!MainWindow.CanUserLaunchVia("buyer", "m-buyer-a", "m-buyer-a", out _) ||
+                    !MainWindow.CanUserLaunchVia("owner", "m-owner", "m-buyer-a", out _))
+                {
+                    throw new InvalidOperationException("Owner or assigned Buyer should be allowed to launch Via");
+                }
+            }
+
+            Console.WriteLine("ADSOPS_DESKTOP_V260_SELFTEST_100_PASS");
             return 0;
         }
         finally

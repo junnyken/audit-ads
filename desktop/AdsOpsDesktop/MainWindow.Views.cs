@@ -304,11 +304,88 @@ internal sealed partial class MainWindow
             MessageBox.Show(this, $"Đã cấp mới Chrome Extension Companion cho {n} Via.", "Hoàn tất", MessageBoxButton.OK, MessageBoxImage.Information);
         }));
         AddQuickBtn(UiComponents.CreateButton("Đồng bộ Page từ Meta", ButtonVariant.Secondary, FluentIcons.Sync, onClick: async (_, _) => await RunMetaPageSyncAsync()));
+        AddQuickBtn(UiComponents.CreateButton("⏱️ Benchmark 5 Engine", ButtonVariant.Secondary, FluentIcons.Diagnostic, onClick: async (_, _) => await RunBenchmarkAllEnginesUiAsync()));
+        AddQuickBtn(UiComponents.CreateButton("🕵️ Nhật ký Mở Profile", ButtonVariant.Secondary, FluentIcons.ShieldCheck, onClick: (_, _) => OpenProfileLaunchAuditDialog()));
         quickPanel.Children.Add(quickWrap);
+
+        // v2.6.0 Workstation RAM & Recommended Concurrency Strip + 5-Step Safety Onboarding Preset
+        var wsMem = _workstationMem ?? WorkstationPerformanceOptimizer.ReadWorkstationMemory();
+        var recConcurrent = WorkstationPerformanceOptimizer.ComputeRecommendedMaxConcurrent(_config.LowRamFarmMode, wsMem);
+        var onlineBenchNames = _engineProbes.Where(p => p.Online && p.Engine != "chrome_native")
+            .Select(p => $"{AntidetectBrowserConnector.GetDisplayName(p.Engine)} ({p.LatencyMs}ms)")
+            .ToList();
+        var memSummary = $"💻 RAM trống: {wsMem.AvailablePhysicalMb:N0}/{wsMem.TotalPhysicalMb:N0} MB ({100 - (int)wsMem.MemoryLoadPercent}% trống) • Khuyên mở tối đa: {recConcurrent} luồng song song"
+            + (onlineBenchNames.Count > 0
+                ? $" • Đang bật: {string.Join(", ", onlineBenchNames)} (Nhanh nhất: {AntidetectBrowserConnector.GetDisplayName(_recommendedFastestEngine)})"
+                : " • Chưa dò thấy App Antidetect đang mở (bấm Benchmark để quét lại)");
+        quickPanel.Children.Add(new TextBlock
+        {
+            Text = memSummary,
+            FontSize = 11.5,
+            Foreground = ThemeTokens.AccentText,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 0),
+        });
 
         var quickCard = UiComponents.CreateCard(quickPanel);
         quickCard.Margin = new Thickness(0, 0, 0, 14);
         rightStack.Children.Add(quickCard);
+
+        // 5-Step Safety Onboarding & 1-Click Safe Preset (v2.6.0)
+        var onboardPanel = new StackPanel();
+        onboardPanel.Children.Add(new TextBlock
+        {
+            Text = "🛡️ Lộ trình Thiết lập An toàn 5 Bước (Dành cho Người mới)",
+            FontFamily = ThemeTokens.UiFont,
+            FontSize = 14,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeTokens.TextPrimary,
+            Margin = new Thickness(0, 0, 0, 6),
+        });
+        var step1Ok = _bridge != null && !string.IsNullOrWhiteSpace(_config.GetJwt());
+        var step2Ok = _config.EnableChromeAntidetectShield && _config.EnforceSoakQuarantine && _config.PreCheckProxyBeforeLaunch;
+        var step3Ok = _vias.Count > 0 && _vias.All(v => !v.HasSiloConflict);
+        var step4Ok = _vias.Any(v => v.ProxyLastStatus == "LIVE") && !_vias.Any(v => v.HasTimezoneMismatch);
+        var step5Ok = twoFaReady > 0;
+        var steps = new[]
+        {
+            (step1Ok, "1. Kết nối AdsOps Cloud & Local Bridge Zero-Trust :17890"),
+            (step2Ok, "2. Bật Khiên Chrome WebRTC + Ngâm 72h + Check Proxy trước khi mở"),
+            (step3Ok, "3. Gắn mỗi Via 1 Chrome/Antidetect Profile riêng (0 trùng Silo)"),
+            (step4Ok, "4. Quét Proxy LIVE & kiểm tra IP khớp Múi giờ với tài khoản"),
+            (step5Ok, "5. Lưu ít nhất 1 mã 2FA/Cookie trong Két DPAPI Local để bật Auto-Failover"),
+        };
+        foreach (var (okStep, textStep) in steps)
+        {
+            onboardPanel.Children.Add(new TextBlock
+            {
+                Text = (okStep ? "✓ " : "○ ") + textStep,
+                FontSize = 12,
+                Foreground = okStep ? ThemeTokens.SuccessText : ThemeTokens.TextSecondary,
+                Margin = new Thickness(0, 0, 0, 3),
+                TextWrapping = TextWrapping.Wrap,
+            });
+        }
+        var presetBtn = UiComponents.CreateButton("⚡ Áp dụng Preset An Toàn Chuẩn (1-Click)", ButtonVariant.Primary, FluentIcons.ShieldCheck, compact: true, onClick: (_, _) =>
+        {
+            _config.EnableChromeAntidetectShield = true;
+            _config.LowRamFarmMode = true;
+            _config.AutoScaleConcurrentByRam = true;
+            _config.PreCheckProxyBeforeLaunch = true;
+            _config.EnforceSoakQuarantine = true;
+            _config.EnforceClientSilo = true;
+            _config.MaxViasPerProxyInBatch = 4;
+            _config.DefaultStaggerSeconds = 60;
+            _config.Save();
+            var cnt = ProvisionAllViaExtensions(silent: true);
+            AppendLog($"⚡ Đã áp dụng Preset An Toàn Chuẩn (WebRTC Shield, RAM Auto-Cap, Ngâm 72h, 4 Via/Proxy, 60s Jitter) và cấp lại {cnt} Extension.");
+            RenderCurrentView();
+        });
+        presetBtn.Margin = new Thickness(0, 8, 0, 0);
+        onboardPanel.Children.Add(presetBtn);
+        var onboardCard = UiComponents.CreateCard(onboardPanel);
+        onboardCard.Margin = new Thickness(0, 0, 0, 14);
+        rightStack.Children.Add(onboardCard);
 
         // Recent Via Activity
         var actPanel = new StackPanel();
@@ -477,6 +554,7 @@ internal sealed partial class MainWindow
 
         void RefreshBulkAndList()
         {
+            RefreshLiveSessionTelemetryOnVias();
             _liveTotpBindings.Clear();
             listHost.Children.Clear();
             RebuildBulkToolbar(bulkBarHost, RefreshBulkAndList);
@@ -548,6 +626,14 @@ internal sealed partial class MainWindow
         shieldLogBtn.Margin = new Thickness(0, 0, 6, 0);
         rightHeaderBtns.Children.Add(shieldLogBtn);
 
+        var launchAuditBtn = UiComponents.CreateButton("Nhật ký Mở Profile", ButtonVariant.Secondary, FluentIcons.Diagnostic, onClick: (_, _) => OpenProfileLaunchAuditDialog(), tooltip: "Xem ai đã mở Profile nào, qua Engine nào, trên máy nào");
+        launchAuditBtn.Margin = new Thickness(0, 0, 6, 0);
+        rightHeaderBtns.Children.Add(launchAuditBtn);
+
+        var benchBtn = UiComponents.CreateButton("Benchmark 5 Engine", ButtonVariant.Secondary, FluentIcons.Lightning, onClick: async (_, _) => await RunBenchmarkAllEnginesUiAsync(), tooltip: "Đo tốc độ phản hồi Chrome Gốc & 5 Engine Antidetect");
+        benchBtn.Margin = new Thickness(0, 0, 6, 0);
+        rightHeaderBtns.Children.Add(benchBtn);
+
         var selectAllBtn = UiComponents.CreateButton("Chọn hết", ButtonVariant.Secondary, onClick: (_, _) =>
         {
             var visibleIds = FilterVias().Select(x => x.ViaId).ToList();
@@ -582,7 +668,68 @@ internal sealed partial class MainWindow
         AddViaChip("cooldown", $"Đang Cooldown ({_vias.Count(v => v.IsInCooldown)})");
         AddViaChip("silo_conflict", $"Trùng Silo ({_vias.Count(v => v.HasSiloConflict)})");
         AddViaChip("proxy_dead", $"Proxy Chết ({_vias.Count(v => v.ProxyLastStatus == "DEAD")})");
+        AddViaChip("running", $"Đang mở ({_vias.Count(v => v.IsBrowserRunning)})");
+        AddViaChip("tz_mismatch", $"Lệch Múi giờ ({_vias.Count(v => v.HasTimezoneMismatch)})");
         filterCardStack.Children.Add(chipWrap);
+
+        // Unified 5-Engine Hub Filter Row (Engine + Proxy Cluster + Người phụ trách)
+        var unifiedBar = new Grid { Margin = new Thickness(0, 8, 0, 0) };
+        unifiedBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        unifiedBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+        unifiedBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        unifiedBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+        unifiedBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var engineOpts = new List<ComboBoxItem> { new() { Content = "Engine: Tất cả (5+1)", Tag = "all" } };
+        engineOpts.AddRange(AntidetectBrowserConnector.SupportedEngines.Select(e => new ComboBoxItem
+        {
+            Content = $"Engine: {AntidetectBrowserConnector.GetDisplayName(e.Key)} ({_vias.Count(v => AntidetectBrowserConnector.NormalizeEngine(v.AntidetectEngine) == e.Key)})",
+            Tag = e.Key,
+        }));
+        var cbEngine = UiComponents.CreateComboBox(engineOpts);
+        var eIdx = engineOpts.FindIndex(i => string.Equals(i.Tag?.ToString(), _viaEngineFilter, StringComparison.OrdinalIgnoreCase));
+        cbEngine.SelectedIndex = eIdx >= 0 ? eIdx : 0;
+        cbEngine.SelectionChanged += (_, _) => { _viaEngineFilter = (cbEngine.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "all"; RefreshBulkAndList(); };
+
+        var distinctProxies = _vias
+            .Select(v => AutomationQueueEngine.ExtractProxyHostPort(v.NetworkLabel))
+            .Where(p => !string.IsNullOrEmpty(p))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(p => p)
+            .ToList();
+        var proxyOpts = new List<ComboBoxItem>
+        {
+            new() { Content = "Proxy: Tất cả cụm", Tag = "all" },
+            new() { Content = "Proxy: Mạng gốc (Direct)", Tag = "direct" },
+        };
+        proxyOpts.AddRange(distinctProxies.Select(px => new ComboBoxItem { Content = $"Proxy: {px}", Tag = px }));
+        var cbProxy = UiComponents.CreateComboBox(proxyOpts);
+        var pxIdx = proxyOpts.FindIndex(i => string.Equals(i.Tag?.ToString(), _viaProxyFilter, StringComparison.OrdinalIgnoreCase));
+        cbProxy.SelectedIndex = pxIdx >= 0 ? pxIdx : 0;
+        cbProxy.SelectionChanged += (_, _) => { _viaProxyFilter = (cbProxy.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "all"; RefreshBulkAndList(); };
+
+        var ownerOpts = new List<ComboBoxItem>
+        {
+            new() { Content = "Phụ trách: Tất cả nhân sự", Tag = "all" },
+            new() { Content = "Phụ trách: Chưa phân công", Tag = "unassigned" },
+        };
+        foreach (var tm in _teamMembers)
+        {
+            var disp = string.IsNullOrWhiteSpace(tm.FullName) ? tm.Email : tm.FullName;
+            ownerOpts.Add(new ComboBoxItem { Content = $"👤 {disp} ({tm.Role})", Tag = tm.Id });
+        }
+        var cbOwner = UiComponents.CreateComboBox(ownerOpts);
+        var oIdx = ownerOpts.FindIndex(i => string.Equals(i.Tag?.ToString(), _viaOwnerFilter, StringComparison.OrdinalIgnoreCase));
+        cbOwner.SelectedIndex = oIdx >= 0 ? oIdx : 0;
+        cbOwner.SelectionChanged += (_, _) => { _viaOwnerFilter = (cbOwner.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "all"; RefreshBulkAndList(); };
+
+        Grid.SetColumn(cbEngine, 0);
+        Grid.SetColumn(cbProxy, 2);
+        Grid.SetColumn(cbOwner, 4);
+        unifiedBar.Children.Add(cbEngine);
+        unifiedBar.Children.Add(cbProxy);
+        unifiedBar.Children.Add(cbOwner);
+        filterCardStack.Children.Add(unifiedBar);
 
         var filterCard = UiComponents.CreateCard(filterCardStack, new Thickness(12));
         filterCard.Margin = new Thickness(0, 0, 0, 12);
@@ -594,12 +741,26 @@ internal sealed partial class MainWindow
         return root;
     }
 
-    private IEnumerable<ViaWorkspaceEntry> FilterVias()
+    private IEnumerable<ViaWorkspaceEntry> FilterVias() =>
+        ApplyUnifiedViaFilters(_vias, _viaSearch, _viaTierFilter, _viaEngineFilter, _viaProxyFilter, _viaOwnerFilter);
+
+    internal static IEnumerable<ViaWorkspaceEntry> ApplyUnifiedViaFilters(
+        IEnumerable<ViaWorkspaceEntry> source,
+        string? search,
+        string? tierFilter,
+        string? engineFilter = "all",
+        string? proxyFilter = "all",
+        string? ownerFilter = "all")
     {
-        var q = (_viaSearch ?? "").Trim();
-        return _vias.Where(v =>
+        var q = (search ?? "").Trim();
+        var tier = (tierFilter ?? "all").Trim().ToLowerInvariant();
+        var eng = (engineFilter ?? "all").Trim().ToLowerInvariant();
+        var px = (proxyFilter ?? "all").Trim().ToLowerInvariant();
+        var own = (ownerFilter ?? "all").Trim().ToLowerInvariant();
+
+        return source.Where(v =>
         {
-            var matchFilter = _viaTierFilter switch
+            var matchFilter = tier switch
             {
                 "vault" => v.RoleTier is "vault" or "hold",
                 "camp" => v.RoleTier is not "vault" and not "hold" and not "standby",
@@ -609,16 +770,52 @@ internal sealed partial class MainWindow
                 "cooldown" => v.IsInCooldown,
                 "silo_conflict" => v.HasSiloConflict,
                 "proxy_dead" => v.ProxyLastStatus == "DEAD",
+                "running" => v.IsBrowserRunning,
+                "tz_mismatch" => v.HasTimezoneMismatch,
                 _ => true,
             };
             if (!matchFilter) return false;
+
+            if (eng != "all" && !string.IsNullOrEmpty(eng))
+            {
+                if (!string.Equals(AntidetectBrowserConnector.NormalizeEngine(v.AntidetectEngine), eng, StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+
+            if (px != "all" && !string.IsNullOrEmpty(px))
+            {
+                var hp = AutomationQueueEngine.ExtractProxyHostPort(v.NetworkLabel);
+                if (px == "direct")
+                {
+                    if (!string.IsNullOrWhiteSpace(v.NetworkLabel)) return false;
+                }
+                else if (!string.Equals(hp, px, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+
+            if (own != "all" && !string.IsNullOrEmpty(own))
+            {
+                if (own == "unassigned")
+                {
+                    if (!string.IsNullOrWhiteSpace(v.OwnerMemberId)) return false;
+                }
+                else if (!string.Equals(v.OwnerMemberId, own, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+
             if (string.IsNullOrEmpty(q)) return true;
 
             return v.Label.Contains(q, StringComparison.OrdinalIgnoreCase)
                 || v.DisplayName.Contains(q, StringComparison.OrdinalIgnoreCase)
                 || v.ExternalReferenceId.Contains(q, StringComparison.OrdinalIgnoreCase)
                 || v.ProfileDir.Contains(q, StringComparison.OrdinalIgnoreCase)
+                || v.AntidetectProfileId.Contains(q, StringComparison.OrdinalIgnoreCase)
                 || v.NetworkLabel.Contains(q, StringComparison.OrdinalIgnoreCase)
+                || v.OwnerMemberName.Contains(q, StringComparison.OrdinalIgnoreCase)
                 || v.ClientGroup.Contains(q, StringComparison.OrdinalIgnoreCase);
         });
     }
@@ -761,6 +958,41 @@ internal sealed partial class MainWindow
             titleRow.Children.Add(confPill);
         }
 
+        var normEngine = AntidetectBrowserConnector.NormalizeEngine(v.AntidetectEngine);
+        var engineBadgeText = normEngine == "chrome_native"
+            ? "Chrome Gốc"
+            : $"🎭 {AntidetectBrowserConnector.GetDisplayName(normEngine)}" + (string.IsNullOrWhiteSpace(v.AntidetectProfileId) ? "" : $" #{v.AntidetectProfileId}");
+        var engPill = UiComponents.CreateBadgePill(
+            engineBadgeText,
+            normEngine == "chrome_native" ? ThemeTokens.TextSecondary : ThemeTokens.AccentText,
+            ThemeTokens.BgSurfaceElevated,
+            ThemeTokens.BorderSubtle);
+        engPill.Margin = new Thickness(0, 0, 6, 0);
+        titleRow.Children.Add(engPill);
+
+        if (!string.IsNullOrWhiteSpace(v.OwnerMemberName))
+        {
+            var ownPill = UiComponents.CreateBadgePill($"👤 {v.OwnerMemberName}", ThemeTokens.PurpleText, ThemeTokens.PurpleBg, ThemeTokens.PurpleBorder);
+            ownPill.Margin = new Thickness(0, 0, 6, 0);
+            titleRow.Children.Add(ownPill);
+        }
+
+        if (v.IsBrowserRunning)
+        {
+            var ramPill = UiComponents.CreateBadgePill($"⚡ {v.ActiveRamMb:0}MB • {v.ActiveCpuPercent:0.0}%", ThemeTokens.SuccessText, ThemeTokens.SuccessBg, ThemeTokens.SuccessBorder);
+            ramPill.ToolTip = $"Đang chạy trực tiếp ({v.ActiveRamMb:0.0} MB RAM / {v.ActiveCpuPercent:0.0}% CPU)";
+            ramPill.Margin = new Thickness(0, 0, 6, 0);
+            titleRow.Children.Add(ramPill);
+        }
+
+        if (v.HasTimezoneMismatch)
+        {
+            var tzPill = UiComponents.CreateBadgePill("🕒 LỆCH MÚI GIỜ IP", ThemeTokens.WarningText, ThemeTokens.WarningBg, ThemeTokens.WarningBorder);
+            tzPill.ToolTip = v.TimezoneWarning;
+            tzPill.Margin = new Thickness(0, 0, 6, 0);
+            titleRow.Children.Add(tzPill);
+        }
+
         titleRow.Children.Add(new TextBlock
         {
             Text = v.Label,
@@ -871,9 +1103,18 @@ internal sealed partial class MainWindow
         Grid.SetColumn(otpBorder, 3);
         grid.Children.Add(otpBorder);
 
-        // Col 4: Row Actions
+        // Col 4: Row Actions (RBAC-guarded Launch)
         var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        var openBtn = UiComponents.CreateButton("Mở Chrome", ButtonVariant.Primary, FluentIcons.RocketLaunch, compact: true, onClick: (_, _) => LaunchViaChromeSafe(v, "https://www.facebook.com/"));
+        var canLaunch = CanCurrentUserLaunchVia(v, out var denyReason);
+        var launchBtnLabel = normEngine == "chrome_native" ? "Mở Chrome" : $"Mở {AntidetectBrowserConnector.GetDisplayName(normEngine)}";
+        var openBtn = UiComponents.CreateButton(
+            canLaunch ? launchBtnLabel : "🔒 Đã khóa",
+            ButtonVariant.Primary,
+            FluentIcons.RocketLaunch,
+            compact: true,
+            onClick: (_, _) => LaunchViaChromeSafe(v, "https://www.facebook.com/"),
+            tooltip: canLaunch ? $"Mở trình duyệt an toàn ({launchBtnLabel})" : denyReason);
+        openBtn.IsEnabled = canLaunch;
         openBtn.Margin = new Thickness(0, 0, 6, 0);
         actions.Children.Add(openBtn);
 
@@ -1094,7 +1335,7 @@ internal sealed partial class MainWindow
                     enforceClientSilo: _config.EnforceClientSilo,
                     interleaveByProxy: true,
                     sameProxyMinStaggerSeconds: _config.SameProxyMinStaggerSeconds,
-                    maxConcurrentBrowsers: _config.MaxConcurrentBrowsers);
+                    maxConcurrentBrowsers: GetEffectiveMaxConcurrentBrowsers());
             }
             catch (Exception ex)
             {
@@ -1104,9 +1345,175 @@ internal sealed partial class MainWindow
         });
         batchStack.Children.Add(runBatchBtn);
 
+        var autoLeftStack = new StackPanel();
+
+        // Team Playbooks Marketplace & Jittered Multi-Platform Batch Runner (v2.6.0)
+        var pbPanel = new StackPanel();
+        var pbHdr = new Grid { Margin = new Thickness(0, 0, 0, 6) };
+        pbHdr.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        pbHdr.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        pbHdr.Children.Add(new TextBlock
+        {
+            Text = "📚 Chợ Kịch Bản Team (Meta / Google Ads / TikTok) & Chạy Lô Lệch Pha",
+            FontSize = 15,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeTokens.TextPrimary,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextWrapping = TextWrapping.Wrap,
+        });
+        var newPbBtn = UiComponents.CreateButton("➕ Tạo Kịch bản", ButtonVariant.Secondary, compact: true, onClick: (_, _) => OpenCreatePlaybookDialog(() => RenderCurrentView()));
+        Grid.SetColumn(newPbBtn, 1);
+        pbHdr.Children.Add(newPbBtn);
+        pbPanel.Children.Add(pbHdr);
+
+        var pbPlatWrap = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
+        foreach (var (pk, plbl) in new[] { ("all", "Tất cả"), ("meta", "Meta Ads"), ("google_ads", "Google Ads"), ("tiktok", "TikTok Ads"), ("multi", "Đa nền tảng") })
+        {
+            pbPlatWrap.Children.Add(UiComponents.CreateFilterChip(plbl, string.Equals(_playbookPlatformFilter, pk, StringComparison.OrdinalIgnoreCase), (_, _) =>
+            {
+                _playbookPlatformFilter = pk;
+                RenderCurrentView();
+            }));
+        }
+        pbPanel.Children.Add(pbPlatWrap);
+
+        var filteredPbs = _playbooks
+            .Where(p => string.Equals(_playbookPlatformFilter, "all", StringComparison.OrdinalIgnoreCase) || string.Equals(p.Platform, _playbookPlatformFilter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (filteredPbs.Count == 0)
+        {
+            pbPanel.Children.Add(new TextBlock
+            {
+                Text = "Đăng nhập Cloud và đồng bộ để tải các kịch bản chuẩn của Team.",
+                FontSize = 12,
+                Foreground = ThemeTokens.TextMuted,
+            });
+        }
+        else
+        {
+            var pbCombo = UiComponents.CreateComboBox(filteredPbs.Select(p =>
+            {
+                var ratingTxt = p.RatingCount > 0 && p.AvgRating.HasValue ? $"★{p.AvgRating.Value:0.0} ({p.RatingCount})" : "Chưa đánh giá";
+                return new ComboBoxItem
+                {
+                    Content = $"[{p.Platform.ToUpperInvariant()}] {p.Title} (v{p.VersionTag} • {ratingTxt} • {p.RunCount} lượt)",
+                    Tag = p.Id,
+                };
+            }));
+            var selPbIdx = filteredPbs.FindIndex(p => string.Equals(p.Id, _selectedPlaybookId, StringComparison.OrdinalIgnoreCase));
+            if (selPbIdx < 0) selPbIdx = 0;
+            pbCombo.SelectedIndex = selPbIdx;
+            var activePb = filteredPbs[selPbIdx];
+            _selectedPlaybookId = activePb.Id;
+            pbCombo.SelectionChanged += (_, _) =>
+            {
+                _selectedPlaybookId = (pbCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "";
+                RenderCurrentView();
+            };
+            pbPanel.Children.Add(pbCombo);
+
+            pbPanel.Children.Add(new TextBlock
+            {
+                Text = $"{activePb.Description}\nBước 1: {activePb.Steps.FirstOrDefault()?.Target ?? "https://www.facebook.com/"} • Giãn cách: {activePb.DefaultStaggerSec}s ±{activePb.JitterPct}% Jitter • Tác giả: {activePb.AuthorName}",
+                FontSize = 11.5,
+                Foreground = ThemeTokens.TextSecondary,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 6, 0, 8),
+            });
+
+            var pbActions = new WrapPanel();
+            var runPbBtn = UiComponents.CreateButton("🚀 Chạy Lô Kịch bản (Jitter)", ButtonVariant.Primary, FluentIcons.Play, compact: true, onClick: async (_, _) =>
+            {
+                if (_queue.Current.Phase is QueuePhase.Running or QueuePhase.Paused)
+                {
+                    MessageBox.Show(this, "Hàng đợi đang chạy dở. Hãy tạm dừng hoặc dừng trước.", "Đang bận", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                var targets = _selectedViaIds.Count > 0
+                    ? _vias.Where(v => _selectedViaIds.Contains(v.ViaId) && CanCurrentUserLaunchVia(v, out _)).ToList()
+                    : _vias.Where(v => !v.IsInCooldown && CanCurrentUserLaunchVia(v, out _)).Take(10).ToList();
+                if (targets.Count == 0)
+                {
+                    MessageBox.Show(this, "Không có Via hợp lệ (hoặc bạn không đủ quyền trên các Via đã chọn).", "Không thể chạy", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+                var targetUrl = activePb.Steps.FirstOrDefault(s => !string.IsNullOrWhiteSpace(s.Target) && s.Target.StartsWith("https://", StringComparison.OrdinalIgnoreCase))?.Target
+                                ?? "https://www.facebook.com/";
+                var qTasks = targets.Select(v => new QueueTaskItem(
+                    v.ViaId,
+                    v.Label,
+                    GetEffectiveBatchProfileKey(v, v.ProfileDir),
+                    v.NetworkLabel,
+                    targetUrl,
+                    $"{activePb.Platform.ToUpperInvariant()}: {activePb.Title}",
+                    v.BackendTier,
+                    v.ClientGroup,
+                    v.IsInSoakQuarantine,
+                    v.CooldownUntilUtc,
+                    v.HasSiloConflict,
+                    v.SiloConflictDetail)).ToList();
+
+                _queue.StartQueue(
+                    QueueKind.KeepAlive,
+                    qTasks,
+                    activePb.DefaultStaggerSec,
+                    _config.PreCheckProxyBeforeLaunch,
+                    _config.MaxViasPerProxyInBatch,
+                    _config.AutoKeepAliveStartHour,
+                    _config.AutoKeepAliveEndHour,
+                    enforceDaytimeWindow: true,
+                    enforceSoakQuarantine: _config.EnforceSoakQuarantine,
+                    enforceClientSilo: _config.EnforceClientSilo,
+                    interleaveByProxy: true,
+                    sameProxyMinStaggerSeconds: _config.SameProxyMinStaggerSeconds,
+                    maxConcurrentBrowsers: GetEffectiveMaxConcurrentBrowsers());
+                try
+                {
+                    var updated = await _api.RecordPlaybookRunAsync(activePb.Id, targets.Select(t => t.ViaId), _config.DefaultBrowserEngine, activePb.DefaultStaggerSec, activePb.JitterPct, Environment.MachineName);
+                    var idx = _playbooks.FindIndex(p => p.Id == updated.Id);
+                    if (idx >= 0) _playbooks[idx] = updated;
+                }
+                catch { }
+                AppendLog($"📚 Đã khởi chạy kịch bản '{activePb.Title}' cho {qTasks.Count} Via (Jitter ±{activePb.JitterPct}%, max {GetEffectiveMaxConcurrentBrowsers()} luồng RAM).");
+                RenderCurrentView();
+            });
+            runPbBtn.Margin = new Thickness(0, 0, 8, 4);
+            pbActions.Children.Add(runPbBtn);
+
+            for (int star = 1; star <= 5; star++)
+            {
+                int capturedStar = star;
+                var isMine = activePb.MyRating == capturedStar;
+                var rateBtn = UiComponents.CreateButton(
+                    isMine ? $"★{capturedStar}" : $"☆{capturedStar}",
+                    isMine ? ButtonVariant.Success : ButtonVariant.Subtle,
+                    compact: true,
+                    onClick: async (_, _) =>
+                    {
+                        try
+                        {
+                            var updated = await _api.RatePlaybookAsync(activePb.Id, capturedStar);
+                            var idx = _playbooks.FindIndex(p => p.Id == updated.Id);
+                            if (idx >= 0) _playbooks[idx] = updated;
+                            RenderCurrentView();
+                        }
+                        catch (Exception ex) { AppendLog($"Lỗi đánh giá kịch bản: {ex.Message}"); }
+                    },
+                    tooltip: $"Chấm {capturedStar} sao cho kịch bản này");
+                rateBtn.Margin = new Thickness(0, 0, 3, 4);
+                pbActions.Children.Add(rateBtn);
+            }
+            pbPanel.Children.Add(pbActions);
+        }
+
+        var pbCard = UiComponents.CreateCard(pbPanel);
+        pbCard.Margin = new Thickness(0, 0, 0, 14);
+        autoLeftStack.Children.Add(pbCard);
+
         var leftCard = UiComponents.CreateCard(batchStack);
-        Grid.SetColumn(leftCard, 0);
-        cols.Children.Add(leftCard);
+        autoLeftStack.Children.Add(leftCard);
+        Grid.SetColumn(autoLeftStack, 0);
+        cols.Children.Add(autoLeftStack);
 
         // Right: Local Guard Settings + Cloud Cron & Warmup
         var rightStack = new StackPanel();
@@ -1294,6 +1701,17 @@ internal sealed partial class MainWindow
         Grid.SetColumn(sessActions, 1);
         sessHdr.Children.Add(sessActions);
         chromeSessPanel.Children.Add(sessHdr);
+
+        var curWsMem = _workstationMem ?? WorkstationPerformanceOptimizer.ReadWorkstationMemory();
+        var recWsCap = WorkstationPerformanceOptimizer.ComputeRecommendedMaxConcurrent(_config.LowRamFarmMode, curWsMem);
+        chromeSessPanel.Children.Add(new TextBlock
+        {
+            Text = $"RAM máy trống: {curWsMem.AvailablePhysicalMb:N0}/{curWsMem.TotalPhysicalMb:N0} MB ({100 - (int)curWsMem.MemoryLoadPercent}%) • Max luồng hiệu lực: {GetEffectiveMaxConcurrentBrowsers()} (Gợi ý phần cứng: {recWsCap})",
+            FontSize = 11.5,
+            Foreground = ThemeTokens.AccentText,
+            Margin = new Thickness(0, 0, 0, 8),
+            TextWrapping = TextWrapping.Wrap,
+        });
 
         var trackedSessions = ChromeSessionTracker.Default.GetSnapshot();
         if (trackedSessions.Count == 0)
@@ -2883,10 +3301,16 @@ internal sealed partial class MainWindow
 
         var chkAdShield = UiComponents.CreateCheckBox("Bật Khiên Chrome Gốc: Khóa WebRTC UDP + Ẩn Automation + Viewport riêng từng Via", _config.EnableChromeAntidetectShield);
         var chkLowRam = UiComponents.CreateCheckBox("Chế độ Tiết kiệm RAM (Giới hạn tiến trình Renderer + Disk Cache 64MB/Via)", _config.LowRamFarmMode);
+        var chkAutoScaleRam = UiComponents.CreateCheckBox("Tự giới hạn số luồng mở song song theo RAM trống thực tế trên máy", _config.AutoScaleConcurrentByRam);
+        var chkAutoFailover = UiComponents.CreateCheckBox("Tự động chuyển sang Chrome Gốc (Failover) khi Antidetect API đang tắt trong lúc chạy lô", _config.AutoFailoverToChromeNative);
         chkAdShield.Margin = new Thickness(0, 0, 0, 4);
-        chkLowRam.Margin = new Thickness(0, 0, 0, 8);
+        chkLowRam.Margin = new Thickness(0, 0, 0, 4);
+        chkAutoScaleRam.Margin = new Thickness(0, 0, 0, 4);
+        chkAutoFailover.Margin = new Thickness(0, 0, 0, 8);
         adPanel.Children.Add(chkAdShield);
         adPanel.Children.Add(chkLowRam);
+        adPanel.Children.Add(chkAutoScaleRam);
+        adPanel.Children.Add(chkAutoFailover);
 
         if (!string.IsNullOrWhiteSpace(_antidetectStatusMessage))
         {
@@ -2912,6 +3336,8 @@ internal sealed partial class MainWindow
             }
             _config.EnableChromeAntidetectShield = chkAdShield.IsChecked == true;
             _config.LowRamFarmMode = chkLowRam.IsChecked == true;
+            _config.AutoScaleConcurrentByRam = chkAutoScaleRam.IsChecked == true;
+            _config.AutoFailoverToChromeNative = chkAutoFailover.IsChecked == true;
             if (int.TryParse(tbMaxConcurrent.Text, out var mc)) _config.MaxConcurrentBrowsers = Math.Clamp(mc, 1, 30);
             _config.Save();
         }
@@ -2995,6 +3421,11 @@ internal sealed partial class MainWindow
             _antidetectStatusMessage = $"🧹 Đã dọn {folders} thư mục cache tạm ({mb:0.0} MB) và thu hồi RAM thành công.";
             AppendLog(_antidetectStatusMessage);
             RenderCurrentView();
+        }));
+        AddAdBtn(UiComponents.CreateButton("⏱️ Benchmark 5 Engine", ButtonVariant.Secondary, FluentIcons.Diagnostic, compact: true, onClick: async (_, _) =>
+        {
+            ApplyAdConfigInputs();
+            await RunBenchmarkAllEnginesUiAsync();
         }));
         adPanel.Children.Add(adBtns);
 
@@ -3576,6 +4007,12 @@ internal sealed partial class MainWindow
                     v.ProxyLastStatus = string.Equals(found.Status, "LIVE", StringComparison.OrdinalIgnoreCase) ? "LIVE" : "DEAD";
                     v.ProxyLatencyMs = found.LatencyMs;
                     v.ProxyExitIp = found.ExitIp;
+                    v.ProxyTimezone = found.Timezone ?? "";
+                    var (tzMatch, tzWarn) = found.TimezoneMatch.HasValue
+                        ? (found.TimezoneMatch, found.TimezoneWarning)
+                        : ProxyTimezoneHelper.EvaluateMatch(found.Timezone, found.CountryCode, string.IsNullOrWhiteSpace(v.Timezone) ? null : v.Timezone);
+                    v.HasTimezoneMismatch = tzMatch == false;
+                    v.TimezoneWarning = tzWarn ?? "";
                 }
             }
             AppendLog($"Kiểm tra Proxy hàng loạt hoàn tất: {res.LiveCount} Live / {res.DeadCount} Dead (Tổng {res.CheckedCount}).");
@@ -3583,6 +4020,30 @@ internal sealed partial class MainWindow
         catch (Exception ex)
         {
             AppendLog($"Lỗi kiểm tra Proxy hàng loạt: {ex.Message}");
+        }
+        finally
+        {
+            SetBusy(false);
+            RenderCurrentView();
+        }
+    }
+
+    private async System.Threading.Tasks.Task RunBenchmarkAllEnginesUiAsync()
+    {
+        try
+        {
+            SetBusy(true);
+            var probes = await AntidetectBrowserConnector.BenchmarkAllEnginesAsync(_config.AntidetectApiBaseUrl, _config.AntidetectApiKey);
+            _engineProbes = probes;
+            _recommendedFastestEngine = AntidetectBrowserConnector.RecommendFastestOnlineEngine(probes);
+            _workstationMem = WorkstationPerformanceOptimizer.ReadWorkstationMemory();
+            var lines = probes.Select(p => $"{AntidetectBrowserConnector.GetDisplayName(p.Engine)}: {(p.Online ? $"ONLINE ({p.LatencyMs}ms, {p.ProfileCount} profile)" : "Offline")}");
+            _antidetectStatusMessage = $"⏱️ Khuyên dùng nhanh nhất: {AntidetectBrowserConnector.GetDisplayName(_recommendedFastestEngine)} • " + string.Join(" | ", lines);
+            AppendLog(_antidetectStatusMessage);
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Lỗi Benchmark 5 Engine: {ex.Message}");
         }
         finally
         {
@@ -3606,11 +4067,17 @@ internal sealed partial class MainWindow
                 }
                 try
                 {
-                    var r = await _api.CheckProxyLiveAsync(v.NetworkLabel, v.Label);
+                    var r = await _api.CheckProxyLiveAsync(v.NetworkLabel, v.Label, string.IsNullOrWhiteSpace(v.Timezone) ? null : v.Timezone);
                     var isLive = string.Equals(r.Status, "LIVE", StringComparison.OrdinalIgnoreCase);
                     v.ProxyLastStatus = isLive ? "LIVE" : "DEAD";
                     v.ProxyLatencyMs = r.LatencyMs;
                     v.ProxyExitIp = r.ExitIp;
+                    v.ProxyTimezone = r.Timezone ?? "";
+                    var (tzMatch, tzWarn) = r.TimezoneMatch.HasValue
+                        ? (r.TimezoneMatch, r.TimezoneWarning)
+                        : ProxyTimezoneHelper.EvaluateMatch(r.Timezone, r.CountryCode, string.IsNullOrWhiteSpace(v.Timezone) ? null : v.Timezone);
+                    v.HasTimezoneMismatch = tzMatch == false;
+                    v.TimezoneWarning = tzWarn ?? "";
                     var key = !string.IsNullOrWhiteSpace(r.NormalizedKey) ? r.NormalizedKey : DesktopAppInfo.NormalizeProxyKey(v.NetworkLabel);
                     if (!string.IsNullOrWhiteSpace(key)) _proxyHealthMap[key] = r;
                     if (isLive) live++; else dead++;

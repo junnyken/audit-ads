@@ -558,3 +558,52 @@ class AuditLog(UUIDPrimaryKey, Base):
     metadata_json: Mapped[dict | None] = mapped_column(sa.JSON(), nullable=True)
     request_id: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+
+
+class AutomationPlaybook(UUIDPrimaryKey, Timestamped, Archivable, Base):
+    """Team automation playbook library & marketplace (Meta / Google Ads / TikTok / Multi)."""
+
+    __tablename__ = "automation_playbooks"
+    __table_args__ = (
+        sa.UniqueConstraint("workspace_id", "slug", name="uq_automation_playbooks_ws_slug"),
+        sa.Index("ix_automation_playbooks_ws_archived", "workspace_id", "archived_at"),
+    )
+
+    workspace_id: Mapped[uuid.UUID] = _ws_fk()
+    slug: Mapped[str] = mapped_column(sa.String(80), nullable=False)
+    title: Mapped[str] = mapped_column(sa.String(200), nullable=False)
+    platform: Mapped[str] = mapped_column(sa.String(32), nullable=False, default="meta")
+    category: Mapped[str] = mapped_column(sa.String(64), nullable=False, default="warmup")
+    description: Mapped[str] = mapped_column(sa.Text(), nullable=False, default="")
+    version_tag: Mapped[str] = mapped_column(sa.String(32), nullable=False, default="1.0.0")
+    changelog: Mapped[str] = mapped_column(sa.Text(), nullable=False, default="")
+    steps_json: Mapped[list[dict]] = mapped_column(sa.JSON(), nullable=False, default=list)
+    default_stagger_sec: Mapped[int] = mapped_column(sa.Integer(), nullable=False, default=55)
+    jitter_pct: Mapped[int] = mapped_column(sa.Integer(), nullable=False, default=35)
+    is_builtin: Mapped[bool] = mapped_column(sa.Boolean(), nullable=False, default=False)
+    author_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid(), sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    rating_sum: Mapped[int] = mapped_column(sa.Integer(), nullable=False, default=0)
+    rating_count: Mapped[int] = mapped_column(sa.Integer(), nullable=False, default=0)
+    run_count: Mapped[int] = mapped_column(sa.Integer(), nullable=False, default=0)
+
+
+class AutomationPlaybookRating(UUIDPrimaryKey, Timestamped, Base):
+    """Per-user star rating for a team automation playbook."""
+
+    __tablename__ = "automation_playbook_ratings"
+    __table_args__ = (
+        sa.UniqueConstraint("playbook_id", "user_id", name="uq_playbook_rating_user"),
+        sa.Index("ix_playbook_ratings_playbook_id", "playbook_id"),
+    )
+
+    playbook_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), sa.ForeignKey("automation_playbooks.id", ondelete="CASCADE"), nullable=False
+    )
+    workspace_id: Mapped[uuid.UUID] = _ws_fk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    stars: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
+    comment: Mapped[str] = mapped_column(sa.String(400), nullable=False, default="")

@@ -97,6 +97,20 @@ const ANTI_DIE_SLIDES = [
       '⚡ Tự động đóng bảng gạ Tạo Passkey & Tự bấm «Thử cách khác → Ứng dụng xác thực» nếu gặp Via cũ bị chủ trước cài Passkey.',
     ],
   },
+  {
+    id: 'multi_engine_v260',
+    shortTab: '🎭 7. Đa Engine & Kịch bản Team',
+    badge: 'V2.6.0 · HỢP NHẤT 5 ENGINE ANTIDETECT',
+    title: 'Bảng điều khiển Hợp nhất 5 Engine Antidetect, Đếm RAM/CPU & Kịch bản Team Lệch Pha (Jitter)',
+    summary:
+      'AdsOps Pro đứng trên 5 Engine (AdsPower, Dolphin{anty}, Hidemyacc, Genlogin, GoLogin) + Chrome Gốc để quản lý hợp nhất, đo tốc độ thật, Auto-Failover và phân quyền Team:',
+    bullets: [
+      '⏱️ Đo tốc độ & Auto-Failover: Bấm «Benchmark 5 Engine» để xem Engine nào mở nhanh nhất. Nếu Engine phụ bị tắt cổng, Desktop Pro giữ sẵn Cookie trong Két DPAPI và gợi ý Failover sang Chrome Gốc Khiên WebRTC ngay lập tức.',
+      '💻 Giám sát RAM/CPU từng Profile & Giới hạn Luồng Thông minh: Theo dõi MB RAM và % CPU thật của mỗi trình duyệt đang mở và tự giới hạn số cửa sổ chạy song song theo RAM trống trên máy.',
+      '🕒 Đối chiếu IP ↔ Múi giờ Proxy: Quét Proxy để kiểm tra IP đầu ra và tự cảnh báo nếu IP lệch múi giờ với cấu hình Via.',
+      '📚 Chợ Kịch bản Team (Meta / Google Ads / TikTok) + Jitter ±35%: Không dùng nhân bản chuột đồng thời (dễ dính Checkpoint chùm); thay vào đó chạy tuần tự có nghỉ trễ ngẫu nhiên (Jitter), chấm sao ★ và ghi Nhật ký Team Ai mở Profile nào.',
+    ],
+  },
 ] as const
 
 export default function OperationsGuide() {

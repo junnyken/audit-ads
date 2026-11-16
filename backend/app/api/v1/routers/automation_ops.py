@@ -27,7 +27,11 @@ from app.services.automation_cron import (
     save_workspace_cron_config,
 )
 from app.services.notification_transport import OutboundMessage
-from app.services.proxy_health_transport import check_proxy_live, parse_proxy_spec
+from app.services.proxy_health_transport import (
+    check_proxy_live,
+    evaluate_proxy_timezone_match,
+    parse_proxy_spec,
+)
 from app.services.telegram_bot_helper import (
     detect_recent_telegram_chats,
     resolve_workspace_bot_token,
@@ -282,9 +286,31 @@ def check_single_proxy_live(ctx: WriteCtx, payload: dict[str, Any] | None = None
     except Exception:
         timeout_sec = 4.5
     via_label = str(body.get("via_label") or "").strip()[:120]
+    expected_tz = str(body.get("expected_timezone") or "").strip()[:64] or None
     notify_on_dead = bool(body.get("notify_on_dead"))
 
     res = check_proxy_live(proxy_str, timeout_seconds=timeout_sec)
+    if not expected_tz and res.get("normalized_key"):
+        norm_key = str(res["normalized_key"])
+        vias = list(
+            ctx.session.execute(
+                sa.select(PersonalAccountReference).where(
+                    PersonalAccountReference.workspace_id == ctx.workspace_id,
+                    PersonalAccountReference.archived_at.is_(None),
+                )
+            ).scalars().all()
+        )
+        for v in vias:
+            vspec = parse_proxy_spec(v.network_label)
+            if vspec and vspec["normalized_key"] == norm_key and v.timezone:
+                expected_tz = v.timezone.strip()
+                break
+    tz_match, tz_warn = evaluate_proxy_timezone_match(
+        res.get("timezone"), res.get("country_code"), expected_tz
+    )
+    res["expected_timezone"] = expected_tz
+    res["timezone_match"] = tz_match
+    res["timezone_warning"] = tz_warn
     if res.get("normalized_key") and not res.get("ssrf_blocked") and res.get("status") in ("LIVE", "DEAD"):
         ctx.audit.record(
             action="proxy.health_checked",
@@ -344,10 +370,15 @@ def check_all_workspace_proxies_live(ctx: WriteCtx) -> dict[str, Any]:
     )
 
     by_norm: dict[str, str] = {}
+    tz_by_norm: dict[str, str] = {}
     for v in vias:
         spec = parse_proxy_spec(v.network_label)
-        if spec and spec["normalized_key"] not in by_norm:
-            by_norm[spec["normalized_key"]] = v.network_label.strip()
+        if spec:
+            nk = spec["normalized_key"]
+            if nk not in by_norm:
+                by_norm[nk] = v.network_label.strip()
+            if nk not in tz_by_norm and v.timezone:
+                tz_by_norm[nk] = v.timezone.strip()
     for p in refs:
         cand = str(p.host_label or p.reference_code or "").strip()
         spec = parse_proxy_spec(cand)
@@ -374,15 +405,23 @@ def check_all_workspace_proxies_live(ctx: WriteCtx) -> dict[str, Any]:
     live_count = 0
     dead_count = 0
     for res in results:
+        nk = str(res.get("normalized_key") or "")
+        expected_tz = tz_by_norm.get(nk) if nk else None
+        tz_match, tz_warn = evaluate_proxy_timezone_match(
+            res.get("timezone"), res.get("country_code"), expected_tz
+        )
+        res["expected_timezone"] = expected_tz
+        res["timezone_match"] = tz_match
+        res["timezone_warning"] = tz_warn
         if res.get("status") == "LIVE":
             live_count += 1
         elif res.get("status") == "DEAD":
             dead_count += 1
-        if res.get("normalized_key") and not res.get("ssrf_blocked") and res.get("status") in ("LIVE", "DEAD"):
+        if nk and not res.get("ssrf_blocked") and res.get("status") in ("LIVE", "DEAD"):
             ctx.audit.record(
                 action="proxy.health_checked",
                 entity_type="proxy_health_check",
-                entity_id=str(res["normalized_key"]),
+                entity_id=nk,
                 metadata=res,
             )
     ctx.commit()

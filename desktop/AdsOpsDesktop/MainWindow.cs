@@ -104,6 +104,11 @@ internal sealed partial class MainWindow : Window
     private CommunityQuotaDto? _communityQuota;
     private List<AntidetectProfileSummary> _antidetectProfiles = new();
     private string _antidetectStatusMessage = "";
+    private List<AutomationPlaybookDto> _playbooks = new();
+    private List<ProfileLaunchAuditDto> _launchAudits = new();
+    private List<AntidetectProbeResult> _engineProbes = new();
+    private string _recommendedFastestEngine = "chrome_native";
+    private WorkstationMemorySnapshot? _workstationMem;
     private bool _isOfflineSnapshotMode;
     private string _offlineSnapshotAt = "";
     private UpdateManifestDto? _latestUpdateManifest;
@@ -118,6 +123,11 @@ internal sealed partial class MainWindow : Window
     // Filter & selection states
     private string _viaSearch = "";
     private string _viaTierFilter = "all";
+    private string _viaEngineFilter = "all";
+    private string _viaProxyFilter = "all";
+    private string _viaOwnerFilter = "all";
+    private string _playbookPlatformFilter = "all";
+    private string _selectedPlaybookId = "";
     private readonly HashSet<string> _selectedViaIds = new(StringComparer.OrdinalIgnoreCase);
 
     private string _pageSearch = "";
@@ -734,7 +744,8 @@ internal sealed partial class MainWindow : Window
                 OnBridgeSyncBillingAsync,
                 OnBridgeTileWindows,
                 () => _config.GetOrCreateBridgeToken(),
-                () => _config.WebAppUrl);
+                () => _config.WebAppUrl,
+                OnBridgeBenchmarkEnginesAsync);
             _bridge.Start();
             var tpl = ExtensionProvisioner.LoadTemplates();
             AppendLog($"Local Bridge v{DesktopAppInfo.Version} Zero-Trust đang lắng nghe tại http://127.0.0.1:{_bridge.BoundPort} (Ext v{tpl.Version}).");
@@ -743,6 +754,36 @@ internal sealed partial class MainWindow : Window
         {
             AppendLog($"CẢNH BÁO: Không thể mở Local Bridge cổng {_config.BridgePort}: {ex.Message}");
         }
+    }
+
+    private async Task<object> OnBridgeBenchmarkEnginesAsync()
+    {
+        var probes = await AntidetectBrowserConnector.BenchmarkAllEnginesAsync(
+            _config.AntidetectApiBaseUrl,
+            _config.AntidetectApiKey).ConfigureAwait(false);
+        var rec = AntidetectBrowserConnector.RecommendFastestOnlineEngine(probes);
+        var mem = WorkstationPerformanceOptimizer.ReadWorkstationMemory();
+        var recMax = WorkstationPerformanceOptimizer.ComputeRecommendedMaxConcurrent(_config.LowRamFarmMode, mem);
+        _ = Dispatcher.BeginInvoke(() =>
+        {
+            _engineProbes = probes;
+            _recommendedFastestEngine = rec;
+            _workstationMem = mem;
+        });
+        return new
+        {
+            ok = true,
+            recommended_engine = rec,
+            probes,
+            history = AntidetectEngineBenchmarkStore.Default.GetAll(),
+            workstation_memory = new
+            {
+                total_physical_mb = mem.TotalPhysicalMb,
+                available_physical_mb = mem.AvailablePhysicalMb,
+                memory_load_percent = mem.MemoryLoadPercent,
+                recommended_max_concurrent = recMax,
+            },
+        };
     }
 
     private Task<(bool Ok, string Message)> OnBridgeOpenChromeAsync(OpenChromeBridgeRequest req)
@@ -757,25 +798,44 @@ internal sealed partial class MainWindow : Window
                     : "https://www.facebook.com/";
 
                 var match = _vias.FirstOrDefault(v =>
+                    (!string.IsNullOrWhiteSpace(req.ViaId) && string.Equals(v.ViaId, req.ViaId.Trim(), StringComparison.OrdinalIgnoreCase)) ||
                     (!string.IsNullOrWhiteSpace(req.Profile) && string.Equals(v.ProfileDir, req.Profile.Trim(), StringComparison.OrdinalIgnoreCase)) ||
                     (!string.IsNullOrWhiteSpace(req.Name) && string.Equals(v.Label, req.Name.Trim(), StringComparison.OrdinalIgnoreCase)));
 
                 if (match != null)
                 {
+                    if (!CanCurrentUserLaunchVia(match, out var denyReason))
+                    {
+                        tcs.TrySetResult((false, denyReason));
+                        return;
+                    }
                     LaunchViaChromeSafe(match, url);
-                    tcs.TrySetResult((true, $"Đã mở Chrome Profile '{match.ProfileDir}' cho Via '{match.Label}'."));
+                    tcs.TrySetResult((true, $"Đã mở {AntidetectBrowserConnector.GetDisplayName(match.AntidetectEngine)} cho Via '{match.Label}'."));
                     return;
                 }
 
                 var fallbackProfile = ExtensionProvisioner.ResolveProfileDirectory(req.Profile, req.Name);
+                var eng = AntidetectBrowserConnector.NormalizeEngine(req.AntidetectEngine);
+                var adId = (req.AntidetectProfileId ?? "").Trim();
                 var tempVia = new ViaWorkspaceEntry
                 {
+                    ViaId = req.ViaId ?? "",
                     Label = string.IsNullOrWhiteSpace(req.Name) ? fallbackProfile : req.Name!.Trim(),
                     BrowserProfileLabel = fallbackProfile,
                     ProfileDir = fallbackProfile,
                     NetworkLabel = req.Proxy ?? "",
+                    AntidetectEngine = eng,
+                    AntidetectProfileId = adId,
                 };
+                if (eng != "chrome_native" && !string.IsNullOrWhiteSpace(adId))
+                {
+                    _ = LaunchViaBrowserAsync(tempVia, url, interactiveAlerts: false);
+                    tcs.TrySetResult((true, $"Đã gửi lệnh mở {AntidetectBrowserConnector.GetDisplayName(eng)} #{adId}."));
+                    return;
+                }
+
                 var extFolder = ExtensionProvisioner.ProvisionForVia(tempVia, config: _config);
+                var sw = Stopwatch.StartNew();
                 var pid = ExtensionProvisioner.LaunchChrome(
                     url,
                     fallbackProfile,
@@ -784,7 +844,9 @@ internal sealed partial class MainWindow : Window
                     tempVia.Label,
                     _config.EnableChromeAntidetectShield,
                     _config.LowRamFarmMode);
-                ChromeSessionTracker.Default.RecordLaunch(pid, null, tempVia.Label, fallbackProfile, url);
+                sw.Stop();
+                AntidetectEngineBenchmarkStore.Default.RecordStartup("chrome_native", (int)sw.ElapsedMilliseconds);
+                ChromeSessionTracker.Default.RecordLaunch(pid, null, tempVia.Label, fallbackProfile, url, "chrome_native");
                 AppendLog($"Mở nhanh Chrome từ Web/Bridge: Profile '{fallbackProfile}' -> {url}");
                 tcs.TrySetResult((true, $"Đã mở Chrome '{fallbackProfile}'."));
             }
@@ -1088,13 +1150,16 @@ internal sealed partial class MainWindow : Window
             var teamMemTask = TryFetchAsync(() => _api.ListTeamMembersAsync(), new List<TeamMemberDto>(), "Team Members");
             var teamInvTask = TryFetchAsync(() => _api.ListTeamInvitationsAsync(), new List<TeamInvitationDto>(), "Team Invitations");
             var quotaTask = TryFetchAsync<CommunityQuotaDto?>(async () => await _api.GetMyCommunityQuotaAsync(), null, "Hạn mức Cộng đồng");
+            var playbooksTask = TryFetchAsync(() => _api.ListPlaybooksAsync(), new List<AutomationPlaybookDto>(), "Kịch bản Team");
+            var launchAuditTask = TryFetchAsync(() => _api.GetProfileLaunchAuditAsync(50), new List<ProfileLaunchAuditDto>(), "Nhật ký Mở Profile");
 
             await Task.WhenAll(
                 userTask, accountsTask, bmsTask, adAccsTask, pagesTask, alertSumTask, alertsTask, cronTask,
                 metaConnTask, healthSumTask, healthRowsTask, draftsTask,
                 telegramTask, spendSumTask, sessionsTask,
                 proxyMapTask, readinessSumTask, readinessBoardTask, auditTask,
-                pixelsTask, domainSeoTask, retainersTask, teamSumTask, teamMemTask, teamInvTask, quotaTask);
+                pixelsTask, domainSeoTask, retainersTask, teamSumTask, teamMemTask, teamInvTask, quotaTask,
+                playbooksTask, launchAuditTask);
 
             _currentUser = userTask.Result;
             _bms = bmsTask.Result.Items ?? new();
@@ -1121,6 +1186,9 @@ internal sealed partial class MainWindow : Window
             _teamMembers = teamMemTask.Result;
             _teamInvitations = teamInvTask.Result;
             if (quotaTask.Result != null) _communityQuota = quotaTask.Result;
+            _playbooks = playbooksTask.Result;
+            _launchAudits = launchAuditTask.Result;
+            _workstationMem = WorkstationPerformanceOptimizer.ReadWorkstationMemory();
 
             RebuildViaWorkspaceList(accountsTask.Result.Items ?? new());
             ProvisionAllViaExtensions(silent: true);
@@ -1305,12 +1373,121 @@ internal sealed partial class MainWindow : Window
                 KeepAliveSuccessCount = stew.KeepAliveSuccessCount,
                 AntidetectEngine = parsed.AntidetectEngine,
                 AntidetectProfileId = parsed.AntidetectProfileId,
+                OwnerMemberId = r.OwnerMemberId ?? "",
+                OwnerMemberName = ResolveTeamMemberDisplayName(r.OwnerMemberId),
+                Timezone = r.Timezone ?? "",
+                ProxyTimezone = mappedProxy?.Timezone ?? old?.ProxyTimezone ?? "",
             };
+            var (tzMatch, tzWarn) = ProxyTimezoneHelper.EvaluateMatch(
+                entry.ProxyTimezone,
+                mappedProxy?.CountryCode,
+                string.IsNullOrWhiteSpace(entry.Timezone) ? null : entry.Timezone);
+            entry.HasTimezoneMismatch = tzMatch == false;
+            entry.TimezoneWarning = tzWarn ?? "";
             list.Add(entry);
         }
 
         _vias = list;
         ApplyUpdatedProxyClusterLimits();
+        RefreshLiveSessionTelemetryOnVias();
+    }
+
+    private string ResolveTeamMemberDisplayName(string? memberId)
+    {
+        if (string.IsNullOrWhiteSpace(memberId)) return "";
+        var m = _teamMembers.FirstOrDefault(t => string.Equals(t.Id, memberId.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (m == null) return "";
+        return string.IsNullOrWhiteSpace(m.FullName) ? m.Email : m.FullName;
+    }
+
+    internal void RefreshLiveSessionTelemetryOnVias()
+    {
+        var active = ChromeSessionTracker.Default.GetSnapshot().Where(s => s.Alive).ToList();
+        foreach (var v in _vias)
+        {
+            var matchedSess = active.Where(s =>
+                (!string.IsNullOrWhiteSpace(v.ViaId) && string.Equals(s.ViaId, v.ViaId, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(v.Label) && string.Equals(s.ViaLabel, v.Label, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+            v.IsBrowserRunning = matchedSess.Count > 0;
+            v.ActiveRamMb = matchedSess.Sum(s => s.RamMb);
+            v.ActiveCpuPercent = Math.Round(matchedSess.Sum(s => s.CpuPercent), 1);
+        }
+    }
+
+    internal int GetEffectiveMaxConcurrentBrowsers()
+    {
+        if (!_config.AutoScaleConcurrentByRam) return Math.Clamp(_config.MaxConcurrentBrowsers, 1, 30);
+        _workstationMem ??= WorkstationPerformanceOptimizer.ReadWorkstationMemory();
+        var ramCap = WorkstationPerformanceOptimizer.ComputeRecommendedMaxConcurrent(_config.LowRamFarmMode, _workstationMem);
+        return Math.Clamp(Math.Min(_config.MaxConcurrentBrowsers, ramCap), 1, 30);
+    }
+
+    internal static bool CanUserLaunchVia(
+        string? userRole,
+        string? currentMemberId,
+        string? viaOwnerMemberId,
+        out string denyReason)
+    {
+        var role = (userRole ?? "").Trim().ToLowerInvariant();
+        if (role is "viewer" or "auditor")
+        {
+            denyReason = $"Vai trò '{role}' chỉ có quyền xem/kiểm toán, không được phép mở trình duyệt Via.";
+            return false;
+        }
+        var ownerId = (viaOwnerMemberId ?? "").Trim();
+        if (!string.IsNullOrEmpty(ownerId) && role is not "owner" and not "admin")
+        {
+            if (string.IsNullOrWhiteSpace(currentMemberId) ||
+                !string.Equals(ownerId, currentMemberId.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                denyReason = "Via này đã được phân quyền riêng cho thành viên khác phụ trách. Chỉ Owner/Admin hoặc người được giao mới được mở.";
+                return false;
+            }
+        }
+        denyReason = "";
+        return true;
+    }
+
+    private bool CanCurrentUserLaunchVia(ViaWorkspaceEntry via, out string denyReason)
+    {
+        var curMemberId = _currentUser == null
+            ? ""
+            : (_teamMembers.FirstOrDefault(m =>
+                string.Equals(m.UserId, _currentUser.Id, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(m.Email, _currentUser.Email, StringComparison.OrdinalIgnoreCase))?.Id ?? "");
+        return CanUserLaunchVia(_currentUser?.Role, curMemberId, via.OwnerMemberId, out denyReason);
+    }
+
+    private async Task SendProfileLifecycleEventNonBlockingAsync(
+        string eventType,
+        ViaWorkspaceEntry via,
+        string targetUrl,
+        int? startupMs,
+        string engineUsed,
+        string failoverFrom = "",
+        string detail = "")
+    {
+        if (string.IsNullOrWhiteSpace(_config.GetJwt())) return;
+        try
+        {
+            await _api.PostBrowserEventAsync(new BrowserEventPayloadDto
+            {
+                EventType = eventType,
+                ViaId = via.ViaId,
+                ViaLabel = via.Label,
+                BrowserProfile = string.IsNullOrWhiteSpace(via.AntidetectProfileId) ? via.ProfileDir : $"{AntidetectBrowserConnector.GetDisplayName(engineUsed)} #{via.AntidetectProfileId}",
+                AntidetectEngine = engineUsed,
+                AntidetectProfileId = via.AntidetectProfileId,
+                Workstation = Environment.MachineName,
+                StartupMs = startupMs,
+                FailoverFrom = failoverFrom,
+                TargetUrl = targetUrl,
+                PageUrl = targetUrl,
+                Detail = detail,
+            }).ConfigureAwait(false);
+        }
+        catch { }
     }
 
     internal void ApplyUpdatedProxyClusterLimits()
@@ -1352,6 +1529,16 @@ internal sealed partial class MainWindow : Window
     {
         try
         {
+            if (!CanCurrentUserLaunchVia(via, out var denyReason))
+            {
+                AppendLog($"⛔ Chặn mở Via '{via.Label}' theo Phân quyền Team: {denyReason}");
+                if (interactiveAlerts)
+                {
+                    _ = Dispatcher.BeginInvoke(() =>
+                        MessageBox.Show(this, denyReason, "Phân quyền Team", MessageBoxButton.OK, MessageBoxImage.Warning));
+                }
+                return;
+            }
             if (via.IsInCooldown)
             {
                 AppendLog($"⚠️ Lưu ý: Via '{via.Label}' đang trong thời gian Cooldown ({via.CooldownReason}). Mở trình duyệt để kiểm tra thủ công.");
@@ -1369,19 +1556,65 @@ internal sealed partial class MainWindow : Window
                 if (adRes.Ok)
                 {
                     var labelDisp = $"{AntidetectBrowserConnector.GetDisplayName(normEng)} #{via.AntidetectProfileId}";
-                    ChromeSessionTracker.Default.RecordLaunch(adRes.Pid, via.ViaId, via.Label, labelDisp, targetUrl);
+                    ChromeSessionTracker.Default.RecordLaunch(adRes.Pid, via.ViaId, via.Label, labelDisp, targetUrl, normEng);
+                    RefreshLiveSessionTelemetryOnVias();
                     AppendLog($"🎭 {adRes.Message} cho Via '{via.Label}'.");
+                    _ = SendProfileLifecycleEventNonBlockingAsync("PROFILE_LAUNCHED", via, targetUrl, adRes.StartupMs, normEng, detail: adRes.Message);
                     return;
                 }
-                AppendLog($"LỖI mở {AntidetectBrowserConnector.GetDisplayName(normEng)} #{via.AntidetectProfileId}: {adRes.Message}");
-                if (interactiveAlerts)
+
+                AppendLog($"⚠️ LỖI mở {AntidetectBrowserConnector.GetDisplayName(normEng)} #{via.AntidetectProfileId}: {adRes.Message}");
+                var probes = await AntidetectBrowserConnector.BenchmarkAllEnginesAsync(_config.AntidetectApiBaseUrl, _config.AntidetectApiKey);
+                _engineProbes = probes;
+                _recommendedFastestEngine = AntidetectBrowserConnector.RecommendFastestOnlineEngine(probes);
+
+                var onlineOthers = probes
+                    .Where(p => p.Online && p.Engine != "chrome_native" && !string.Equals(p.Engine, normEng, StringComparison.OrdinalIgnoreCase))
+                    .Select(p => $"{AntidetectBrowserConnector.GetDisplayName(p.Engine)} ({p.LatencyMs}ms)")
+                    .ToList();
+                var vaultCheck = LocalSecretVaultStore.Default.Find(via.ViaId, via.ProfileDir, via.Label);
+                var hasDpapiSession = vaultCheck.Found && (!string.IsNullOrWhiteSpace(vaultCheck.CookieRaw) || !string.IsNullOrWhiteSpace(vaultCheck.TwoFaSecret));
+
+                bool shouldFailover = _config.AutoFailoverToChromeNative;
+                if (!shouldFailover && interactiveAlerts)
                 {
-                    _ = Dispatcher.BeginInvoke(() =>
-                        MessageBox.Show(this, adRes.Message, $"Không mở được {AntidetectBrowserConnector.GetDisplayName(normEng)}", MessageBoxButton.OK, MessageBoxImage.Warning));
+                    var othersText = onlineOthers.Count > 0
+                        ? $"Engine Antidetect khác đang online: {string.Join(", ", onlineOthers)}.\n"
+                        : "";
+                    var vaultText = hasDpapiSession
+                        ? "✓ Két DPAPI máy này đang giữ sẵn Cookie/2FA của Via này."
+                        : "Lưu ý: Chưa có Cookie DPAPI backup — mở Chrome Gốc sẽ vào Profile cô lập để đăng nhập hoặc nạp Cookie.";
+                    var answer = await Dispatcher.InvokeAsync(() => MessageBox.Show(
+                        this,
+                        $"{adRes.Message}\n\n{othersText}{vaultText}\n\nBạn có muốn AUTO-FAILOVER mở ngay bằng Chrome Gốc Cô lập (Khiên WebRTC + Proxy) không?",
+                        $"Auto-Failover • {AntidetectBrowserConnector.GetDisplayName(normEng)} Offline",
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Question));
+                    shouldFailover = answer == MessageBoxResult.Yes;
                 }
+
+                if (!shouldFailover) return;
+
+                var swFail = Stopwatch.StartNew();
+                var failPid = ExtensionProvisioner.LaunchChrome(
+                    targetUrl,
+                    via.ProfileDir,
+                    via.ExtensionFolder,
+                    _config.UseIsolatedProfiles,
+                    via.Label,
+                    _config.EnableChromeAntidetectShield,
+                    _config.LowRamFarmMode);
+                swFail.Stop();
+                AntidetectEngineBenchmarkStore.Default.RecordStartup("chrome_native", (int)swFail.ElapsedMilliseconds);
+                ChromeSessionTracker.Default.RecordLaunch(failPid, via.ViaId, via.Label, via.ProfileDir, targetUrl, "chrome_native");
+                RefreshLiveSessionTelemetryOnVias();
+                var failoverDetail = $"Auto-Failover từ {AntidetectBrowserConnector.GetDisplayName(normEng)} (offline/lỗi) sang Chrome Gốc Cô lập";
+                AppendLog($"🛡️ {failoverDetail} cho Via '{via.Label}' ({swFail.ElapsedMilliseconds}ms).");
+                _ = SendProfileLifecycleEventNonBlockingAsync("ENGINE_FAILOVER", via, targetUrl, (int)swFail.ElapsedMilliseconds, "chrome_native", failoverFrom: normEng, detail: failoverDetail);
                 return;
             }
 
+            var sw = Stopwatch.StartNew();
             var pid = ExtensionProvisioner.LaunchChrome(
                 targetUrl,
                 via.ProfileDir,
@@ -1390,8 +1623,12 @@ internal sealed partial class MainWindow : Window
                 via.Label,
                 _config.EnableChromeAntidetectShield,
                 _config.LowRamFarmMode);
-            ChromeSessionTracker.Default.RecordLaunch(pid, via.ViaId, via.Label, via.ProfileDir, targetUrl);
-            AppendLog($"Đã mở Chrome Profile '{via.ProfileDir}' ({via.Label}) -> {targetUrl}");
+            sw.Stop();
+            AntidetectEngineBenchmarkStore.Default.RecordStartup("chrome_native", (int)sw.ElapsedMilliseconds);
+            ChromeSessionTracker.Default.RecordLaunch(pid, via.ViaId, via.Label, via.ProfileDir, targetUrl, "chrome_native");
+            RefreshLiveSessionTelemetryOnVias();
+            AppendLog($"Đã mở Chrome Profile '{via.ProfileDir}' ({via.Label}, {(int)sw.ElapsedMilliseconds}ms) -> {targetUrl}");
+            _ = SendProfileLifecycleEventNonBlockingAsync("PROFILE_LAUNCHED", via, targetUrl, (int)sw.ElapsedMilliseconds, "chrome_native");
         }
         catch (Exception ex)
         {
@@ -1418,7 +1655,13 @@ internal sealed partial class MainWindow : Window
 
         try
         {
-            var res = await _api.CheckProxyLiveAsync(item.NetworkLabel, item.ViaLabel);
+            var matchedVia = _vias.FirstOrDefault(v => string.Equals(v.ViaId, item.ViaId, StringComparison.OrdinalIgnoreCase));
+            var expectedTz = matchedVia?.Timezone;
+            var res = await _api.CheckProxyLiveAsync(item.NetworkLabel, item.ViaLabel, expectedTz);
+            var (tzMatch, tzWarn) = res.TimezoneMatch.HasValue
+                ? (res.TimezoneMatch, res.TimezoneWarning)
+                : ProxyTimezoneHelper.EvaluateMatch(res.Timezone, res.CountryCode, expectedTz);
+
             _ = Dispatcher.BeginInvoke(() =>
             {
                 var via = _vias.FirstOrDefault(v => string.Equals(v.ViaId, item.ViaId, StringComparison.OrdinalIgnoreCase));
@@ -1427,12 +1670,16 @@ internal sealed partial class MainWindow : Window
                     via.ProxyLastStatus = string.Equals(res.Status, "LIVE", StringComparison.OrdinalIgnoreCase) ? "LIVE" : "DEAD";
                     via.ProxyLatencyMs = res.LatencyMs;
                     via.ProxyExitIp = res.ExitIp;
+                    via.ProxyTimezone = res.Timezone ?? "";
+                    via.HasTimezoneMismatch = tzMatch == false;
+                    via.TimezoneWarning = tzWarn ?? "";
                 }
             });
 
             if (string.Equals(res.Status, "LIVE", StringComparison.OrdinalIgnoreCase))
             {
-                return (true, $"Proxy LIVE {(res.LatencyMs.HasValue ? $"{res.LatencyMs.Value}ms" : "")} ({res.ExitIp ?? "?"})");
+                var tzNote = tzMatch == false ? $" • ⚠ {tzWarn}" : "";
+                return (true, $"Proxy LIVE {(res.LatencyMs.HasValue ? $"{res.LatencyMs.Value}ms" : "")} ({res.ExitIp ?? "?"}{tzNote})");
             }
             return (false, string.IsNullOrWhiteSpace(res.Message) ? "Proxy DEAD / timeout" : res.Message!);
         }
@@ -1649,7 +1896,7 @@ internal sealed partial class MainWindow : Window
             enforceClientSilo: _config.EnforceClientSilo,
             interleaveByProxy: true,
             sameProxyMinStaggerSeconds: _config.SameProxyMinStaggerSeconds,
-            maxConcurrentBrowsers: _config.MaxConcurrentBrowsers);
+            maxConcurrentBrowsers: GetEffectiveMaxConcurrentBrowsers());
 
         AppendLog($"Đã xếp hàng {tasks.Count} Via vào Hàng đợi Đảo Ấm an toàn.");
         RenderCurrentView();

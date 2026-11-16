@@ -8,12 +8,12 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>AdsOpsDesktop</AssemblyName>
     <RootNamespace>AdsOpsDesktop</RootNamespace>
-    <Version>2.5.0</Version>
-    <AssemblyVersion>2.5.0.0</AssemblyVersion>
-    <FileVersion>2.5.0.0</FileVersion>
+    <Version>2.6.0</Version>
+    <AssemblyVersion>2.6.0.0</AssemblyVersion>
+    <FileVersion>2.6.0.0</FileVersion>
     <Product>AdsOps Desktop Pro</Product>
     <Company>AdsOps</Company>
-    <Description>AdsOps Desktop Pro v2.5.0 — Zero-Trust Bridge Token (127.0.0.1:17890), 5-Engine Antidetect Connector (AdsPower/Dolphin/Hidemyacc/Genlogin/GoLogin), RAM Farm Optimizer, DPAPI Offline Cache, Community Quotas &amp; Extension v2.9.7</Description>
+    <Description>AdsOps Desktop Pro v2.6.0 — Unified 5-Engine Antidetect Hub, Speed Benchmark &amp; Auto-Failover, Real RAM/CPU Telemetry, IP-Timezone Guard, Team Playbooks Marketplace &amp; Launch Audit + Extension v2.9.8</Description>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 

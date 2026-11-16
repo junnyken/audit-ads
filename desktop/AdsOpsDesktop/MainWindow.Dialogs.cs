@@ -2375,4 +2375,257 @@ internal sealed partial class MainWindow
         dlg.Content = outer;
         dlg.ShowDialog();
     }
+
+    internal async void OpenProfileLaunchAuditDialog()
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(_config.GetJwt()))
+            {
+                _launchAudits = await _api.GetProfileLaunchAuditAsync(80);
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Lỗi tải Nhật ký Mở Profile: {ex.Message}");
+        }
+
+        var dlg = new Window
+        {
+            Title = "Nhật ký Team Mở Profile & Auto-Failover (Audit)",
+            Width = 860,
+            Height = 640,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            Background = ThemeTokens.BgCanvas,
+            Foreground = ThemeTokens.TextPrimary,
+            ShowInTaskbar = false,
+        };
+        ThemeTokens.ApplyDarkTitleBar(dlg);
+
+        var outer = new Grid { Margin = new Thickness(20) };
+        outer.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        outer.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        outer.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var hdr = new StackPanel { Margin = new Thickness(0, 0, 0, 12) };
+        hdr.Children.Add(new TextBlock
+        {
+            Text = "🕵️ Nhật ký Team Mở Profile, Chạy Kịch Bản & Failover",
+            FontSize = 16,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeTokens.TextPrimary,
+        });
+        hdr.Children.Add(new TextBlock
+        {
+            Text = "Theo dõi chính xác nhân sự nào đã mở Profile nào, chạy qua Engine nào, trên máy nào và độ trễ khởi động thực tế.",
+            FontSize = 12,
+            Foreground = ThemeTokens.TextSecondary,
+            Margin = new Thickness(0, 3, 0, 0),
+        });
+        Grid.SetRow(hdr, 0);
+        outer.Children.Add(hdr);
+
+        var listStack = new StackPanel();
+        if (_launchAudits.Count == 0)
+        {
+            listStack.Children.Add(UiComponents.CreateEmptyState(
+                FluentIcons.Diagnostic,
+                "Chưa có lịch sử Mở Profile trong Team",
+                "Khi bất kỳ thành viên nào mở Chrome / AdsPower / Dolphin / Hidemyacc / Genlogin / GoLogin, nhật ký sẽ tự đồng bộ về đây."));
+        }
+        else
+        {
+            foreach (var row in _launchAudits)
+            {
+                var cardBody = new Grid();
+                cardBody.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                cardBody.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var left = new StackPanel();
+                var actionTitle = row.Action switch
+                {
+                    "via.engine_failover" => $"🛡️ Failover ({row.FailoverFrom} → {AntidetectBrowserConnector.GetDisplayName(row.AntidetectEngine)})",
+                    "playbook.batch_executed" => "📚 Chạy Kịch bản Lô Lệch Pha",
+                    "via.profile_stopped" => "⏹️ Đóng Profile",
+                    _ => $"🚀 Mở Profile ({AntidetectBrowserConnector.GetDisplayName(row.AntidetectEngine)})",
+                };
+                left.Children.Add(new TextBlock
+                {
+                    Text = $"{actionTitle} • {row.ViaLabel} • Người mở: {(string.IsNullOrWhiteSpace(row.ActorName) ? row.ActorEmail : row.ActorName)} ({row.ActorEmail})",
+                    FontSize = 12.5,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = ThemeTokens.TextPrimary,
+                    TextWrapping = TextWrapping.Wrap,
+                });
+                var metaParts = new List<string>();
+                if (!string.IsNullOrWhiteSpace(row.BrowserProfile)) metaParts.Add(row.BrowserProfile);
+                if (!string.IsNullOrWhiteSpace(row.Workstation)) metaParts.Add($"Máy: {row.Workstation}");
+                if (row.StartupMs.HasValue) metaParts.Add($"{row.StartupMs.Value}ms");
+                if (!string.IsNullOrWhiteSpace(row.Detail)) metaParts.Add(row.Detail);
+                left.Children.Add(new TextBlock
+                {
+                    Text = string.Join(" • ", metaParts),
+                    FontSize = 11.5,
+                    Foreground = ThemeTokens.TextMuted,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 2, 0, 0),
+                });
+                cardBody.Children.Add(left);
+
+                var tsText = DateTimeOffset.TryParse(row.CreatedAt, out var dt)
+                    ? dt.ToLocalTime().ToString("dd/MM HH:mm:ss")
+                    : (row.CreatedAt ?? "");
+                var timeTb = new TextBlock
+                {
+                    Text = tsText,
+                    FontFamily = ThemeTokens.MonoFont,
+                    FontSize = 11,
+                    Foreground = ThemeTokens.TextSecondary,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(10, 0, 0, 0),
+                };
+                Grid.SetColumn(timeTb, 1);
+                cardBody.Children.Add(timeTb);
+
+                var c = UiComponents.CreateCard(cardBody, new Thickness(12, 8, 12, 8), ThemeTokens.BgSurfaceElevated, ThemeTokens.BorderSubtle);
+                c.Margin = new Thickness(0, 0, 0, 6);
+                listStack.Children.Add(c);
+            }
+        }
+
+        var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = listStack };
+        Grid.SetRow(scroll, 1);
+        outer.Children.Add(scroll);
+
+        var footer = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
+        var expBtn = UiComponents.CreateButton("Xuất CSV Nhật ký Team", ButtonVariant.Secondary, FluentIcons.Upload, onClick: (_, _) =>
+        {
+            ExportCsvWithDialog(
+                $"adsops-launch-audit-{DateTime.Now:yyyyMMdd-HHmm}.csv",
+                new[] { "Thoi_Gian", "Hanh_Dong", "Nguoi_Mo", "Email", "Via", "Engine", "Profile", "May", "Startup_ms" },
+                _launchAudits.Select(x => new string?[] { x.CreatedAt, x.Action, x.ActorName, x.ActorEmail, x.ViaLabel, x.AntidetectEngine, x.BrowserProfile, x.Workstation, x.StartupMs?.ToString() }),
+                "Nhật ký Mở Profile Team");
+        });
+        expBtn.Margin = new Thickness(0, 0, 8, 0);
+        footer.Children.Add(expBtn);
+        footer.Children.Add(UiComponents.CreateButton("Đóng", ButtonVariant.Primary, onClick: (_, _) => dlg.Close()));
+        Grid.SetRow(footer, 2);
+        outer.Children.Add(footer);
+
+        dlg.Content = outer;
+        dlg.ShowDialog();
+    }
+
+    internal void OpenCreatePlaybookDialog(Action onSaved)
+    {
+        var dlg = new Window
+        {
+            Title = "Tạo & Chia sẻ Kịch Bản Automation cho Team",
+            Width = 580,
+            Height = 520,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            Background = ThemeTokens.BgCanvas,
+            Foreground = ThemeTokens.TextPrimary,
+            ShowInTaskbar = false,
+        };
+        ThemeTokens.ApplyDarkTitleBar(dlg);
+
+        var root = new StackPanel { Margin = new Thickness(20) };
+        root.Children.Add(new TextBlock
+        {
+            Text = "📚 Đóng gói Kịch bản mới lên Chợ Team",
+            FontSize = 16,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeTokens.TextPrimary,
+            Margin = new Thickness(0, 0, 0, 10),
+        });
+
+        var tbTitle = UiComponents.CreateTextBox("", "VD: Nuôi Via US chạy Spa — Kiểm tra Page & Billing");
+        var cbPlat = UiComponents.CreateComboBox(new[]
+        {
+            new ComboBoxItem { Content = "Meta / Facebook Ads", Tag = "meta" },
+            new ComboBoxItem { Content = "Google Ads", Tag = "google_ads" },
+            new ComboBoxItem { Content = "TikTok Ads", Tag = "tiktok" },
+            new ComboBoxItem { Content = "Đa nền tảng (Multi)", Tag = "multi" },
+        });
+        cbPlat.SelectedIndex = 0;
+        var tbDesc = UiComponents.CreateTextBox("", "Mô tả mục đích kịch bản & lưu ý an toàn...", multiline: true, height: 64);
+        var tbTargetUrl = UiComponents.CreateTextBox("https://www.facebook.com/", "URL khởi chạy chính (https://...)");
+        var tbStagger = UiComponents.CreateTextBox("60");
+        var tbJitter = UiComponents.CreateTextBox("35");
+
+        var numGrid = new Grid { Margin = new Thickness(0, 8, 0, 8) };
+        numGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        numGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+        numGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var n1 = BuildLabeledBox("Giãn cách cơ sở (giây)", tbStagger);
+        var n2 = BuildLabeledBox("Biên độ lệch pha Jitter (%)", tbJitter);
+        Grid.SetColumn(n1, 0);
+        Grid.SetColumn(n2, 2);
+        numGrid.Children.Add(n1);
+        numGrid.Children.Add(n2);
+
+        root.Children.Add(BuildLabeledBox("Tên kịch bản", tbTitle));
+        var platWrap = BuildLabeledBox("Nền tảng", cbPlat);
+        platWrap.Margin = new Thickness(0, 8, 0, 8);
+        root.Children.Add(platWrap);
+        root.Children.Add(BuildLabeledBox("URL Đích", tbTargetUrl));
+        root.Children.Add(numGrid);
+        root.Children.Add(BuildLabeledBox("Mô tả & Lưu ý Team", tbDesc));
+
+        var errTb = new TextBlock { Text = "", FontSize = 12, Foreground = ThemeTokens.DangerText, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
+        root.Children.Add(errTb);
+
+        var btns = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
+        var cancelBtn = UiComponents.CreateButton("Hủy", ButtonVariant.Secondary, onClick: (_, _) => dlg.Close());
+        cancelBtn.Margin = new Thickness(0, 0, 8, 0);
+        var saveBtn = UiComponents.CreateButton("Lưu & Chia sẻ cho Team", ButtonVariant.Primary, FluentIcons.CheckCircle, onClick: async (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(tbTitle.Text))
+            {
+                errTb.Text = "Vui lòng nhập Tên kịch bản.";
+                return;
+            }
+            var targetUrl = tbTargetUrl.Text.Trim();
+            if (!targetUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                errTb.Text = "URL Đích phải bắt đầu bằng https://.";
+                return;
+            }
+            var plat = (cbPlat.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "meta";
+            var stagger = int.TryParse(tbStagger.Text, out var s) ? Math.Clamp(s, 25, 600) : 60;
+            var jitter = int.TryParse(tbJitter.Text, out var j) ? Math.Clamp(j, 10, 60) : 35;
+
+            try
+            {
+                var created = await _api.CreatePlaybookAsync(
+                    tbTitle.Text,
+                    plat,
+                    tbDesc.Text,
+                    stagger,
+                    jitter,
+                    new List<AutomationPlaybookStepDto>
+                    {
+                        new() { Action = "open_url", Target = targetUrl, WaitSec = 15, Note = "Chạy lệch pha Jitter bảo vệ Checkpoint" },
+                    });
+                _playbooks.Insert(0, created);
+                _selectedPlaybookId = created.Id;
+                AppendLog($"Đã tạo kịch bản Team '{created.Title}' ({created.Platform} v{created.VersionTag}).");
+                dlg.Close();
+                onSaved();
+            }
+            catch (Exception ex)
+            {
+                errTb.Text = ex.Message;
+            }
+        });
+        btns.Children.Add(cancelBtn);
+        btns.Children.Add(saveBtn);
+        root.Children.Add(btns);
+
+        dlg.Content = root;
+        dlg.ShowDialog();
+    }
 }
