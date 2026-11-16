@@ -46,6 +46,12 @@ if (Test-Path -LiteralPath $shaFile) {
     Copy-Item -Path $shaFile -Destination (Join-Path $installDir "SHA256SUMS.txt") -Force
 }
 
+$cerSource = Join-Path $here "AdsOps-Community-Publisher.cer"
+if (Test-Path -LiteralPath $cerSource) {
+    Copy-Item -Path $cerSource -Destination (Join-Path $installDir "AdsOps-Community-Publisher.cer") -Force
+    try { Import-Certificate -FilePath $cerSource -CertStoreLocation "Cert:\CurrentUser\TrustedPublisher" | Out-Null } catch {}
+}
+
 # 4. Tao Shortcut tren Desktop va Start Menu
 try {
     $shell = New-Object -ComObject WScript.Shell
@@ -67,10 +73,12 @@ try {
 # 5. Dang ky giao thuc adsops-chrome:// (HKCU khong can quyen Admin)
 try {
     $regBase = "HKCU:\Software\Classes\adsops-chrome"
+    New-Item -Path "$regBase\DefaultIcon" -Force | Out-Null
+    Set-ItemProperty -Path "$regBase\DefaultIcon" -Name "(Default)" -Value "`"$exeDest`",0"
     New-Item -Path "$regBase\shell\open\command" -Force | Out-Null
-    Set-ItemProperty -Path $regBase -Name "(Default)" -Value "URL:AdsOps Chrome Protocol"
+    Set-ItemProperty -Path $regBase -Name "(Default)" -Value "URL:AdsOps Chrome Profile Launcher"
     Set-ItemProperty -Path $regBase -Name "URL Protocol" -Value ""
-    Set-ItemProperty -Path "$regBase\shell\open\command" -Name "(Default)" -Value "`"$exeDest`" `"%1`""
+    Set-ItemProperty -Path "$regBase\shell\open\command" -Name "(Default)" -Value "`"$exeDest`" --uri `"%1`""
     Write-Host "[OK] Da gan giao thuc adsops-chrome:// an toan (khong can Admin)." -ForegroundColor Green
 } catch {
     Write-Host "[WARN] Khong dang ky duoc URI protocol: $($_.Exception.Message)" -ForegroundColor Yellow

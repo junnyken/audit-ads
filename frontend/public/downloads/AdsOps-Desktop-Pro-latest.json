@@ -6,8 +6,8 @@
     "mirror_urls":  [
                         "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
                     ],
-    "sha256":  "9fca0a22d84ed0398758f5ba7b86381e4aee21c52ee5653ce5e7eb7db7329132",
-    "size_bytes":  66001766,
-    "published_at":  "2026-11-16T09:33:29.227647Z",
+    "sha256":  "fa3629d158362ffce459d4c5b73759642812b6dae55c9a45d61a87b3b6d0ace5",
+    "size_bytes":  66001886,
+    "published_at":  "2026-11-16T10:09:24.880943Z",
     "release_notes":  "AdsOps Desktop Pro v2.6.0 + Extension v2.9.8: Bang dieu khien hop nhat 5 Engine Antidetect, Benchmark toc do \u0026 Auto-Failover, Giam sat RAM/CPU that + tu gioi han luong theo RAM, Doi chieu Mui gio Proxy IP, Cho Kich ban Team (Meta/Google/TikTok) chay Jitter lech pha, Phan quyen \u0026 Nhat ky Mo Profile + Onboarding 5 buoc."
 }
