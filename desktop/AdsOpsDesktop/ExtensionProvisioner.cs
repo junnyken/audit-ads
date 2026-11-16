@@ -335,14 +335,23 @@ public static class ExtensionProvisioner
             trustScore = via.TrustScore,
             bridgeToken,
         });
+        var activePort = LocalBridgeServer.ActiveBoundPort > 0
+            ? LocalBridgeServer.ActiveBoundPort
+            : (config?.BridgePort > 0 ? config.BridgePort : 17890);
+        var bgBody = $"const DEFAULT_STATE = {defaultStateJson};\n{tpl.BackgroundJsAfterDefaultState}";
         var popupJsBody = !string.IsNullOrEmpty(tpl.PopupJsAfterDefaults)
             ? $"const DEFAULT_ACCOUNTS = {defaultAccountsJson};\nconst DEFAULT_VIA_META = {defaultViaMetaJson};\n{tpl.PopupJsAfterDefaults}"
             : tpl.PopupJs;
+        if (activePort != 17890)
+        {
+            bgBody = bgBody.Replace("127.0.0.1:17890", $"127.0.0.1:{activePort}", StringComparison.Ordinal);
+            popupJsBody = popupJsBody.Replace("127.0.0.1:17890", $"127.0.0.1:{activePort}", StringComparison.Ordinal);
+        }
 
         var utf8NoBom = new UTF8Encoding(false);
         File.WriteAllText(Path.Combine(targetDir, "manifest.json"), JsonSerializer.Serialize(manifestObj, new JsonSerializerOptions { WriteIndented = true }) + "\n", utf8NoBom);
         File.WriteAllText(Path.Combine(targetDir, "passkey_shield.js"), tpl.PasskeyShieldJs, utf8NoBom);
-        File.WriteAllText(Path.Combine(targetDir, "background.js"), $"const DEFAULT_STATE = {defaultStateJson};\n{tpl.BackgroundJsAfterDefaultState}", utf8NoBom);
+        File.WriteAllText(Path.Combine(targetDir, "background.js"), bgBody, utf8NoBom);
         File.WriteAllText(Path.Combine(targetDir, "content.js"), tpl.ContentJs, utf8NoBom);
         File.WriteAllText(Path.Combine(targetDir, "popup.html"), tpl.PopupHtml, utf8NoBom);
         File.WriteAllText(Path.Combine(targetDir, "popup.js"), popupJsBody, utf8NoBom);

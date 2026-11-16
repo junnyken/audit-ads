@@ -112,7 +112,7 @@ export default function Overview() {
           <div className="rounded-lg border border-line bg-surface-muted/40 p-2.5 text-xs space-y-1.5">
             <div className="font-bold text-ink">Bước 1: Kích hoạt Mở Chrome &amp; Tiện ích (.zip)</div>
             <p className="text-[11px] text-ink-muted">
-              Chạy file <code>.bat</code> (1 lần) để mở đúng Hồ sơ Chrome từ Web &amp; cài gói Tiện ích v2.9.6 Pro (Tab Automatic, 2FA tự điền, khóa IP Leak/WebRTC).
+              Chạy file <code>.bat</code> (1 lần) để mở đúng Hồ sơ Chrome từ Web &amp; cài gói Tiện ích v2.9.8 Pro (Tab Automatic, 2FA tự điền, khóa IP Leak/WebRTC).
             </p>
             <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
               <a
@@ -120,7 +120,7 @@ export default function Overview() {
                 download
                 className="rounded border border-indigo-500/50 bg-indigo-600 px-2 py-1 text-[11px] font-bold text-white hover:bg-indigo-700"
               >
-                💻 App Win v2.4.2
+                💻 App Win v2.6.0
               </a>
               <button
                 type="button"

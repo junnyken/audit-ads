@@ -77,6 +77,8 @@ public sealed class LocalBridgeServer : IDisposable
     private CancellationTokenSource? _cts;
     private Task? _acceptLoop;
 
+    public static int ActiveBoundPort { get; private set; } = 17890;
+
     public int BoundPort { get; private set; }
 
     public LocalBridgeServer(
@@ -124,6 +126,41 @@ public sealed class LocalBridgeServer : IDisposable
         });
     }
 
+    public static bool IsLegacyAdsOpsBridgeCommandLine(string? cmdLine)
+    {
+        if (string.IsNullOrWhiteSpace(cmdLine)) return false;
+        return cmdLine.Contains("adsops", StringComparison.OrdinalIgnoreCase) ||
+               cmdLine.Contains("audit-ads", StringComparison.OrdinalIgnoreCase) ||
+               cmdLine.Contains("adsops-chrome", StringComparison.OrdinalIgnoreCase) ||
+               cmdLine.Contains("chrome_bridge", StringComparison.OrdinalIgnoreCase) ||
+               cmdLine.Contains("local_bridge", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string GetProcessCommandLineSafe(int pid)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-NoProfile -NonInteractive -Command \"(Get-CimInstance Win32_Process -Filter 'ProcessId = {pid}').CommandLine\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            using var proc = Process.Start(psi);
+            if (proc == null) return "";
+            var stdout = proc.StandardOutput.ReadToEnd();
+            proc.WaitForExit(1500);
+            return (stdout ?? "").Trim();
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
     public static bool RetireLegacyBridgeHoldingPort(int port, Action<string> log)
     {
         try
@@ -168,6 +205,11 @@ public sealed class LocalBridgeServer : IDisposable
                     var pname = (holder.ProcessName ?? "").ToLowerInvariant();
                     if (pname is "python" or "pythonw" or "powershell" or "pwsh")
                     {
+                        var cmdLine = GetProcessCommandLineSafe(pid);
+                        if (!IsLegacyAdsOpsBridgeCommandLine(cmdLine))
+                        {
+                            continue;
+                        }
                         holder.Kill(entireProcessTree: true);
                         holder.WaitForExit(1500);
                         log($"♻️ Đã tự động thay thế Cầu nối .bat cũ ({pname} PID {pid}) trên cổng {port} bằng AdsOps Desktop Pro v{DesktopAppInfo.Version}.");
@@ -189,9 +231,43 @@ public sealed class LocalBridgeServer : IDisposable
     {
         if (_listener != null) return;
         _cts = new CancellationTokenSource();
-        _listener = new TcpListener(IPAddress.Loopback, _requestedPort);
-        _listener.Start();
-        BoundPort = ((IPEndPoint)_listener.LocalEndpoint).Port;
+        if (_requestedPort == 0)
+        {
+            _listener = new TcpListener(IPAddress.Loopback, 0);
+            _listener.Start();
+            BoundPort = ((IPEndPoint)_listener.LocalEndpoint).Port;
+        }
+        else
+        {
+            var candidates = new[] { _requestedPort, 17891, 17892, 17893, 17894 }.Distinct().ToArray();
+            Exception? lastEx = null;
+            foreach (var candidate in candidates)
+            {
+                TcpListener? tryListener = null;
+                try
+                {
+                    tryListener = new TcpListener(IPAddress.Loopback, candidate);
+                    tryListener.Start();
+                    _listener = tryListener;
+                    BoundPort = ((IPEndPoint)_listener.LocalEndpoint).Port;
+                    ActiveBoundPort = BoundPort;
+                    if (BoundPort != _requestedPort)
+                    {
+                        _log($"ℹ️ Cổng {_requestedPort} đang được ứng dụng khác sử dụng -> Tự động chuyển Local Bridge sang cổng {BoundPort}.");
+                    }
+                    break;
+                }
+                catch (SocketException sx)
+                {
+                    lastEx = sx;
+                    try { tryListener?.Stop(); } catch { }
+                }
+            }
+            if (_listener == null)
+            {
+                throw lastEx ?? new InvalidOperationException("Không tìm được cổng Local Bridge khả dụng trong dải 17890..17894.");
+            }
+        }
         _acceptLoop = Task.Run(() => AcceptLoopAsync(_cts.Token));
     }
 

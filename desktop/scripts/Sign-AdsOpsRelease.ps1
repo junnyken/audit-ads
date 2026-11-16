@@ -46,6 +46,7 @@ if (-not [string]::IsNullOrWhiteSpace($PfxPath) -and (Test-Path -LiteralPath $Pf
     }
     $cerOut = Join-Path $releaseDir "AdsOps-Community-Publisher.cer"
     Export-Certificate -Cert $cert -FilePath $cerOut -Force | Out-Null
+    try { Import-Certificate -FilePath $cerOut -CertStoreLocation "Cert:\CurrentUser\TrustedPublisher" | Out-Null } catch {}
     $sig = Set-AuthenticodeSignature -FilePath $resolvedExe -Certificate $cert -HashAlgorithm SHA256
     $signedBy = "$($cert.Subject) [$($sig.Status)] (Public .cer bundled)"
 }

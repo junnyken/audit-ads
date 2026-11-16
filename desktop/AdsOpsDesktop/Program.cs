@@ -1170,6 +1170,37 @@ internal static class Program
                 }
             }
 
+            // 28. v2.6.0 Safe Legacy Bridge Retirement Guard + Multi-Port Auto-Fallback (17890..17894)
+            {
+                if (LocalBridgeServer.IsLegacyAdsOpsBridgeCommandLine("\"pythonw.exe\" \"C:\\Users\\u\\AppData\\Local\\MangaStudioPro\\app_dich_truyen_windows.py\""))
+                    throw new InvalidOperationException("Must NOT classify unrelated pythonw script as legacy AdsOps bridge");
+                if (!LocalBridgeServer.IsLegacyAdsOpsBridgeCommandLine("powershell.exe -File C:\\Users\\u\\adsops-chrome-bridge.ps1"))
+                    throw new InvalidOperationException("Must classify adsops-chrome-bridge script as legacy AdsOps bridge");
+
+                using var busyListener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+                busyListener.Start();
+                var busyPort = ((System.Net.IPEndPoint)busyListener.LocalEndpoint).Port;
+                using var fbBridge = new LocalBridgeServer(
+                    busyPort,
+                    _ => Task.FromResult((true, "OK")),
+                    _ => Task.FromResult(new BrowserEventResponseDto { Ok = true }),
+                    () => Task.FromResult(0),
+                    _ => { },
+                    getBridgeToken: () => "test-fallback-token",
+                    getAllowedWebAppUrl: () => "https://adsops-app.vibe.tinhgon.xyz");
+                fbBridge.Start();
+                if (fbBridge.BoundPort == busyPort || fbBridge.BoundPort < 17891 || fbBridge.BoundPort > 17894)
+                    throw new InvalidOperationException($"Expected fallback port in 17891..17894 when busyPort={busyPort} occupied, got {fbBridge.BoundPort}");
+
+                var fbHealth = await anonHttp.GetAsync($"http://127.0.0.1:{fbBridge.BoundPort}/health");
+                var fbHealthJson = await fbHealth.Content.ReadAsStringAsync();
+                if (!fbHealth.IsSuccessStatusCode || !fbHealthJson.Contains("\"AdsOpsDesktop\"", StringComparison.Ordinal))
+                    throw new InvalidOperationException($"Fallback bridge /health failed on :{fbBridge.BoundPort}");
+
+                fbBridge.Dispose();
+                busyListener.Stop();
+            }
+
             Console.WriteLine("ADSOPS_DESKTOP_V260_SELFTEST_100_PASS");
             return 0;
         }

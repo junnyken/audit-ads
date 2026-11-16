@@ -200,6 +200,11 @@ public static class AntidetectBrowserConnector
     public static string GetDefaultBaseUrl(string? engine)
     {
         var norm = NormalizeEngine(engine);
+        if (norm == "chrome_native")
+        {
+            var port = LocalBridgeServer.ActiveBoundPort > 0 ? LocalBridgeServer.ActiveBoundPort : 17890;
+            return $"http://127.0.0.1:{port}";
+        }
         var found = SupportedEngines.FirstOrDefault(e => e.Key == norm);
         return string.IsNullOrEmpty(found.DefaultUrl) ? "http://127.0.0.1:17890" : found.DefaultUrl;
     }

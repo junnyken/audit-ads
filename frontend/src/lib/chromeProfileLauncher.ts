@@ -42,9 +42,10 @@ function buildWebBridgeHeaders(extra?: Record<string, string>): Record<string, s
 
 export async function fetchRealLocalChromeProfiles(): Promise<RealChromeProfile[]> {
   try {
+    const baseUrl = await resolveLocalBridgeBaseUrl()
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 1500)
-    const resp = await fetch('http://127.0.0.1:17890/chrome-profiles', {
+    const resp = await fetch(`${baseUrl}/chrome-profiles`, {
       method: 'GET',
       headers: buildWebBridgeHeaders(),
       signal: controller.signal,
@@ -401,40 +402,75 @@ export function buildAdsOpsChromeProtocolUrl(
   return `adsops-chrome://open?${params.toString()}`
 }
 
+export const LOCAL_BRIDGE_CANDIDATE_PORTS = [17890, 17891, 17892, 17893, 17894] as const
+
 export interface LocalBridgeProbeResult {
   online: boolean
   isDesktopApp: boolean
   app: string
   version: string
   extVersion?: string
+  port?: number
+}
+
+let cachedBridgePort: number | null = null
+let cachedBridgeAtMs = 0
+
+export function resetLocalBridgePortCache(): void {
+  cachedBridgePort = null
+  cachedBridgeAtMs = 0
 }
 
 export async function probeLocalDesktopBridge(timeoutMs = 1100): Promise<LocalBridgeProbeResult> {
-  try {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), timeoutMs)
-    const resp = await fetch('http://127.0.0.1:17890/health', {
-      method: 'GET',
-      signal: controller.signal,
-    })
-    clearTimeout(timer)
-    if (!resp.ok) {
-      return { online: false, isDesktopApp: false, app: '', version: '' }
+  const orderedPorts = cachedBridgePort
+    ? [cachedBridgePort, ...LOCAL_BRIDGE_CANDIDATE_PORTS.filter((p) => p !== cachedBridgePort)]
+    : [...LOCAL_BRIDGE_CANDIDATE_PORTS]
+
+  for (const port of orderedPorts) {
+    try {
+      const controller = new AbortController()
+      const perPortMs = Math.max(250, Math.min(timeoutMs, 650))
+      const timer = setTimeout(() => controller.abort(), perPortMs)
+      const resp = await fetch(`http://127.0.0.1:${port}/health`, {
+        method: 'GET',
+        signal: controller.signal,
+      })
+      clearTimeout(timer)
+      if (!resp.ok) {
+        continue
+      }
+      const data = (await resp.json()) as Record<string, unknown>
+      const app = typeof data.app === 'string' ? data.app : ''
+      if (!data.ok || (app !== 'AdsOpsDesktop' && app !== 'AdsOpsBatBridge')) {
+        continue
+      }
+      const version = typeof data.version === 'string' ? data.version : ''
+      const extVersion = typeof data.extVersion === 'string' ? data.extVersion : undefined
+      cachedBridgePort = port
+      cachedBridgeAtMs = Date.now()
+      return {
+        online: true,
+        isDesktopApp: app === 'AdsOpsDesktop',
+        app,
+        version,
+        extVersion,
+        port,
+      }
+    } catch {
+      // Port not listening or timed out; try next candidate
     }
-    const data = (await resp.json()) as Record<string, unknown>
-    const app = typeof data.app === 'string' ? data.app : 'AdsOpsBatBridge'
-    const version = typeof data.version === 'string' ? data.version : ''
-    const extVersion = typeof data.extVersion === 'string' ? data.extVersion : undefined
-    return {
-      online: Boolean(data.ok),
-      isDesktopApp: app === 'AdsOpsDesktop',
-      app,
-      version,
-      extVersion,
-    }
-  } catch {
-    return { online: false, isDesktopApp: false, app: '', version: '' }
   }
+  cachedBridgePort = null
+  cachedBridgeAtMs = 0
+  return { online: false, isDesktopApp: false, app: '', version: '' }
+}
+
+export async function resolveLocalBridgeBaseUrl(): Promise<string> {
+  if (cachedBridgePort && Date.now() - cachedBridgeAtMs < 20_000) {
+    return `http://127.0.0.1:${cachedBridgePort}`
+  }
+  const probe = await probeLocalDesktopBridge(700)
+  return `http://127.0.0.1:${probe.port || 17890}`
 }
 
 export type AntidetectEngineKey =
@@ -554,9 +590,10 @@ export async function fetchWorkstationTelemetry(timeoutMs = 1500): Promise<{
   workstation_memory?: WorkstationMemoryTelemetry
 }> {
   try {
+    const baseUrl = await resolveLocalBridgeBaseUrl()
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
-    const resp = await fetch('http://127.0.0.1:17890/chrome-sessions', {
+    const resp = await fetch(`${baseUrl}/chrome-sessions`, {
       method: 'GET',
       headers: buildWebBridgeHeaders(),
       signal: controller.signal,
@@ -581,9 +618,10 @@ export async function fetchAntidetectBenchmark(timeoutMs = 7000): Promise<{
   workstation_memory?: WorkstationMemoryTelemetry
 } | null> {
   try {
+    const baseUrl = await resolveLocalBridgeBaseUrl()
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
-    const resp = await fetch('http://127.0.0.1:17890/antidetect/benchmark', {
+    const resp = await fetch(`${baseUrl}/antidetect/benchmark`, {
       method: 'GET',
       headers: buildWebBridgeHeaders(),
       signal: controller.signal,
@@ -621,9 +659,10 @@ export async function launchInAssignedChromeProfile(
   }
 
   try {
+    const baseUrl = await resolveLocalBridgeBaseUrl()
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 1400)
-    const resp = await fetch('http://127.0.0.1:17890/open', {
+    const resp = await fetch(`${baseUrl}/open`, {
       method: 'POST',
       headers: buildWebBridgeHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({

@@ -1,10 +1,18 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   buildExtensionFilesForVia,
   canMemberLaunchVia,
   getAntidetectEngineLabel,
   parseAntidetectFromNotes,
+  probeLocalDesktopBridge,
+  resetLocalBridgePortCache,
+  resolveLocalBridgeBaseUrl,
 } from '../lib/chromeProfileLauncher'
+
+afterEach(() => {
+  resetLocalBridgePortCache()
+  vi.restoreAllMocks()
+})
 
 describe('v2.6.0 Multi-Engine Antidetect Hub & Team Launch RBAC', () => {
   it('parses [ADENG] and [ADID] tags cleanly and resolves engine display names', () => {
@@ -29,8 +37,37 @@ describe('v2.6.0 Multi-Engine Antidetect Hub & Team Launch RBAC', () => {
 
   it('generates v2.9.8 manifest metadata cleanly', () => {
     const files = buildExtensionFilesForVia('AdsOps', 'Via Test', 'Profile 1', '')
-    const manifestFile = files.find((f) => f.name === 'manifest.json' || f.name.endsWith('/manifest.json'))
-    const manifest = JSON.parse(manifestFile!.content) as { version: string }
+    const manifest = JSON.parse(files.find((f) => f.name.endsWith('/manifest.json'))!.content) as { version: string }
     expect(manifest.version).toBe('2.9.8')
+  })
+
+  it('auto-discovers AdsOpsDesktop on fallback port 17891 when 17890 is occupied by another app', async () => {
+    resetLocalBridgePortCache()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url === 'http://127.0.0.1:17890/health') {
+        return new Response('Not Found', { status: 404 })
+      }
+      if (url === 'http://127.0.0.1:17891/health') {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            app: 'AdsOpsDesktop',
+            version: '2.6.0',
+            extVersion: '2.9.8',
+            port: 17891,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
+      }
+      throw new Error(`Unexpected port fetch: ${url}`)
+    })
+
+    const probe = await probeLocalDesktopBridge(1000)
+    expect(probe.online).toBe(true)
+    expect(probe.isDesktopApp).toBe(true)
+    expect(probe.port).toBe(17891)
+    expect(probe.version).toBe('2.6.0')
+    expect(await resolveLocalBridgeBaseUrl()).toBe('http://127.0.0.1:17891')
   })
 })

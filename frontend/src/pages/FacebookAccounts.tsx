@@ -726,7 +726,7 @@ export default function FacebookAccounts() {
             {bridgeProbe?.isDesktopApp && (
               <span
                 className="inline-flex items-center gap-1 rounded-md border border-emerald-500/50 bg-emerald-500/15 px-2.5 py-1.5 text-xs font-extrabold text-emerald-700 dark:text-emerald-300"
-                title="AdsOps Desktop Pro đang chạy ngầm tại 127.0.0.1:17890"
+                title={`AdsOps Desktop Pro đang chạy ngầm tại 127.0.0.1:${bridgeProbe.port || 17890}`}
               >
                 💻 App Windows v{bridgeProbe.version || '2.6.0'} Đang Chạy
               </span>
@@ -835,7 +835,7 @@ export default function FacebookAccounts() {
           <div className="grid gap-2 sm:grid-cols-5 text-xs">
             <div className="rounded-lg border border-line bg-surface-muted p-2.5">
               <div className="font-bold">1. Cầu nối Desktop</div>
-              <div className="text-ink-muted mt-0.5">{bridgeProbe?.isDesktopApp ? '✓ Đã bật Zero-Trust :17890' : '○ Tải & bật AdsOps Desktop Pro'}</div>
+              <div className="text-ink-muted mt-0.5">{bridgeProbe?.isDesktopApp ? `✓ Đã bật Zero-Trust :${bridgeProbe.port || 17890}` : '○ Tải & bật AdsOps Desktop Pro'}</div>
             </div>
             <div className="rounded-lg border border-line bg-surface-muted p-2.5">
               <div className="font-bold">2. Phân tầng 3 lớp</div>
