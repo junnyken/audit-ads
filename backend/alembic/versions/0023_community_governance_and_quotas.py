@@ -1,6 +1,6 @@
 """Community Governance & Workspace Quotas (v2.5.0).
 
-Revision ID: 0023_community_governance_and_quotas
+Revision ID: 0023_community_quotas
 Revises: 0022_f1_5_login_environment
 Create Date: 2026-11-16 11:30:00.000000
 """
@@ -9,7 +9,7 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0023_community_governance_and_quotas"
+revision = "0023_community_quotas"
 down_revision = "0022_f1_5_login_environment"
 branch_labels = None
 depends_on = None
