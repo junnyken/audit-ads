@@ -1,9 +1,9 @@
 {
-  "version": "2.4.1",
+  "version": "2.4.2",
   "ext_version": "2.9.6",
   "download_url": "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
-  "sha256": "303f99cd5ced77a414e9faf7e7209a1b15d9a01a7d944064221670ea1300cb81",
-  "size_bytes": 65844374,
-  "published_at": "2026-11-16T02:25:14.373390Z",
-  "release_notes": "AdsOps Desktop Pro v2.4.1 + Extension v2.9.6: Hỗ trợ an toàn Cụm Proxy Dân Cư 1:4 (tối đa 4 Via cùng nhóm/1 Proxy dân cư tĩnh, xếp hàng xen kẽ IP & nghỉ >=55s+jitter khi trùng IP, tách Tạo Page <=2/IP/lô), Khóa trùng Hồ sơ Chrome tuyệt đối chống đè Cookie, tự nâng cấp config cũ 2->4, cùng Khiên Chống Checkpoint 72h, IP Kill-Switch & Cách ly Silo Khách hàng."
+  "sha256": "01bf540416ba78f8b9721590b2c6db70a8a6e71c651298e934ce7ff1912a1cee",
+  "size_bytes": 65851909,
+  "published_at": "2026-11-16T02:50:31.383991Z",
+  "release_notes": "AdsOps Desktop Pro v2.4.2 + Extension v2.9.6: Cho phép tùy chỉnh Max Via / 1 Proxy (1–50, mặc định 4), Max Tạo Page / IP (1–20) & Nghỉ trùng IP (15–300s) ngay trong Cài đặt Desktop & Web; nâng cấp Full Backup di chuyển máy 5 lớp (.adsopsvault: Cookie+2FA DPAPI, Via+Proxy+Profile+Silo, Cài đặt Cụm Proxy, Lịch sử Ngâm 72h/Cooldown, Phiên Cloud) khỏi nhập lại từng cái."
 }

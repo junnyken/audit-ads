@@ -17,6 +17,7 @@ import { formatRelative } from '../lib/format'
 import { useAuth } from '../hooks/useAuth'
 import { useI18n } from '../i18n'
 import { useEnumLabel } from '../i18n/labels'
+import { DEFAULT_MAX_VIAS_PER_PROXY, useMaxViasPerProxy } from '../lib/proxyClusterPrefs'
 
 const LINK_CARD =
   'block rounded-md border border-line bg-surface px-3 py-2.5 transition-colors hover:border-line-strong hover:bg-surface-sunken'
@@ -107,6 +108,8 @@ export default function Settings() {
       <TelegramInstantBotSection isOwner={isOwner} />
 
       <AutomationCronSection isOwner={isOwner} />
+
+      <ProxyClusterCapacitySection />
 
       <DomainSeoSection isOwner={isOwner} />
 
@@ -1006,6 +1009,73 @@ function DomainSeoSection({ isOwner }: { isOwner: boolean }) {
           )}
         </div>
       )}
+    </Panel>
+  )
+}
+
+function ProxyClusterCapacitySection() {
+  const [limit, updateLimit] = useMaxViasPerProxy()
+  const [draft, setDraft] = useState(String(limit))
+  const [savedNotice, setSavedNotice] = useState('')
+
+  useEffect(() => {
+    setDraft(String(limit))
+  }, [limit])
+
+  const applyValue = (rawVal: number) => {
+    const saved = updateLimit(rawVal)
+    setDraft(String(saved))
+    setSavedNotice(`Đã lưu ngưỡng cảnh báo hiển thị Web UI: tối đa ${saved} Via / 1 Proxy (áp dụng ngay trên bảng Tài khoản FB & Tài nguyên Proxy).`)
+  }
+
+  return (
+    <Panel title="🌐 Hạn mức Cụm Proxy (Max Via / 1 Proxy — Mặc định 4, tùy chỉnh 1–50)">
+      <div className="space-y-3">
+        <p className="text-xs leading-relaxed text-ink-muted">
+          Tùy chỉnh số tài khoản Via tối đa dùng chung 1 Proxy trước khi Web UI hiển thị cảnh báo quá tải (mặc định{' '}
+          <strong className="text-ink">{DEFAULT_MAX_VIAS_PER_PROXY} Via/Proxy</strong> cho Proxy Dân cư; bạn có thể nâng lên tới 50 nếu vận hành proxy xoay hoặc dải đặc biệt). Trên App Windows Desktop v2.4.2, bạn có thể chỉnh thêm thông số chạy hàng loạt &amp; xuất Full Backup <code>.adsopsvault</code>.
+        </p>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="number"
+            min={1}
+            max={50}
+            className="input w-28 font-mono text-xs tabular-nums"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            aria-label="Số Via tối đa trên 1 Proxy"
+          />
+          <Button
+            type="button"
+            onClick={() => applyValue(Number.parseInt(draft, 10))}
+          >
+            💾 Lưu Ngưỡng Proxy ({draft || limit}/IP)
+          </Button>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {[2, 4, 6, 8, 10, 20].map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => applyValue(preset)}
+                className={`rounded border px-2 py-1 text-xs font-semibold transition ${
+                  limit === preset
+                    ? 'border-brand bg-brand text-brand-fg'
+                    : 'border-line bg-surface-sunken text-ink-muted hover:border-line-strong hover:text-ink'
+                }`}
+              >
+                {preset} Via
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {savedNotice && (
+          <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-800 dark:text-emerald-200">
+            {savedNotice}
+          </div>
+        )}
+      </div>
     </Panel>
   )
 }

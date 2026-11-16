@@ -272,7 +272,7 @@ internal static class Program
             healthResp.EnsureSuccessStatusCode();
             var healthBody = await healthResp.Content.ReadAsStringAsync();
             if (!healthBody.Contains("\"app\":\"AdsOpsDesktop\"", StringComparison.Ordinal) ||
-                !healthBody.Contains("\"version\":\"2.4.1\"", StringComparison.Ordinal) ||
+                !healthBody.Contains("\"version\":\"2.4.2\"", StringComparison.Ordinal) ||
                 !healthBody.Contains("\"extVersion\":\"2.9.6\"", StringComparison.Ordinal))
             {
                 throw new InvalidOperationException($"Unexpected /health response: {healthBody}");
@@ -781,10 +781,89 @@ internal static class Program
             var legCfgPath = Path.Combine(tempRoot, "legacy_cfg.json");
             File.WriteAllText(legCfgPath, "{\"MaxViasPerProxyInBatch\":2}");
             var migratedCfg = DesktopConfig.Load(legCfgPath);
-            if (migratedCfg.MaxViasPerProxyInBatch != 4 || migratedCfg.ConfigMigrationVersion != 241)
+            if (migratedCfg.MaxViasPerProxyInBatch != 4 || migratedCfg.ConfigMigrationVersion != 242)
                 throw new InvalidOperationException($"DesktopConfig migration failed: max={migratedCfg.MaxViasPerProxyInBatch}, mig={migratedCfg.ConfigMigrationVersion}");
 
-            Console.WriteLine("ADSOPS_DESKTOP_V241_SELFTEST_100_PASS");
+            // 18. v2.4.2 Custom Proxy Cluster Capacity (1-50) & 5-Layer Workstation Migration Backup
+            var eightCluster = Enumerable.Range(1, 8).Select(i => new ViaWorkspaceEntry
+            {
+                ViaId = $"c8-{i}",
+                Label = $"Via Custom {i}",
+                ProfileDir = $"Profile {20 + i}",
+                NetworkLabel = "103.80.90.100:8080:u:p",
+                ClientGroup = "Khách Tùy Chỉnh",
+                ProxyLastStatus = "LIVE",
+                WarmupPhase = "trusted",
+                QuotaStatus = "SAFE",
+            }).ToList();
+            ViaTrustEvaluator.DetectClientSiloConflicts(eightCluster, maxSharedPerProxy: 8);
+            foreach (var ev in eightCluster)
+            {
+                if (ev.HasSiloConflict || ev.SharedProxyViaCount != 8)
+                    throw new InvalidOperationException($"Custom 1:8 cluster failed on {ev.Label}");
+                var (s8, _) = ViaTrustEvaluator.EvaluateTrustScore(ev, hasTwoFa: true, hasVaultCookie: true, maxSharedPerProxy: 8);
+                if (s8 != 100)
+                    throw new InvalidOperationException($"Expected 100/100 score for custom 1:8 cluster, got {s8}");
+            }
+            var bulk8 = ViaBulkImportParser.ParseBulkText(
+                "Via Custom 8|100089123456788|JBSWY3DPEHPK3PXP|103.80.90.100:8080:u:p",
+                "Via",
+                "camp",
+                eightCluster.Take(7).ToList(),
+                autoAssignProfile: true,
+                warmupStartIso: "",
+                maxSafePerProxy: 8);
+            if (bulk8.Rows.Count != 1 || !bulk8.Rows[0].DuplicateProxyWarning.Contains("8/8 Via", StringComparison.Ordinal))
+                throw new InvalidOperationException($"Custom bulk8 proxy warning mismatch: {bulk8.Rows.FirstOrDefault()?.DuplicateProxyWarning}");
+
+            var srcCfg = new DesktopConfig
+            {
+                MaxViasPerProxyInBatch = 8,
+                MaxPagesPerProxyInBatch = 3,
+                SameProxyMinStaggerSeconds = 75,
+                AutoKeepAliveScheduler = true,
+                PreCheckProxyBeforeLaunch = true,
+                BackendBaseUrl = "https://audit-ads-backend.vibe1.tinhgon.xyz",
+                UserEmail = "steward@example.com",
+            };
+            var srcStew = new ViaStewardshipStore(Path.Combine(tempRoot, "stew_src.json"));
+            srcStew.GetOrTrackProxy("v-mig-1", "Via Migrated 1", "103.80.90.100:8080:u:p");
+            srcStew.RecordKeepAliveSuccess("v-mig-1", "Via Migrated 1", "Khách Tùy Chỉnh", "Keep-alive before migration");
+            srcStew.RecordKeepAliveSuccess("v-mig-1", "Via Migrated 1", "Khách Tùy Chỉnh");
+            var migPayload = new VaultBackupPayload
+            {
+                AppVersion = DesktopAppInfo.Version,
+                BackendBaseUrl = srcCfg.BackendBaseUrl,
+                UserEmail = srcCfg.UserEmail,
+                CloudJwtPlain = "jwt_mig_test",
+                ConfigSnapshot = srcCfg.CloneWithoutSecrets(),
+                StewardshipSnapshot = srcStew.ExportSnapshot(),
+                Vias = eightCluster,
+                LocalSecrets = testSecretStore.ExportPlainEntries(),
+            };
+            var encMig = VaultBackupService.EncryptToBytes(migPayload, "MatKhauDiChuyen123");
+            var decMig = VaultBackupService.DecryptFromBytes(encMig, "MatKhauDiChuyen123");
+            var dstCfg = new DesktopConfig();
+            dstCfg.ApplyPreferencesFrom(decMig.ConfigSnapshot);
+            var dstStew = new ViaStewardshipStore(Path.Combine(tempRoot, "stew_dst.json"));
+            var mergedStewCount = dstStew.ImportSnapshot(decMig.StewardshipSnapshot);
+            var dstVault = new LocalSecretVaultStore(Path.Combine(tempRoot, "vault_dst.json"));
+            var importedVaultCount = dstVault.ImportPlainEntries(decMig.LocalSecrets);
+            if (dstCfg.MaxViasPerProxyInBatch != 8 ||
+                dstCfg.MaxPagesPerProxyInBatch != 3 ||
+                dstCfg.SameProxyMinStaggerSeconds != 75 ||
+                decMig.CloudJwtPlain != "jwt_mig_test" ||
+                decMig.Vias.Count != 8 ||
+                mergedStewCount < 1 ||
+                importedVaultCount < 2)
+            {
+                throw new InvalidOperationException($"Workstation 5-layer backup verification failed: max={dstCfg.MaxViasPerProxyInBatch}, stew={mergedStewCount}, vault={importedVaultCount}");
+            }
+            var dstRec = dstStew.GetOrTrackProxy("v-mig-1", "Via Migrated 1", "103.80.90.100:8080:u:p");
+            if (dstRec.KeepAliveSuccessCount != 2 || string.IsNullOrEmpty(dstRec.LastProxyKey) || !string.IsNullOrEmpty(dstRec.ProxyChangedUtc))
+                throw new InvalidOperationException("Restored ViaStewardshipStore lost KeepAliveSuccessCount, LastProxyKey, or falsely triggered proxy-change quarantine");
+
+            Console.WriteLine("ADSOPS_DESKTOP_V242_SELFTEST_100_PASS");
             return 0;
         }
         finally

@@ -17,6 +17,7 @@ import { Card } from '../components/primitives/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/primitives/table'
 import { FacebookAccountFormSheet } from '../components/facebook/FacebookAccountFormSheet'
 import { twoFactorTone } from '../lib/readiness'
+import { useMaxViasPerProxy } from '../lib/proxyClusterPrefs'
 import {
   WORKSTATION_REAL_CHROME_PROFILES,
   downloadSwitchyOmegaConfig,
@@ -344,6 +345,7 @@ export default function FacebookAccounts() {
   const role = user?.role ?? 'owner'
   const canWrite = role !== 'viewer'
   const canAssignOwner = role === 'owner' || role === 'admin'
+  const [maxViasPerProxy] = useMaxViasPerProxy()
 
   const [search, setSearch] = useState('')
   const [holder, setHolder] = useState('')
@@ -509,8 +511,8 @@ export default function FacebookAccounts() {
       if (meta.tier === 'camp' && bmCount > 2) {
         risks.push(`Via Lên Camp đang nắm ${bmCount} BM (Nên chuyển quyền Admin BM về Via Tổng)`)
       }
-      if (sharedNetwork.length >= 4) {
-        risks.push(`1 Proxy đang gắn cho ${sharedNetwork.length + 1} Via (Vượt mức ≤ 4 Via/Proxy dân cư)`)
+      if (sharedNetwork.length >= maxViasPerProxy) {
+        risks.push(`1 Proxy đang gắn cho ${sharedNetwork.length + 1} Via (Vượt mức ≤ ${maxViasPerProxy} Via/Proxy)`)
       }
 
       return {
@@ -611,16 +613,16 @@ export default function FacebookAccounts() {
                 className="inline-flex items-center gap-1 rounded-md border border-emerald-500/50 bg-emerald-500/15 px-2.5 py-1.5 text-xs font-extrabold text-emerald-700 dark:text-emerald-300"
                 title="AdsOps Desktop Pro đang chạy ngầm tại 127.0.0.1:17890"
               >
-                💻 App Windows v{bridgeProbe.version || '2.4.1'} Đang Chạy
+                💻 App Windows v{bridgeProbe.version || '2.4.2'} Đang Chạy
               </span>
             )}
             <a
               href="/downloads/AdsOps-Desktop-Pro-v2.3.zip"
               download
               className="inline-flex h-9 items-center gap-1 rounded-md border border-indigo-500/45 bg-indigo-500/15 px-3 text-xs font-bold text-indigo-700 hover:bg-indigo-500/25 dark:text-indigo-300"
-              title="Tải App Windows AdsOps Desktop Pro v2.4.1 (Cầu nối 2 chiều + Két Cookie DPAPI + Cụm Proxy 1:4 + Extension v2.9.6)"
+              title="Tải App Windows AdsOps Desktop Pro v2.4.2 (Cầu nối 2 chiều + Két Cookie DPAPI + Tùy chỉnh Cụm Proxy 1–50 + Full Backup + Extension v2.9.6)"
             >
-              💻 Tải App Windows v2.4.1 (.zip)
+              💻 Tải App Windows v2.4.2 (.zip)
             </a>
             <Button
               type="button"

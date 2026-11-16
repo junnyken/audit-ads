@@ -27,6 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/primitiv
 import { useI18n } from '../i18n'
 import { api } from '../lib/api'
 import { launchInAssignedChromeProfile } from '../lib/chromeProfileLauncher'
+import { useMaxViasPerProxy } from '../lib/proxyClusterPrefs'
 import {
   BROWSER_REFERENCES,
   PAGES,
@@ -143,6 +144,7 @@ interface AssetsOverviewResponse {
 export default function Assets() {
   const { t, language } = useI18n()
   const isEn = language === 'en'
+  const [maxViasPerProxy] = useMaxViasPerProxy()
   const qc = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const requestedTab = searchParams.get('tab')
@@ -1057,7 +1059,7 @@ export default function Assets() {
                     <tr className="border-y border-line bg-surface-muted/60 text-[11px] font-bold uppercase tracking-wider text-ink-muted">
                       <th className="px-3.5 py-2.5">{isEn ? '1. Proxy Line / Cluster Label' : '1. Tên Tuyến Mạng / Cụm Proxy'}</th>
                       <th className="px-3.5 py-2.5">{isEn ? '2. ISP Provider & Region' : '2. Nhà Mạng & Khu Vực'}</th>
-                      <th className="px-3.5 py-2.5">{isEn ? '3. Load Safety (≤ 4 Vias)' : '3. Tải An Toàn (≤ 4 Via/Proxy dân cư)'}</th>
+                      <th className="px-3.5 py-2.5">{isEn ? `3. Load Safety (≤ ${maxViasPerProxy} Vias)` : `3. Tải An Toàn (≤ ${maxViasPerProxy} Via/Proxy)`}</th>
                       <th className="px-3.5 py-2.5">{isEn ? '4. Vias Routed on This IP' : '4. Các Via Đang Đi Qua Tuyến Này'}</th>
                       <th className="px-3.5 py-2.5">{isEn ? '5. Extension Setup' : '5. Cài Vào Tiện Ích Chrome'}</th>
                     </tr>
@@ -1095,17 +1097,17 @@ export default function Assets() {
                         </td>
 
                         <td className="px-3.5 py-3">
-                          {pr.isolation_status === 'SAFE' ? (
+                          {pr.via_count <= maxViasPerProxy ? (
                             <Badge tone="positive">
                               {isEn
-                                ? `🟢 Safe Load (${pr.via_count}/4 Vias)`
-                                : `🟢 Đúng chuẩn (${pr.via_count}/4 Via)`}
+                                ? `🟢 Safe Load (${pr.via_count}/${maxViasPerProxy} Vias)`
+                                : `🟢 Đúng chuẩn (${pr.via_count}/${maxViasPerProxy} Via)`}
                             </Badge>
                           ) : (
                             <Badge tone="attention">
                               {isEn
-                                ? `🔴 Overloaded (${pr.via_count}/4 Vias)`
-                                : `🔴 Quá tải (${pr.via_count}/4 Via — Cần tách bớt)`}
+                                ? `🔴 Overloaded (${pr.via_count}/${maxViasPerProxy} Vias)`
+                                : `🔴 Quá tải (${pr.via_count}/${maxViasPerProxy} Via — Cần tách bớt)`}
                             </Badge>
                           )}
                         </td>

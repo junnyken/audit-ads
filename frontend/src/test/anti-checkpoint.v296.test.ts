@@ -5,6 +5,11 @@ import {
   planHumanKeepAliveRoute,
   type WarmupMode,
 } from '../lib/chromeProfileLauncher';
+import {
+  DEFAULT_MAX_VIAS_PER_PROXY,
+  getMaxViasPerProxy,
+  setMaxViasPerProxy,
+} from '../lib/proxyClusterPrefs';
 
 const WARMUP_MODES: WarmupMode[] = ['soak_72h', 'human_organic', 'bm_warmup', 'pre_camp'];
 
@@ -123,6 +128,30 @@ describe('AdsOps Companion v2.9.6 anti-checkpoint & stewardship builder', () => 
     const mockPattern = /\b(acme|john@doe|lorem ipsum|mock_data|fake_via)\b/i;
     for (const file of files) {
       expect(file.content, `mock token detected in ${file.name}`).not.toMatch(mockPattern);
+    }
+  });
+
+  it('supports customizable max Vias per proxy preference with 1..50 clamping and default 4', () => {
+    window.localStorage.removeItem('adsops_max_vias_per_proxy');
+    expect(getMaxViasPerProxy()).toBe(DEFAULT_MAX_VIAS_PER_PROXY);
+    expect(DEFAULT_MAX_VIAS_PER_PROXY).toBe(4);
+
+    let fired = 0;
+    const onChanged = () => {
+      fired += 1;
+    };
+    window.addEventListener('adsops:proxy-prefs-changed', onChanged);
+    try {
+      expect(setMaxViasPerProxy(10)).toBe(10);
+      expect(getMaxViasPerProxy()).toBe(10);
+      expect(setMaxViasPerProxy(999)).toBe(50);
+      expect(getMaxViasPerProxy()).toBe(50);
+      expect(setMaxViasPerProxy(0)).toBe(1);
+      expect(getMaxViasPerProxy()).toBe(1);
+      expect(fired).toBe(3);
+    } finally {
+      window.removeEventListener('adsops:proxy-prefs-changed', onChanged);
+      window.localStorage.removeItem('adsops_max_vias_per_proxy');
     }
   });
 });

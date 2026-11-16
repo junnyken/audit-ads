@@ -10,9 +10,13 @@ namespace AdsOpsDesktop;
 
 public sealed class VaultBackupPayload
 {
+    [JsonPropertyName("app_version")] public string AppVersion { get; set; } = DesktopAppInfo.Version;
     [JsonPropertyName("exported_at_utc")] public string ExportedAtUtc { get; set; } = DateTime.UtcNow.ToString("O");
     [JsonPropertyName("backend_base_url")] public string BackendBaseUrl { get; set; } = DesktopConfig.DefaultBackendUrl;
     [JsonPropertyName("user_email")] public string UserEmail { get; set; } = "";
+    [JsonPropertyName("cloud_jwt_plain")] public string CloudJwtPlain { get; set; } = "";
+    [JsonPropertyName("config_snapshot")] public DesktopConfig? ConfigSnapshot { get; set; }
+    [JsonPropertyName("stewardship_snapshot")] public ViaStewardshipDocument? StewardshipSnapshot { get; set; }
     [JsonPropertyName("vias")] public List<ViaWorkspaceEntry> Vias { get; set; } = new();
     [JsonPropertyName("local_secrets")] public List<PlainViaSecretBackupEntry> LocalSecrets { get; set; } = new();
 }

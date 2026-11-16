@@ -8,12 +8,12 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>AdsOpsDesktop</AssemblyName>
     <RootNamespace>AdsOpsDesktop</RootNamespace>
-    <Version>2.4.1</Version>
-    <AssemblyVersion>2.4.1.0</AssemblyVersion>
-    <FileVersion>2.4.1.0</FileVersion>
+    <Version>2.4.2</Version>
+    <AssemblyVersion>2.4.2.0</AssemblyVersion>
+    <FileVersion>2.4.2.0</FileVersion>
     <Product>AdsOps Desktop Pro</Product>
     <Company>AdsOps</Company>
-    <Description>AdsOps Desktop Pro v2.4.1 — Safe 1:4 Residential Proxy Cluster, Profile Collision Guard, 72h Soak Quarantine, Client Silo Isolation, IP Kill-Switch &amp; Extension v2.9.6</Description>
+    <Description>AdsOps Desktop Pro v2.4.2 — Custom Proxy Cluster Settings (1-50), Full 5-Layer Workstation Migration Backup, 72h Soak Quarantine, Client Silo Isolation &amp; Extension v2.9.6</Description>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 

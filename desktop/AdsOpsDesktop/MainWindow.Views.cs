@@ -544,7 +544,7 @@ internal sealed partial class MainWindow
         exportViasBtn.Margin = new Thickness(0, 0, 6, 0);
         rightHeaderBtns.Children.Add(exportViasBtn);
 
-        var shieldLogBtn = UiComponents.CreateButton("Nhật ký Bảo vệ", ButtonVariant.Secondary, FluentIcons.ShieldCheck, onClick: (_, _) => OpenStewardshipLogDialog(), tooltip: "Xem lịch sử chặn rò rỉ IP, Cooldown 24h & Cách ly Khách hàng (v2.4.1)");
+        var shieldLogBtn = UiComponents.CreateButton("Nhật ký Bảo vệ", ButtonVariant.Secondary, FluentIcons.ShieldCheck, onClick: (_, _) => OpenStewardshipLogDialog(), tooltip: "Xem lịch sử chặn rò rỉ IP, Cooldown 24h & Cách ly Khách hàng (v2.4.2)");
         shieldLogBtn.Margin = new Thickness(0, 0, 6, 0);
         rightHeaderBtns.Children.Add(shieldLogBtn);
 
@@ -1032,7 +1032,7 @@ internal sealed partial class MainWindow
                 {
                     ("Ngành hàng:", PageNicheTemplates.All.FirstOrDefault(x => x.Key == _batchNicheKey)?.Label ?? _batchNicheKey),
                     ("Số lượng yêu cầu:", $"{_batchCount} Page (Max SAFE hiện tại: {safeVias})"),
-                    ("Nghỉ giãn cách:", $"~{_batchStaggerSec}s ± 35% Jitter + IP Guard (Tạo Page: tối đa {Math.Min(_config.MaxViasPerProxyInBatch, 2)}/IP • Nuôi: {_config.MaxViasPerProxyInBatch}/IP)"),
+                    ("Nghỉ giãn cách:", $"~{_batchStaggerSec}s ± 35% Jitter + IP Guard (Tạo Page: tối đa {Math.Clamp(_config.MaxPagesPerProxyInBatch, 1, 20)}/IP • Nuôi: {_config.MaxViasPerProxyInBatch}/IP)"),
                     ("Chế độ Extension:", _batchAutoSubmit ? "Tự điền & Tạo Page + đăng Warmup" : "Chỉ điền sẵn biểu mẫu để kiểm tra"),
                 },
                 "Các Via hết hạn mức ngày/tuần sẽ được Backend tự động bỏ qua để bảo vệ Trust tài khoản.");
@@ -1086,13 +1086,14 @@ internal sealed partial class MainWindow
                     tasks,
                     _batchStaggerSec,
                     _config.PreCheckProxyBeforeLaunch,
-                    Math.Min(_config.MaxViasPerProxyInBatch, 2),
+                    Math.Clamp(_config.MaxPagesPerProxyInBatch, 1, 20),
                     _config.AutoKeepAliveStartHour,
                     _config.AutoKeepAliveEndHour,
                     enforceDaytimeWindow: true,
                     enforceSoakQuarantine: _config.EnforceSoakQuarantine,
                     enforceClientSilo: _config.EnforceClientSilo,
-                    interleaveByProxy: true);
+                    interleaveByProxy: true,
+                    sameProxyMinStaggerSeconds: _config.SameProxyMinStaggerSeconds);
             }
             catch (Exception ex)
             {
@@ -1140,7 +1141,7 @@ internal sealed partial class MainWindow
         var tbMaxPerIp = UiComponents.CreateTextBox(_config.MaxViasPerProxyInBatch.ToString());
         var g1 = BuildLabeledBox("Giờ bắt đầu", tbStartH);
         var g2 = BuildLabeledBox("Giờ nghỉ đêm", tbEndH);
-        var g3 = BuildLabeledBox("Max Via / 1 Proxy Dân cư", tbMaxPerIp);
+        var g3 = BuildLabeledBox("Max Via / 1 Proxy (1–50)", tbMaxPerIp);
         Grid.SetColumn(g1, 0);
         Grid.SetColumn(g2, 2);
         Grid.SetColumn(g3, 4);
@@ -1157,9 +1158,11 @@ internal sealed partial class MainWindow
             _config.AutoCloseKeepAliveWindow = chkAutoCloseWin.IsChecked == true;
             if (int.TryParse(tbStartH.Text, out var sh)) _config.AutoKeepAliveStartHour = Math.Clamp(sh, 0, 22);
             if (int.TryParse(tbEndH.Text, out var eh)) _config.AutoKeepAliveEndHour = Math.Clamp(eh, 1, 23);
-            if (int.TryParse(tbMaxPerIp.Text, out var mp)) _config.MaxViasPerProxyInBatch = Math.Clamp(mp, 1, 10);
+            if (int.TryParse(tbMaxPerIp.Text, out var mp)) _config.MaxViasPerProxyInBatch = Math.Clamp(mp, 1, 50);
             _config.Save();
-            AppendLog("Đã lưu cấu hình An toàn Hàng đợi & Đảo Ấm.");
+            ApplyUpdatedProxyClusterLimits();
+            AppendLog($"Đã lưu cấu hình An toàn Hàng đợi & Cụm Proxy (tối đa {_config.MaxViasPerProxyInBatch} Via/Proxy).");
+            RenderCurrentView();
         });
         saveLocalBtn.Margin = new Thickness(0, 0, 8, 0);
         var runKaNow = UiComponents.CreateButton("Đảo Ấm Via quá hạn ngay", ButtonVariant.Primary, FluentIcons.CoffeeWarmup, onClick: (_, _) => StartKeepAliveDueQueue(requireConfirm: true));
@@ -1181,7 +1184,7 @@ internal sealed partial class MainWindow
         var shieldPanel = new StackPanel();
         shieldPanel.Children.Add(new TextBlock
         {
-            Text = "🛡️ Khiên Chống Checkpoint, Ngâm 72h & Cách Ly Đa Khách Hàng (v2.4.1)",
+            Text = "🛡️ Khiên Chống Checkpoint, Ngâm 72h & Cách Ly Đa Khách Hàng (v2.4.2)",
             FontSize = 15,
             FontWeight = FontWeights.Bold,
             Foreground = ThemeTokens.SuccessText,
@@ -1243,7 +1246,7 @@ internal sealed partial class MainWindow
             if (int.TryParse(tbCooldownHrs.Text, out var ch)) _config.AutoCooldownHours = Math.Clamp(ch, 1, 168);
             _config.Save();
             var provisioned = ProvisionAllViaExtensions(silent: true);
-            AppendLog($"Đã lưu Khiên Chống Checkpoint v2.4.1 (Soak {_config.SoakQuarantineHours}h, Cooldown {_config.AutoCooldownHours}h, Mode={_config.DefaultWarmupMode}) và cập nhật {provisioned} Extension v{DesktopAppInfo.ExtVersion}.");
+            AppendLog($"Đã lưu Khiên Chống Checkpoint v2.4.2 (Soak {_config.SoakQuarantineHours}h, Cooldown {_config.AutoCooldownHours}h, Mode={_config.DefaultWarmupMode}) và cập nhật {provisioned} Extension v{DesktopAppInfo.ExtVersion}.");
             RenderCurrentView();
         });
         saveShieldBtn.Margin = new Thickness(0, 0, 8, 0);
@@ -2735,6 +2738,74 @@ internal sealed partial class MainWindow
         var osCard = UiComponents.CreateCard(osPanel);
         osCard.Margin = new Thickness(0, 0, 0, 14);
         leftStack.Children.Add(osCard);
+
+        // Proxy Cluster Limits & Auto-Sync Settings Card (v2.4.2)
+        var proxyPanel = new StackPanel();
+        proxyPanel.Children.Add(new TextBlock
+        {
+            Text = "🌐 Cấu hình Hạn mức Cụm Proxy & Mở Máy Đồng bộ Tự động",
+            FontSize = 15,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeTokens.TextPrimary,
+            Margin = new Thickness(0, 0, 0, 6),
+        });
+        proxyPanel.Children.Add(new TextBlock
+        {
+            Text = "Tùy chỉnh số Via dùng chung 1 Proxy (mặc định 4 cho Proxy Dân cư, có thể tăng từ 1 đến 50) và bật tự động Đảo Ấm / Kiểm tra Proxy khi mở máy.",
+            FontSize = 12,
+            Foreground = ThemeTokens.TextSecondary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 10),
+        });
+
+        var proxyNumGrid = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+        proxyNumGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        proxyNumGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+        proxyNumGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        proxyNumGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+        proxyNumGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var tbSetMaxVia = UiComponents.CreateTextBox(_config.MaxViasPerProxyInBatch.ToString());
+        var tbSetMaxPages = UiComponents.CreateTextBox(_config.MaxPagesPerProxyInBatch.ToString());
+        var tbSetSameIpSec = UiComponents.CreateTextBox(_config.SameProxyMinStaggerSeconds.ToString());
+        var pBox1 = BuildLabeledBox("Max Via / 1 Proxy (1–50)", tbSetMaxVia);
+        var pBox2 = BuildLabeledBox("Max Tạo Page / IP (1–20)", tbSetMaxPages);
+        var pBox3 = BuildLabeledBox("Nghỉ trùng IP (15–300s)", tbSetSameIpSec);
+        Grid.SetColumn(pBox1, 0);
+        Grid.SetColumn(pBox2, 2);
+        Grid.SetColumn(pBox3, 4);
+        proxyNumGrid.Children.Add(pBox1);
+        proxyNumGrid.Children.Add(pBox2);
+        proxyNumGrid.Children.Add(pBox3);
+        proxyPanel.Children.Add(proxyNumGrid);
+
+        var chkSetAutoKa = UiComponents.CreateCheckBox("Tự chạy Đảo Ấm nền khi mở máy (trong giờ hoạt động)", _config.AutoKeepAliveScheduler);
+        var chkSetPreProxy = UiComponents.CreateCheckBox("Kiểm tra Proxy Live trước khi mở Chrome", _config.PreCheckProxyBeforeLaunch);
+        chkSetAutoKa.Margin = new Thickness(0, 0, 0, 5);
+        chkSetPreProxy.Margin = new Thickness(0, 0, 0, 10);
+        proxyPanel.Children.Add(chkSetAutoKa);
+        proxyPanel.Children.Add(chkSetPreProxy);
+
+        var saveProxyClusterBtn = UiComponents.CreateButton("Lưu Cấu hình Cụm Proxy & Đồng bộ", ButtonVariant.Primary, FluentIcons.CheckCircle, onClick: (_, _) =>
+        {
+            if (int.TryParse(tbSetMaxVia.Text, out var mv)) _config.MaxViasPerProxyInBatch = Math.Clamp(mv, 1, 50);
+            if (int.TryParse(tbSetMaxPages.Text, out var mp)) _config.MaxPagesPerProxyInBatch = Math.Clamp(mp, 1, 20);
+            if (int.TryParse(tbSetSameIpSec.Text, out var ms)) _config.SameProxyMinStaggerSeconds = Math.Clamp(ms, 15, 300);
+            _config.AutoKeepAliveScheduler = chkSetAutoKa.IsChecked == true;
+            _config.PreCheckProxyBeforeLaunch = chkSetPreProxy.IsChecked == true;
+            _config.ConfigMigrationVersion = 242;
+            _config.Save();
+            ApplyUpdatedProxyClusterLimits();
+            var provisioned = ProvisionAllViaExtensions(silent: true);
+            AppendLog($"Đã lưu Hạn mức Cụm Proxy: {_config.MaxViasPerProxyInBatch} Via/Proxy · Tạo Page {_config.MaxPagesPerProxyInBatch}/IP · Nghỉ trùng IP {_config.SameProxyMinStaggerSeconds}s (cập nhật {provisioned} Extension).");
+            RenderCurrentView();
+        });
+        proxyPanel.Children.Add(saveProxyClusterBtn);
+
+        var proxyClusterCard = UiComponents.CreateCard(proxyPanel);
+        proxyClusterCard.Margin = new Thickness(0, 0, 0, 14);
+        leftStack.Children.Add(proxyClusterCard);
+
         leftStack.Children.Add(BuildTelegramSettingsCard());
         Grid.SetColumn(leftStack, 0);
         cols.Children.Add(leftStack);
@@ -2744,7 +2815,7 @@ internal sealed partial class MainWindow
         var vaultPanel = new StackPanel();
         vaultPanel.Children.Add(new TextBlock
         {
-            Text = "Két bảo mật DPAPI & Sao lưu AES-256-GCM (.adsopsvault)",
+            Text = "Két bảo mật DPAPI & Full Backup Di chuyển Máy (.adsopsvault)",
             FontSize = 15,
             FontWeight = FontWeights.Bold,
             Foreground = ThemeTokens.TextPrimary,
@@ -2752,7 +2823,7 @@ internal sealed partial class MainWindow
         });
         vaultPanel.Children.Add(new TextBlock
         {
-            Text = "Xuất hoặc khôi phục toàn bộ Cookie Facebook, Secret 2FA và danh sách Via sang máy tính khác bằng mã hóa PBKDF2-SHA256 (210,000 vòng) + AES-256-GCM.",
+            Text = "Xuất hoặc khôi phục TRỌN GÓI 5 lớp sang máy tính mới không cần nhập lại từng cái: (1) Cookie + 2FA DPAPI, (2) Danh sách Via + Proxy + Chrome Profile + Silo, (3) Cài đặt Cụm Proxy, (4) Lịch sử Ngâm 72h & Cooldown, (5) Phiên Cloud (PBKDF2-SHA256 210,000 vòng + AES-256-GCM).",
             FontSize = 12,
             Foreground = ThemeTokens.TextSecondary,
             TextWrapping = TextWrapping.Wrap,
@@ -2760,9 +2831,10 @@ internal sealed partial class MainWindow
         });
 
         var localEntries = LocalSecretVaultStore.Default.ExportPlainEntries();
+        var stewSnapshot = ViaStewardshipStore.Default.ExportSnapshot();
         var invCard = UiComponents.CreateCard(new TextBlock
         {
-            Text = $"Két DPAPI hiện tại trên máy này đang bảo vệ {localEntries.Count} bản ghi Cookie / 2FA thô (không rời khỏi máy trừ khi bạn chủ động Xuất file backup có mật khẩu).",
+            Text = $"Máy này đang giữ: {localEntries.Count} Secret Cookie/2FA DPAPI • {_vias.Count} Via đã đồng bộ • {stewSnapshot.Records.Count} hồ sơ Ngâm 72h/Cooldown. Backup vào 1 file duy nhất để mang sang máy khác.",
             FontSize = 12,
             Foreground = ThemeTokens.SuccessText,
             TextWrapping = TextWrapping.Wrap,
@@ -2771,48 +2843,103 @@ internal sealed partial class MainWindow
         vaultPanel.Children.Add(invCard);
 
         var vaultBtns = new StackPanel { Orientation = Orientation.Horizontal };
-        var expBtn = UiComponents.CreateButton("Xuất Backup (.adsopsvault)", ButtonVariant.Primary, FluentIcons.Lock, onClick: (_, _) =>
+        var expBtn = UiComponents.CreateButton("Xuất Full Backup (.adsopsvault)", ButtonVariant.Primary, FluentIcons.Lock, onClick: (_, _) =>
         {
-            var path = SystemTrayService.ShowSaveVaultDialog($"adsops-vault-{DateTime.Now:yyyyMMdd-HHmm}.adsopsvault");
+            var path = SystemTrayService.ShowSaveVaultDialog($"adsops-workstation-{DateTime.Now:yyyyMMdd-HHmm}.adsopsvault");
             if (string.IsNullOrWhiteSpace(path)) return;
-            var pwd = PromptPasswordDialog("Đặt Mật khẩu cho File Sao lưu", "Mật khẩu này sẽ được dùng để giải mã khi khôi phục sang máy mới. Tuyệt đối không quên mật khẩu.", confirmMatch: true);
+            var pwd = PromptPasswordDialog("Đặt Mật khẩu cho File Di chuyển Máy", "File này chứa toàn bộ Cookie, 2FA, Via, Cài đặt, Ngâm 72h & Phiên Cloud được mã hóa AES-256-GCM. Tuyệt đối nhớ mật khẩu.", confirmMatch: true);
             if (string.IsNullOrWhiteSpace(pwd)) return;
 
             try
             {
                 var payload = new VaultBackupPayload
                 {
+                    AppVersion = DesktopAppInfo.Version,
                     BackendBaseUrl = _config.BackendBaseUrl,
                     UserEmail = _config.UserEmail,
+                    CloudJwtPlain = _config.GetJwt(),
+                    ConfigSnapshot = _config.CloneWithoutSecrets(),
+                    StewardshipSnapshot = ViaStewardshipStore.Default.ExportSnapshot(),
                     Vias = _vias.ToList(),
                     LocalSecrets = LocalSecretVaultStore.Default.ExportPlainEntries(),
                 };
                 var bytes = VaultBackupService.EncryptToBytes(payload, pwd);
                 File.WriteAllBytes(path, bytes);
-                AppendLog($"Đã xuất Két mã hóa AES-256-GCM ({payload.LocalSecrets.Count} secret): {path}");
-                MessageBox.Show(this, $"Xuất thành công {payload.LocalSecrets.Count} bí mật vào:\n{path}", "Hoàn tất Backup", MessageBoxButton.OK, MessageBoxImage.Information);
+                AppendLog($"Đã xuất Full Backup di chuyển máy ({payload.LocalSecrets.Count} secret, {payload.Vias.Count} Via, {payload.StewardshipSnapshot.Records.Count} hồ sơ ngâm): {path}");
+                MessageBox.Show(
+                    this,
+                    $"Xuất trọn gói thành công vào:\n{path}\n\n• Bí mật Cookie / 2FA: {payload.LocalSecrets.Count}\n• Danh sách Via & Proxy: {payload.Vias.Count}\n• Hồ sơ Ngâm 72h / Cooldown: {payload.StewardshipSnapshot.Records.Count}\n• Kèm toàn bộ Cài đặt Cụm Proxy & Phiên Cloud.",
+                    "Hoàn tất Full Backup",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
             }
             catch (Exception ex) { MessageBox.Show(this, ex.Message, "Lỗi Xuất Két", MessageBoxButton.OK, MessageBoxImage.Error); }
         });
         expBtn.Margin = new Thickness(0, 0, 8, 0);
 
-        var impBtn = UiComponents.CreateButton("Khôi phục từ Backup", ButtonVariant.Secondary, FluentIcons.FolderOpen, onClick: (_, _) =>
+        var impBtn = UiComponents.CreateButton("Khôi phục Trọn gói sang Máy mới", ButtonVariant.Secondary, FluentIcons.FolderOpen, onClick: (_, _) =>
         {
             var path = SystemTrayService.ShowOpenVaultDialog();
             if (string.IsNullOrWhiteSpace(path)) return;
-            var pwd = PromptPasswordDialog("Nhập Mật khẩu giải mã Két", $"Giải mã file: {Path.GetFileName(path)}", confirmMatch: false);
+            var pwd = PromptPasswordDialog("Nhập Mật khẩu giải mã Full Backup", $"Giải mã & khôi phục trọn gói từ: {Path.GetFileName(path)}", confirmMatch: false);
             if (string.IsNullOrWhiteSpace(pwd)) return;
 
             try
             {
                 var bytes = File.ReadAllBytes(path);
                 var payload = VaultBackupService.DecryptFromBytes(bytes, pwd);
-                var imported = LocalSecretVaultStore.Default.ImportPlainEntries(payload.LocalSecrets);
-                AppendLog($"Đã khôi phục {imported} bản ghi Cookie/2FA từ Két AES-256-GCM vào DPAPI máy này.");
-                MessageBox.Show(this, $"Khôi phục thành công {imported} Via vào Két DPAPI máy này.", "Khôi phục thành công", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                var importedSecrets = LocalSecretVaultStore.Default.ImportPlainEntries(payload.LocalSecrets);
+                var importedStew = ViaStewardshipStore.Default.ImportSnapshot(payload.StewardshipSnapshot);
+
+                if (payload.ConfigSnapshot != null)
+                {
+                    _config.ApplyPreferencesFrom(payload.ConfigSnapshot);
+                }
+                if (!string.IsNullOrWhiteSpace(payload.BackendBaseUrl))
+                {
+                    _config.BackendBaseUrl = payload.BackendBaseUrl.Trim().TrimEnd('/');
+                }
+                if (!string.IsNullOrWhiteSpace(payload.UserEmail))
+                {
+                    _config.UserEmail = payload.UserEmail.Trim();
+                }
+                var jwtRestored = false;
+                if (!string.IsNullOrWhiteSpace(payload.CloudJwtPlain) &&
+                    (string.IsNullOrWhiteSpace(_config.GetJwt()) ||
+                     string.Equals(_config.UserEmail, payload.UserEmail, StringComparison.OrdinalIgnoreCase)))
+                {
+                    _config.SetJwt(payload.CloudJwtPlain);
+                    jwtRestored = true;
+                }
+                _config.Save();
+                _api.Configure(_config.BackendBaseUrl, _config.GetJwt());
+
+                if (_vias.Count == 0 && payload.Vias != null && payload.Vias.Count > 0)
+                {
+                    _vias = payload.Vias.ToList();
+                }
+                ApplyUpdatedProxyClusterLimits();
+
+                try { ProtocolRegistrar.RegisterUriProtocol(); } catch { }
+                var provisionedExt = ProvisionAllViaExtensions(silent: true);
+
+                AppendLog($"Đã khôi phục Full Backup sang máy mới: {importedSecrets} Cookie/2FA DPAPI, {importedStew} hồ sơ Ngâm 72h, {_vias.Count} Via, cấp lại {provisionedExt} Extension.");
+                if (!string.IsNullOrWhiteSpace(_config.GetJwt()))
+                {
+                    _ = SyncCloudAsync(silent: true);
+                }
+
+                MessageBox.Show(
+                    this,
+                    $"Khôi phục trọn gói sang máy mới thành công!\n\n• Cookie & 2FA nạp vào Két DPAPI: {importedSecrets}\n• Hồ sơ Ngâm 72h / Cooldown: {importedStew}\n• Danh sách Via sẵn sàng: {_vias.Count}\n• Đã gắn Protocol & cấp lại {provisionedExt} Chrome Extension v{DesktopAppInfo.ExtVersion}\n• Phiên Cloud: {(jwtRestored ? "Đã khôi phục (tự đồng bộ nền)" : "Giữ nguyên cài đặt")}",
+                    "Khôi phục Hoàn tất",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                RefreshHeaderAndSidebar();
                 RenderCurrentView();
             }
-            catch (Exception ex) { MessageBox.Show(this, $"Không giải mã được file Két (sai mật khẩu hoặc hỏng file): {ex.Message}", "Lỗi Giải mã", MessageBoxButton.OK, MessageBoxImage.Error); }
+            catch (Exception ex) { MessageBox.Show(this, $"Không giải mã được file Backup (sai mật khẩu hoặc hỏng file): {ex.Message}", "Lỗi Giải mã", MessageBoxButton.OK, MessageBoxImage.Error); }
         });
 
         vaultBtns.Children.Add(expBtn);

@@ -137,7 +137,7 @@ internal sealed partial class MainWindow
             Visibility = Visibility.Collapsed,
         };
 
-        // Multi-Client Silo & Default Warmup Route (v2.4.1)
+        // Multi-Client Silo & Default Warmup Route (v2.4.2)
         var twoColSilo = new Grid { Margin = new Thickness(0, 8, 0, 0) };
         twoColSilo.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         twoColSilo.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
@@ -932,7 +932,8 @@ internal sealed partial class MainWindow
                 tierTag,
                 _vias,
                 chkAutoProfile.IsChecked == true,
-                wmIso);
+                wmIso,
+                _config.MaxViasPerProxyInBatch);
 
             previewHost.Children.Clear();
             var rows = currentSummary.Rows;
@@ -2142,7 +2143,7 @@ internal sealed partial class MainWindow
     {
         var dlg = new Window
         {
-            Title = "Nhật ký Khiên Chống Checkpoint & Cách Ly Đa Khách Hàng (v2.4.1)",
+            Title = "Nhật ký Khiên Chống Checkpoint & Cách Ly Đa Khách Hàng (v2.4.2)",
             Width = 800,
             Height = 680,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,

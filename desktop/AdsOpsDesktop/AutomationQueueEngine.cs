@@ -72,6 +72,7 @@ public sealed class AutomationQueueEngine : IDisposable
     private readonly Dictionary<string, string> _usedProfilesInBatch = new(StringComparer.OrdinalIgnoreCase);
 
     private int _baseStaggerSec = 48;
+    private int _sameProxyMinStaggerSec = 55;
     private bool _preCheckProxy = true;
     private int _maxViasPerProxy = 4;
     private int _startHour = 8;
@@ -182,7 +183,8 @@ public sealed class AutomationQueueEngine : IDisposable
         bool enforceDaytimeWindow = true,
         bool enforceSoakQuarantine = false,
         bool enforceClientSilo = false,
-        bool interleaveByProxy = false)
+        bool interleaveByProxy = false,
+        int sameProxyMinStaggerSeconds = 55)
     {
         if (items == null || items.Count == 0) return;
 
@@ -190,6 +192,7 @@ public sealed class AutomationQueueEngine : IDisposable
 
         _items = interleaveByProxy ? InterleaveByProxy(items) : items.ToList();
         _baseStaggerSec = Math.Max(1, baseStaggerSeconds);
+        _sameProxyMinStaggerSec = Math.Clamp(sameProxyMinStaggerSeconds, 15, 300);
         _preCheckProxy = preCheckProxy;
         _maxViasPerProxy = Math.Max(1, maxViasPerProxy);
         _startHour = Math.Clamp(daytimeStartHour, 0, 23);
@@ -493,7 +496,7 @@ public sealed class AutomationQueueEngine : IDisposable
                     !string.IsNullOrEmpty(hostPort) &&
                     string.Equals(hostPort, nextHostPort, StringComparison.OrdinalIgnoreCase))
                 {
-                    effectiveBase = Math.Max(_baseStaggerSec, 55);
+                    effectiveBase = Math.Max(_baseStaggerSec, _sameProxyMinStaggerSec);
                 }
                 var waitSec = ComputeHumanRestSeconds(effectiveBase, out var jitterExtra);
                 _skipRequested = false;

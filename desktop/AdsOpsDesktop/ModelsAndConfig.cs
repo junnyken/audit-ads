@@ -145,6 +145,8 @@ public sealed class DesktopConfig
     public int DefaultStaggerSeconds { get; set; } = 65;
     public bool PreCheckProxyBeforeLaunch { get; set; } = true;
     public int MaxViasPerProxyInBatch { get; set; } = 4;
+    public int MaxPagesPerProxyInBatch { get; set; } = 2;
+    public int SameProxyMinStaggerSeconds { get; set; } = 55;
     public bool WarmupBeforeCreate { get; set; } = true;
     public bool AutoUploadMedia { get; set; } = true;
     public bool AutoCloseKeepAliveTab { get; set; } = true;
@@ -199,7 +201,9 @@ public sealed class DesktopConfig
                     if (string.IsNullOrWhiteSpace(cfg.WebAppUrl)) cfg.WebAppUrl = DefaultWebAppUrl;
                     if (cfg.BridgePort <= 0) cfg.BridgePort = 17890;
                     if (cfg.DefaultStaggerSeconds < 18) cfg.DefaultStaggerSeconds = 65;
-                    if (cfg.MaxViasPerProxyInBatch < 1) cfg.MaxViasPerProxyInBatch = 4;
+                    cfg.MaxViasPerProxyInBatch = Math.Clamp(cfg.MaxViasPerProxyInBatch < 1 ? 4 : cfg.MaxViasPerProxyInBatch, 1, 50);
+                    cfg.MaxPagesPerProxyInBatch = Math.Clamp(cfg.MaxPagesPerProxyInBatch < 1 ? 2 : cfg.MaxPagesPerProxyInBatch, 1, 20);
+                    cfg.SameProxyMinStaggerSeconds = Math.Clamp(cfg.SameProxyMinStaggerSeconds < 15 ? 55 : cfg.SameProxyMinStaggerSeconds, 15, 300);
                     if (cfg.AutoKeepAliveMinGapMinutes < 5) cfg.AutoKeepAliveMinGapMinutes = 20;
                     if (cfg.SoakQuarantineHours < 12 || cfg.SoakQuarantineHours > 336) cfg.SoakQuarantineHours = 72;
                     if (cfg.AutoCooldownHours < 1 || cfg.AutoCooldownHours > 168) cfg.AutoCooldownHours = 24;
@@ -207,7 +211,12 @@ public sealed class DesktopConfig
                     if (cfg.ConfigMigrationVersion < 241)
                     {
                         if (cfg.MaxViasPerProxyInBatch == 2) cfg.MaxViasPerProxyInBatch = 4;
-                        cfg.ConfigMigrationVersion = 241;
+                        cfg.ConfigMigrationVersion = 242;
+                        try { cfg.Save(path); } catch { }
+                    }
+                    else if (cfg.ConfigMigrationVersion < 242)
+                    {
+                        cfg.ConfigMigrationVersion = 242;
                         try { cfg.Save(path); } catch { }
                     }
                     return cfg;
@@ -219,6 +228,42 @@ public sealed class DesktopConfig
             // Fall back to fresh defaults on corrupted config
         }
         return new DesktopConfig();
+    }
+
+    public DesktopConfig CloneWithoutSecrets()
+    {
+        var json = JsonSerializer.Serialize(this);
+        var copy = JsonSerializer.Deserialize<DesktopConfig>(json) ?? new DesktopConfig();
+        copy.EncryptedJwtBase64 = "";
+        return copy;
+    }
+
+    public void ApplyPreferencesFrom(DesktopConfig? src)
+    {
+        if (src == null) return;
+        UseIsolatedProfiles = src.UseIsolatedProfiles;
+        AutoKeepAliveScheduler = src.AutoKeepAliveScheduler;
+        if (src.BridgePort > 0) BridgePort = src.BridgePort;
+        AutoKeepAliveStartHour = Math.Clamp(src.AutoKeepAliveStartHour, 0, 22);
+        AutoKeepAliveEndHour = Math.Clamp(src.AutoKeepAliveEndHour, 1, 23);
+        AutoKeepAliveMinGapMinutes = Math.Max(5, src.AutoKeepAliveMinGapMinutes);
+        DefaultStaggerSeconds = Math.Max(18, src.DefaultStaggerSeconds);
+        PreCheckProxyBeforeLaunch = src.PreCheckProxyBeforeLaunch;
+        MaxViasPerProxyInBatch = Math.Clamp(src.MaxViasPerProxyInBatch < 1 ? 4 : src.MaxViasPerProxyInBatch, 1, 50);
+        MaxPagesPerProxyInBatch = Math.Clamp(src.MaxPagesPerProxyInBatch < 1 ? 2 : src.MaxPagesPerProxyInBatch, 1, 20);
+        SameProxyMinStaggerSeconds = Math.Clamp(src.SameProxyMinStaggerSeconds < 15 ? 55 : src.SameProxyMinStaggerSeconds, 15, 300);
+        WarmupBeforeCreate = src.WarmupBeforeCreate;
+        AutoUploadMedia = src.AutoUploadMedia;
+        AutoCloseKeepAliveTab = src.AutoCloseKeepAliveTab;
+        AutoCloseKeepAliveWindow = src.AutoCloseKeepAliveWindow;
+        EnforceSoakQuarantine = src.EnforceSoakQuarantine;
+        SoakQuarantineHours = Math.Clamp(src.SoakQuarantineHours < 12 ? 72 : src.SoakQuarantineHours, 12, 336);
+        EnforceClientSilo = src.EnforceClientSilo;
+        AutoCooldownHours = Math.Clamp(src.AutoCooldownHours < 1 ? 24 : src.AutoCooldownHours, 1, 168);
+        DefaultWarmupMode = string.IsNullOrWhiteSpace(src.DefaultWarmupMode) ? "human_organic" : src.DefaultWarmupMode.Trim();
+        AutoRefreshCookieAfterKeepAlive = src.AutoRefreshCookieAfterKeepAlive;
+        IpLeakKillSwitchEnabled = src.IpLeakKillSwitchEnabled;
+        ConfigMigrationVersion = 242;
     }
 
     public void Save(string? customPath = null)
@@ -1369,7 +1414,8 @@ public static class ViaBulkImportParser
         string defaultTier,
         IReadOnlyList<ViaWorkspaceEntry>? existingVias,
         bool autoAssignProfile,
-        string warmupStartIso = "")
+        string warmupStartIso = "",
+        int maxSafePerProxy = 4)
     {
         var prefix = string.IsNullOrWhiteSpace(labelPrefix) ? "Via Nhập" : labelPrefix.Trim();
         var tier = (defaultTier ?? "").Trim().ToLowerInvariant() switch
@@ -1546,11 +1592,12 @@ public static class ViaBulkImportParser
                 var exCount = existingProxyCounts.GetValueOrDefault(r.ProxyHostPort);
                 var bCount = batchProxyCounts.GetValueOrDefault(r.ProxyHostPort);
                 var totalOnIp = exCount + bCount;
+                var safeCap = Math.Clamp(maxSafePerProxy, 1, 50);
                 if (exCount > 0 || bCount > 1)
                 {
-                    warn = totalOnIp <= 4
-                        ? $"ℹ️ Cụm Proxy Dân cư {r.ProxyHostPort} ({totalOnIp}/4 Via — Trong ngưỡng an toàn)"
-                        : $"⚠️ Quá tải Proxy {r.ProxyHostPort} ({totalOnIp} Via > ngưỡng 4 Via/IP dân cư)";
+                    warn = totalOnIp <= safeCap
+                        ? $"ℹ️ Cụm Proxy Dân cư {r.ProxyHostPort} ({totalOnIp}/{safeCap} Via — Trong ngưỡng an toàn)"
+                        : $"⚠️ Quá tải Proxy {r.ProxyHostPort} ({totalOnIp} Via > ngưỡng {safeCap} Via/IP)";
                 }
 
                 if (!string.IsNullOrEmpty(warn))
@@ -1894,8 +1941,8 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "2.4.1";
-    public const string DisplayVersion = "v2.4.1";
+    public const string Version = "2.4.2";
+    public const string DisplayVersion = "v2.4.2";
     public const string ExtVersion = "2.9.6";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 
@@ -2784,6 +2831,91 @@ public sealed class ViaStewardshipStore
         {
             return _doc.Events.Take(take).ToList();
         }
+    }
+
+    public ViaStewardshipDocument ExportSnapshot()
+    {
+        lock (_gate)
+        {
+            return new ViaStewardshipDocument
+            {
+                Records = _doc.Records.Select(CloneRecord).ToList(),
+                Events = _doc.Events.Select(e => new StewardshipSafetyEventDto
+                {
+                    TimestampUtc = e.TimestampUtc,
+                    EventType = e.EventType,
+                    ViaId = e.ViaId,
+                    ViaLabel = e.ViaLabel,
+                    ClientGroup = e.ClientGroup,
+                    Detail = e.Detail,
+                }).ToList(),
+            };
+        }
+    }
+
+    public int ImportSnapshot(ViaStewardshipDocument? snap)
+    {
+        if (snap == null) return 0;
+        int merged = 0;
+        lock (_gate)
+        {
+            if (snap.Records != null)
+            {
+                foreach (var src in snap.Records)
+                {
+                    if (src == null || (string.IsNullOrWhiteSpace(src.ViaId) && string.IsNullOrWhiteSpace(src.ViaLabel)))
+                        continue;
+                    var dst = GetOrCreateRecordLocked(src.ViaId, src.ViaLabel);
+                    if (!string.IsNullOrWhiteSpace(src.LastProxyKey)) dst.LastProxyKey = src.LastProxyKey.Trim();
+                    if (!string.IsNullOrWhiteSpace(src.ProxyChangedUtc)) dst.ProxyChangedUtc = src.ProxyChangedUtc.Trim();
+                    if (!string.IsNullOrWhiteSpace(src.CooldownUntilUtc)) dst.CooldownUntilUtc = src.CooldownUntilUtc.Trim();
+                    if (!string.IsNullOrWhiteSpace(src.CooldownReason)) dst.CooldownReason = src.CooldownReason.Trim();
+                    if (src.KeepAliveSuccessCount > dst.KeepAliveSuccessCount) dst.KeepAliveSuccessCount = src.KeepAliveSuccessCount;
+                    if (!string.IsNullOrWhiteSpace(src.LastKeepAliveUtc) &&
+                        string.CompareOrdinal(src.LastKeepAliveUtc, dst.LastKeepAliveUtc) > 0)
+                    {
+                        dst.LastKeepAliveUtc = src.LastKeepAliveUtc.Trim();
+                    }
+                    if (!string.IsNullOrWhiteSpace(src.LastCookieRefreshUtc) &&
+                        string.CompareOrdinal(src.LastCookieRefreshUtc, dst.LastCookieRefreshUtc) > 0)
+                    {
+                        dst.LastCookieRefreshUtc = src.LastCookieRefreshUtc.Trim();
+                    }
+                    merged++;
+                }
+            }
+
+            if (snap.Events != null && snap.Events.Count > 0)
+            {
+                var seen = new HashSet<string>(
+                    _doc.Events.Select(e => $"{e.TimestampUtc}|{e.EventType}|{e.ViaLabel}"),
+                    StringComparer.OrdinalIgnoreCase);
+                foreach (var ev in snap.Events)
+                {
+                    if (ev == null) continue;
+                    var sig = $"{ev.TimestampUtc}|{ev.EventType}|{ev.ViaLabel}";
+                    if (seen.Add(sig))
+                    {
+                        _doc.Events.Add(new StewardshipSafetyEventDto
+                        {
+                            TimestampUtc = ev.TimestampUtc,
+                            EventType = ev.EventType,
+                            ViaId = ev.ViaId,
+                            ViaLabel = ev.ViaLabel,
+                            ClientGroup = ev.ClientGroup,
+                            Detail = ev.Detail,
+                        });
+                    }
+                }
+                _doc.Events = _doc.Events
+                    .OrderByDescending(e => e.TimestampUtc, StringComparer.Ordinal)
+                    .Take(250)
+                    .ToList();
+            }
+
+            SaveToDiskLocked();
+        }
+        return merged;
     }
 }
 
