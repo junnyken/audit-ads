@@ -8,12 +8,12 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>AdsOpsDesktop</AssemblyName>
     <RootNamespace>AdsOpsDesktop</RootNamespace>
-    <Version>2.6.1</Version>
-    <AssemblyVersion>2.6.1.0</AssemblyVersion>
-    <FileVersion>2.6.1.0</FileVersion>
+    <Version>2.6.2</Version>
+    <AssemblyVersion>2.6.2.0</AssemblyVersion>
+    <FileVersion>2.6.2.0</FileVersion>
     <Product>AdsOps Desktop Pro</Product>
     <Company>AdsOps</Company>
-    <Description>AdsOps Desktop Pro v2.6.1 — Isolated Chrome Default, Direct IP Cap, Bulk 1:4 Proxy Distributor, Hang Watchdog, Crash-Safe Resume, 5-Engine Antidetect Hub &amp; Extension v2.9.8</Description>
+    <Description>AdsOps Desktop Pro v2.6.2 — Smart Native/Isolated Chrome Profiles, Broker PID Tracking, Instant 2FA/Vault Sync &amp; Extension v2.9.8</Description>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 

@@ -102,6 +102,7 @@ internal static class Program
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"adsops-desktop-test-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
+        DesktopConfig.AppDataRootOverride = tempRoot;
         try
         {
             var testSecretStore = new LocalSecretVaultStore(Path.Combine(tempRoot, "local_secrets_dpapi.json"));
@@ -794,7 +795,7 @@ internal static class Program
             var legCfgPath = Path.Combine(tempRoot, "legacy_cfg.json");
             File.WriteAllText(legCfgPath, "{\"MaxViasPerProxyInBatch\":2}");
             var migratedCfg = DesktopConfig.Load(legCfgPath);
-            if (migratedCfg.MaxViasPerProxyInBatch != 4 || migratedCfg.ConfigMigrationVersion != 261 || !migratedCfg.UseIsolatedProfiles)
+            if (migratedCfg.MaxViasPerProxyInBatch != 4 || migratedCfg.ConfigMigrationVersion != DesktopConfig.CurrentMigrationVersion || !migratedCfg.UseIsolatedProfiles)
                 throw new InvalidOperationException($"DesktopConfig migration failed: max={migratedCfg.MaxViasPerProxyInBatch}, mig={migratedCfg.ConfigMigrationVersion}, iso={migratedCfg.UseIsolatedProfiles}");
 
             // 18. v2.4.2 Custom Proxy Cluster Capacity (1-50) & 5-Layer Workstation Migration Backup
@@ -1278,11 +1279,91 @@ internal static class Program
                     throw new InvalidOperationException($"ChromeSessionTracker.ReapHungSessions failed: count={reaped.Count}");
             }
 
+            // 30. v2.6.2 Hermetic AppData Guard, Vietnamese Slug, Smart Profile Fallback, Shared Broker & Natural Exit Tracking
+            {
+                if (!string.Equals(DesktopConfig.AppDataRoot, tempRoot, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException($"AppDataRootOverride failed: got '{DesktopConfig.AppDataRoot}' vs '{tempRoot}'");
+
+                var cleanSlug = ExtensionProvisioner.SanitizeFolderSlug("Thiên Triều MKMB");
+                var cleanSlug2 = ExtensionProvisioner.SanitizeFolderSlug("Via Đảo Ấm 01");
+                if (cleanSlug != "thien-trieu-mkmb" || cleanSlug2 != "via-dao-am-01")
+                    throw new InvalidOperationException($"SanitizeFolderSlug diacritic stripping failed: '{cleanSlug}', '{cleanSlug2}'");
+
+                var nativeArgs = ExtensionProvisioner.BuildChromeArguments("https://www.facebook.com/", "Profile 4", null, isolatedMode: false, viaSlug: "Thiên Triều MKMB");
+                if (!nativeArgs.Contains("--profile-directory=Profile 4") || !nativeArgs.Contains("--new-window"))
+                    throw new InvalidOperationException("Native Chrome args must include --profile-directory and --new-window");
+
+                if (ExtensionProvisioner.ShouldUseIsolatedProfile(false, "Profile 4", "10.0.0.1:8080", true, "Via X"))
+                    throw new InvalidOperationException("ShouldUseIsolatedProfile must return false when configUseIsolated=false");
+                if (!ExtensionProvisioner.ShouldUseIsolatedProfile(true, "Profile 4", "10.0.0.1:8080", false, "Via Proxy") ||
+                    !ExtensionProvisioner.ShouldUseIsolatedProfile(true, "Profile 4", "", true, "Via Vault"))
+                    throw new InvalidOperationException("ShouldUseIsolatedProfile must isolate when Proxy or VaultCookie exists");
+
+                var seededViaName = "Via Seeded Cookie Only";
+                var seededIsoDir = ExtensionProvisioner.ResolveIsolatedProfileDirectory(seededViaName, "Profile 99");
+                var seededCookiesDir = Path.Combine(seededIsoDir, "Default", "Network");
+                Directory.CreateDirectory(seededCookiesDir);
+                File.WriteAllText(Path.Combine(seededCookiesDir, "Cookies"), "sqlite-mock-cookie");
+                if (!ExtensionProvisioner.ShouldUseIsolatedProfile(true, "Profile 99", "", false, seededViaName))
+                    throw new InvalidOperationException("ShouldUseIsolatedProfile must reuse isolated folder when Cookies already exist");
+
+                var exitTracker = new ChromeSessionTracker();
+                var exitedSnap = exitTracker.RecordLaunch(999997, "ex-1", "Via Exit", "Profile 81", "https://www.facebook.com/", isolatedMode: true);
+                await Task.Delay(2100);
+                var afterSnap = exitTracker.GetSnapshot().First(x => x.SessionId == exitedSnap.SessionId);
+                if (!afterSnap.ClosedAt.HasValue || afterSnap.StatusText != "Đã đóng cửa sổ")
+                    throw new InvalidOperationException($"Expected natural exit 'Đã đóng cửa sổ', got '{afterSnap.StatusText}'");
+
+                var sharedTracker = new ChromeSessionTracker();
+                var sharedSess = sharedTracker.RecordLaunch(Environment.ProcessId, "sh-1", "Via Shared", "Default", "https://www.facebook.com/", delegatedToSharedBroker: true, isolatedMode: false);
+                var reapedShared = sharedTracker.ReapHungSessions(0);
+                if (reapedShared.Count != 0)
+                    throw new InvalidOperationException("ReapHungSessions must NEVER reap a shared Chrome broker session");
+                if (!sharedTracker.TryCloseSession(sharedSess.SessionId, out var sharedMsg) ||
+                    !sharedMsg.Contains("gỡ theo dõi", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException($"TryCloseSession on shared broker unexpected: {sharedMsg}");
+
+                var uniqueDefaultList = new List<ViaWorkspaceEntry>
+                {
+                    new() { ViaId = "u1", Label = "Tài Khoản Chính", ProfileDir = "Default" },
+                    new() { ViaId = "u2", Label = "Via 2", ProfileDir = "Profile 4" },
+                };
+                var keepDefaultPlan = ViaBulkDistributor.AllocateDistinctChromeProfiles(uniqueDefaultList, uniqueDefaultList);
+                if (keepDefaultPlan.Count != 0)
+                    throw new InvalidOperationException($"Unique 'Default' profile must be preserved, got {keepDefaultPlan.Count} changes");
+
+                var sharedDefaultList = new List<ViaWorkspaceEntry>
+                {
+                    new() { ViaId = "s1", Label = "Via A", ProfileDir = "Default" },
+                    new() { ViaId = "s2", Label = "Via B", ProfileDir = "Default" },
+                };
+                var splitDefaultPlan = ViaBulkDistributor.AllocateDistinctChromeProfiles(sharedDefaultList, sharedDefaultList);
+                if (splitDefaultPlan.Count != 2)
+                    throw new InvalidOperationException($"Shared 'Default' profile must be split cleanly, got {splitDefaultPlan.Count} changes");
+
+                var srcCfg30 = new DesktopConfig
+                {
+                    AutoScaleConcurrentByRam = false,
+                    AutoFailoverToChromeNative = true,
+                    MaxDirectIpViasInBatch = 5,
+                };
+                var dstCfg30 = new DesktopConfig();
+                dstCfg30.ApplyPreferencesFrom(srcCfg30);
+                if (dstCfg30.AutoScaleConcurrentByRam ||
+                    !dstCfg30.AutoFailoverToChromeNative ||
+                    dstCfg30.MaxDirectIpViasInBatch != 5 ||
+                    dstCfg30.ConfigMigrationVersion != DesktopConfig.CurrentMigrationVersion)
+                {
+                    throw new InvalidOperationException("ApplyPreferencesFrom failed to preserve v2.6.0/v2.6.2 flags");
+                }
+            }
+
             Console.WriteLine("ADSOPS_DESKTOP_V260_SELFTEST_100_PASS");
             return 0;
         }
         finally
         {
+            DesktopConfig.AppDataRootOverride = null;
             try { Directory.Delete(tempRoot, recursive: true); } catch { }
         }
     }

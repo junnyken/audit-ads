@@ -1,13 +1,13 @@
 {
-    "version":  "2.6.1",
+    "version":  "2.6.2",
     "ext_version":  "2.9.8",
     "authenticode_signed":  true,
     "download_url":  "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
     "mirror_urls":  [
                         "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
                     ],
-    "sha256":  "eff9f797df286a878424580d7692a79dadaf60c5431037af10e521162be9d275",
-    "size_bytes":  66012595,
-    "published_at":  "2026-11-16T18:04:42.855073Z",
-    "release_notes":  "AdsOps Desktop Pro v2.6.1 + Extension v2.9.8: Mac dinh Chrome Co lap (--user-data-dir), Khoa tran Direct IP/ca, Thanh Thao tac Chia Proxy 1:4 \u0026 Doi Lop/Profile hang loat, Den bao Cookie Ket DPAPI, Watchdog chong treo hang doi \u0026 Khoi phuc Hang doi khi khoi dong lai."
+    "sha256":  "f08352345b7df3a8f48250354ff6f7d21835107c4aad8767eb8903e36e2d365d",
+    "size_bytes":  66023002,
+    "published_at":  "2026-11-16T19:31:22.207517Z",
+    "release_notes":  "AdsOps Desktop Pro v2.6.2 + Extension v2.9.8: Nhan dien thong minh Chrome Profile goc \u0026 Co lap, Broker PID Tracking chong bao loi sai tab, Cap nhat Cookie/2FA tuc thi tren giao dien, Tu mo Ket 2FA 1-cham, Hermetic Self-Test \u0026 Toi uu bo cuc Danh sach Via."
 }

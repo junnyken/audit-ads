@@ -602,30 +602,6 @@ internal sealed partial class MainWindow
         searchRow.Children.Add(searchBox);
 
         var rightHeaderBtns = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(10, 0, 0, 0) };
-        var proxyBatchBtn = UiComponents.CreateButton("Quét Proxy", ButtonVariant.Secondary, FluentIcons.Globe, onClick: async (_, _) => await RunBatchProxyCheckAsync(), tooltip: "Quét kiểm tra Live/Dead toàn bộ Proxy của Workspace");
-        proxyBatchBtn.Margin = new Thickness(0, 0, 6, 0);
-        rightHeaderBtns.Children.Add(proxyBatchBtn);
-
-        var tile2x2Btn = UiComponents.CreateButton("Xếp 2×2", ButtonVariant.Secondary, FluentIcons.Play, onClick: (_, _) => TileActiveChromeWindows("2x2"), tooltip: "Xếp các cửa sổ Chrome đang mở thành lưới 2×2 trên màn hình");
-        tile2x2Btn.Margin = new Thickness(0, 0, 6, 0);
-        rightHeaderBtns.Children.Add(tile2x2Btn);
-
-        var tokenBtn = UiComponents.CreateButton("Token EAAB", ButtonVariant.Secondary, FluentIcons.ShieldKey, onClick: (_, _) => OpenAutoConnectTokenDialog(null), tooltip: "Dán Token EAAB... để tự động kết nối Via, BM & TKQC lên Cloud");
-        tokenBtn.Margin = new Thickness(0, 0, 6, 0);
-        rightHeaderBtns.Children.Add(tokenBtn);
-
-        var shieldLogBtn = UiComponents.CreateButton("Nhật ký Bảo vệ", ButtonVariant.Secondary, FluentIcons.ShieldCheck, onClick: (_, _) => OpenStewardshipLogDialog(), tooltip: "Xem lịch sử chặn rò rỉ IP, Cooldown 24h & Cách ly Khách hàng (v2.6.1)");
-        shieldLogBtn.Margin = new Thickness(0, 0, 6, 0);
-        rightHeaderBtns.Children.Add(shieldLogBtn);
-
-        var launchAuditBtn = UiComponents.CreateButton("Nhật ký Mở Profile", ButtonVariant.Secondary, FluentIcons.Diagnostic, onClick: (_, _) => OpenProfileLaunchAuditDialog(), tooltip: "Xem ai đã mở Profile nào, qua Engine nào, trên máy nào");
-        launchAuditBtn.Margin = new Thickness(0, 0, 6, 0);
-        rightHeaderBtns.Children.Add(launchAuditBtn);
-
-        var benchBtn = UiComponents.CreateButton("Benchmark 5 Engine", ButtonVariant.Secondary, FluentIcons.Lightning, onClick: async (_, _) => await RunBenchmarkAllEnginesUiAsync(), tooltip: "Đo tốc độ phản hồi Chrome Gốc & 5 Engine Antidetect");
-        benchBtn.Margin = new Thickness(0, 0, 6, 0);
-        rightHeaderBtns.Children.Add(benchBtn);
-
         var distProxyBtn = UiComponents.CreateButton($"Chia Proxy 1:{_config.MaxViasPerProxyInBatch}", ButtonVariant.Primary, FluentIcons.Globe, onClick: (_, _) => OpenBulkDistributeProxiesDialog(), tooltip: "Dán danh sách Proxy để tự động chia đều 1 Proxy cho N Via (chống Direct IP hàng loạt)");
         distProxyBtn.Margin = new Thickness(0, 0, 6, 0);
         rightHeaderBtns.Children.Add(distProxyBtn);
@@ -633,6 +609,10 @@ internal sealed partial class MainWindow
         var bulkTierBtn = UiComponents.CreateButton("Đổi Lớp / Profile", ButtonVariant.Secondary, FluentIcons.People, onClick: (_, _) => OpenBulkChangeTierAndSiloDialog(), tooltip: "Đổi hàng loạt Lớp Via (Hold BM / Lên Camp / Dự phòng), Nhóm Khách & tách Chrome Profile riêng");
         bulkTierBtn.Margin = new Thickness(0, 0, 6, 0);
         rightHeaderBtns.Children.Add(bulkTierBtn);
+
+        var proxyBatchBtn = UiComponents.CreateButton("Quét Proxy", ButtonVariant.Secondary, FluentIcons.Globe, onClick: async (_, _) => await RunBatchProxyCheckAsync(), tooltip: "Quét kiểm tra Live/Dead toàn bộ Proxy của Workspace");
+        proxyBatchBtn.Margin = new Thickness(0, 0, 6, 0);
+        rightHeaderBtns.Children.Add(proxyBatchBtn);
 
         var selectAllBtn = UiComponents.CreateButton("Chọn hết", ButtonVariant.Secondary, onClick: (_, _) =>
         {
@@ -646,6 +626,20 @@ internal sealed partial class MainWindow
         Grid.SetColumn(rightHeaderBtns, 1);
         searchRow.Children.Add(rightHeaderBtns);
         filterCardStack.Children.Add(searchRow);
+
+        var toolsWrap = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
+        void AddSecondaryToolBtn(Button b)
+        {
+            b.Margin = new Thickness(0, 0, 6, 4);
+            toolsWrap.Children.Add(b);
+        }
+        AddSecondaryToolBtn(UiComponents.CreateButton("Xếp 2×2", ButtonVariant.Secondary, FluentIcons.Play, compact: true, onClick: (_, _) => TileActiveChromeWindows("2x2"), tooltip: "Xếp các cửa sổ Chrome đang mở thành lưới 2×2 trên màn hình"));
+        AddSecondaryToolBtn(UiComponents.CreateButton("Token EAAB", ButtonVariant.Secondary, FluentIcons.ShieldKey, compact: true, onClick: (_, _) => OpenAutoConnectTokenDialog(null), tooltip: "Dán Token EAAB... để tự động kết nối Via, BM & TKQC lên Cloud"));
+        AddSecondaryToolBtn(UiComponents.CreateButton("Nhật ký Bảo vệ", ButtonVariant.Secondary, FluentIcons.ShieldCheck, compact: true, onClick: (_, _) => OpenStewardshipLogDialog(), tooltip: $"Xem lịch sử chặn rò rỉ IP, Cooldown 24h & Cách ly Khách hàng ({DesktopAppInfo.DisplayVersion})"));
+        AddSecondaryToolBtn(UiComponents.CreateButton("Nhật ký Mở Profile", ButtonVariant.Secondary, FluentIcons.Diagnostic, compact: true, onClick: (_, _) => OpenProfileLaunchAuditDialog(), tooltip: "Xem ai đã mở Profile nào, qua Engine nào, trên máy nào"));
+        AddSecondaryToolBtn(UiComponents.CreateButton("Benchmark 5 Engine", ButtonVariant.Secondary, FluentIcons.Lightning, compact: true, onClick: async (_, _) => await RunBenchmarkAllEnginesUiAsync(), tooltip: "Đo tốc độ phản hồi Chrome Gốc & 5 Engine Antidetect"));
+        AddSecondaryToolBtn(UiComponents.CreateButton("Xuất CSV", ButtonVariant.Secondary, FluentIcons.Upload, compact: true, onClick: (_, _) => ExportViasCsv(), tooltip: "Xuất danh sách Via, Proxy, 2FA & Cookie DPAPI ra file CSV"));
+        filterCardStack.Children.Add(toolsWrap);
 
         var chipWrap = new WrapPanel();
         void AddViaChip(string key, string label)
@@ -843,31 +837,31 @@ internal sealed partial class MainWindow
             VerticalAlignment = VerticalAlignment.Center,
         });
 
-        var btns = new StackPanel { Orientation = Orientation.Horizontal };
+        var btns = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
         var distPxSel = UiComponents.CreateButton($"Chia Proxy 1:{_config.MaxViasPerProxyInBatch}", ButtonVariant.Primary, FluentIcons.Globe, compact: true, onClick: (_, _) =>
         {
             OpenBulkDistributeProxiesDialog(selected);
         });
-        distPxSel.Margin = new Thickness(0, 0, 6, 0);
+        distPxSel.Margin = new Thickness(0, 2, 6, 2);
 
         var tierSel = UiComponents.CreateButton("Đổi Lớp / Profile", ButtonVariant.Secondary, FluentIcons.People, compact: true, onClick: (_, _) =>
         {
             OpenBulkChangeTierAndSiloDialog(selected);
         });
-        tierSel.Margin = new Thickness(0, 0, 6, 0);
+        tierSel.Margin = new Thickness(0, 2, 6, 2);
 
         var warmupSel = UiComponents.CreateButton("Đảo Ấm lô chọn", ButtonVariant.Secondary, FluentIcons.CoffeeWarmup, compact: true, onClick: (_, _) =>
         {
             EnqueueKeepAliveVias(selected, $"Đảo Ấm {selected.Count} Via đã chọn", requireConfirm: true);
         });
-        warmupSel.Margin = new Thickness(0, 0, 6, 0);
+        warmupSel.Margin = new Thickness(0, 2, 6, 2);
 
         var checkPxSel = UiComponents.CreateButton("Check Proxy đã chọn", ButtonVariant.Secondary, FluentIcons.Globe, compact: true, onClick: async (_, _) =>
         {
             await CheckSelectedViaProxiesAsync(selected);
             refreshList();
         });
-        checkPxSel.Margin = new Thickness(0, 0, 6, 0);
+        checkPxSel.Margin = new Thickness(0, 2, 6, 2);
 
         var provSel = UiComponents.CreateButton("Cấp Extension", ButtonVariant.Secondary, FluentIcons.ShieldCheck, compact: true, onClick: (_, _) =>
         {
@@ -875,13 +869,14 @@ internal sealed partial class MainWindow
             AppendLog($"Đã cấp Extension Companion v{DesktopAppInfo.ExtVersion} cho {selected.Count} Via đã chọn.");
             MessageBox.Show(this, $"Đã cấp Extension cho {selected.Count} Via.", "Hoàn tất", MessageBoxButton.OK, MessageBoxImage.Information);
         });
-        provSel.Margin = new Thickness(0, 0, 6, 0);
+        provSel.Margin = new Thickness(0, 2, 6, 2);
 
         var clearSel = UiComponents.CreateButton("Bỏ chọn", ButtonVariant.Subtle, compact: true, onClick: (_, _) =>
         {
             _selectedViaIds.Clear();
             refreshList();
         });
+        clearSel.Margin = new Thickness(0, 2, 0, 2);
 
         btns.Children.Add(distPxSel);
         btns.Children.Add(tierSel);
@@ -918,13 +913,23 @@ internal sealed partial class MainWindow
         // Col 1: Identity + Badges
         var idStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 10, 0) };
         var titleRow = new WrapPanel { Margin = new Thickness(0, 0, 0, 4) };
+        titleRow.Children.Add(new TextBlock
+        {
+            Text = v.Label,
+            FontSize = 14,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeTokens.TextPrimary,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 2),
+        });
+
         var tierPill = v.RoleTier switch
         {
             "vault" or "hold" => UiComponents.CreateBadgePill("HOLD BM", ThemeTokens.PurpleText, ThemeTokens.PurpleBg, ThemeTokens.PurpleBorder),
             "standby" => UiComponents.CreateBadgePill("DỰ PHÒNG", ThemeTokens.WarningText, ThemeTokens.WarningBg, ThemeTokens.WarningBorder),
             _ => UiComponents.CreateBadgePill("LÊN CAMP", ThemeTokens.AccentText, ThemeTokens.InfoBg, ThemeTokens.InfoBorder),
         };
-        tierPill.Margin = new Thickness(0, 0, 6, 0);
+        tierPill.Margin = new Thickness(0, 0, 6, 2);
         titleRow.Children.Add(tierPill);
 
         var (wmFg, wmBg, wmBd) = v.WarmupPhase switch
@@ -934,7 +939,7 @@ internal sealed partial class MainWindow
             _ => (ThemeTokens.SuccessText, ThemeTokens.SuccessBg, ThemeTokens.SuccessBorder),
         };
         var wmPill = UiComponents.CreateBadgePill(v.WarmupLabel, wmFg, wmBg, wmBd);
-        wmPill.Margin = new Thickness(0, 0, 6, 0);
+        wmPill.Margin = new Thickness(0, 0, 6, 2);
         titleRow.Children.Add(wmPill);
 
         var (trFg, trBg, trBd) = v.TrustScore >= 75
@@ -944,14 +949,14 @@ internal sealed partial class MainWindow
                 : (ThemeTokens.DangerText, ThemeTokens.DangerBg, ThemeTokens.DangerBorder);
         var trustPill = UiComponents.CreateBadgePill($"Trust {v.TrustScore}/100", trFg, trBg, trBd);
         trustPill.ToolTip = string.IsNullOrWhiteSpace(v.TrustSummary) ? "Điểm Tin Cậy Môi Trường" : v.TrustSummary;
-        trustPill.Margin = new Thickness(0, 0, 6, 0);
+        trustPill.Margin = new Thickness(0, 0, 6, 2);
         titleRow.Children.Add(trustPill);
 
         if (!string.IsNullOrWhiteSpace(v.ClientGroup))
         {
             var siloPill = UiComponents.CreateBadgePill($"Silo: {v.ClientGroup}", ThemeTokens.AccentText, ThemeTokens.InfoBg, ThemeTokens.InfoBorder);
             siloPill.ToolTip = $"Khách hàng riêng: {v.ClientGroup} (cách ly chéo Proxy & Chrome Profile)";
-            siloPill.Margin = new Thickness(0, 0, 6, 0);
+            siloPill.Margin = new Thickness(0, 0, 6, 2);
             titleRow.Children.Add(siloPill);
         }
 
@@ -959,7 +964,7 @@ internal sealed partial class MainWindow
         {
             var cdPill = UiComponents.CreateBadgePill("❄️ COOLDOWN", ThemeTokens.DangerText, ThemeTokens.DangerBg, ThemeTokens.DangerBorder);
             cdPill.ToolTip = $"Đóng băng đến {v.CooldownUntilUtc!.Value.ToLocalTime():dd/MM HH:mm}: {v.CooldownReason}";
-            cdPill.Margin = new Thickness(0, 0, 6, 0);
+            cdPill.Margin = new Thickness(0, 0, 6, 2);
             titleRow.Children.Add(cdPill);
         }
 
@@ -967,7 +972,7 @@ internal sealed partial class MainWindow
         {
             var confPill = UiComponents.CreateBadgePill("⚠️ TRÙNG SILO", ThemeTokens.DangerText, ThemeTokens.DangerBg, ThemeTokens.DangerBorder);
             confPill.ToolTip = v.SiloConflictDetail;
-            confPill.Margin = new Thickness(0, 0, 6, 0);
+            confPill.Margin = new Thickness(0, 0, 6, 2);
             titleRow.Children.Add(confPill);
         }
 
@@ -980,13 +985,13 @@ internal sealed partial class MainWindow
             normEngine == "chrome_native" ? ThemeTokens.TextSecondary : ThemeTokens.AccentText,
             ThemeTokens.BgSurfaceElevated,
             ThemeTokens.BorderSubtle);
-        engPill.Margin = new Thickness(0, 0, 6, 0);
+        engPill.Margin = new Thickness(0, 0, 6, 2);
         titleRow.Children.Add(engPill);
 
         if (!string.IsNullOrWhiteSpace(v.OwnerMemberName))
         {
             var ownPill = UiComponents.CreateBadgePill($"👤 {v.OwnerMemberName}", ThemeTokens.PurpleText, ThemeTokens.PurpleBg, ThemeTokens.PurpleBorder);
-            ownPill.Margin = new Thickness(0, 0, 6, 0);
+            ownPill.Margin = new Thickness(0, 0, 6, 2);
             titleRow.Children.Add(ownPill);
         }
 
@@ -994,7 +999,7 @@ internal sealed partial class MainWindow
         {
             var ramPill = UiComponents.CreateBadgePill($"⚡ {v.ActiveRamMb:0}MB • {v.ActiveCpuPercent:0.0}%", ThemeTokens.SuccessText, ThemeTokens.SuccessBg, ThemeTokens.SuccessBorder);
             ramPill.ToolTip = $"Đang chạy trực tiếp ({v.ActiveRamMb:0.0} MB RAM / {v.ActiveCpuPercent:0.0}% CPU)";
-            ramPill.Margin = new Thickness(0, 0, 6, 0);
+            ramPill.Margin = new Thickness(0, 0, 6, 2);
             titleRow.Children.Add(ramPill);
         }
 
@@ -1002,7 +1007,7 @@ internal sealed partial class MainWindow
         {
             var tzPill = UiComponents.CreateBadgePill("🕒 LỆCH MÚI GIỜ IP", ThemeTokens.WarningText, ThemeTokens.WarningBg, ThemeTokens.WarningBorder);
             tzPill.ToolTip = v.TimezoneWarning;
-            tzPill.Margin = new Thickness(0, 0, 6, 0);
+            tzPill.Margin = new Thickness(0, 0, 6, 2);
             titleRow.Children.Add(tzPill);
         }
 
@@ -1012,18 +1017,8 @@ internal sealed partial class MainWindow
         ckPill.ToolTip = v.HasVaultCookie
             ? "Đã lưu Cookie c_user/xs dự phòng trong Két DPAPI Local — sẵn sàng tự nạp khi mở Chrome cô lập & Auto-Failover"
             : "Chưa có Cookie dự phòng trong Két DPAPI Local. Bấm nút 🔑 (Két DPAPI) hoặc chạy Đảo Ấm để lưu.";
-        ckPill.Margin = new Thickness(0, 0, 6, 0);
+        ckPill.Margin = new Thickness(0, 0, 6, 2);
         titleRow.Children.Add(ckPill);
-
-        titleRow.Children.Add(new TextBlock
-        {
-            Text = v.Label,
-            FontSize = 14,
-            FontWeight = FontWeights.Bold,
-            Foreground = ThemeTokens.TextPrimary,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(2, 0, 0, 0),
-        });
         idStack.Children.Add(titleRow);
 
         var uidDisplay = string.IsNullOrWhiteSpace(v.ExternalReferenceId) ? "UID: —" : $"UID: {v.ExternalReferenceId}";
@@ -1114,7 +1109,13 @@ internal sealed partial class MainWindow
         leftOtp.Children.Add(remainPill);
         otpBox.Children.Add(leftOtp);
 
-        var copyBtn = UiComponents.CreateButton("", ButtonVariant.Secondary, FluentIcons.Copy, compact: true, onClick: (_, _) => CopyViaTotpToClipboard(v, codeTb), tooltip: "Copy mã 2FA 6 số");
+        var copyBtn = UiComponents.CreateButton(
+            "",
+            ButtonVariant.Secondary,
+            FluentIcons.Copy,
+            compact: true,
+            onClick: (_, _) => CopyViaTotpToClipboard(v, codeTb),
+            tooltip: v.HasLocalTwoFa ? "Copy mã 2FA 6 số" : "Bấm để gắn mã 2FA / Cookie vào Két DPAPI");
         Grid.SetColumn(copyBtn, 1);
         otpBox.Children.Add(copyBtn);
 
@@ -1462,6 +1463,23 @@ internal sealed partial class MainWindow
                 }
                 var targetUrl = activePb.Steps.FirstOrDefault(s => !string.IsNullOrWhiteSpace(s.Target) && s.Target.StartsWith("https://", StringComparison.OrdinalIgnoreCase))?.Target
                                 ?? "https://www.facebook.com/";
+                var directCountPb = targets.Count(v => string.IsNullOrWhiteSpace(AutomationQueueEngine.ExtractProxyHostPort(v.NetworkLabel)));
+                var confirmPb = UiComponents.ShowConfirmActionDialog(
+                    this,
+                    $"Chạy Kịch bản • {activePb.Title}",
+                    $"Chuẩn bị mở lần lượt {targets.Count} Via theo kịch bản [{activePb.Platform.ToUpperInvariant()}] {activePb.Title}.",
+                    new (string, string)[]
+                    {
+                        ("Số lượng Via:", $"{targets.Count} Via (Direct IP: {directCountPb})"),
+                        ("Giãn cách Jitter:", $"{activePb.DefaultStaggerSec}s ± {activePb.JitterPct}%"),
+                        ("IP Cluster Guard:", $"Proxy: {_config.MaxViasPerProxyInBatch}/IP · Direct IP: tối đa {_config.MaxDirectIpViasInBatch} Via/ca"),
+                    },
+                    directCountPb > _config.MaxDirectIpViasInBatch
+                        ? $"CẢNH BÁO: Có {directCountPb} Via đang chạy Direct IP (Mạng gốc). Hệ thống sẽ chỉ chạy tối đa {_config.MaxDirectIpViasInBatch} Via Direct IP mỗi ca để chống liên đới."
+                        : "Có thể Tạm dừng hoặc Dừng hẳn hàng đợi bất cứ lúc nào.",
+                    "Bắt đầu Chạy Lô");
+                if (!confirmPb) return;
+
                 var qTasks = targets.Select(v => new QueueTaskItem(
                     v.ViaId,
                     v.Label,
@@ -1475,6 +1493,12 @@ internal sealed partial class MainWindow
                     v.CooldownUntilUtc,
                     v.HasSiloConflict,
                     v.SiloConflictDetail)).ToList();
+
+                qTasks = QueueResumeStateStore.FilterRemainingItems(QueueKind.KeepAlive, qTasks, out var resumedPbSkip);
+                if (resumedPbSkip > 0)
+                {
+                    AppendLog($"♻️ Khôi phục Hàng đợi Kịch bản: Bỏ qua {resumedPbSkip} Via đã chạy trước đó, chạy tiếp {qTasks.Count} Via.");
+                }
 
                 _queue.StartQueue(
                     QueueKind.KeepAlive,
@@ -1619,11 +1643,11 @@ internal sealed partial class MainWindow
         localCard.Margin = new Thickness(0, 0, 0, 14);
         rightStack.Children.Add(localCard);
 
-        // v2.6.1 Anti-Checkpoint Shield, 72h Soak & Client Silo Card
+        // Anti-Checkpoint Shield, 72h Soak & Client Silo Card
         var shieldPanel = new StackPanel();
         shieldPanel.Children.Add(new TextBlock
         {
-            Text = "🛡️ Khiên Chống Checkpoint, Ngâm 72h & Cách Ly Đa Khách Hàng (v2.6.1)",
+            Text = $"🛡️ Khiên Chống Checkpoint, Ngâm 72h & Cách Ly Đa Khách Hàng ({DesktopAppInfo.DisplayVersion})",
             FontSize = 15,
             FontWeight = FontWeights.Bold,
             Foreground = ThemeTokens.SuccessText,
@@ -1747,7 +1771,7 @@ internal sealed partial class MainWindow
         var isoRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
         if (_config.UseIsolatedProfiles)
         {
-            isoRow.Children.Add(UiComponents.CreateBadgePill("🔒 Chế độ: Cô lập --user-data-dir (Chuẩn)", ThemeTokens.SuccessText, ThemeTokens.SuccessBg, ThemeTokens.SuccessBorder));
+            isoRow.Children.Add(UiComponents.CreateBadgePill("🔒 Chế độ: Chrome Cô lập thông minh (Tự mở Profile gốc nếu chưa lưu Cookie)", ThemeTokens.SuccessText, ThemeTokens.SuccessBg, ThemeTokens.SuccessBorder));
         }
         else
         {
@@ -1811,12 +1835,17 @@ internal sealed partial class MainWindow
 
                 if (s.Alive && s.Pid.HasValue)
                 {
-                    var closeWinBtn = UiComponents.CreateButton("Đóng cửa sổ", ButtonVariant.Danger, compact: true, onClick: (_, _) =>
-                    {
-                        ChromeSessionTracker.Default.TryCloseSession(s.SessionId, out var msg);
-                        AppendLog(msg);
-                        RenderCurrentView();
-                    });
+                    var closeWinBtn = UiComponents.CreateButton(
+                        s.DelegatedToSharedBroker ? "Gỡ theo dõi" : "Đóng cửa sổ",
+                        s.DelegatedToSharedBroker ? ButtonVariant.Secondary : ButtonVariant.Danger,
+                        compact: true,
+                        onClick: (_, _) =>
+                        {
+                            ChromeSessionTracker.Default.TryCloseSession(s.SessionId, out var msg);
+                            AppendLog(msg);
+                            RefreshLiveSessionTelemetryOnVias();
+                            RenderCurrentView();
+                        });
                     Grid.SetColumn(closeWinBtn, 2);
                     rowGrid.Children.Add(closeWinBtn);
                 }
@@ -3536,7 +3565,7 @@ internal sealed partial class MainWindow
             if (int.TryParse(tbSetSameIpSec.Text, out var ms)) _config.SameProxyMinStaggerSeconds = Math.Clamp(ms, 15, 300);
             _config.AutoKeepAliveScheduler = chkSetAutoKa.IsChecked == true;
             _config.PreCheckProxyBeforeLaunch = chkSetPreProxy.IsChecked == true;
-            _config.ConfigMigrationVersion = 242;
+            _config.ConfigMigrationVersion = DesktopConfig.CurrentMigrationVersion;
             _config.Save();
             ApplyUpdatedProxyClusterLimits();
             var provisioned = ProvisionAllViaExtensions(silent: true);

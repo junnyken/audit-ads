@@ -129,6 +129,8 @@ public sealed class DesktopConfig
 {
     public const string DefaultBackendUrl = "https://audit-ads-backend.vibe1.tinhgon.xyz";
     public const string DefaultWebAppUrl = "https://adsops-app.vibe.tinhgon.xyz";
+    public const int CurrentMigrationVersion = 262;
+    internal static string? AppDataRootOverride { get; set; }
 
     public string BackendBaseUrl { get; set; } = DefaultBackendUrl;
     public string WebAppUrl { get; set; } = DefaultWebAppUrl;
@@ -238,7 +240,9 @@ public sealed class DesktopConfig
     }
 
     public static string AppDataRoot =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AdsOpsDesktop");
+        !string.IsNullOrWhiteSpace(AppDataRootOverride)
+            ? AppDataRootOverride!
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AdsOpsDesktop");
 
     public static string ConfigFilePath => Path.Combine(AppDataRoot, "config.json");
 
@@ -272,7 +276,10 @@ public sealed class DesktopConfig
                     {
                         if (cfg.MaxViasPerProxyInBatch == 2) cfg.MaxViasPerProxyInBatch = 4;
                         cfg.UseIsolatedProfiles = true;
-                        cfg.ConfigMigrationVersion = 261;
+                    }
+                    if (cfg.ConfigMigrationVersion < CurrentMigrationVersion)
+                    {
+                        cfg.ConfigMigrationVersion = CurrentMigrationVersion;
                         try { cfg.Save(path); } catch { }
                     }
                     return cfg;
@@ -328,7 +335,9 @@ public sealed class DesktopConfig
         EnableChromeAntidetectShield = src.EnableChromeAntidetectShield;
         LowRamFarmMode = src.LowRamFarmMode;
         MaxConcurrentBrowsers = Math.Clamp(src.MaxConcurrentBrowsers < 1 ? 6 : src.MaxConcurrentBrowsers, 1, 30);
-        ConfigMigrationVersion = 261;
+        AutoScaleConcurrentByRam = src.AutoScaleConcurrentByRam;
+        AutoFailoverToChromeNative = src.AutoFailoverToChromeNative;
+        ConfigMigrationVersion = CurrentMigrationVersion;
     }
 
     public void Save(string? customPath = null)
@@ -1975,6 +1984,8 @@ public sealed class TrackedChromeSessionDto
     [JsonPropertyName("started_at")] public DateTimeOffset StartedAt { get; set; }
     [JsonPropertyName("keep_alive_closed")] public bool KeepAliveClosed { get; set; }
     [JsonPropertyName("hung_reaped")] public bool HungReaped { get; set; }
+    [JsonPropertyName("delegated_to_shared_broker")] public bool DelegatedToSharedBroker { get; set; }
+    [JsonPropertyName("isolated_mode")] public bool IsolatedMode { get; set; } = true;
     [JsonPropertyName("closed_at")] public DateTimeOffset? ClosedAt { get; set; }
     [JsonPropertyName("alive")] public bool Alive { get; set; }
     [JsonPropertyName("ram_mb")] public double RamMb { get; set; }
@@ -2013,7 +2024,9 @@ public sealed class ChromeSessionTracker
         string? viaLabel,
         string? profileDir,
         string url,
-        string antidetectEngine = "chrome_native")
+        string antidetectEngine = "chrome_native",
+        bool delegatedToSharedBroker = false,
+        bool isolatedMode = true)
     {
         var entry = new TrackedChromeSessionDto
         {
@@ -2024,6 +2037,8 @@ public sealed class ChromeSessionTracker
             ProfileDir = string.IsNullOrWhiteSpace(profileDir) ? "Default" : profileDir.Trim(),
             Url = url,
             AntidetectEngine = AntidetectBrowserConnector.NormalizeEngine(antidetectEngine),
+            DelegatedToSharedBroker = delegatedToSharedBroker,
+            IsolatedMode = isolatedMode,
             StartedAt = DateTimeOffset.UtcNow,
         };
         lock (_gate)
@@ -2075,6 +2090,12 @@ public sealed class ChromeSessionTracker
         {
             message = "Không tìm thấy phiên Chrome trong danh sách theo dõi.";
             return false;
+        }
+        if (target.DelegatedToSharedBroker)
+        {
+            target.ClosedAt = DateTimeOffset.UtcNow;
+            message = $"Đã gỡ theo dõi phiên {target.ProfileDir} trên Chrome Gốc (đóng trực tiếp cửa sổ Chrome để tránh tắt các Profile khác).";
+            return true;
         }
         if (!target.Pid.HasValue || target.Pid.Value <= 0)
         {
@@ -2162,6 +2183,12 @@ public sealed class ChromeSessionTracker
             {
                 alive = false;
             }
+
+            if (!alive && !src.ClosedAt.HasValue && src.Pid.HasValue && src.Pid.Value > 0 &&
+                (DateTimeOffset.UtcNow - src.StartedAt).TotalSeconds >= 2.0)
+            {
+                src.ClosedAt = DateTimeOffset.UtcNow;
+            }
         }
 
         string status = src.HungReaped
@@ -2169,11 +2196,13 @@ public sealed class ChromeSessionTracker
             : src.KeepAliveClosed
                 ? "Đã tự đóng sau Keep-Alive"
                 : alive
-                    ? $"Đang mở (PID {src.Pid} • {ramMb:0.0} MB • {cpuPct:0.0}% CPU)"
+                    ? (src.DelegatedToSharedBroker
+                        ? $"Đang mở • Chrome Gốc (PID {src.Pid} • {ramMb:0.0} MB)"
+                        : $"Đang mở (PID {src.Pid} • {ramMb:0.0} MB • {cpuPct:0.0}% CPU)")
                     : src.ClosedAt.HasValue
-                        ? "Đã đóng"
+                        ? "Đã đóng cửa sổ"
                         : src.Pid.HasValue
-                            ? "Đã chuyển tab vào Chrome sẵn / thoát"
+                            ? "Đã mở cửa sổ Chrome"
                             : "Không có PID";
 
         return new TrackedChromeSessionDto
@@ -2187,6 +2216,8 @@ public sealed class ChromeSessionTracker
             StartedAt = src.StartedAt,
             KeepAliveClosed = src.KeepAliveClosed,
             HungReaped = src.HungReaped,
+            DelegatedToSharedBroker = src.DelegatedToSharedBroker,
+            IsolatedMode = src.IsolatedMode,
             ClosedAt = src.ClosedAt,
             Alive = alive,
             RamMb = ramMb,
@@ -2206,6 +2237,7 @@ public sealed class ChromeSessionTracker
         {
             candidates = _sessions
                 .Where(s => !s.ClosedAt.HasValue &&
+                            !s.DelegatedToSharedBroker &&
                             s.Pid.HasValue &&
                             s.Pid.Value > 0 &&
                             (now - s.StartedAt).TotalSeconds >= timeoutSeconds)
@@ -2238,8 +2270,8 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "2.6.1";
-    public const string DisplayVersion = "v2.6.1";
+    public const string Version = "2.6.2";
+    public const string DisplayVersion = "v2.6.2";
     public const string ExtVersion = "2.9.8";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 
@@ -3626,11 +3658,14 @@ public static class ViaBulkDistributor
             return $"Profile {Guid.NewGuid().ToString("N")[..4]}";
         }
 
+        bool isDefaultShared = allVias != null &&
+            allVias.Count(v => string.Equals((v.ProfileDir ?? "").Trim(), "Default", StringComparison.OrdinalIgnoreCase)) > 1;
+
         foreach (var v in targetVias)
         {
             var cur = (v.ProfileDir ?? "").Trim();
             if (!string.IsNullOrEmpty(cur) &&
-                !string.Equals(cur, "Default", StringComparison.OrdinalIgnoreCase) &&
+                (!string.Equals(cur, "Default", StringComparison.OrdinalIgnoreCase) || !isDefaultShared) &&
                 used.Add(cur))
             {
                 continue;

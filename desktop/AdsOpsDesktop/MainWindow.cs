@@ -843,19 +843,20 @@ internal sealed partial class MainWindow : Window
                 }
 
                 var extFolder = ExtensionProvisioner.ProvisionForVia(tempVia, config: _config);
+                var effectiveIso = ExtensionProvisioner.ShouldUseIsolatedProfile(_config.UseIsolatedProfiles, fallbackProfile, tempVia.NetworkLabel, hasVaultCookie: false, tempVia.Label);
                 var sw = Stopwatch.StartNew();
-                var pid = ExtensionProvisioner.LaunchChrome(
+                var launchInfo = ExtensionProvisioner.LaunchChromeDetailed(
                     url,
                     fallbackProfile,
                     extFolder,
-                    _config.UseIsolatedProfiles,
+                    effectiveIso,
                     tempVia.Label,
                     _config.EnableChromeAntidetectShield,
                     _config.LowRamFarmMode);
                 sw.Stop();
                 AntidetectEngineBenchmarkStore.Default.RecordStartup("chrome_native", (int)sw.ElapsedMilliseconds);
-                ChromeSessionTracker.Default.RecordLaunch(pid, null, tempVia.Label, fallbackProfile, url, "chrome_native");
-                AppendLog($"Mở nhanh Chrome từ Web/Bridge: Profile '{fallbackProfile}' -> {url}");
+                ChromeSessionTracker.Default.RecordLaunch(launchInfo.Pid, null, tempVia.Label, fallbackProfile, url, "chrome_native", launchInfo.DelegatedToSharedBroker, launchInfo.IsolatedMode);
+                AppendLog($"Mở nhanh Chrome từ Web/Bridge ({(launchInfo.IsolatedMode ? "Cô lập" : "Profile gốc")}): Profile '{fallbackProfile}' -> {url}");
                 tcs.TrySetResult((true, $"Đã mở Chrome '{fallbackProfile}'."));
             }
             catch (Exception ex)
@@ -1071,22 +1072,35 @@ internal sealed partial class MainWindow : Window
     private Task<LocalVaultGetResult> OnBridgeVaultSaveAsync(LocalVaultSaveRequest req)
     {
         var res = LocalSecretVaultStore.Default.Upsert(req.ViaId, req.ViaLabel, req.ProfileDir, req.CookieRaw, req.TwoFaSecret);
+        var matched = _vias.FirstOrDefault(v =>
+            (!string.IsNullOrWhiteSpace(res.ViaId) && string.Equals(v.ViaId, res.ViaId, StringComparison.OrdinalIgnoreCase)) ||
+            (!string.IsNullOrWhiteSpace(res.ViaLabel) && string.Equals(v.Label, res.ViaLabel, StringComparison.OrdinalIgnoreCase)));
         if (!string.IsNullOrWhiteSpace(req.CookieRaw))
         {
-            var matched = _vias.FirstOrDefault(v =>
-                (!string.IsNullOrWhiteSpace(res.ViaId) && string.Equals(v.ViaId, res.ViaId, StringComparison.OrdinalIgnoreCase)) ||
-                (!string.IsNullOrWhiteSpace(res.ViaLabel) && string.Equals(v.Label, res.ViaLabel, StringComparison.OrdinalIgnoreCase)));
             ViaStewardshipStore.Default.RecordCookieRefresh(res.ViaId, res.ViaLabel, matched?.ClientGroup);
-            if (matched != null)
-            {
-                _ = Dispatcher.BeginInvoke(() => { matched.LastCookieRefreshUtc = DateTimeOffset.UtcNow; });
-            }
             AppendLog($"🔄 Đã làm mới Cookie DPAPI Vault tự động cho '{res.ViaLabel}' (giữ nguyên 2FA).");
         }
         else
         {
             AppendLog($"Đã lưu DPAPI Vault local từ Extension/Bridge cho '{res.ViaLabel}'.");
         }
+        _ = Dispatcher.BeginInvoke(() =>
+        {
+            if (matched != null)
+            {
+                if (!string.IsNullOrWhiteSpace(req.CookieRaw)) matched.LastCookieRefreshUtc = DateTimeOffset.UtcNow;
+                if (!string.IsNullOrWhiteSpace(res.TwoFaSecret)) matched.TwoFaSecret = res.TwoFaSecret;
+            }
+            ApplyUpdatedProxyClusterLimits();
+            if (matched != null)
+            {
+                try { matched.ExtensionFolder = ExtensionProvisioner.ProvisionForVia(matched, config: _config); } catch { }
+            }
+            if (_activeView is AppView.Vias or AppView.Overview or AppView.Automation or AppView.Settings)
+            {
+                RenderCurrentView();
+            }
+        });
         return Task.FromResult(ToVaultDto(res));
     }
 
@@ -1605,39 +1619,53 @@ internal sealed partial class MainWindow : Window
 
                 if (!shouldFailover) return;
 
+                var effectiveIsoFail = ExtensionProvisioner.ShouldUseIsolatedProfile(
+                    _config.UseIsolatedProfiles,
+                    via.ProfileDir,
+                    via.NetworkLabel,
+                    via.HasVaultCookie,
+                    via.Label);
                 var swFail = Stopwatch.StartNew();
-                var failPid = ExtensionProvisioner.LaunchChrome(
+                var failInfo = await Task.Run(() => ExtensionProvisioner.LaunchChromeDetailed(
                     targetUrl,
                     via.ProfileDir,
                     via.ExtensionFolder,
-                    _config.UseIsolatedProfiles,
+                    effectiveIsoFail,
                     via.Label,
                     _config.EnableChromeAntidetectShield,
-                    _config.LowRamFarmMode);
+                    _config.LowRamFarmMode));
                 swFail.Stop();
                 AntidetectEngineBenchmarkStore.Default.RecordStartup("chrome_native", (int)swFail.ElapsedMilliseconds);
-                ChromeSessionTracker.Default.RecordLaunch(failPid, via.ViaId, via.Label, via.ProfileDir, targetUrl, "chrome_native");
+                ChromeSessionTracker.Default.RecordLaunch(failInfo.Pid, via.ViaId, via.Label, via.ProfileDir, targetUrl, "chrome_native", failInfo.DelegatedToSharedBroker, failInfo.IsolatedMode);
                 RefreshLiveSessionTelemetryOnVias();
-                var failoverDetail = $"Auto-Failover từ {AntidetectBrowserConnector.GetDisplayName(normEng)} (offline/lỗi) sang Chrome Gốc Cô lập";
+                var failoverMode = failInfo.IsolatedMode ? "Chrome Gốc Cô lập" : "Chrome Profile gốc";
+                var failoverDetail = $"Auto-Failover từ {AntidetectBrowserConnector.GetDisplayName(normEng)} (offline/lỗi) sang {failoverMode}";
                 AppendLog($"🛡️ {failoverDetail} cho Via '{via.Label}' ({swFail.ElapsedMilliseconds}ms).");
                 _ = SendProfileLifecycleEventNonBlockingAsync("ENGINE_FAILOVER", via, targetUrl, (int)swFail.ElapsedMilliseconds, "chrome_native", failoverFrom: normEng, detail: failoverDetail);
                 return;
             }
 
+            var effectiveIso = ExtensionProvisioner.ShouldUseIsolatedProfile(
+                _config.UseIsolatedProfiles,
+                via.ProfileDir,
+                via.NetworkLabel,
+                via.HasVaultCookie,
+                via.Label);
             var sw = Stopwatch.StartNew();
-            var pid = ExtensionProvisioner.LaunchChrome(
+            var launchInfo = await Task.Run(() => ExtensionProvisioner.LaunchChromeDetailed(
                 targetUrl,
                 via.ProfileDir,
                 via.ExtensionFolder,
-                _config.UseIsolatedProfiles,
+                effectiveIso,
                 via.Label,
                 _config.EnableChromeAntidetectShield,
-                _config.LowRamFarmMode);
+                _config.LowRamFarmMode));
             sw.Stop();
             AntidetectEngineBenchmarkStore.Default.RecordStartup("chrome_native", (int)sw.ElapsedMilliseconds);
-            ChromeSessionTracker.Default.RecordLaunch(pid, via.ViaId, via.Label, via.ProfileDir, targetUrl, "chrome_native");
+            ChromeSessionTracker.Default.RecordLaunch(launchInfo.Pid, via.ViaId, via.Label, via.ProfileDir, targetUrl, "chrome_native", launchInfo.DelegatedToSharedBroker, launchInfo.IsolatedMode);
             RefreshLiveSessionTelemetryOnVias();
-            AppendLog($"Đã mở Chrome Profile '{via.ProfileDir}' ({via.Label}, {(int)sw.ElapsedMilliseconds}ms) -> {targetUrl}");
+            var launchModeTag = launchInfo.IsolatedMode ? "Cô lập --user-data-dir" : "Profile gốc Chrome";
+            AppendLog($"Đã mở Chrome ({launchModeTag}) '{via.ProfileDir}' ({via.Label}, {(int)sw.ElapsedMilliseconds}ms) -> {targetUrl}");
             _ = SendProfileLifecycleEventNonBlockingAsync("PROFILE_LAUNCHED", via, targetUrl, (int)sw.ElapsedMilliseconds, "chrome_native");
         }
         catch (Exception ex)
@@ -1964,6 +1992,7 @@ internal sealed partial class MainWindow : Window
                 b.CodeBlock.Text = totp.FormattedCode;
                 b.CodeBlock.Foreground = ThemeTokens.AccentText;
                 b.CountdownBlock.Text = $"{totp.SecondsRemaining}s";
+                b.CountdownPill.Visibility = Visibility.Visible;
                 var low = totp.SecondsRemaining <= 5;
                 b.CountdownBlock.Foreground = low ? ThemeTokens.WarningText : ThemeTokens.TextSecondary;
                 b.CountdownPill.Background = low ? ThemeTokens.WarningBg : ThemeTokens.NeutralBg;
@@ -1974,21 +2003,27 @@ internal sealed partial class MainWindow : Window
                 b.CodeBlock.Text = "Chưa gắn 2FA";
                 b.CodeBlock.Foreground = ThemeTokens.TextMuted;
                 b.CountdownBlock.Text = "—";
+                b.CountdownPill.Visibility = Visibility.Collapsed;
             }
         }
 
-        if (_queueSnapshot.Phase == QueuePhase.Running && (++_watchdogTickCount % 5 == 0))
+        if (++_watchdogTickCount % 5 == 0)
         {
-            var reaped = ChromeSessionTracker.Default.ReapHungSessions(_config.BrowserHangTimeoutSeconds);
-            foreach (var r in reaped)
+            RefreshLiveSessionTelemetryOnVias();
+            if (_queueSnapshot.Phase == QueuePhase.Running)
             {
-                ViaStewardshipStore.Default.AppendEvent(
-                    "BROWSER_HANG_REAPED",
-                    r.ViaId,
-                    r.ViaLabel,
-                    "",
-                    $"Tự đóng trình duyệt treo quá {_config.BrowserHangTimeoutSeconds}s ({r.ProfileDir}) để giải phóng hàng đợi");
-                AppendLog($"⏱️ Watchdog chống treo: Đã tự thu hồi trình duyệt '{r.ViaLabel}' ({r.ProfileDir}) treo quá {_config.BrowserHangTimeoutSeconds}s.");
+                var reaped = ChromeSessionTracker.Default.ReapHungSessions(_config.BrowserHangTimeoutSeconds);
+                foreach (var r in reaped)
+                {
+                    ViaStewardshipStore.Default.AppendEvent(
+                        "BROWSER_HANG_REAPED",
+                        r.ViaId,
+                        r.ViaLabel,
+                        "",
+                        $"Tự đóng trình duyệt treo quá {_config.BrowserHangTimeoutSeconds}s ({r.ProfileDir}) để giải phóng hàng đợi");
+                    AppendLog($"⏱️ Watchdog chống treo: Đã tự thu hồi trình duyệt '{r.ViaLabel}' ({r.ProfileDir}) treo quá {_config.BrowserHangTimeoutSeconds}s.");
+                }
+                RefreshLiveSessionTelemetryOnVias();
             }
         }
     }
@@ -2002,6 +2037,11 @@ internal sealed partial class MainWindow : Window
         var totp = TotpService.ComputeTotp(secret);
         if (!totp.Valid)
         {
+            if (!showBalloon)
+            {
+                OpenLocalVaultDialog(via);
+                return;
+            }
             MessageBox.Show(this, $"Via '{via.Label}' chưa có mã 2FA hợp lệ trong Két Local.", "Thiếu 2FA", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }

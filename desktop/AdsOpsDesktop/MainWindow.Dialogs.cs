@@ -589,6 +589,8 @@ internal sealed partial class MainWindow
             if (!confirm) return;
             LocalSecretVaultStore.Default.Upsert(via.ViaId, via.Label, via.ProfileDir, "", "", allowOverwriteEmpty: true);
             via.TwoFaSecret = "";
+            ApplyUpdatedProxyClusterLimits();
+            try { via.ExtensionFolder = ExtensionProvisioner.ProvisionForVia(via, config: _config); } catch { }
             AppendLog($"Đã xóa Cookie & 2FA local cho Via '{via.Label}'.");
             dlg.DialogResult = true;
             RenderCurrentView();
@@ -602,6 +604,8 @@ internal sealed partial class MainWindow
         {
             LocalSecretVaultStore.Default.Upsert(via.ViaId, via.Label, via.ProfileDir, tbCookie.Text.Trim(), tb2Fa.Text.Trim(), allowOverwriteEmpty: true);
             via.TwoFaSecret = TotpService.NormalizeBase32Secret(tb2Fa.Text);
+            ApplyUpdatedProxyClusterLimits();
+            try { via.ExtensionFolder = ExtensionProvisioner.ProvisionForVia(via, config: _config); } catch { }
             AppendLog($"Đã lưu Két DPAPI local cho Via '{via.Label}'.");
             dlg.DialogResult = true;
             RenderCurrentView();
@@ -2867,7 +2871,9 @@ internal sealed partial class MainWindow
         cbTier.SelectedIndex = 0;
 
         var tbSilo = UiComponents.CreateTextBox("", "Để trống = giữ Silo cũ (VD: Khach_Spa_A)");
-        var chkSplitProfiles = UiComponents.CreateCheckBox("Tự động tách Chrome Profile riêng (Profile 1, Profile 2...) cho các Via đang trùng/Default", true);
+        var chkSplitProfiles = UiComponents.CreateCheckBox(
+            "Tự động tách Chrome Profile riêng (Profile 1, Profile 2...) cho các Via đang trùng",
+            targets.Any(v => v.HasSiloConflict));
         chkSplitProfiles.Margin = new Thickness(0, 10, 0, 10);
 
         var twoCol = new Grid { Margin = new Thickness(0, 0, 0, 6) };

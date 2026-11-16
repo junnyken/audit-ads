@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -170,7 +171,23 @@ public static class ExtensionProvisioner
         return "Default";
     }
 
-    public static string SanitizeFolderSlug(string? name, string? fallbackId = null)
+    public static string RemoveVietnameseDiacritics(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+        var replaced = text.Replace('đ', 'd').Replace('Đ', 'D');
+        var normalized = replaced.Normalize(NormalizationForm.FormD);
+        var sb = new StringBuilder(normalized.Length);
+        foreach (var ch in normalized)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(ch) != UnicodeCategory.NonSpacingMark)
+            {
+                sb.Append(ch);
+            }
+        }
+        return sb.ToString().Normalize(NormalizationForm.FormC);
+    }
+
+    internal static string SanitizeLegacyFolderSlug(string? name, string? fallbackId = null)
     {
         var baseName = Regex.Replace((name ?? "").Trim(), @"[^a-zA-Z0-9_-]+", "-").Trim('-');
         if (string.IsNullOrEmpty(baseName)) baseName = "via";
@@ -179,6 +196,78 @@ public static class ExtensionProvisioner
             ? ""
             : "-" + Regex.Replace(fallbackId, @"[^a-zA-Z0-9]", "")[..Math.Min(6, Regex.Replace(fallbackId, @"[^a-zA-Z0-9]", "").Length)];
         return $"{baseName}{suffix}".ToLowerInvariant();
+    }
+
+    public static string SanitizeFolderSlug(string? name, string? fallbackId = null)
+    {
+        var asciiName = RemoveVietnameseDiacritics(name);
+        var baseName = Regex.Replace(asciiName.Trim(), @"[^a-zA-Z0-9_-]+", "-").Trim('-');
+        if (string.IsNullOrEmpty(baseName)) baseName = "via";
+        if (baseName.Length > 36) baseName = baseName[..36];
+        var suffix = string.IsNullOrWhiteSpace(fallbackId)
+            ? ""
+            : "-" + Regex.Replace(fallbackId, @"[^a-zA-Z0-9]", "")[..Math.Min(6, Regex.Replace(fallbackId, @"[^a-zA-Z0-9]", "").Length)];
+        return $"{baseName}{suffix}".ToLowerInvariant();
+    }
+
+    public static string ResolveIsolatedProfileDirectory(string? viaSlug, string safeProfile)
+    {
+        var seed = string.IsNullOrWhiteSpace(viaSlug) ? safeProfile : viaSlug;
+        var cleanDir = Path.Combine(IsolatedProfilesRoot, SanitizeFolderSlug(seed));
+        if (Directory.Exists(cleanDir)) return cleanDir;
+        var legacyDir = Path.Combine(IsolatedProfilesRoot, SanitizeLegacyFolderSlug(seed));
+        if (!string.Equals(cleanDir, legacyDir, StringComparison.OrdinalIgnoreCase) && Directory.Exists(legacyDir))
+        {
+            return legacyDir;
+        }
+        return cleanDir;
+    }
+
+    public static bool LocalNativeChromeProfileExists(string? profileDir)
+    {
+        try
+        {
+            var safeProfile = ResolveProfileDirectory(profileDir);
+            var localApp = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrWhiteSpace(localApp)) return false;
+            var path = Path.Combine(localApp, "Google", "Chrome", "User Data", safeProfile);
+            return Directory.Exists(path);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public static bool ShouldUseIsolatedProfile(
+        bool configUseIsolated,
+        string? profileDir,
+        string? networkLabel,
+        bool hasVaultCookie,
+        string? viaSlug = null)
+    {
+        if (!configUseIsolated) return false;
+        if (!string.IsNullOrWhiteSpace(networkLabel) || hasVaultCookie) return true;
+
+        var safeProfile = ResolveProfileDirectory(profileDir, viaSlug);
+        var isoDir = ResolveIsolatedProfileDirectory(viaSlug, safeProfile);
+        var networkCookies = Path.Combine(isoDir, "Default", "Network", "Cookies");
+        var legacyCookies = Path.Combine(isoDir, "Default", "Cookies");
+        try
+        {
+            if ((File.Exists(networkCookies) && new FileInfo(networkCookies).Length > 0) ||
+                (File.Exists(legacyCookies) && new FileInfo(legacyCookies).Length > 0))
+            {
+                return true;
+            }
+        }
+        catch { }
+
+        if (LocalNativeChromeProfileExists(safeProfile))
+        {
+            return false;
+        }
+        return true;
     }
 
     public static string ProvisionForVia(
@@ -452,8 +541,7 @@ public static class ExtensionProvisioner
 
         if (isolatedMode)
         {
-            var isoSlug = SanitizeFolderSlug(string.IsNullOrWhiteSpace(viaSlug) ? safeProfile : viaSlug);
-            var isoDir = Path.Combine(IsolatedProfilesRoot, isoSlug);
+            var isoDir = ResolveIsolatedProfileDirectory(viaSlug, safeProfile);
             Directory.CreateDirectory(isoDir);
             args.Add($"--user-data-dir={isoDir}");
             args.Add("--no-first-run");
@@ -462,6 +550,7 @@ public static class ExtensionProvisioner
         else
         {
             args.Add($"--profile-directory={safeProfile}");
+            args.Add("--new-window");
         }
 
         if (antidetectShield)
@@ -502,7 +591,45 @@ public static class ExtensionProvisioner
         return args;
     }
 
-    public static int? LaunchChrome(
+    public static int? FindActiveChromeBrokerPid()
+    {
+        try
+        {
+            var procs = Process.GetProcessesByName("chrome");
+            int? bestWindowPid = null;
+            long bestWindowWs = -1;
+            int? earliestPid = null;
+            var earliestTime = DateTime.MaxValue;
+            foreach (var p in procs)
+            {
+                using (p)
+                {
+                    try
+                    {
+                        if (p.HasExited) continue;
+                        if (p.MainWindowHandle != IntPtr.Zero && p.WorkingSet64 > bestWindowWs)
+                        {
+                            bestWindowWs = p.WorkingSet64;
+                            bestWindowPid = p.Id;
+                        }
+                        if (p.StartTime < earliestTime)
+                        {
+                            earliestTime = p.StartTime;
+                            earliestPid = p.Id;
+                        }
+                    }
+                    catch { }
+                }
+            }
+            return bestWindowPid ?? earliestPid;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public static (int? Pid, bool DelegatedToSharedBroker, bool IsolatedMode) LaunchChromeDetailed(
         string url,
         string profileDir,
         string? extFolder,
@@ -534,8 +661,32 @@ public static class ExtensionProvisioner
             psi.UseShellExecute = true;
             proc = Process.Start(psi);
         }
-        return proc?.Id;
+        if (!isolatedMode && proc != null)
+        {
+            try
+            {
+                proc.WaitForExit(350);
+            }
+            catch { }
+            if (proc.HasExited)
+            {
+                var brokerPid = FindActiveChromeBrokerPid();
+                return (brokerPid ?? proc.Id, brokerPid.HasValue, false);
+            }
+            return (proc.Id, false, false);
+        }
+        return (proc?.Id, false, isolatedMode);
     }
+
+    public static int? LaunchChrome(
+        string url,
+        string profileDir,
+        string? extFolder,
+        bool isolatedMode,
+        string? viaSlug = null,
+        bool antidetectShield = true,
+        bool lowRamMode = true)
+        => LaunchChromeDetailed(url, profileDir, extFolder, isolatedMode, viaSlug, antidetectShield, lowRamMode).Pid;
 }
 
 public sealed record WorkstationMemorySnapshot(
