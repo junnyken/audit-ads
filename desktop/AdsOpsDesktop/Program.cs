@@ -272,7 +272,7 @@ internal static class Program
             healthResp.EnsureSuccessStatusCode();
             var healthBody = await healthResp.Content.ReadAsStringAsync();
             if (!healthBody.Contains("\"app\":\"AdsOpsDesktop\"", StringComparison.Ordinal) ||
-                !healthBody.Contains("\"version\":\"2.4.0\"", StringComparison.Ordinal) ||
+                !healthBody.Contains("\"version\":\"2.4.1\"", StringComparison.Ordinal) ||
                 !healthBody.Contains("\"extVersion\":\"2.9.6\"", StringComparison.Ordinal))
             {
                 throw new InvalidOperationException($"Unexpected /health response: {healthBody}");
@@ -706,7 +706,85 @@ internal static class Program
                 throw new InvalidOperationException("Provisioned Extension v2.9.6 missing Automatic tab, IP Kill-Switch, Auto Vault Cookie Refresh, or soak_72h markers");
             }
 
-            Console.WriteLine("ADSOPS_DESKTOP_V24_SELFTEST_100_PASS");
+            // 17. v2.4.1 Safe 1:4 Residential Proxy Cluster, Unconditional Duplicate Profile Guard, Proxy Interleave & Config Migration
+            var resCluster = new List<ViaWorkspaceEntry>
+            {
+                new() { ViaId = "r1", Label = "Via DC 1", ProfileDir = "Profile 1", NetworkLabel = "103.50.60.70:8080:u:p", ClientGroup = "Khách Dân Cư", ProxyLastStatus = "LIVE", WarmupPhase = "trusted", QuotaStatus = "SAFE" },
+                new() { ViaId = "r2", Label = "Via DC 2", ProfileDir = "Profile 2", NetworkLabel = "103.50.60.70:8080:u:p", ClientGroup = "Khách Dân Cư", ProxyLastStatus = "LIVE", WarmupPhase = "trusted", QuotaStatus = "SAFE" },
+                new() { ViaId = "r3", Label = "Via DC 3", ProfileDir = "Profile 3", NetworkLabel = "103.50.60.70:8080:u:p", ClientGroup = "Khách Dân Cư", ProxyLastStatus = "LIVE", WarmupPhase = "trusted", QuotaStatus = "SAFE" },
+                new() { ViaId = "r4", Label = "Via DC 4", ProfileDir = "Profile 4", NetworkLabel = "103.50.60.70:8080:u:p", ClientGroup = "Khách Dân Cư", ProxyLastStatus = "LIVE", WarmupPhase = "trusted", QuotaStatus = "SAFE" },
+            };
+            ViaTrustEvaluator.DetectClientSiloConflicts(resCluster, maxSharedPerProxy: 4);
+            foreach (var rv in resCluster)
+            {
+                if (rv.HasSiloConflict || rv.SharedProxyViaCount != 4)
+                    throw new InvalidOperationException($"1:4 cluster unexpected conflict/count on {rv.Label}: conflict={rv.HasSiloConflict}, count={rv.SharedProxyViaCount}");
+                var (rScore, _) = ViaTrustEvaluator.EvaluateTrustScore(rv, hasTwoFa: true, hasVaultCookie: true, maxSharedPerProxy: 4);
+                if (rScore != 100)
+                    throw new InvalidOperationException($"Expected 100/100 score for clean 1:4 residential cluster {rv.Label}, got {rScore}");
+            }
+
+            // Same-client duplicate Chrome Profile must flag HasSiloConflict AND be skipped by queue
+            var sameClientDupProf = new List<ViaWorkspaceEntry>
+            {
+                new() { ViaId = "dp1", Label = "Dup Prof 1", ProfileDir = "Profile 1", NetworkLabel = "103.50.60.70:8080:u:p", ClientGroup = "Khách Dân Cư" },
+                new() { ViaId = "dp2", Label = "Dup Prof 2", ProfileDir = "Profile 1", NetworkLabel = "103.50.60.71:8080:u:p", ClientGroup = "Khách Dân Cư" },
+            };
+            ViaTrustEvaluator.DetectClientSiloConflicts(sameClientDupProf, maxSharedPerProxy: 4);
+            if (!sameClientDupProf[0].HasSiloConflict || !sameClientDupProf[1].HasSiloConflict)
+                throw new InvalidOperationException("Same-client duplicate Chrome Profile must set HasSiloConflict");
+
+            var profLaunched = new List<string>();
+            using var profEngine = new AutomationQueueEngine(
+                _ => Task.FromResult((true, "Live OK")),
+                item => { profLaunched.Add(item.ViaId); return Task.CompletedTask; },
+                _ => Task.CompletedTask,
+                _ => { });
+            profEngine.ConfigureTiming(tickIntervalMs: 15, syncWaitSeconds: 1);
+            profEngine.StartQueue(
+                QueueKind.KeepAlive,
+                new[]
+                {
+                    new QueueTaskItem("dc1", "Via DC 1", "Profile 1", "103.50.60.70:8080:u:p", "https://facebook.com", "KA1", "standard_via", "Khách Dân Cư"),
+                    new QueueTaskItem("dc2", "Via DC 2", "Profile 2", "103.50.60.70:8080:u:p", "https://facebook.com", "KA2", "standard_via", "Khách Dân Cư"),
+                    new QueueTaskItem("dc3", "Via DC 3", "Profile 3", "103.50.60.70:8080:u:p", "https://facebook.com", "KA3", "standard_via", "Khách Dân Cư"),
+                    new QueueTaskItem("dc4", "Via DC 4", "Profile 4", "103.50.60.70:8080:u:p", "https://facebook.com", "KA4", "standard_via", "Khách Dân Cư"),
+                    new QueueTaskItem("dc-dup", "Via Dup Prof", "Profile 1", "103.50.60.70:8080:u:p", "https://facebook.com", "KA5", "standard_via", "Khách Dân Cư"),
+                },
+                baseStaggerSeconds: 1,
+                preCheckProxy: false,
+                maxViasPerProxy: 4,
+                enforceDaytimeWindow: false,
+                enforceSoakQuarantine: true,
+                enforceClientSilo: true,
+                interleaveByProxy: false);
+            var pDeadline = DateTime.UtcNow.AddSeconds(10);
+            while (profEngine.Current.Phase != QueuePhase.Completed && DateTime.UtcNow < pDeadline)
+            {
+                await Task.Delay(30);
+            }
+            if (profEngine.Current.Phase != QueuePhase.Completed || profLaunched.Count != 4 || profEngine.Current.SkippedCount != 1 || profLaunched.Contains("dc-dup"))
+                throw new InvalidOperationException($"1:4 queue / duplicate profile guard failed: launched=[{string.Join(",", profLaunched)}], skipped={profEngine.Current.SkippedCount}");
+
+            // InterleaveByProxy check
+            var interleaved = AutomationQueueEngine.InterleaveByProxy(new[]
+            {
+                new QueueTaskItem("a1", "A1", "Profile 1", "1.1.1.1:8080", "https://facebook.com", "T", "standard_via"),
+                new QueueTaskItem("a2", "A2", "Profile 2", "1.1.1.1:8080", "https://facebook.com", "T", "standard_via"),
+                new QueueTaskItem("b1", "B1", "Profile 3", "2.2.2.2:8080", "https://facebook.com", "T", "standard_via"),
+                new QueueTaskItem("b2", "B2", "Profile 4", "2.2.2.2:8080", "https://facebook.com", "T", "standard_via"),
+            });
+            if (string.Join(",", interleaved.Select(x => x.ViaId)) != "a1,b1,a2,b2")
+                throw new InvalidOperationException($"InterleaveByProxy mismatch: {string.Join(",", interleaved.Select(x => x.ViaId))}");
+
+            // ConfigMigrationVersion 2 -> 4 check
+            var legCfgPath = Path.Combine(tempRoot, "legacy_cfg.json");
+            File.WriteAllText(legCfgPath, "{\"MaxViasPerProxyInBatch\":2}");
+            var migratedCfg = DesktopConfig.Load(legCfgPath);
+            if (migratedCfg.MaxViasPerProxyInBatch != 4 || migratedCfg.ConfigMigrationVersion != 241)
+                throw new InvalidOperationException($"DesktopConfig migration failed: max={migratedCfg.MaxViasPerProxyInBatch}, mig={migratedCfg.ConfigMigrationVersion}");
+
+            Console.WriteLine("ADSOPS_DESKTOP_V241_SELFTEST_100_PASS");
             return 0;
         }
         finally

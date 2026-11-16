@@ -51,7 +51,7 @@ const ANTI_DIE_SLIDES = [
     badge: 'CHỐNG CHẾT CHÙM THEO IP / COOKIE',
     title: 'Cách ly tuyệt đối Hồ sơ Google Chrome thật & Proxy IPv4 Dân cư tĩnh',
     summary:
-      '1 Hồ sơ Chrome = 1 Via cố định · 1 Proxy IPv4 Dân cư tĩnh VN (Viettel/VNPT/FPT) = Tối đa 1–2 Via cùng cụm BM:',
+      '1 Hồ sơ Chrome = 1 Via cố định · 1 Proxy IPv4 Dân cư tĩnh VN (Viettel/VNPT/FPT) = Tối đa 1–4 Via cùng cụm (tách Profile riêng):',
     bullets: [
       'Tuyệt đối không đăng xuất Via này để đăng nhập Via khác trên cùng 1 cửa sổ Chrome. Luôn bấm nút «🚀 Mở Chrome» trên bảng để mở đúng Profile.',
       'Mạng Wifi/dây gốc văn phòng chỉ dùng cho 2–3 Via Lớp 1. Từ Via thứ 4 trở đi (Lớp 2 & Lớp 3) nên gắn Proxy IPv4 Dân cư tĩnh riêng.',
@@ -307,7 +307,7 @@ export default function OperationsGuide() {
 
             <div className="border-t border-line pt-2.5 space-y-1.5">
               <div className="font-semibold text-ink">
-                🌐 Chỗ mua & Quản lý Proxy IPv4 Dân cư tĩnh VN (1–2 Via/Proxy):
+                🌐 Chỗ mua & Quản lý Proxy IPv4 Dân cư tĩnh VN (1–4 Via/Proxy dân cư):
               </div>
               <div className="flex flex-wrap gap-1.5">
                 <a

@@ -216,8 +216,8 @@ const PHRASE_PAIRS: Array<[string, string]> = [
     "Never link more than 3 Ad Accounts directly to 1 card to avoid chain payment bans when an account is disabled or declined."
   ],
   [
-    "1 Hồ sơ Chrome = 1 Via cố định · 1 Proxy IPv4 Dân cư tĩnh VN (Viettel/VNPT/FPT) = Tối đa 1–2 Via cùng cụm BM:",
-    "1 Chrome Profile = 1 Fixed Via · 1 VN Static Residential IPv4 Proxy (Viettel/VNPT/FPT) = Max 1–2 Vias in the same BM cluster:"
+    "1 Hồ sơ Chrome = 1 Via cố định · 1 Proxy IPv4 Dân cư tĩnh VN (Viettel/VNPT/FPT) = Tối đa 1–4 Via cùng cụm (tách Profile riêng):",
+    "1 Chrome Profile = 1 Fixed Via · 1 VN Static Residential IPv4 Proxy (Viettel/VNPT/FPT) = Max 1–4 Vias in same group (isolated Profiles):"
   ],
   [
     "Mở Ads Manager để kiểm tra ngân sách chiến dịch và giới hạn chi tiêu của tài khoản so với ngân sách cam kết.",
@@ -728,8 +728,8 @@ const PHRASE_PAIRS: Array<[string, string]> = [
     "Leave blank = Direct Network · Or enter your live IP:Port:User:Pass"
   ],
   [
-    "🌐 Chỗ mua & Quản lý Proxy IPv4 Dân cư tĩnh VN (1–2 Via/Proxy):",
-    "🌐 Recommended VN Static Residential IPv4 Proxy Providers (1–2 Vias/Proxy):"
+    "🌐 Chỗ mua & Quản lý Proxy IPv4 Dân cư tĩnh VN (1–4 Via/Proxy dân cư):",
+    "🌐 Recommended VN Static Residential IPv4 Proxy Providers (1–4 Vias/Proxy):"
   ],
   [
     "4. Hạn mức 1 Proxy IPv4 Dân cư tĩnh → Tài khoản Facebook (Via)",
@@ -844,8 +844,8 @@ const PHRASE_PAIRS: Array<[string, string]> = [
     "3. 1 Visa / Mastercard → Ad Account Limit"
   ],
   [
-    "Mua & Quản lý Proxy IPv4 Dân cư tĩnh VN (1–2 Via/Proxy):",
-    "Buy & Manage VN Static Residential IPv4 Proxies (1–2 Vias/Proxy):"
+    "Mua & Quản lý Proxy IPv4 Dân cư tĩnh VN (1–4 Via/Proxy dân cư):",
+    "Buy & Manage VN Static Residential IPv4 Proxies (1–4 Vias/Proxy):"
   ],
   [
     "Ghi nhận kết quả kiểm tra vào tab Sự kiện của tài khoản.",
@@ -1996,8 +1996,8 @@ const PHRASE_PAIRS: Array<[string, string]> = [
     "Copy 6-digit 2FA OTP code"
   ],
   [
-    "(Vượt mức ≤ 2 Via/Proxy)",
-    "(Exceeds safe limit of ≤ 2 Vias/Proxy)"
+    "(Vượt mức ≤ 4 Via/Proxy dân cư)",
+    "(Exceeds safe limit of ≤ 4 Vias/Residential Proxy)"
   ],
   [
     "Chép/Nạp Cookie Facebook",
@@ -2384,8 +2384,8 @@ const PHRASE_PAIRS: Array<[string, string]> = [
     "Tax ID not set"
   ],
   [
-    "1 Proxy = 1–2 Via",
-    "1 Proxy = 1–2 Vias"
+    "1 Proxy = 1–4 Via",
+    "1 Proxy = 1–4 Vias"
   ],
   [
     "Chạm trần hạn mức",

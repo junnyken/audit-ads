@@ -173,7 +173,7 @@ export default function FacebookAccountDetail() {
               download
               className="inline-flex h-8 items-center rounded-md border border-indigo-500/45 bg-indigo-500/15 px-2.5 text-xs font-bold text-indigo-700 hover:bg-indigo-500/25 dark:text-indigo-300"
             >
-              💻 App Win v2.4.0 (.zip)
+              💻 App Win v2.4.1 (.zip)
             </a>
             {canWrite && (
               <>

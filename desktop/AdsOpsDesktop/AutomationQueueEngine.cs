@@ -69,10 +69,11 @@ public sealed class AutomationQueueEngine : IDisposable
     private readonly Dictionary<string, int> _proxyBatchUseCounts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _proxyClientGroupOwners = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _profileClientGroupOwners = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _usedProfilesInBatch = new(StringComparer.OrdinalIgnoreCase);
 
     private int _baseStaggerSec = 48;
     private bool _preCheckProxy = true;
-    private int _maxViasPerProxy = 2;
+    private int _maxViasPerProxy = 4;
     private int _startHour = 8;
     private int _endHour = 22;
     private int _tickIntervalMs = 1000;
@@ -139,23 +140,55 @@ public sealed class AutomationQueueEngine : IDisposable
         return baseSeconds + jitterExtraSeconds;
     }
 
+    public static List<QueueTaskItem> InterleaveByProxy(IReadOnlyList<QueueTaskItem> items)
+    {
+        if (items == null || items.Count <= 1) return items?.ToList() ?? new List<QueueTaskItem>();
+        var bucketOrder = new List<string>();
+        var buckets = new Dictionary<string, Queue<QueueTaskItem>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in items)
+        {
+            var key = ExtractProxyHostPort(item.NetworkLabel);
+            if (!buckets.TryGetValue(key, out var q))
+            {
+                q = new Queue<QueueTaskItem>();
+                buckets[key] = q;
+                bucketOrder.Add(key);
+            }
+            q.Enqueue(item);
+        }
+
+        var result = new List<QueueTaskItem>(items.Count);
+        while (result.Count < items.Count)
+        {
+            foreach (var key in bucketOrder)
+            {
+                if (buckets[key].Count > 0)
+                {
+                    result.Add(buckets[key].Dequeue());
+                }
+            }
+        }
+        return result;
+    }
+
     public void StartQueue(
         QueueKind kind,
         IReadOnlyList<QueueTaskItem> items,
         int baseStaggerSeconds,
         bool preCheckProxy,
-        int maxViasPerProxy = 2,
+        int maxViasPerProxy = 4,
         int daytimeStartHour = 8,
         int daytimeEndHour = 22,
         bool enforceDaytimeWindow = true,
         bool enforceSoakQuarantine = false,
-        bool enforceClientSilo = false)
+        bool enforceClientSilo = false,
+        bool interleaveByProxy = false)
     {
         if (items == null || items.Count == 0) return;
 
         Stop();
 
-        _items = items.ToList();
+        _items = interleaveByProxy ? InterleaveByProxy(items) : items.ToList();
         _baseStaggerSec = Math.Max(1, baseStaggerSeconds);
         _preCheckProxy = preCheckProxy;
         _maxViasPerProxy = Math.Max(1, maxViasPerProxy);
@@ -166,6 +199,7 @@ public sealed class AutomationQueueEngine : IDisposable
         _proxyBatchUseCounts.Clear();
         _proxyClientGroupOwners.Clear();
         _profileClientGroupOwners.Clear();
+        _usedProfilesInBatch.Clear();
         lock (_gate)
         {
             _launchedItems.Clear();
@@ -302,6 +336,27 @@ public sealed class AutomationQueueEngine : IDisposable
                 continue;
             }
 
+            // Universal Duplicate Chrome Profile Guard (prevents cookie overwrite even within same ClientGroup)
+            if (!string.IsNullOrEmpty(itemProfile) &&
+                _usedProfilesInBatch.TryGetValue(itemProfile, out var prevViaForProf))
+            {
+                skipped++;
+                var msg = $"Bỏ qua «{item.ViaLabel}»: Hồ sơ Chrome «{itemProfile}» đã mở cho «{prevViaForProf}» trong lô (chống đè Cookie).";
+                _log($"🛑 {msg}");
+                UpdateSnapshot(_snapshot with
+                {
+                    Phase = QueuePhase.Running,
+                    CurrentIndex = i,
+                    LaunchedCount = launched,
+                    SkippedCount = skipped,
+                    CurrentViaLabel = item.ViaLabel,
+                    CurrentTaskTitle = item.TaskTitle,
+                    CheckingProxy = false,
+                    LastNotice = msg,
+                });
+                continue;
+            }
+
             // Guard C: Multi-Client Silo Isolation (forbid cross-client proxy/profile collisions)
             if (_enforceClientSilo)
             {
@@ -414,9 +469,13 @@ public sealed class AutomationQueueEngine : IDisposable
                     _proxyClientGroupOwners[hostPort] = itemClientGroup;
                 }
             }
-            if (!string.IsNullOrEmpty(itemProfile) && !_profileClientGroupOwners.ContainsKey(itemProfile))
+            if (!string.IsNullOrEmpty(itemProfile))
             {
-                _profileClientGroupOwners[itemProfile] = itemClientGroup;
+                _usedProfilesInBatch[itemProfile] = item.ViaLabel;
+                if (!_profileClientGroupOwners.ContainsKey(itemProfile))
+                {
+                    _profileClientGroupOwners[itemProfile] = itemClientGroup;
+                }
             }
 
             await _launchChrome(item).ConfigureAwait(false);
@@ -428,7 +487,15 @@ public sealed class AutomationQueueEngine : IDisposable
 
             if (i < _items.Count - 1)
             {
-                var waitSec = ComputeHumanRestSeconds(_baseStaggerSec, out var jitterExtra);
+                var effectiveBase = _baseStaggerSec;
+                var nextHostPort = ExtractProxyHostPort(_items[i + 1].NetworkLabel);
+                if (_baseStaggerSec >= 15 &&
+                    !string.IsNullOrEmpty(hostPort) &&
+                    string.Equals(hostPort, nextHostPort, StringComparison.OrdinalIgnoreCase))
+                {
+                    effectiveBase = Math.Max(_baseStaggerSec, 55);
+                }
+                var waitSec = ComputeHumanRestSeconds(effectiveBase, out var jitterExtra);
                 _skipRequested = false;
                 for (int rem = waitSec; rem > 0 && !ct.IsCancellationRequested && !_skipRequested; rem--)
                 {

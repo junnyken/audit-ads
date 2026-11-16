@@ -31,7 +31,7 @@ from app.api.deps import ApiContext, get_context  # noqa: E402
 from app.core.enums import WorkspaceRole  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
 from app.main import create_app  # noqa: E402
-from app.models.entities import AuditLog, User, Workspace, WorkspaceMember  # noqa: E402
+from app.models.entities import AuditLog, PersonalAccountReference, User, Workspace, WorkspaceMember  # noqa: E402
 from app.services.audit import AuditLogService  # noqa: E402
 from app.services.notification_transport import reset_fake_transport  # noqa: E402
 
@@ -161,3 +161,45 @@ def test_browser_event_rejects_unknown_event_type(sqlite_ctx):
         },
     )
     assert response.status_code == 422, response.text
+
+
+def test_residential_proxy_cluster_allows_4_vias_and_warns_at_5(sqlite_ctx):
+    client, inspect_session = sqlite_ctx
+    ws = inspect_session.execute(sa.select(Workspace)).scalars().first()
+    assert ws is not None
+
+    shared_proxy = "103.10.20.30:8080:u:p"
+    for idx in range(1, 5):
+        inspect_session.add(
+            PersonalAccountReference(
+                workspace_id=ws.id,
+                external_reference_id=f"100099900000{idx}",
+                label=f"Via Dan Cu {idx}",
+                browser_profile_label=f"Profile {idx}",
+                network_label=shared_proxy,
+            )
+        )
+    inspect_session.commit()
+
+    res4 = client.get("/api/v1/facebook-pages/summary")
+    assert res4.status_code == 200, res4.text
+    qa4 = res4.json()["quota_alerts_summary"]
+    assert qa4["overloaded_proxy_clusters"] == []
+
+    inspect_session.add(
+        PersonalAccountReference(
+            workspace_id=ws.id,
+            external_reference_id="1000999000005",
+            label="Via Dan Cu 5",
+            browser_profile_label="Profile 5",
+            network_label=shared_proxy,
+        )
+    )
+    inspect_session.commit()
+
+    res5 = client.get("/api/v1/facebook-pages/summary")
+    assert res5.status_code == 200, res5.text
+    qa5 = res5.json()["quota_alerts_summary"]
+    clusters = qa5["overloaded_proxy_clusters"]
+    assert len(clusters) == 1
+    assert clusters[0]["via_count"] == 5

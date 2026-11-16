@@ -302,7 +302,7 @@ export default function ChromeExtension() {
               <Badge tone="positive">Manifest V3 · Chặn &amp; Tự Xoá Passkey 1 Chạm + 2FA Tự Điền + Khóa WebRTC &amp; IP Leak</Badge>
               {bridgeProbe?.isDesktopApp && (
                 <Badge tone="positive">
-                  💻 App Windows AdsOps Desktop Pro v{bridgeProbe.version || '2.4.0'} Đang Chạy (127.0.0.1:17890 · Ext v{bridgeProbe.extVersion || '2.9.6'})
+                  💻 App Windows AdsOps Desktop Pro v{bridgeProbe.version || '2.4.1'} Đang Chạy (127.0.0.1:17890 · Ext v{bridgeProbe.extVersion || '2.9.6'})
                 </Badge>
               )}
             </div>
@@ -319,9 +319,9 @@ export default function ChromeExtension() {
               href="/downloads/AdsOps-Desktop-Pro-v2.3.zip"
               download
               className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-indigo-500/50 bg-indigo-600 px-3.5 text-xs font-extrabold text-white shadow-xs hover:bg-indigo-700"
-              title="Tải App Windows AdsOps Desktop Pro v2.4.0 (.exe chạy ngầm 24/7 ở khay hệ thống)"
+              title="Tải App Windows AdsOps Desktop Pro v2.4.1 (.exe chạy ngầm 24/7 ở khay hệ thống)"
             >
-              <span>💻 Tải App Windows AdsOps Desktop Pro v2.4.0 (.zip)</span>
+              <span>💻 Tải App Windows AdsOps Desktop Pro v2.4.1 (.zip)</span>
             </a>
             <Button
               type="button"
@@ -429,10 +429,10 @@ export default function ChromeExtension() {
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-500/35 bg-indigo-500/10 px-4 py-3 text-xs">
           <div className="space-y-0.5">
             <div className="font-extrabold text-indigo-800 dark:text-indigo-200">
-              💻 App Windows AdsOps Desktop Pro v2.4.0 — Thay thế hoàn toàn file .bat &amp; Cách ly Đa Khách Hàng Chống Checkpoint
+              💻 App Windows AdsOps Desktop Pro v2.4.1 — Thay thế hoàn toàn file .bat &amp; Cụm Proxy Dân Cư 1:4 Chống Checkpoint
             </div>
             <p className="text-[11px] text-ink-muted">
-              Chạy ngầm System Tray 24/7, tự đóng gói &amp; cập nhật Extension v2.9.6 cho toàn bộ Dàn Via, bật chế độ Cô lập 100% Chrome Profile (<code>--user-data-dir</code>), khóa Tạo Page 72h khi mới thêm/đổi Proxy, phát hiện xung đột Silo Khách hàng, Cầu nối 2 chiều tự bắt Page ID + báo Telegram khi văng Cookie/Rò IP, kèm sao lưu Vault <code>.adsopsvault</code> AES-256-GCM.
+              Chạy ngầm System Tray 24/7, tự đóng gói &amp; cập nhật Extension v2.9.6 cho toàn bộ Dàn Via, bật chế độ Cô lập 100% Chrome Profile (<code>--user-data-dir</code>), khóa Tạo Page 72h khi mới thêm/đổi Proxy, phát hiện xung đột Silo Khách hàng &amp; trùng Profile, Cầu nối 2 chiều tự bắt Page ID + báo Telegram khi văng Cookie/Rò IP, kèm sao lưu Vault <code>.adsopsvault</code> AES-256-GCM.
             </p>
           </div>
           <a
@@ -440,7 +440,7 @@ export default function ChromeExtension() {
             download
             className="shrink-0 rounded-lg border border-indigo-500/50 bg-indigo-600 px-3 py-1.5 font-bold text-white hover:bg-indigo-700"
           >
-            📥 Tải AdsOps Desktop Pro v2.4.0 (.zip)
+            📥 Tải AdsOps Desktop Pro v2.4.1 (.zip)
           </a>
         </div>
 
@@ -622,7 +622,7 @@ export default function ChromeExtension() {
                 placeholder="Để trống = Mạng gốc · Hoặc nhập IP:Port:User:Pass thật của bạn"
               />
               <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px]">
-                <span className="font-semibold text-ink-muted">Mua &amp; Quản lý Proxy IPv4 Dân cư tĩnh VN (1–2 Via/Proxy):</span>
+                <span className="font-semibold text-ink-muted">Mua &amp; Quản lý Proxy IPv4 Dân cư tĩnh VN (1–4 Via/Proxy dân cư):</span>
                 <a href="https://proxyvn.vn/" target="_blank" rel="noopener noreferrer" className="rounded border border-line bg-surface-muted px-2 py-0.5 font-semibold text-brand-text hover:underline">
                   ProxyVN.vn ↗
                 </a>

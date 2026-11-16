@@ -3613,19 +3613,19 @@ def _build_pages_summary(
     overloaded_proxy_clusters = [
         {"proxy": prx, "via_count": len(lbls), "via_labels": lbls}
         for prx, lbls in proxy_groups.items()
-        if len(lbls) > 3
+        if len(lbls) > 4
     ]
     ip_cluster_advisory: str | None = None
     if overloaded_proxy_clusters:
         top_c = overloaded_proxy_clusters[0]
         ip_cluster_advisory = (
             f"🌐 Cảnh báo cụm IP/Proxy: Proxy «{top_c['proxy']}» đang gánh {top_c['via_count']} Via "
-            "(khuyến nghị tối đa 2–3 Via / 1 Proxy tĩnh để chống liên đới IP)."
+            "(khuyến nghị tối đa 4 Via / 1 Proxy dân cư tĩnh để chống liên đới IP)."
         )
     elif len(via_quotas) >= 8 and unproxied_vias_count > 5:
         ip_cluster_advisory = (
             f"🌐 Khuyến nghị hạ tầng IP: Đang có {unproxied_vias_count}/{len(via_quotas)} Via dùng chung Mạng gốc "
-            "(chưa gắn Proxy tĩnh riêng). Chạy giãn cách 18s trên dưới 8 Via vẫn ổn, nhưng khi mở rộng >10 Via nên tách 2–3 Via / 1 Proxy dân cư tĩnh."
+            "(chưa gắn Proxy tĩnh riêng). Chạy giãn cách 18s trên dưới 8 Via vẫn ổn, nhưng khi mở rộng >10 Via nên tách tối đa 4 Via / 1 Proxy dân cư tĩnh."
         )
 
     quota_alerts_summary = {
@@ -5707,7 +5707,7 @@ def _build_unified_assets_overview(session, workspace_id: uuid.UUID) -> dict[str
             for v in vias_all
             if (v.network_label or "").strip() in (p_label, (pr.proxy_reference or "").strip())
         ]
-        if len(assigned_vias) <= 2:
+        if len(assigned_vias) <= 4:
             iso_st = "SAFE"
             proxies_safe_count += 1
         else:

@@ -1235,13 +1235,14 @@ internal sealed partial class MainWindow : Window
             list.Add(entry);
         }
 
-        ViaTrustEvaluator.DetectClientSiloConflicts(list);
+        var maxPerIp = Math.Max(1, _config.MaxViasPerProxyInBatch);
+        ViaTrustEvaluator.DetectClientSiloConflicts(list, maxPerIp);
         foreach (var v in list)
         {
             var localSec = LocalSecretVaultStore.Default.Find(v.ViaId, v.ProfileDir, v.Label);
             var hasTwoFa = !string.IsNullOrWhiteSpace(v.TwoFaSecret) || (localSec.Found && !string.IsNullOrWhiteSpace(localSec.TwoFaSecret));
             var hasCookie = localSec.Found && !string.IsNullOrWhiteSpace(localSec.CookieRaw);
-            (v.TrustScore, v.TrustSummary) = ViaTrustEvaluator.EvaluateTrustScore(v, hasTwoFa, hasCookie);
+            (v.TrustScore, v.TrustSummary) = ViaTrustEvaluator.EvaluateTrustScore(v, hasTwoFa, hasCookie, maxPerIp);
         }
 
         _vias = list;
@@ -1518,7 +1519,8 @@ internal sealed partial class MainWindow : Window
             _config.AutoKeepAliveEndHour,
             enforceDaytimeWindow: true,
             enforceSoakQuarantine: _config.EnforceSoakQuarantine,
-            enforceClientSilo: _config.EnforceClientSilo);
+            enforceClientSilo: _config.EnforceClientSilo,
+            interleaveByProxy: true);
 
         AppendLog($"Đã xếp hàng {tasks.Count} Via vào Hàng đợi Đảo Ấm an toàn.");
         RenderCurrentView();

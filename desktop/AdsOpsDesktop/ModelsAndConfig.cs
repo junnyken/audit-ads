@@ -144,7 +144,7 @@ public sealed class DesktopConfig
     public int AutoKeepAliveMinGapMinutes { get; set; } = 20;
     public int DefaultStaggerSeconds { get; set; } = 65;
     public bool PreCheckProxyBeforeLaunch { get; set; } = true;
-    public int MaxViasPerProxyInBatch { get; set; } = 2;
+    public int MaxViasPerProxyInBatch { get; set; } = 4;
     public bool WarmupBeforeCreate { get; set; } = true;
     public bool AutoUploadMedia { get; set; } = true;
     public bool AutoCloseKeepAliveTab { get; set; } = true;
@@ -156,6 +156,7 @@ public sealed class DesktopConfig
     public string DefaultWarmupMode { get; set; } = "human_organic";
     public bool AutoRefreshCookieAfterKeepAlive { get; set; } = true;
     public bool IpLeakKillSwitchEnabled { get; set; } = true;
+    public int ConfigMigrationVersion { get; set; } = 0;
 
     [JsonIgnore]
     public string AccessToken
@@ -198,11 +199,17 @@ public sealed class DesktopConfig
                     if (string.IsNullOrWhiteSpace(cfg.WebAppUrl)) cfg.WebAppUrl = DefaultWebAppUrl;
                     if (cfg.BridgePort <= 0) cfg.BridgePort = 17890;
                     if (cfg.DefaultStaggerSeconds < 18) cfg.DefaultStaggerSeconds = 65;
-                    if (cfg.MaxViasPerProxyInBatch < 1) cfg.MaxViasPerProxyInBatch = 2;
+                    if (cfg.MaxViasPerProxyInBatch < 1) cfg.MaxViasPerProxyInBatch = 4;
                     if (cfg.AutoKeepAliveMinGapMinutes < 5) cfg.AutoKeepAliveMinGapMinutes = 20;
                     if (cfg.SoakQuarantineHours < 12 || cfg.SoakQuarantineHours > 336) cfg.SoakQuarantineHours = 72;
                     if (cfg.AutoCooldownHours < 1 || cfg.AutoCooldownHours > 168) cfg.AutoCooldownHours = 24;
                     if (string.IsNullOrWhiteSpace(cfg.DefaultWarmupMode)) cfg.DefaultWarmupMode = "human_organic";
+                    if (cfg.ConfigMigrationVersion < 241)
+                    {
+                        if (cfg.MaxViasPerProxyInBatch == 2) cfg.MaxViasPerProxyInBatch = 4;
+                        cfg.ConfigMigrationVersion = 241;
+                        try { cfg.Save(path); } catch { }
+                    }
                     return cfg;
                 }
             }
@@ -893,6 +900,7 @@ public sealed class ViaWorkspaceEntry
     public bool IsInCooldown => CooldownUntilUtc.HasValue && CooldownUntilUtc.Value > DateTimeOffset.UtcNow;
     public bool HasSiloConflict { get; set; }
     public string SiloConflictDetail { get; set; } = "";
+    public int SharedProxyViaCount { get; set; } = 1;
     public int TrustScore { get; set; } = 100;
     public string TrustSummary { get; set; } = "";
     public DateTimeOffset? LastCookieRefreshUtc { get; set; }
@@ -1537,12 +1545,13 @@ public static class ViaBulkImportParser
             {
                 var exCount = existingProxyCounts.GetValueOrDefault(r.ProxyHostPort);
                 var bCount = batchProxyCounts.GetValueOrDefault(r.ProxyHostPort);
-                if (exCount > 0 && bCount > 1)
-                    warn = $"⚠️ Trùng Proxy {r.ProxyHostPort} (đã có {exCount} Via + {bCount} dòng trong lô)";
-                else if (exCount > 0)
-                    warn = $"⚠️ Trùng Proxy {r.ProxyHostPort} (đang dùng bởi {exCount} Via trên Cloud)";
-                else if (bCount > 1)
-                    warn = $"⚠️ Trùng Proxy {r.ProxyHostPort} ({bCount} dòng trong lô này)";
+                var totalOnIp = exCount + bCount;
+                if (exCount > 0 || bCount > 1)
+                {
+                    warn = totalOnIp <= 4
+                        ? $"ℹ️ Cụm Proxy Dân cư {r.ProxyHostPort} ({totalOnIp}/4 Via — Trong ngưỡng an toàn)"
+                        : $"⚠️ Quá tải Proxy {r.ProxyHostPort} ({totalOnIp} Via > ngưỡng 4 Via/IP dân cư)";
+                }
 
                 if (!string.IsNullOrEmpty(warn))
                 {
@@ -1885,8 +1894,8 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "2.4.0";
-    public const string DisplayVersion = "v2.4.0";
+    public const string Version = "2.4.1";
+    public const string DisplayVersion = "v2.4.1";
     public const string ExtVersion = "2.9.6";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 
@@ -2778,17 +2787,28 @@ public sealed class ViaStewardshipStore
     }
 }
 
-/// <summary>Deterministic cross-client Silo Isolation checker and Environmental Trust Score calculator.</summary>
+/// <summary>Deterministic cross-client Silo Isolation, universal duplicate Chrome Profile checker, and Environmental Trust Score calculator.</summary>
 public static class ViaTrustEvaluator
 {
-    public static void DetectClientSiloConflicts(IList<ViaWorkspaceEntry> vias)
+    public static void DetectClientSiloConflicts(IList<ViaWorkspaceEntry> vias, int maxSharedPerProxy = 4)
     {
         if (vias == null || vias.Count == 0) return;
 
+        var proxyCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var v in vias)
         {
             v.HasSiloConflict = false;
             v.SiloConflictDetail = "";
+            var px = AutomationQueueEngine.ExtractProxyHostPort(v.NetworkLabel);
+            if (!string.IsNullOrEmpty(px))
+            {
+                proxyCounts[px] = proxyCounts.GetValueOrDefault(px) + 1;
+            }
+        }
+        foreach (var v in vias)
+        {
+            var px = AutomationQueueEngine.ExtractProxyHostPort(v.NetworkLabel);
+            v.SharedProxyViaCount = !string.IsNullOrEmpty(px) && proxyCounts.TryGetValue(px, out var cnt) ? cnt : 1;
         }
 
         for (int i = 0; i < vias.Count; i++)
@@ -2802,33 +2822,30 @@ public static class ViaTrustEvaluator
             {
                 var b = vias[j];
                 var clientB = (b.ClientGroup ?? "").Trim();
-
-                // Same ClientGroup (or both unassigned) does NOT violate Multi-Client Silo isolation.
-                if (string.Equals(clientA, clientB, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                // Conflict if at least one belongs to a named ClientGroup and shares proxy IP or Chrome profile directory
                 var reasonsA = new List<string>();
                 var reasonsB = new List<string>();
 
-                var pxB = AutomationQueueEngine.ExtractProxyHostPort(b.NetworkLabel);
-                if (!string.IsNullOrEmpty(pxA) && string.Equals(pxA, pxB, StringComparison.OrdinalIgnoreCase))
-                {
-                    var peerA = string.IsNullOrEmpty(clientB) ? b.Label : $"Khách {clientB} ({b.Label})";
-                    var peerB = string.IsNullOrEmpty(clientA) ? a.Label : $"Khách {clientA} ({a.Label})";
-                    reasonsA.Add($"Trùng Proxy {pxA} với {peerA}");
-                    reasonsB.Add($"Trùng Proxy {pxA} với {peerB}");
-                }
-
+                // 1) Unconditional check: two Vias sharing the same Chrome Profile ALWAYS risk overwriting cookies
                 var profB = (b.ProfileDir ?? "").Trim();
                 if (!string.IsNullOrEmpty(profA) && string.Equals(profA, profB, StringComparison.OrdinalIgnoreCase))
                 {
-                    var peerA = string.IsNullOrEmpty(clientB) ? b.Label : $"Khách {clientB} ({b.Label})";
-                    var peerB = string.IsNullOrEmpty(clientA) ? a.Label : $"Khách {clientA} ({a.Label})";
-                    reasonsA.Add($"Trùng Chrome {profA} với {peerA}");
-                    reasonsB.Add($"Trùng Chrome {profA} với {peerB}");
+                    reasonsA.Add($"Trùng Chrome {profA} với {b.Label} (nguy cơ đè Cookie)");
+                    reasonsB.Add($"Trùng Chrome {profA} với {a.Label} (nguy cơ đè Cookie)");
+                }
+
+                // 2) Cross-client Proxy check (same ClientGroup or both unassigned may safely share Residential Proxy up to maxSharedPerProxy)
+                var differentClients = !string.Equals(clientA, clientB, StringComparison.OrdinalIgnoreCase) &&
+                                       (!string.IsNullOrEmpty(clientA) || !string.IsNullOrEmpty(clientB));
+                if (differentClients)
+                {
+                    var pxB = AutomationQueueEngine.ExtractProxyHostPort(b.NetworkLabel);
+                    if (!string.IsNullOrEmpty(pxA) && string.Equals(pxA, pxB, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var peerA = string.IsNullOrEmpty(clientB) ? b.Label : $"Khách {clientB} ({b.Label})";
+                        var peerB = string.IsNullOrEmpty(clientA) ? a.Label : $"Khách {clientA} ({a.Label})";
+                        reasonsA.Add($"Trùng Proxy {pxA} với {peerA}");
+                        reasonsB.Add($"Trùng Proxy {pxA} với {peerB}");
+                    }
                 }
 
                 if (reasonsA.Count > 0)
@@ -2847,17 +2864,19 @@ public static class ViaTrustEvaluator
         }
     }
 
-    public static (int Score, string Summary) EvaluateTrustScore(ViaWorkspaceEntry v, bool hasTwoFa, bool hasVaultCookie)
+    public static (int Score, string Summary) EvaluateTrustScore(ViaWorkspaceEntry v, bool hasTwoFa, bool hasVaultCookie, int maxSharedPerProxy = 4)
     {
         int score = 0;
         var notes = new List<string>();
+        var safeLimit = Math.Max(1, maxSharedPerProxy);
 
         if (!string.IsNullOrWhiteSpace(v.NetworkLabel))
         {
+            var clusterNote = v.SharedProxyViaCount > 1 ? $" ({v.SharedProxyViaCount}/{safeLimit} Via" : " (";
             if (string.Equals(v.ProxyLastStatus, "LIVE", StringComparison.OrdinalIgnoreCase))
             {
                 score += 30;
-                notes.Add("Proxy LIVE (+30)");
+                notes.Add($"Proxy LIVE{clusterNote}+30)");
             }
             else if (string.Equals(v.ProxyLastStatus, "DEAD", StringComparison.OrdinalIgnoreCase))
             {
@@ -2867,7 +2886,13 @@ public static class ViaTrustEvaluator
             else
             {
                 score += 18;
-                notes.Add("Đã gắn Proxy (+18)");
+                notes.Add($"Đã gắn Proxy{clusterNote}+18)");
+            }
+
+            if (v.SharedProxyViaCount > safeLimit)
+            {
+                score -= 10;
+                notes.Add($"Quá tải cụm Proxy ({v.SharedProxyViaCount}/{safeLimit} Via, -10)");
             }
         }
         else

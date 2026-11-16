@@ -1040,8 +1040,8 @@ export default function Assets() {
                   </CardTitle>
                   <p className="mt-0.5 text-xs text-ink-muted">
                     {isEn
-                      ? 'Separate IPv4 residential lines by BM cluster so an IP flag never cascades across your entire Via fleet.'
-                      : 'Phân tách dải IP dân cư tĩnh (Viettel / VNPT / FPT) theo từng cụm BM (tối đa 1–2 Via/Proxy) để không bao giờ bị Meta quét trùng IP chết chùm.'}
+                      ? 'Separate IPv4 residential lines cleanly (max 4 same-group Vias/Proxy with isolated Chrome Profiles) so an IP flag never cascades.'
+                      : 'Phân tách dải IP dân cư tĩnh (Viettel / VNPT / FPT) theo từng cụm (tối đa 4 Via cùng nhóm/Proxy, tách Profile riêng) để ổn định tự nhiên và không bao giờ chết chùm.'}
                   </p>
                 </div>
                 <Button size="sm" onClick={() => setCreateProxyOpen(true)} className="gap-1.5">
@@ -1057,7 +1057,7 @@ export default function Assets() {
                     <tr className="border-y border-line bg-surface-muted/60 text-[11px] font-bold uppercase tracking-wider text-ink-muted">
                       <th className="px-3.5 py-2.5">{isEn ? '1. Proxy Line / Cluster Label' : '1. Tên Tuyến Mạng / Cụm Proxy'}</th>
                       <th className="px-3.5 py-2.5">{isEn ? '2. ISP Provider & Region' : '2. Nhà Mạng & Khu Vực'}</th>
-                      <th className="px-3.5 py-2.5">{isEn ? '3. Load Safety (≤ 2 Vias)' : '3. Tải An Toàn (≤ 2 Via/Proxy)'}</th>
+                      <th className="px-3.5 py-2.5">{isEn ? '3. Load Safety (≤ 4 Vias)' : '3. Tải An Toàn (≤ 4 Via/Proxy dân cư)'}</th>
                       <th className="px-3.5 py-2.5">{isEn ? '4. Vias Routed on This IP' : '4. Các Via Đang Đi Qua Tuyến Này'}</th>
                       <th className="px-3.5 py-2.5">{isEn ? '5. Extension Setup' : '5. Cài Vào Tiện Ích Chrome'}</th>
                     </tr>
@@ -1098,14 +1098,14 @@ export default function Assets() {
                           {pr.isolation_status === 'SAFE' ? (
                             <Badge tone="positive">
                               {isEn
-                                ? `🟢 Safe Load (${pr.via_count}/2 Vias)`
-                                : `🟢 Đúng chuẩn (${pr.via_count}/2 Via)`}
+                                ? `🟢 Safe Load (${pr.via_count}/4 Vias)`
+                                : `🟢 Đúng chuẩn (${pr.via_count}/4 Via)`}
                             </Badge>
                           ) : (
                             <Badge tone="attention">
                               {isEn
-                                ? `🔴 Overloaded (${pr.via_count}/2 Vias)`
-                                : `🔴 Quá tải (${pr.via_count}/2 Via — Cần tách bớt)`}
+                                ? `🔴 Overloaded (${pr.via_count}/4 Vias)`
+                                : `🔴 Quá tải (${pr.via_count}/4 Via — Cần tách bớt)`}
                             </Badge>
                           )}
                         </td>

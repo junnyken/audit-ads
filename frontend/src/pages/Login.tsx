@@ -1202,12 +1202,12 @@ export default function Login() {
                   {isEn ? '4. 1 Proxy → Vias' : '4. Hạn mức 1 Proxy → Via'}
                 </div>
                 <div className="font-mono text-base font-extrabold text-ink tabular-nums">
-                  {isEn ? '1–2 Vias / 1 Static IPv4' : '1–2 Via / 1 Proxy IPv4'}
+                  {isEn ? '1–4 Vias / 1 Static Residential IPv4' : '1–4 Via / 1 Proxy Dân cư'}
                 </div>
                 <p className="text-xs text-ink-muted leading-relaxed">
                   {isEn
-                    ? 'Use Static Residential IPv4 Proxies. Assign 1 dedicated Chrome Profile per Via and at most 1–2 Vias from the same BM cluster per Proxy.'
-                    : 'Mỗi Via cố định 1 Hồ sơ Chrome riêng biệt; mỗi Proxy IPv4 Dân cư tĩnh chỉ nuôi tối đa 1–2 Via thuộc cùng cụm BM.'}
+                    ? 'Use Static Residential IPv4 Proxies. Assign 1 dedicated Chrome Profile per Via and at most 1–4 same-group Vias per Residential Proxy.'
+                    : 'Mỗi Via cố định 1 Hồ sơ Chrome riêng biệt; mỗi Proxy IPv4 Dân cư tĩnh nuôi an toàn 1–4 Via cùng nhóm (chạy xen kẽ giãn nhịp).'}
                 </p>
               </div>
             </div>

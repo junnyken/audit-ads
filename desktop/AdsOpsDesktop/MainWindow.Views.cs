@@ -544,7 +544,7 @@ internal sealed partial class MainWindow
         exportViasBtn.Margin = new Thickness(0, 0, 6, 0);
         rightHeaderBtns.Children.Add(exportViasBtn);
 
-        var shieldLogBtn = UiComponents.CreateButton("Nhật ký Bảo vệ", ButtonVariant.Secondary, FluentIcons.ShieldCheck, onClick: (_, _) => OpenStewardshipLogDialog(), tooltip: "Xem lịch sử chặn rò rỉ IP, Cooldown 24h & Cách ly Khách hàng (v2.4.0)");
+        var shieldLogBtn = UiComponents.CreateButton("Nhật ký Bảo vệ", ButtonVariant.Secondary, FluentIcons.ShieldCheck, onClick: (_, _) => OpenStewardshipLogDialog(), tooltip: "Xem lịch sử chặn rò rỉ IP, Cooldown 24h & Cách ly Khách hàng (v2.4.1)");
         shieldLogBtn.Margin = new Thickness(0, 0, 6, 0);
         rightHeaderBtns.Children.Add(shieldLogBtn);
 
@@ -1032,7 +1032,7 @@ internal sealed partial class MainWindow
                 {
                     ("Ngành hàng:", PageNicheTemplates.All.FirstOrDefault(x => x.Key == _batchNicheKey)?.Label ?? _batchNicheKey),
                     ("Số lượng yêu cầu:", $"{_batchCount} Page (Max SAFE hiện tại: {safeVias})"),
-                    ("Nghỉ giãn cách:", $"~{_batchStaggerSec}s ± 35% Jitter + IP Cluster Guard ({_config.MaxViasPerProxyInBatch}/IP)"),
+                    ("Nghỉ giãn cách:", $"~{_batchStaggerSec}s ± 35% Jitter + IP Guard (Tạo Page: tối đa {Math.Min(_config.MaxViasPerProxyInBatch, 2)}/IP • Nuôi: {_config.MaxViasPerProxyInBatch}/IP)"),
                     ("Chế độ Extension:", _batchAutoSubmit ? "Tự điền & Tạo Page + đăng Warmup" : "Chỉ điền sẵn biểu mẫu để kiểm tra"),
                 },
                 "Các Via hết hạn mức ngày/tuần sẽ được Backend tự động bỏ qua để bảo vệ Trust tài khoản.");
@@ -1086,12 +1086,13 @@ internal sealed partial class MainWindow
                     tasks,
                     _batchStaggerSec,
                     _config.PreCheckProxyBeforeLaunch,
-                    _config.MaxViasPerProxyInBatch,
+                    Math.Min(_config.MaxViasPerProxyInBatch, 2),
                     _config.AutoKeepAliveStartHour,
                     _config.AutoKeepAliveEndHour,
                     enforceDaytimeWindow: true,
                     enforceSoakQuarantine: _config.EnforceSoakQuarantine,
-                    enforceClientSilo: _config.EnforceClientSilo);
+                    enforceClientSilo: _config.EnforceClientSilo,
+                    interleaveByProxy: true);
             }
             catch (Exception ex)
             {
@@ -1139,7 +1140,7 @@ internal sealed partial class MainWindow
         var tbMaxPerIp = UiComponents.CreateTextBox(_config.MaxViasPerProxyInBatch.ToString());
         var g1 = BuildLabeledBox("Giờ bắt đầu", tbStartH);
         var g2 = BuildLabeledBox("Giờ nghỉ đêm", tbEndH);
-        var g3 = BuildLabeledBox("Max Via / 1 IP", tbMaxPerIp);
+        var g3 = BuildLabeledBox("Max Via / 1 Proxy Dân cư", tbMaxPerIp);
         Grid.SetColumn(g1, 0);
         Grid.SetColumn(g2, 2);
         Grid.SetColumn(g3, 4);
@@ -1180,7 +1181,7 @@ internal sealed partial class MainWindow
         var shieldPanel = new StackPanel();
         shieldPanel.Children.Add(new TextBlock
         {
-            Text = "🛡️ Khiên Chống Checkpoint, Ngâm 72h & Cách Ly Đa Khách Hàng (v2.4.0)",
+            Text = "🛡️ Khiên Chống Checkpoint, Ngâm 72h & Cách Ly Đa Khách Hàng (v2.4.1)",
             FontSize = 15,
             FontWeight = FontWeights.Bold,
             Foreground = ThemeTokens.SuccessText,
@@ -1242,7 +1243,7 @@ internal sealed partial class MainWindow
             if (int.TryParse(tbCooldownHrs.Text, out var ch)) _config.AutoCooldownHours = Math.Clamp(ch, 1, 168);
             _config.Save();
             var provisioned = ProvisionAllViaExtensions(silent: true);
-            AppendLog($"Đã lưu Khiên Chống Checkpoint v2.4.0 (Soak {_config.SoakQuarantineHours}h, Cooldown {_config.AutoCooldownHours}h, Mode={_config.DefaultWarmupMode}) và cập nhật {provisioned} Extension v{DesktopAppInfo.ExtVersion}.");
+            AppendLog($"Đã lưu Khiên Chống Checkpoint v2.4.1 (Soak {_config.SoakQuarantineHours}h, Cooldown {_config.AutoCooldownHours}h, Mode={_config.DefaultWarmupMode}) và cập nhật {provisioned} Extension v{DesktopAppInfo.ExtVersion}.");
             RenderCurrentView();
         });
         saveShieldBtn.Margin = new Thickness(0, 0, 8, 0);

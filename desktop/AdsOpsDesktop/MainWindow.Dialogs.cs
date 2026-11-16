@@ -137,7 +137,7 @@ internal sealed partial class MainWindow
             Visibility = Visibility.Collapsed,
         };
 
-        // Multi-Client Silo & Default Warmup Route (v2.4.0)
+        // Multi-Client Silo & Default Warmup Route (v2.4.1)
         var twoColSilo = new Grid { Margin = new Thickness(0, 8, 0, 0) };
         twoColSilo.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         twoColSilo.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
@@ -170,8 +170,24 @@ internal sealed partial class MainWindow
             var hostPort = AutomationQueueEngine.ExtractProxyHostPort(tbProxy.Text);
             var clientVal = tbClientGroup.Text.Trim();
             var profVal = (cbProfile.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "Default";
-            var warnings = new List<string>();
+            var maxSafe = Math.Max(1, _config.MaxViasPerProxyInBatch);
+            var hints = new List<string>();
             bool isDanger = false;
+            bool isWarn = false;
+
+            // Unconditional duplicate Chrome Profile check (across ALL Vias regardless of ClientGroup)
+            if (!string.IsNullOrWhiteSpace(profVal))
+            {
+                var profDups = _vias.Where(v =>
+                    !string.Equals(v.ViaId, existing?.ViaId, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(v.ProfileDir, profVal, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                if (profDups.Count > 0)
+                {
+                    isDanger = true;
+                    hints.Add($"🚨 Trùng Hồ sơ Chrome «{profVal}» với Via {string.Join(", ", profDups.Select(v => v.Label))} — Bắt buộc tách Profile riêng để không đè Cookie!");
+                }
+            }
 
             if (!string.IsNullOrWhiteSpace(hostPort))
             {
@@ -187,33 +203,26 @@ internal sealed partial class MainWindow
                     if (crossClient.Count > 0)
                     {
                         isDanger = true;
-                        warnings.Add($"🚨 XUNG ĐỘT SILO KHÁCH HÀNG: Proxy {hostPort} đang gắn cho khách khác ({string.Join(", ", crossClient.Select(x => $"{x.Label} [{x.ClientGroup}]"))})!");
+                        hints.Add($"🚨 XUNG ĐỘT SILO KHÁCH HÀNG: Proxy {hostPort} đang gắn cho khách khác ({string.Join(", ", crossClient.Select(x => $"{x.Label} [{x.ClientGroup}]"))})!");
+                    }
+                    else if (collisions.Count + 1 <= maxSafe)
+                    {
+                        hints.Add($"✓ Cụm Proxy Dân cư an toàn ({collisions.Count + 1}/{maxSafe} Via cùng nhóm trên {hostPort}): {string.Join(", ", collisions.Select(v => v.Label))}.");
                     }
                     else
                     {
-                        warnings.Add($"⚠ Trùng IP Proxy ({hostPort}) với Via khác: {string.Join(", ", collisions.Select(v => v.Label))}.");
+                        isWarn = true;
+                        hints.Add($"⚠ Vượt ngưỡng Cụm Proxy Dân cư ({collisions.Count + 1}/{maxSafe} Via trên {hostPort}): {string.Join(", ", collisions.Select(v => v.Label))}.");
                     }
                 }
             }
 
-            if (!string.IsNullOrEmpty(clientVal))
+            if (hints.Count > 0)
             {
-                var profCross = _vias.Where(v =>
-                    !string.Equals(v.ViaId, existing?.ViaId, StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals(v.ProfileDir, profVal, StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(v.ClientGroup ?? "", clientVal, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-                if (profCross.Count > 0)
-                {
-                    isDanger = true;
-                    warnings.Add($"🚨 Trùng Chrome Profile «{profVal}» với Via khác khách ({string.Join(", ", profCross.Select(v => v.Label))}).");
-                }
-            }
-
-            if (warnings.Count > 0)
-            {
-                proxyDupHint.Text = string.Join(" ", warnings);
-                proxyDupHint.Foreground = isDanger ? ThemeTokens.DangerText : ThemeTokens.WarningText;
+                proxyDupHint.Text = string.Join(" ", hints);
+                proxyDupHint.Foreground = isDanger
+                    ? ThemeTokens.DangerText
+                    : (isWarn ? ThemeTokens.WarningText : ThemeTokens.SuccessText);
                 proxyDupHint.Visibility = Visibility.Visible;
             }
             else
@@ -2133,7 +2142,7 @@ internal sealed partial class MainWindow
     {
         var dlg = new Window
         {
-            Title = "Nhật ký Khiên Chống Checkpoint & Cách Ly Đa Khách Hàng (v2.4.0)",
+            Title = "Nhật ký Khiên Chống Checkpoint & Cách Ly Đa Khách Hàng (v2.4.1)",
             Width = 800,
             Height = 680,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
