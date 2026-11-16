@@ -111,6 +111,10 @@ export default function Settings() {
 
       <ProxyClusterCapacitySection />
 
+      <CommunityQuotaSection isOwner={isOwner} />
+
+      {me.data.is_platform_admin && <CommunitySuperAdminSection />}
+
       <DomainSeoSection isOwner={isOwner} />
 
       <details className="rounded-md border border-line bg-surface p-3">
@@ -1033,7 +1037,7 @@ function ProxyClusterCapacitySection() {
       <div className="space-y-3">
         <p className="text-xs leading-relaxed text-ink-muted">
           Tùy chỉnh số tài khoản Via tối đa dùng chung 1 Proxy trước khi Web UI hiển thị cảnh báo quá tải (mặc định{' '}
-          <strong className="text-ink">{DEFAULT_MAX_VIAS_PER_PROXY} Via/Proxy</strong> cho Proxy Dân cư; bạn có thể nâng lên tới 50 nếu vận hành proxy xoay hoặc dải đặc biệt). Trên App Windows Desktop v2.4.2, bạn có thể chỉnh thêm thông số chạy hàng loạt &amp; xuất Full Backup <code>.adsopsvault</code>.
+          <strong className="text-ink">{DEFAULT_MAX_VIAS_PER_PROXY} Via/Proxy</strong> cho Proxy Dân cư; bạn có thể nâng lên tới 50 nếu vận hành proxy xoay hoặc dải đặc biệt). Trên App Windows Desktop v2.5.0, bạn có thể chỉnh thêm thông số Antidetect / RAM &amp; xuất Full Backup <code>.adsopsvault</code>.
         </p>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -1076,6 +1080,465 @@ function ProxyClusterCapacitySection() {
           </div>
         )}
       </div>
+    </Panel>
+  )
+}
+
+interface CommunityQuotaResp {
+  plan_tier: string
+  community_status: string
+  max_vias: number
+  vias_used: number
+  max_ad_accounts: number
+  ad_accounts_used: number
+  max_members: number
+  members_used: number
+  invited_by_code: string | null
+  is_platform_admin: boolean
+}
+
+function CommunityQuotaSection({ isOwner }: { isOwner: boolean }) {
+  const qc = useQueryClient()
+  const q = useQuery({
+    queryKey: ['community-my-quota'],
+    queryFn: () => api.get<CommunityQuotaResp>('/api/v1/community/my-quota'),
+  })
+  const [codeInput, setCodeInput] = useState('')
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const redeemMut = useMutation({
+    mutationFn: () => api.post<CommunityQuotaResp>('/api/v1/community/redeem-code', { code: codeInput.trim().toUpperCase() }),
+    onSuccess: (res) => {
+      setCodeInput('')
+      setNotice({
+        ok: true,
+        text: `Đã nâng cấp thành công lên gói ${res.plan_tier.toUpperCase()} (${res.max_vias} Via · ${res.max_ad_accounts} TKQC · ${res.max_members} Thành viên)!`,
+      })
+      void qc.invalidateQueries({ queryKey: ['community-my-quota'] })
+      void qc.invalidateQueries({ queryKey: ['me'] })
+    },
+    onError: (err) => {
+      setNotice({ ok: false, text: err instanceof Error ? err.message : 'Mã mời không hợp lệ hoặc đã hết lượt.' })
+    },
+  })
+
+  const d = q.data
+  const tierLabel =
+    d?.plan_tier === 'agency'
+      ? '🏢 GÓI AGENCY (FULL)'
+      : d?.plan_tier === 'pro'
+        ? '⚡ GÓI PRO CỘNG ĐỒNG'
+        : '🌱 GÓI CỘNG ĐỒNG FREE'
+
+  return (
+    <Panel title="🎟️ Gói Thành Viên Cộng Đồng & Hạn Mức Tài Nguyên (Quota)">
+      {q.isLoading ? (
+        <Skeleton className="h-20 w-full" />
+      ) : q.isError ? (
+        <ErrorState title="Chưa tải được thông tin Gói & Quota" error={q.error} onRetry={() => q.refetch()} compact />
+      ) : d ? (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <Badge tone={d.plan_tier === 'agency' || d.plan_tier === 'pro' ? 'positive' : 'neutral'}>{tierLabel}</Badge>
+            <Badge tone={d.community_status === 'active' ? 'positive' : 'attention'}>
+              {d.community_status === 'active' ? 'Đang hoạt động' : 'Đang tạm khóa'}
+            </Badge>
+            {d.invited_by_code && (
+              <span className="font-mono text-ink-muted">Mã kích hoạt: {d.invited_by_code}</span>
+            )}
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3 text-xs">
+            <div className="rounded border border-line bg-surface-sunken p-2.5">
+              <div className="text-ink-muted">Tài khoản Via</div>
+              <div className="mt-1 font-mono text-sm font-bold text-ink tabular-nums">
+                {d.vias_used} / {d.max_vias}
+              </div>
+            </div>
+            <div className="rounded border border-line bg-surface-sunken p-2.5">
+              <div className="text-ink-muted">Tài khoản QC (TKQC)</div>
+              <div className="mt-1 font-mono text-sm font-bold text-ink tabular-nums">
+                {d.ad_accounts_used} / {d.max_ad_accounts}
+              </div>
+            </div>
+            <div className="rounded border border-line bg-surface-sunken p-2.5">
+              <div className="text-ink-muted">Thành viên Team</div>
+              <div className="mt-1 font-mono text-sm font-bold text-ink tabular-nums">
+                {d.members_used} / {d.max_members}
+              </div>
+            </div>
+          </div>
+
+          {isOwner && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  className="input flex-1 font-mono text-xs uppercase"
+                  value={codeInput}
+                  onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
+                  placeholder="Nhập Mã Mời / Nâng cấp hạn mức (VD: ADSOPS-PRO-XXXXXX)"
+                  maxLength={64}
+                />
+                <Button
+                  type="button"
+                  disabled={redeemMut.isPending || codeInput.trim().length < 3}
+                  onClick={() => redeemMut.mutate()}
+                >
+                  {redeemMut.isPending ? 'Đang kích hoạt...' : '🎟️ Nạp Mã Nâng Cấp'}
+                </Button>
+              </div>
+              {notice && (
+                <div
+                  className={`rounded-md border px-3 py-2 text-xs font-medium ${
+                    notice.ok
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
+                      : 'border-rose-500/40 bg-rose-500/10 text-rose-800 dark:text-rose-200'
+                  }`}
+                >
+                  {notice.text}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ) : null}
+    </Panel>
+  )
+}
+
+interface AdminWorkspaceRow {
+  id: string
+  name: string
+  slug: string
+  plan_tier: string
+  max_vias: number
+  vias_used: number
+  max_ad_accounts: number
+  ad_accounts_used: number
+  max_members: number
+  members_used: number
+  community_status: string
+  invited_by_code: string | null
+}
+
+interface AdminOverviewResp {
+  require_invite_code: boolean
+  total_workspaces: number
+  active_workspaces: number
+  invite_codes_count: number
+  workspaces: AdminWorkspaceRow[]
+}
+
+interface InviteCodeRow {
+  id: string
+  code: string
+  label: string
+  plan_tier: string
+  max_vias: number
+  max_ad_accounts: number
+  max_members: number
+  max_uses: number
+  used_count: number
+  is_active: boolean
+}
+
+function CommunitySuperAdminSection() {
+  const qc = useQueryClient()
+  const ovQ = useQuery({
+    queryKey: ['community-admin-overview'],
+    queryFn: () => api.get<AdminOverviewResp>('/api/v1/community/admin/overview'),
+  })
+  const codesQ = useQuery({
+    queryKey: ['community-admin-codes'],
+    queryFn: () => api.get<InviteCodeRow[]>('/api/v1/community/admin/invite-codes'),
+  })
+
+  const [newLabel, setNewLabel] = useState('Thành viên Cộng đồng Pro')
+  const [newTier, setNewTier] = useState<'community_free' | 'pro' | 'agency'>('pro')
+  const [newMaxVias, setNewMaxVias] = useState('50')
+  const [newMaxAds, setNewMaxAds] = useState('30')
+  const [newMaxUses, setNewMaxUses] = useState('25')
+  const [adminNotice, setAdminNotice] = useState('')
+
+  const policyMut = useMutation({
+    mutationFn: (requireCode: boolean) =>
+      api.put<{ require_invite_code: boolean }>('/api/v1/community/admin/policy', {
+        require_invite_code: requireCode,
+      }),
+    onSuccess: (res) => {
+      setAdminNotice(
+        res.require_invite_code
+          ? 'Đã BẬT chế độ Invite-Only (Chỉ ai có Mã mời mới đăng ký được).'
+          : 'Đã TẮT Invite-Only (Mở đăng ký tự do vào gói Cộng đồng Free).',
+      )
+      void qc.invalidateQueries({ queryKey: ['community-admin-overview'] })
+    },
+  })
+
+  const createCodeMut = useMutation({
+    mutationFn: () =>
+      api.post<InviteCodeRow>('/api/v1/community/admin/invite-codes', {
+        label: newLabel.trim(),
+        plan_tier: newTier,
+        max_vias: Number.parseInt(newMaxVias, 10) || 50,
+        max_ad_accounts: Number.parseInt(newMaxAds, 10) || 30,
+        max_uses: Number.parseInt(newMaxUses, 10) || 25,
+      }),
+    onSuccess: (res) => {
+      setAdminNotice(`Đã tạo Mã mời mới: ${res.code} (${res.plan_tier.toUpperCase()}, ${res.max_vias} Via).`)
+      void qc.invalidateQueries({ queryKey: ['community-admin-codes'] })
+      void qc.invalidateQueries({ queryKey: ['community-admin-overview'] })
+    },
+  })
+
+  const patchCodeMut = useMutation({
+    mutationFn: ({ id, is_active }: { id: string; is_active: boolean }) =>
+      api.patch<InviteCodeRow>(`/api/v1/community/admin/invite-codes/${id}`, { is_active }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['community-admin-codes'] })
+    },
+  })
+
+  const patchWsMut = useMutation({
+    mutationFn: ({
+      id,
+      plan_tier,
+      community_status,
+    }: {
+      id: string
+      plan_tier?: string
+      community_status?: 'active' | 'suspended'
+    }) =>
+      api.patch<AdminWorkspaceRow>(`/api/v1/community/admin/workspaces/${id}`, {
+        plan_tier,
+        community_status,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['community-admin-overview'] })
+      void qc.invalidateQueries({ queryKey: ['community-my-quota'] })
+    },
+  })
+
+  const ov = ovQ.data
+  const codes = codesQ.data ?? []
+
+  return (
+    <Panel title="👑 Bảng Điều Khiển Super-Admin Cộng Đồng (Mã Mời, Quota & Kiểm Soát Thành Viên)">
+      {ovQ.isLoading ? (
+        <Skeleton className="h-32 w-full" />
+      ) : ovQ.isError ? (
+        <ErrorState title="Không tải được Super-Admin Console" error={ovQ.error} onRetry={() => ovQ.refetch()} compact />
+      ) : ov ? (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-line bg-surface-sunken p-3 text-xs">
+            <div className="space-y-0.5">
+              <div className="font-semibold text-ink">
+                Chế độ Đăng ký:{' '}
+                <Badge tone={ov.require_invite_code ? 'caution' : 'positive'}>
+                  {ov.require_invite_code ? '🔒 Bắt buộc có Mã mời (Invite-Only)' : '🌐 Mở đăng ký Free Cộng đồng'}
+                </Badge>
+              </div>
+              <div className="text-ink-muted">
+                Tổng Workspace: <strong className="text-ink">{ov.total_workspaces}</strong> · Đang hoạt động:{' '}
+                <strong className="text-ink">{ov.active_workspaces}</strong> · Tổng Mã mời:{' '}
+                <strong className="text-ink">{ov.invite_codes_count}</strong>
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={policyMut.isPending}
+              onClick={() => policyMut.mutate(!ov.require_invite_code)}
+            >
+              {ov.require_invite_code ? '🌐 Chuyển sang Mở tự do' : '🔒 Bật khóa Invite-Only'}
+            </Button>
+          </div>
+
+          <div className="rounded-md border border-line p-3 space-y-2">
+            <div className="text-xs font-semibold text-ink">➕ Phát hành Mã Mời / Mã Nâng Cấp Nhanh</div>
+            <div className="grid gap-2 sm:grid-cols-5">
+              <input
+                className="input text-xs sm:col-span-2"
+                value={newLabel}
+                onChange={(e) => setNewLabel(e.target.value)}
+                placeholder="Ghi chú đợt phát mã"
+              />
+              <select
+                className="input text-xs"
+                value={newTier}
+                onChange={(e) => {
+                  const tVal = e.target.value as 'community_free' | 'pro' | 'agency'
+                  setNewTier(tVal)
+                  if (tVal === 'community_free') {
+                    setNewMaxVias('10')
+                    setNewMaxAds('5')
+                  } else if (tVal === 'pro') {
+                    setNewMaxVias('50')
+                    setNewMaxAds('30')
+                  } else {
+                    setNewMaxVias('500')
+                    setNewMaxAds('500')
+                  }
+                }}
+              >
+                <option value="community_free">Gói Free (10 Via)</option>
+                <option value="pro">Gói Pro (50 Via)</option>
+                <option value="agency">Gói Agency (500 Via)</option>
+              </select>
+              <input
+                type="number"
+                className="input font-mono text-xs"
+                value={newMaxVias}
+                onChange={(e) => setNewMaxVias(e.target.value)}
+                placeholder="Max Via"
+                aria-label="Max Via của mã"
+              />
+              <Button type="button" disabled={createCodeMut.isPending} onClick={() => createCodeMut.mutate()}>
+                {createCodeMut.isPending ? 'Đang tạo...' : 'Tạo Mã Mới'}
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-2 text-[11px] text-ink-muted">
+              <span>Max TKQC: {newMaxAds}</span>
+              <span>·</span>
+              <span>Số lượt nhập tối đa:</span>
+              <input
+                type="number"
+                className="input w-20 py-0.5 font-mono text-[11px]"
+                value={newMaxUses}
+                onChange={(e) => setNewMaxUses(e.target.value)}
+                aria-label="Số lượt dùng tối đa"
+              />
+            </div>
+          </div>
+
+          {adminNotice && (
+            <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-800 dark:text-emerald-200">
+              {adminNotice}
+            </div>
+          )}
+
+          {codes.length > 0 && (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Mã Mời</TableHead>
+                    <TableHead>Gói / Quota</TableHead>
+                    <TableHead>Lượt dùng</TableHead>
+                    <TableHead>Trạng thái</TableHead>
+                    <TableHead className="text-right">Thao tác</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {codes.map((c) => (
+                    <TableRow key={c.id}>
+                      <TableCell className="font-mono text-xs font-bold">{c.code}</TableCell>
+                      <TableCell className="text-xs">
+                        {c.plan_tier.toUpperCase()} ({c.max_vias} Via / {c.max_ad_accounts} TKQC)
+                      </TableCell>
+                      <TableCell className="font-mono text-xs tabular-nums">
+                        {c.used_count} / {c.max_uses}
+                      </TableCell>
+                      <TableCell>
+                        <Badge tone={c.is_active ? 'positive' : 'attention'}>
+                          {c.is_active ? 'Đang mở' : 'Đã khóa'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right space-x-2">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => {
+                            void navigator.clipboard?.writeText(c.code)
+                            setAdminNotice(`Đã sao chép mã: ${c.code}`)
+                          }}
+                        >
+                          Chép mã
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => patchCodeMut.mutate({ id: c.id, is_active: !c.is_active })}
+                        >
+                          {c.is_active ? 'Khóa mã' : 'Mở lại'}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Workspace</TableHead>
+                  <TableHead>Gói hiện tại</TableHead>
+                  <TableHead>Đã dùng (Via / TKQC / Team)</TableHead>
+                  <TableHead>Trạng thái</TableHead>
+                  <TableHead className="text-right">Quản trị nhanh</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {ov.workspaces.map((w) => (
+                  <TableRow key={w.id}>
+                    <TableCell className="text-xs font-semibold">
+                      {w.name} <span className="font-mono text-[11px] text-ink-faint">({w.slug})</span>
+                    </TableCell>
+                    <TableCell>
+                      <Badge tone={w.plan_tier === 'agency' ? 'positive' : w.plan_tier === 'pro' ? 'caution' : 'neutral'}>
+                        {w.plan_tier.toUpperCase()}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs tabular-nums">
+                      {w.vias_used}/{w.max_vias} Via · {w.ad_accounts_used}/{w.max_ad_accounts} TKQC · {w.members_used}/{w.max_members}
+                    </TableCell>
+                    <TableCell>
+                      <Badge tone={w.community_status === 'active' ? 'positive' : 'attention'}>
+                        {w.community_status === 'active' ? 'Hoạt động' : 'Tạm khóa'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right space-x-1.5">
+                      {w.plan_tier !== 'pro' && (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => patchWsMut.mutate({ id: w.id, plan_tier: 'pro' })}
+                        >
+                          Lên Pro
+                        </Button>
+                      )}
+                      {w.plan_tier !== 'agency' && (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => patchWsMut.mutate({ id: w.id, plan_tier: 'agency' })}
+                        >
+                          Lên Agency
+                        </Button>
+                      )}
+                      <Button
+                        type="button"
+                        variant={w.community_status === 'active' ? 'destructive' : 'secondary'}
+                        onClick={() =>
+                          patchWsMut.mutate({
+                            id: w.id,
+                            community_status: w.community_status === 'active' ? 'suspended' : 'active',
+                          })
+                        }
+                      >
+                        {w.community_status === 'active' ? 'Khóa' : 'Mở khóa'}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      ) : null}
     </Panel>
   )
 }

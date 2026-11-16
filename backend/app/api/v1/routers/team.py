@@ -192,6 +192,9 @@ def list_invitations(ctx: OwnerCtx) -> list[s.InvitationOut]:
 
 @router.post("/invitations", response_model=s.InvitationCreateResponse)
 def create_invitation(ctx: OwnerCtx, payload: s.InvitationCreateRequest) -> s.InvitationCreateResponse:
+    from app.services.community_quota import enforce_workspace_quota
+
+    enforce_workspace_quota(ctx.session, ctx.workspace, "member")
     invitation, raw_token = InvitationService(ctx.session, ctx.workspace_id, ctx.audit).create(
         email=payload.email, role=payload.role, actor_id=ctx.user.id
     )

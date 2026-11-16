@@ -101,6 +101,11 @@ internal sealed partial class MainWindow : Window
     private TeamSummaryDto? _teamSummary;
     private List<TeamMemberDto> _teamMembers = new();
     private List<TeamInvitationDto> _teamInvitations = new();
+    private CommunityQuotaDto? _communityQuota;
+    private List<AntidetectProfileSummary> _antidetectProfiles = new();
+    private string _antidetectStatusMessage = "";
+    private bool _isOfflineSnapshotMode;
+    private string _offlineSnapshotAt = "";
     private UpdateManifestDto? _latestUpdateManifest;
     private string _updateStatusText = "Chưa kiểm tra cập nhật trong phiên này.";
 
@@ -156,7 +161,8 @@ internal sealed partial class MainWindow : Window
             PreCheckProxyAsync,
             LaunchViaQueueItemAsync,
             OnQueueCompletedAsync,
-            AppendLog);
+            AppendLog,
+            getActiveBrowserCount: () => ChromeSessionTracker.Default.GetSnapshot().Count(s => s.Alive));
         _queue.SnapshotChanged += OnQueueSnapshotChanged;
 
         Title = $"AdsOps Desktop Pro v{DesktopAppInfo.Version}";
@@ -676,6 +682,12 @@ internal sealed partial class MainWindow : Window
 
         if (!string.IsNullOrWhiteSpace(_config.GetJwt()))
         {
+            var cached = CloudSnapshotCacheStore.Load(_config.UserEmail);
+            if (cached != null)
+            {
+                HydrateFromOfflineSnapshot(cached);
+                RenderCurrentView();
+            }
             await SyncCloudAsync(silent: false);
         }
         else
@@ -684,10 +696,30 @@ internal sealed partial class MainWindow : Window
         }
     }
 
+    private void HydrateFromOfflineSnapshot(CloudSnapshotPayload snap)
+    {
+        _currentUser = snap.CurrentUser;
+        _bms = snap.BusinessManagers ?? new();
+        _adAccounts = snap.AdAccounts ?? new();
+        _pagesSummary = snap.PagesSummary;
+        _healthSummary = snap.HealthSummary;
+        _communityQuota = snap.CommunityQuota;
+        if (snap.PersonalAccounts != null && snap.PersonalAccounts.Count > 0)
+        {
+            RebuildViaWorkspaceList(snap.PersonalAccounts);
+        }
+        _hasLoadedOnce = true;
+        _isOfflineSnapshotMode = true;
+        _offlineSnapshotAt = DateTimeOffset.TryParse(snap.SavedAtUtc, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var dt)
+            ? dt.ToLocalTime().ToString("dd/MM HH:mm")
+            : "";
+    }
+
     private void StartBridgeServer()
     {
         try
         {
+            _config.GetOrCreateBridgeToken();
             _bridge?.Dispose();
             LocalBridgeServer.RetireLegacyBridgeHoldingPort(_config.BridgePort, AppendLog);
             _bridge = new LocalBridgeServer(
@@ -700,10 +732,12 @@ internal sealed partial class MainWindow : Window
                 OnBridgeVaultGetAsync,
                 OnBridgeAutoConnectTokenAsync,
                 OnBridgeSyncBillingAsync,
-                OnBridgeTileWindows);
+                OnBridgeTileWindows,
+                () => _config.GetOrCreateBridgeToken(),
+                () => _config.WebAppUrl);
             _bridge.Start();
             var tpl = ExtensionProvisioner.LoadTemplates();
-            AppendLog($"Local Bridge v{DesktopAppInfo.Version} đang lắng nghe tại http://127.0.0.1:{_bridge.BoundPort} (Ext v{tpl.Version}).");
+            AppendLog($"Local Bridge v{DesktopAppInfo.Version} Zero-Trust đang lắng nghe tại http://127.0.0.1:{_bridge.BoundPort} (Ext v{tpl.Version}).");
         }
         catch (Exception ex)
         {
@@ -742,7 +776,14 @@ internal sealed partial class MainWindow : Window
                     NetworkLabel = req.Proxy ?? "",
                 };
                 var extFolder = ExtensionProvisioner.ProvisionForVia(tempVia, config: _config);
-                var pid = ExtensionProvisioner.LaunchChrome(url, fallbackProfile, extFolder, _config.UseIsolatedProfiles, tempVia.Label);
+                var pid = ExtensionProvisioner.LaunchChrome(
+                    url,
+                    fallbackProfile,
+                    extFolder,
+                    _config.UseIsolatedProfiles,
+                    tempVia.Label,
+                    _config.EnableChromeAntidetectShield,
+                    _config.LowRamFarmMode);
                 ChromeSessionTracker.Default.RecordLaunch(pid, null, tempVia.Label, fallbackProfile, url);
                 AppendLog($"Mở nhanh Chrome từ Web/Bridge: Profile '{fallbackProfile}' -> {url}");
                 tcs.TrySetResult((true, $"Đã mở Chrome '{fallbackProfile}'."));
@@ -1046,13 +1087,14 @@ internal sealed partial class MainWindow : Window
             var teamSumTask = TryFetchAsync<TeamSummaryDto?>(async () => await _api.GetTeamSummaryAsync(), null, "Team Summary");
             var teamMemTask = TryFetchAsync(() => _api.ListTeamMembersAsync(), new List<TeamMemberDto>(), "Team Members");
             var teamInvTask = TryFetchAsync(() => _api.ListTeamInvitationsAsync(), new List<TeamInvitationDto>(), "Team Invitations");
+            var quotaTask = TryFetchAsync<CommunityQuotaDto?>(async () => await _api.GetMyCommunityQuotaAsync(), null, "Hạn mức Cộng đồng");
 
             await Task.WhenAll(
                 userTask, accountsTask, bmsTask, adAccsTask, pagesTask, alertSumTask, alertsTask, cronTask,
                 metaConnTask, healthSumTask, healthRowsTask, draftsTask,
                 telegramTask, spendSumTask, sessionsTask,
                 proxyMapTask, readinessSumTask, readinessBoardTask, auditTask,
-                pixelsTask, domainSeoTask, retainersTask, teamSumTask, teamMemTask, teamInvTask);
+                pixelsTask, domainSeoTask, retainersTask, teamSumTask, teamMemTask, teamInvTask, quotaTask);
 
             _currentUser = userTask.Result;
             _bms = bmsTask.Result.Items ?? new();
@@ -1078,10 +1120,29 @@ internal sealed partial class MainWindow : Window
             _teamSummary = teamSumTask.Result;
             _teamMembers = teamMemTask.Result;
             _teamInvitations = teamInvTask.Result;
+            if (quotaTask.Result != null) _communityQuota = quotaTask.Result;
 
             RebuildViaWorkspaceList(accountsTask.Result.Items ?? new());
             ProvisionAllViaExtensions(silent: true);
 
+            try
+            {
+                CloudSnapshotCacheStore.Save(new CloudSnapshotPayload
+                {
+                    UserEmail = _currentUser?.Email ?? _config.UserEmail,
+                    SavedAtUtc = DateTime.UtcNow.ToString("O"),
+                    CurrentUser = _currentUser,
+                    PersonalAccounts = accountsTask.Result.Items ?? new(),
+                    BusinessManagers = _bms,
+                    AdAccounts = _adAccounts,
+                    PagesSummary = _pagesSummary,
+                    HealthSummary = _healthSummary,
+                    CommunityQuota = _communityQuota,
+                });
+            }
+            catch { }
+
+            _isOfflineSnapshotMode = false;
             _lastErrorMessage = null;
             _errorBanner.Visibility = Visibility.Collapsed;
             _hasLoadedOnce = true;
@@ -1090,7 +1151,18 @@ internal sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            _lastErrorMessage = $"Không thể đồng bộ Cloud: {ex.Message}";
+            if (!_hasLoadedOnce || _vias.Count == 0)
+            {
+                var fallback = CloudSnapshotCacheStore.Load(_config.UserEmail);
+                if (fallback != null)
+                {
+                    HydrateFromOfflineSnapshot(fallback);
+                    AppendLog($"⚡ Cloud đang bảo trì/chậm ({ex.Message}) -> Đã kích hoạt Bản lưu Offline DPAPI ({_vias.Count} Via, lúc {_offlineSnapshotAt}).");
+                }
+            }
+            _lastErrorMessage = _isOfflineSnapshotMode
+                ? $"⚡ Chế độ Dự phòng Offline DPAPI ({_offlineSnapshotAt}): Cloud đang chậm ({ex.Message}). Mọi tính năng Nuôi Via, OTP 2FA, Két Cookie & Proxy vẫn chạy 100%!"
+                : $"Không thể đồng bộ Cloud: {ex.Message}";
             _errorBannerText.Text = _lastErrorMessage;
             _errorBanner.Visibility = Visibility.Visible;
             AppendLog($"LỖI đồng bộ Cloud: {ex.Message}");
@@ -1231,6 +1303,8 @@ internal sealed partial class MainWindow : Window
                 CooldownReason = stew.CooldownReason ?? "",
                 LastCookieRefreshUtc = lastCookieRefreshUtc,
                 KeepAliveSuccessCount = stew.KeepAliveSuccessCount,
+                AntidetectEngine = parsed.AntidetectEngine,
+                AntidetectProfileId = parsed.AntidetectProfileId,
             };
             list.Add(entry);
         }
@@ -1274,24 +1348,65 @@ internal sealed partial class MainWindow : Window
         return okCount;
     }
 
-    private void LaunchViaChromeSafe(ViaWorkspaceEntry via, string targetUrl)
+    private async Task LaunchViaBrowserAsync(ViaWorkspaceEntry via, string targetUrl, bool interactiveAlerts = true)
     {
         try
         {
             if (via.IsInCooldown)
             {
-                AppendLog($"⚠️ Lưu ý: Via '{via.Label}' đang trong thời gian Cooldown ({via.CooldownReason}). Mở Chrome để kiểm tra thủ công.");
+                AppendLog($"⚠️ Lưu ý: Via '{via.Label}' đang trong thời gian Cooldown ({via.CooldownReason}). Mở trình duyệt để kiểm tra thủ công.");
             }
             via.ExtensionFolder = ExtensionProvisioner.ProvisionForVia(via, config: _config);
-            var pid = ExtensionProvisioner.LaunchChrome(targetUrl, via.ProfileDir, via.ExtensionFolder, _config.UseIsolatedProfiles, via.Label);
+
+            var normEng = AntidetectBrowserConnector.NormalizeEngine(via.AntidetectEngine);
+            if (normEng != "chrome_native" && !string.IsNullOrWhiteSpace(via.AntidetectProfileId))
+            {
+                var adRes = await AntidetectBrowserConnector.StartProfileAsync(
+                    normEng,
+                    _config.AntidetectApiBaseUrl,
+                    _config.AntidetectApiKey,
+                    via.AntidetectProfileId);
+                if (adRes.Ok)
+                {
+                    var labelDisp = $"{AntidetectBrowserConnector.GetDisplayName(normEng)} #{via.AntidetectProfileId}";
+                    ChromeSessionTracker.Default.RecordLaunch(adRes.Pid, via.ViaId, via.Label, labelDisp, targetUrl);
+                    AppendLog($"🎭 {adRes.Message} cho Via '{via.Label}'.");
+                    return;
+                }
+                AppendLog($"LỖI mở {AntidetectBrowserConnector.GetDisplayName(normEng)} #{via.AntidetectProfileId}: {adRes.Message}");
+                if (interactiveAlerts)
+                {
+                    _ = Dispatcher.BeginInvoke(() =>
+                        MessageBox.Show(this, adRes.Message, $"Không mở được {AntidetectBrowserConnector.GetDisplayName(normEng)}", MessageBoxButton.OK, MessageBoxImage.Warning));
+                }
+                return;
+            }
+
+            var pid = ExtensionProvisioner.LaunchChrome(
+                targetUrl,
+                via.ProfileDir,
+                via.ExtensionFolder,
+                _config.UseIsolatedProfiles,
+                via.Label,
+                _config.EnableChromeAntidetectShield,
+                _config.LowRamFarmMode);
             ChromeSessionTracker.Default.RecordLaunch(pid, via.ViaId, via.Label, via.ProfileDir, targetUrl);
             AppendLog($"Đã mở Chrome Profile '{via.ProfileDir}' ({via.Label}) -> {targetUrl}");
         }
         catch (Exception ex)
         {
-            AppendLog($"LỖI mở Chrome Via '{via.Label}': {ex.Message}");
-            MessageBox.Show(this, ex.Message, "Không mở được Chrome", MessageBoxButton.OK, MessageBoxImage.Warning);
+            AppendLog($"LỖI mở Trình duyệt Via '{via.Label}': {ex.Message}");
+            if (interactiveAlerts)
+            {
+                _ = Dispatcher.BeginInvoke(() =>
+                    MessageBox.Show(this, ex.Message, "Không mở được Trình duyệt", MessageBoxButton.OK, MessageBoxImage.Warning));
+            }
         }
+    }
+
+    private void LaunchViaChromeSafe(ViaWorkspaceEntry via, string targetUrl)
+    {
+        _ = LaunchViaBrowserAsync(via, targetUrl, interactiveAlerts: true);
     }
 
     private async Task<(bool Live, string Reason)> PreCheckProxyAsync(QueueTaskItem item)
@@ -1327,32 +1442,40 @@ internal sealed partial class MainWindow : Window
         }
     }
 
-    private Task LaunchViaQueueItemAsync(QueueTaskItem item)
+    internal static string GetEffectiveBatchProfileKey(ViaWorkspaceEntry? via, string fallbackProfile = "")
     {
-        var tcs = new TaskCompletionSource();
-        Dispatcher.BeginInvoke(() =>
+        if (via != null)
         {
-            try
+            var eng = AntidetectBrowserConnector.NormalizeEngine(via.AntidetectEngine);
+            if (eng != "chrome_native" && !string.IsNullOrWhiteSpace(via.AntidetectProfileId))
             {
-                var via = _vias.FirstOrDefault(v => string.Equals(v.ViaId, item.ViaId, StringComparison.OrdinalIgnoreCase))
-                          ?? new ViaWorkspaceEntry
-                          {
-                              ViaId = item.ViaId,
-                              Label = item.ViaLabel,
-                              BrowserProfileLabel = item.BrowserProfile,
-                              ProfileDir = ExtensionProvisioner.ResolveProfileDirectory(item.BrowserProfile, item.ViaLabel),
-                              NetworkLabel = item.NetworkLabel,
-                              ViaTier = item.ViaTier,
-                          };
-                LaunchViaChromeSafe(via, item.TargetUrl);
-                tcs.TrySetResult();
+                return $"{eng}:{via.AntidetectProfileId.Trim()}";
             }
-            catch (Exception ex)
+            if (!string.IsNullOrWhiteSpace(via.ProfileDir))
             {
-                tcs.TrySetException(ex);
+                return via.ProfileDir.Trim();
             }
+        }
+        return (fallbackProfile ?? "").Trim();
+    }
+
+    private async Task LaunchViaQueueItemAsync(QueueTaskItem item)
+    {
+        ViaWorkspaceEntry? via = null;
+        await Dispatcher.InvokeAsync(() =>
+        {
+            via = _vias.FirstOrDefault(v => string.Equals(v.ViaId, item.ViaId, StringComparison.OrdinalIgnoreCase))
+                  ?? new ViaWorkspaceEntry
+                  {
+                      ViaId = item.ViaId,
+                      Label = item.ViaLabel,
+                      BrowserProfileLabel = item.BrowserProfile,
+                      ProfileDir = ExtensionProvisioner.ResolveProfileDirectory(item.BrowserProfile, item.ViaLabel),
+                      NetworkLabel = item.NetworkLabel,
+                      ViaTier = item.ViaTier,
+                  };
         });
-        return tcs.Task;
+        await LaunchViaBrowserAsync(via!, item.TargetUrl, interactiveAlerts: false);
     }
 
     private async Task OnQueueCompletedAsync(QueueKind kind)
@@ -1501,7 +1624,7 @@ internal sealed partial class MainWindow : Window
             return new QueueTaskItem(
                 v.ViaId,
                 v.Label,
-                v.ProfileDir,
+                GetEffectiveBatchProfileKey(v, v.ProfileDir),
                 v.NetworkLabel,
                 launchUrl,
                 effectiveMode == "soak_72h" ? "Ngâm 72h thụ động" : "Đảo Ấm Cookie thụ động",
@@ -1525,7 +1648,8 @@ internal sealed partial class MainWindow : Window
             enforceSoakQuarantine: _config.EnforceSoakQuarantine,
             enforceClientSilo: _config.EnforceClientSilo,
             interleaveByProxy: true,
-            sameProxyMinStaggerSeconds: _config.SameProxyMinStaggerSeconds);
+            sameProxyMinStaggerSeconds: _config.SameProxyMinStaggerSeconds,
+            maxConcurrentBrowsers: _config.MaxConcurrentBrowsers);
 
         AppendLog($"Đã xếp hàng {tasks.Count} Via vào Hàng đợi Đảo Ấm an toàn.");
         RenderCurrentView();

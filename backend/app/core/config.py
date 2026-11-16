@@ -266,6 +266,12 @@ class Settings(BaseSettings):
     #: turns it on for one approved verification.
     allow_test_send: bool = False
 
+    # ---- Community SaaS quotas & invite governance (v2.5.0) -------------------------
+    community_require_invite_code: bool = False
+    community_free_max_vias: int = 10
+    community_free_max_ad_accounts: int = 5
+    community_free_max_members: int = 2
+
     @property
     def retry_backoff_minutes(self) -> list[int]:
         return [

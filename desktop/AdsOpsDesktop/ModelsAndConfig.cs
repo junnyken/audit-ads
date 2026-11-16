@@ -160,6 +160,15 @@ public sealed class DesktopConfig
     public bool IpLeakKillSwitchEnabled { get; set; } = true;
     public int ConfigMigrationVersion { get; set; } = 0;
 
+    // v2.5.0 Zero-Trust Bridge Token + 5-Engine Antidetect + Performance Farm Controls
+    public string EncryptedBridgeTokenBase64 { get; set; } = "";
+    public string DefaultBrowserEngine { get; set; } = "chrome_native";
+    public string AntidetectApiBaseUrl { get; set; } = "";
+    public string EncryptedAntidetectApiKeyBase64 { get; set; } = "";
+    public bool EnableChromeAntidetectShield { get; set; } = true;
+    public bool LowRamFarmMode { get; set; } = true;
+    public int MaxConcurrentBrowsers { get; set; } = 6;
+
     [JsonIgnore]
     public string AccessToken
     {
@@ -174,11 +183,53 @@ public sealed class DesktopConfig
         }
     }
 
+    [JsonIgnore]
+    public string AntidetectApiKey
+    {
+        get
+        {
+            try { return WindowsDpapi.UnprotectString(EncryptedAntidetectApiKeyBase64); }
+            catch { return ""; }
+        }
+        set
+        {
+            EncryptedAntidetectApiKeyBase64 = string.IsNullOrWhiteSpace(value) ? "" : WindowsDpapi.ProtectString(value.Trim());
+        }
+    }
+
     public string GetJwt() => string.IsNullOrWhiteSpace(EncryptedJwtBase64) ? "" : WindowsDpapi.UnprotectString(EncryptedJwtBase64);
 
     public void SetJwt(string? jwt)
     {
         EncryptedJwtBase64 = string.IsNullOrWhiteSpace(jwt) ? "" : WindowsDpapi.ProtectString(jwt.Trim());
+    }
+
+    public string GetOrCreateBridgeToken(string? customPath = null)
+    {
+        if (!string.IsNullOrWhiteSpace(EncryptedBridgeTokenBase64))
+        {
+            try
+            {
+                var existing = WindowsDpapi.UnprotectString(EncryptedBridgeTokenBase64);
+                if (!string.IsNullOrWhiteSpace(existing) && existing.Length >= 32)
+                {
+                    return existing;
+                }
+            }
+            catch
+            {
+                // Regenerate fresh DPAPI-protected bridge token if corrupted or from another Windows profile
+            }
+        }
+        return RotateBridgeToken(customPath);
+    }
+
+    public string RotateBridgeToken(string? customPath = null)
+    {
+        var fresh = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+        EncryptedBridgeTokenBase64 = WindowsDpapi.ProtectString(fresh);
+        try { Save(customPath); } catch { }
+        return fresh;
     }
 
     public static string AppDataRoot =>
@@ -204,6 +255,8 @@ public sealed class DesktopConfig
                     cfg.MaxViasPerProxyInBatch = Math.Clamp(cfg.MaxViasPerProxyInBatch < 1 ? 4 : cfg.MaxViasPerProxyInBatch, 1, 50);
                     cfg.MaxPagesPerProxyInBatch = Math.Clamp(cfg.MaxPagesPerProxyInBatch < 1 ? 2 : cfg.MaxPagesPerProxyInBatch, 1, 20);
                     cfg.SameProxyMinStaggerSeconds = Math.Clamp(cfg.SameProxyMinStaggerSeconds < 15 ? 55 : cfg.SameProxyMinStaggerSeconds, 15, 300);
+                    cfg.MaxConcurrentBrowsers = Math.Clamp(cfg.MaxConcurrentBrowsers < 1 ? 6 : cfg.MaxConcurrentBrowsers, 1, 30);
+                    cfg.DefaultBrowserEngine = AntidetectBrowserConnector.NormalizeEngine(cfg.DefaultBrowserEngine);
                     if (cfg.AutoKeepAliveMinGapMinutes < 5) cfg.AutoKeepAliveMinGapMinutes = 20;
                     if (cfg.SoakQuarantineHours < 12 || cfg.SoakQuarantineHours > 336) cfg.SoakQuarantineHours = 72;
                     if (cfg.AutoCooldownHours < 1 || cfg.AutoCooldownHours > 168) cfg.AutoCooldownHours = 24;
@@ -211,12 +264,12 @@ public sealed class DesktopConfig
                     if (cfg.ConfigMigrationVersion < 241)
                     {
                         if (cfg.MaxViasPerProxyInBatch == 2) cfg.MaxViasPerProxyInBatch = 4;
-                        cfg.ConfigMigrationVersion = 242;
+                        cfg.ConfigMigrationVersion = 250;
                         try { cfg.Save(path); } catch { }
                     }
-                    else if (cfg.ConfigMigrationVersion < 242)
+                    else if (cfg.ConfigMigrationVersion < 250)
                     {
-                        cfg.ConfigMigrationVersion = 242;
+                        cfg.ConfigMigrationVersion = 250;
                         try { cfg.Save(path); } catch { }
                     }
                     return cfg;
@@ -235,6 +288,8 @@ public sealed class DesktopConfig
         var json = JsonSerializer.Serialize(this);
         var copy = JsonSerializer.Deserialize<DesktopConfig>(json) ?? new DesktopConfig();
         copy.EncryptedJwtBase64 = "";
+        copy.EncryptedBridgeTokenBase64 = "";
+        copy.EncryptedAntidetectApiKeyBase64 = "";
         return copy;
     }
 
@@ -263,7 +318,12 @@ public sealed class DesktopConfig
         DefaultWarmupMode = string.IsNullOrWhiteSpace(src.DefaultWarmupMode) ? "human_organic" : src.DefaultWarmupMode.Trim();
         AutoRefreshCookieAfterKeepAlive = src.AutoRefreshCookieAfterKeepAlive;
         IpLeakKillSwitchEnabled = src.IpLeakKillSwitchEnabled;
-        ConfigMigrationVersion = 242;
+        DefaultBrowserEngine = AntidetectBrowserConnector.NormalizeEngine(src.DefaultBrowserEngine);
+        AntidetectApiBaseUrl = (src.AntidetectApiBaseUrl ?? "").Trim();
+        EnableChromeAntidetectShield = src.EnableChromeAntidetectShield;
+        LowRamFarmMode = src.LowRamFarmMode;
+        MaxConcurrentBrowsers = Math.Clamp(src.MaxConcurrentBrowsers < 1 ? 6 : src.MaxConcurrentBrowsers, 1, 30);
+        ConfigMigrationVersion = 250;
     }
 
     public void Save(string? customPath = null)
@@ -281,7 +341,9 @@ public sealed record ParsedViaNotes(
     string WarmupStartIso,
     string CleanNotes,
     string ClientGroup = "",
-    string WarmupMode = "human_organic");
+    string WarmupMode = "human_organic",
+    string AntidetectEngine = "chrome_native",
+    string AntidetectProfileId = "");
 public sealed record ViaWarmupStatus(int HoursElapsed, int DaysElapsed, string Phase, string Label, string Hint);
 
 public static class ViaMetadataParser
@@ -290,6 +352,8 @@ public static class ViaMetadataParser
     private static readonly Regex WarmupRegex = new(@"\[WARMUP:([0-9T:.\-]+Z?)\]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex ClientRegex = new(@"\[CLIENT:([^\[\]\r\n]{1,64})\]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex WarmupModeRegex = new(@"\[WMODE:(soak_72h|human_organic|bm_warmup|pre_camp)\]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex AntidetectEngineRegex = new(@"\[ADENG:(chrome_native|adspower|dolphin_anty|hidemyacc|genlogin|gologin)\]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex AntidetectIdRegex = new(@"\[ADID:([^\[\]\r\n]{1,64})\]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     public static string NormalizeWarmupMode(string? raw)
     {
@@ -310,6 +374,8 @@ public static class ViaMetadataParser
         var wm = WarmupRegex.Match(notes);
         var cm = ClientRegex.Match(notes);
         var wmm = WarmupModeRegex.Match(notes);
+        var adm = AntidetectEngineRegex.Match(notes);
+        var adid = AntidetectIdRegex.Match(notes);
 
         var tier = "camp";
         if (tm.Success)
@@ -333,13 +399,17 @@ public static class ViaMetadataParser
         var warmupIso = wm.Success ? wm.Groups[1].Value : "";
         var clientGroup = cm.Success ? cm.Groups[1].Value.Trim() : "";
         var warmupMode = wmm.Success ? NormalizeWarmupMode(wmm.Groups[1].Value) : "human_organic";
+        var antidetectEngine = adm.Success ? AntidetectBrowserConnector.NormalizeEngine(adm.Groups[1].Value) : "chrome_native";
+        var antidetectProfileId = adid.Success ? adid.Groups[1].Value.Trim() : "";
 
         var clean = TierRegex.Replace(notes, " ");
         clean = WarmupRegex.Replace(clean, " ");
         clean = ClientRegex.Replace(clean, " ");
         clean = WarmupModeRegex.Replace(clean, " ");
+        clean = AntidetectEngineRegex.Replace(clean, " ");
+        clean = AntidetectIdRegex.Replace(clean, " ");
         clean = Regex.Replace(clean, @"\s+", " ").Trim();
-        return new ParsedViaNotes(tier, warmupIso, clean, clientGroup, warmupMode);
+        return new ParsedViaNotes(tier, warmupIso, clean, clientGroup, warmupMode, antidetectEngine, antidetectProfileId);
     }
 
     public static string BuildNotes(
@@ -347,7 +417,9 @@ public static class ViaMetadataParser
         string tier,
         string warmupStartIso,
         string? clientGroup = null,
-        string? warmupMode = null)
+        string? warmupMode = null,
+        string? antidetectEngine = null,
+        string? antidetectProfileId = null)
     {
         var rawTier = (tier ?? "").Trim().ToLowerInvariant();
         var safeTier = rawTier switch
@@ -371,6 +443,17 @@ public static class ViaMetadataParser
         if (!string.IsNullOrWhiteSpace(warmupMode) && normMode != "human_organic")
         {
             tags.Add($"[WMODE:{normMode}]");
+        }
+        var normEng = AntidetectBrowserConnector.NormalizeEngine(antidetectEngine);
+        var safeAdId = Regex.Replace((antidetectProfileId ?? "").Trim(), @"[\[\]\r\n]+", "");
+        if (safeAdId.Length > 64) safeAdId = safeAdId[..64].Trim();
+        if (normEng != "chrome_native" || !string.IsNullOrEmpty(safeAdId))
+        {
+            tags.Add($"[ADENG:{normEng}]");
+            if (!string.IsNullOrEmpty(safeAdId))
+            {
+                tags.Add($"[ADID:{safeAdId}]");
+            }
         }
         var prefix = string.Join(" ", tags);
         var tail = (cleanNotes ?? "").Trim();
@@ -435,6 +518,11 @@ public sealed class WorkspaceDto
     [JsonPropertyName("id")] public string Id { get; set; } = "";
     [JsonPropertyName("name")] public string Name { get; set; } = "";
     [JsonPropertyName("slug")] public string Slug { get; set; } = "";
+    [JsonPropertyName("plan_tier")] public string PlanTier { get; set; } = "agency";
+    [JsonPropertyName("max_vias")] public int MaxVias { get; set; } = 500;
+    [JsonPropertyName("max_ad_accounts")] public int MaxAdAccounts { get; set; } = 500;
+    [JsonPropertyName("max_members")] public int MaxMembers { get; set; } = 25;
+    [JsonPropertyName("community_status")] public string CommunityStatus { get; set; } = "active";
 }
 
 public sealed class CurrentUserDto
@@ -443,6 +531,7 @@ public sealed class CurrentUserDto
     [JsonPropertyName("email")] public string Email { get; set; } = "";
     [JsonPropertyName("full_name")] public string FullName { get; set; } = "";
     [JsonPropertyName("role")] public string Role { get; set; } = "";
+    [JsonPropertyName("is_platform_admin")] public bool IsPlatformAdmin { get; set; }
     [JsonPropertyName("workspace")] public WorkspaceDto? Workspace { get; set; }
 }
 
@@ -950,6 +1039,8 @@ public sealed class ViaWorkspaceEntry
     public string TrustSummary { get; set; } = "";
     public DateTimeOffset? LastCookieRefreshUtc { get; set; }
     public int KeepAliveSuccessCount { get; set; }
+    public string AntidetectEngine { get; set; } = "chrome_native";
+    public string AntidetectProfileId { get; set; } = "";
 }
 
 public sealed class LocalViaSecretRecord
@@ -1941,9 +2032,9 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "2.4.2";
-    public const string DisplayVersion = "v2.4.2";
-    public const string ExtVersion = "2.9.6";
+    public const string Version = "2.5.0";
+    public const string DisplayVersion = "v2.5.0";
+    public const string ExtVersion = "2.9.7";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 
     /// <summary>
@@ -2171,12 +2262,139 @@ public static class WindowTilerService
     }
 }
 
+public sealed class CommunityQuotaDto
+{
+    [JsonPropertyName("plan_tier")] public string PlanTier { get; set; } = "community_free";
+    [JsonPropertyName("community_status")] public string CommunityStatus { get; set; } = "active";
+    [JsonPropertyName("max_vias")] public int MaxVias { get; set; } = 10;
+    [JsonPropertyName("vias_used")] public int ViasUsed { get; set; }
+    [JsonPropertyName("max_ad_accounts")] public int MaxAdAccounts { get; set; } = 5;
+    [JsonPropertyName("ad_accounts_used")] public int AdAccountsUsed { get; set; }
+    [JsonPropertyName("max_members")] public int MaxMembers { get; set; } = 2;
+    [JsonPropertyName("members_used")] public int MembersUsed { get; set; }
+    [JsonPropertyName("invited_by_code")] public string? InvitedByCode { get; set; }
+    [JsonPropertyName("is_platform_admin")] public bool IsPlatformAdmin { get; set; }
+}
+
+public sealed class CloudSnapshotPayload
+{
+    [JsonPropertyName("user_email")] public string UserEmail { get; set; } = "";
+    [JsonPropertyName("saved_at_utc")] public string SavedAtUtc { get; set; } = DateTime.UtcNow.ToString("O");
+    [JsonPropertyName("current_user")] public CurrentUserDto? CurrentUser { get; set; }
+    [JsonPropertyName("personal_accounts")] public List<PersonalAccountRefDto> PersonalAccounts { get; set; } = new();
+    [JsonPropertyName("business_managers")] public List<BusinessManagerItemDto> BusinessManagers { get; set; } = new();
+    [JsonPropertyName("ad_accounts")] public List<AdAccountItemDto> AdAccounts { get; set; } = new();
+    [JsonPropertyName("pages_summary")] public FacebookPagesSummaryDto? PagesSummary { get; set; }
+    [JsonPropertyName("health_summary")] public HealthSummaryDto? HealthSummary { get; set; }
+    [JsonPropertyName("community_quota")] public CommunityQuotaDto? CommunityQuota { get; set; }
+}
+
+/// <summary>Lưu đệm bảng dữ liệu Cloud gần nhất được mã hóa Windows DPAPI để App chạy mượt ngay cả khi mất mạng hoặc Cloud bảo trì.</summary>
+public static class CloudSnapshotCacheStore
+{
+    public static string DefaultCachePath => Path.Combine(DesktopConfig.AppDataRoot, "cloud_snapshot.dpapi");
+
+    public static void Save(CloudSnapshotPayload payload, string? customPath = null)
+    {
+        if (payload == null) return;
+        var path = customPath ?? DefaultCachePath;
+        var dir = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+        var plainBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload));
+        var encBytes = WindowsDpapi.Protect(plainBytes);
+        File.WriteAllBytes(path, encBytes);
+    }
+
+    public static CloudSnapshotPayload? Load(string? expectedUserEmail = null, string? customPath = null)
+    {
+        var path = customPath ?? DefaultCachePath;
+        try
+        {
+            if (!File.Exists(path)) return null;
+            var encBytes = File.ReadAllBytes(path);
+            if (encBytes.Length == 0) return null;
+            var plainBytes = WindowsDpapi.Unprotect(encBytes);
+            var payload = JsonSerializer.Deserialize<CloudSnapshotPayload>(Encoding.UTF8.GetString(plainBytes));
+            if (payload == null) return null;
+            if (!string.IsNullOrWhiteSpace(expectedUserEmail) &&
+                !string.IsNullOrWhiteSpace(payload.UserEmail) &&
+                !string.Equals(payload.UserEmail.Trim(), expectedUserEmail.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+            return payload;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+}
+
+public sealed record BinaryIntegrityReport(
+    string ExePath,
+    string Sha256Hex,
+    long SizeBytes,
+    string SignatureStatus,
+    string SignerSubject,
+    bool HasEmbeddedSignature);
+
+/// <summary>Kiểm tra mã băm SHA-256 thực tế và chứng chỉ chữ ký số Authenticode của tệp EXE đang chạy.</summary>
+public static class BinaryIntegrityInspector
+{
+    public static BinaryIntegrityReport InspectCurrentProcess()
+    {
+        var path = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "AdsOpsDesktop.exe");
+        return InspectFile(path);
+    }
+
+    public static BinaryIntegrityReport InspectFile(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+        {
+            return new BinaryIntegrityReport(filePath ?? "", "", 0, "FILE_NOT_FOUND", "", false);
+        }
+
+        var fi = new FileInfo(filePath);
+        string shaHex;
+        using (var fs = File.OpenRead(filePath))
+        {
+            shaHex = Convert.ToHexString(SHA256.HashData(fs)).ToLowerInvariant();
+        }
+
+        string sigStatus = "Unsigned (SHA-256 Verified)";
+        string signerSubject = "";
+        bool hasSig = false;
+        try
+        {
+            var rawCertBytes = System.Security.Cryptography.X509Certificates.X509Certificate2.GetCertContentType(filePath);
+            if (rawCertBytes == System.Security.Cryptography.X509Certificates.X509ContentType.Authenticode)
+            {
+                var cert = new System.Security.Cryptography.X509Certificates.X509Certificate2(filePath);
+                hasSig = true;
+                signerSubject = cert.Subject ?? "";
+                var expired = DateTime.Now > cert.NotAfter;
+                sigStatus = expired ? "Signed (Certificate Expired)" : "Authenticode Signed";
+                cert.Dispose();
+            }
+        }
+        catch
+        {
+            // Normal unsigned executable falls through cleanly
+        }
+
+        return new BinaryIntegrityReport(filePath, shaHex, fi.Length, sigStatus, signerSubject, hasSig);
+    }
+}
+
 public sealed class UpdateManifestDto
 {
     [JsonPropertyName("version")] public string Version { get; set; } = string.Empty;
     [JsonPropertyName("ext_version")] public string ExtVersion { get; set; } = string.Empty;
     [JsonPropertyName("release_notes")] public string ReleaseNotes { get; set; } = string.Empty;
     [JsonPropertyName("download_url")] public string DownloadUrl { get; set; } = string.Empty;
+    [JsonPropertyName("mirror_urls")] public List<string>? MirrorUrls { get; set; }
+    [JsonPropertyName("authenticode_signed")] public bool AuthenticodeSigned { get; set; }
     [JsonPropertyName("sha256")] public string? Sha256 { get; set; }
     [JsonPropertyName("size_bytes")] public long SizeBytes { get; set; }
     [JsonPropertyName("published_at")] public string? PublishedAt { get; set; }
@@ -2192,7 +2410,7 @@ public sealed class SelfUpdateCheckResultDto
     public string? Error { get; set; }
 }
 
-/// <summary>Kiểm tra manifest phát hành, tải gói ZIP an toàn và chạy script PowerShell tự cập nhật EXE.</summary>
+/// <summary>Kiểm tra manifest phát hành, tải gói ZIP an toàn (hỗ trợ đa mirror CDN) và chạy script PowerShell tự cập nhật EXE.</summary>
 public static class SelfUpdateService
 {
     public static bool IsNewerVersion(string? candidate, string current = DesktopAppInfo.Version)
@@ -2254,7 +2472,20 @@ public static class SelfUpdateService
         Action<string>? log = null,
         CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(manifest.DownloadUrl))
+        var candidateUrls = new List<string>();
+        if (!string.IsNullOrWhiteSpace(manifest.DownloadUrl)) candidateUrls.Add(manifest.DownloadUrl.Trim());
+        if (manifest.MirrorUrls != null)
+        {
+            foreach (var mu in manifest.MirrorUrls)
+            {
+                var clean = (mu ?? "").Trim();
+                if (!string.IsNullOrWhiteSpace(clean) && !candidateUrls.Contains(clean, StringComparer.OrdinalIgnoreCase))
+                {
+                    candidateUrls.Add(clean);
+                }
+            }
+        }
+        if (candidateUrls.Count == 0)
         {
             throw new InvalidOperationException("Manifest thiếu download_url.");
         }
@@ -2265,20 +2496,39 @@ public static class SelfUpdateService
         var zipPath = Path.Combine(rootTemp, $"update_{stamp}.zip");
         var stagingDir = Path.Combine(rootTemp, $"staging_{stamp}");
 
-        log?.Invoke($"Đang tải bản cập nhật {manifest.Version}...");
-        var zipBytes = await http.GetByteArrayAsync(manifest.DownloadUrl, ct);
-        if (zipBytes.Length < 100 || zipBytes[0] != 0x50 || zipBytes[1] != 0x4B)
+        byte[]? zipBytes = null;
+        Exception? lastErr = null;
+        foreach (var srcUrl in candidateUrls)
         {
-            throw new InvalidDataException("Tệp tải về không phải định dạng ZIP hợp lệ (PK header mismatch).");
+            try
+            {
+                log?.Invoke($"Đang tải bản cập nhật {manifest.Version} từ {srcUrl}...");
+                var candidateBytes = await http.GetByteArrayAsync(srcUrl, ct);
+                if (candidateBytes.Length < 100 || candidateBytes[0] != 0x50 || candidateBytes[1] != 0x4B)
+                {
+                    throw new InvalidDataException("Tệp tải về không phải định dạng ZIP hợp lệ (PK header mismatch).");
+                }
+                if (!string.IsNullOrWhiteSpace(manifest.Sha256))
+                {
+                    var actualHash = Convert.ToHexString(SHA256.HashData(candidateBytes)).ToLowerInvariant();
+                    if (!string.Equals(actualHash, manifest.Sha256.Trim().ToLowerInvariant(), StringComparison.Ordinal))
+                    {
+                        throw new InvalidDataException("Mã kiểm tra SHA-256 gói cập nhật không khớp.");
+                    }
+                }
+                zipBytes = candidateBytes;
+                break;
+            }
+            catch (Exception ex)
+            {
+                lastErr = ex;
+                log?.Invoke($"Nguồn {srcUrl} thất bại ({ex.Message}), thử mirror tiếp theo...");
+            }
         }
 
-        if (!string.IsNullOrWhiteSpace(manifest.Sha256))
+        if (zipBytes == null)
         {
-            var actualHash = Convert.ToHexString(SHA256.HashData(zipBytes)).ToLowerInvariant();
-            if (!string.Equals(actualHash, manifest.Sha256.Trim().ToLowerInvariant(), StringComparison.Ordinal))
-            {
-                throw new InvalidDataException("Mã kiểm tra SHA-256 gói cập nhật không khớp.");
-            }
+            throw lastErr ?? new InvalidOperationException("Không tải được gói cập nhật từ bất kỳ nguồn nào.");
         }
 
         await File.WriteAllBytesAsync(zipPath, zipBytes, ct);
@@ -2943,12 +3193,26 @@ public static class ViaTrustEvaluator
             v.SharedProxyViaCount = !string.IsNullOrEmpty(px) && proxyCounts.TryGetValue(px, out var cnt) ? cnt : 1;
         }
 
+        static (string Key, string Display) GetBrowserIdentity(ViaWorkspaceEntry v)
+        {
+            var eng = AntidetectBrowserConnector.NormalizeEngine(v.AntidetectEngine);
+            var adId = (v.AntidetectProfileId ?? "").Trim();
+            if (eng != "chrome_native" && !string.IsNullOrEmpty(adId))
+            {
+                return ($"{eng}:{adId}".ToLowerInvariant(), $"{AntidetectBrowserConnector.GetDisplayName(eng)} #{adId}");
+            }
+            var prof = (v.ProfileDir ?? "").Trim();
+            return string.IsNullOrEmpty(prof)
+                ? ("", "")
+                : ($"chrome:{prof}".ToLowerInvariant(), $"Chrome {prof}");
+        }
+
         for (int i = 0; i < vias.Count; i++)
         {
             var a = vias[i];
             var clientA = (a.ClientGroup ?? "").Trim();
             var pxA = AutomationQueueEngine.ExtractProxyHostPort(a.NetworkLabel);
-            var profA = (a.ProfileDir ?? "").Trim();
+            var (profKeyA, profDispA) = GetBrowserIdentity(a);
 
             for (int j = i + 1; j < vias.Count; j++)
             {
@@ -2957,12 +3221,12 @@ public static class ViaTrustEvaluator
                 var reasonsA = new List<string>();
                 var reasonsB = new List<string>();
 
-                // 1) Unconditional check: two Vias sharing the same Chrome Profile ALWAYS risk overwriting cookies
-                var profB = (b.ProfileDir ?? "").Trim();
-                if (!string.IsNullOrEmpty(profA) && string.Equals(profA, profB, StringComparison.OrdinalIgnoreCase))
+                // 1) Unconditional check: two Vias sharing the same Chrome/Antidetect Profile ALWAYS risk overwriting cookies
+                var (profKeyB, _) = GetBrowserIdentity(b);
+                if (!string.IsNullOrEmpty(profKeyA) && string.Equals(profKeyA, profKeyB, StringComparison.OrdinalIgnoreCase))
                 {
-                    reasonsA.Add($"Trùng Chrome {profA} với {b.Label} (nguy cơ đè Cookie)");
-                    reasonsB.Add($"Trùng Chrome {profA} với {a.Label} (nguy cơ đè Cookie)");
+                    reasonsA.Add($"Trùng {profDispA} với {b.Label} (nguy cơ đè Cookie)");
+                    reasonsB.Add($"Trùng {profDispA} với {a.Label} (nguy cơ đè Cookie)");
                 }
 
                 // 2) Cross-client Proxy check (same ClientGroup or both unassigned may safely share Residential Proxy up to maxSharedPerProxy)

@@ -293,7 +293,17 @@ export interface CurrentUser {
   email: string
   full_name: string
   role: string
-  workspace: { id: string; name: string; slug: string }
+  is_platform_admin?: boolean
+  workspace: {
+    id: string
+    name: string
+    slug: string
+    plan_tier?: string
+    max_vias?: number
+    max_ad_accounts?: number
+    max_members?: number
+    community_status?: string
+  }
 }
 
 // ---------------------------------------------------------------------------------------

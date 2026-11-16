@@ -57,6 +57,7 @@ public sealed class AutomationQueueEngine : IDisposable
     private readonly Func<QueueTaskItem, Task> _launchChrome;
     private readonly Func<QueueKind, Task> _onQueueSync;
     private readonly Func<DateTime> _clockNow;
+    private readonly Func<int>? _getActiveBrowserCount;
     private readonly Action<string> _log;
     private readonly Random _rng = new();
     private readonly object _gate = new();
@@ -75,6 +76,7 @@ public sealed class AutomationQueueEngine : IDisposable
     private int _sameProxyMinStaggerSec = 55;
     private bool _preCheckProxy = true;
     private int _maxViasPerProxy = 4;
+    private int _maxConcurrentBrowsers = 6;
     private int _startHour = 8;
     private int _endHour = 22;
     private int _tickIntervalMs = 1000;
@@ -90,13 +92,15 @@ public sealed class AutomationQueueEngine : IDisposable
         Func<QueueTaskItem, Task> launchChrome,
         Func<QueueKind, Task> onQueueSync,
         Action<string> log,
-        Func<DateTime>? clockNow = null)
+        Func<DateTime>? clockNow = null,
+        Func<int>? getActiveBrowserCount = null)
     {
         _proxyPreCheck = proxyPreCheck;
         _launchChrome = launchChrome;
         _onQueueSync = onQueueSync;
         _log = log;
         _clockNow = clockNow ?? (() => DateTime.Now);
+        _getActiveBrowserCount = getActiveBrowserCount;
     }
 
     public QueueSnapshot Current => _snapshot;
@@ -184,7 +188,8 @@ public sealed class AutomationQueueEngine : IDisposable
         bool enforceSoakQuarantine = false,
         bool enforceClientSilo = false,
         bool interleaveByProxy = false,
-        int sameProxyMinStaggerSeconds = 55)
+        int sameProxyMinStaggerSeconds = 55,
+        int maxConcurrentBrowsers = 6)
     {
         if (items == null || items.Count == 0) return;
 
@@ -195,6 +200,7 @@ public sealed class AutomationQueueEngine : IDisposable
         _sameProxyMinStaggerSec = Math.Clamp(sameProxyMinStaggerSeconds, 15, 300);
         _preCheckProxy = preCheckProxy;
         _maxViasPerProxy = Math.Max(1, maxViasPerProxy);
+        _maxConcurrentBrowsers = Math.Clamp(maxConcurrentBrowsers, 1, 30);
         _startHour = Math.Clamp(daytimeStartHour, 0, 23);
         _endHour = Math.Clamp(daytimeEndHour, 0, 23);
         _enforceSoakQuarantine = enforceSoakQuarantine;
@@ -462,6 +468,28 @@ public sealed class AutomationQueueEngine : IDisposable
                     });
                     continue;
                 }
+            }
+
+            if (_getActiveBrowserCount != null && _maxConcurrentBrowsers > 0)
+            {
+                while (!ct.IsCancellationRequested && !_skipRequested)
+                {
+                    var activeCount = _getActiveBrowserCount();
+                    if (activeCount < _maxConcurrentBrowsers) break;
+                    UpdateSnapshot(_snapshot with
+                    {
+                        Phase = QueuePhase.Running,
+                        CurrentIndex = i,
+                        LaunchedCount = launched,
+                        SkippedCount = skipped,
+                        CurrentViaLabel = item.ViaLabel,
+                        CurrentTaskTitle = item.TaskTitle,
+                        CheckingProxy = false,
+                        LastNotice = $"⏳ Chờ giải phóng RAM ({activeCount}/{_maxConcurrentBrowsers} trình duyệt đang mở)...",
+                    });
+                    await Task.Delay(Math.Min(1500, _tickIntervalMs * 2), ct).ConfigureAwait(false);
+                }
+                if (ct.IsCancellationRequested) break;
             }
 
             if (!string.IsNullOrEmpty(hostPort))

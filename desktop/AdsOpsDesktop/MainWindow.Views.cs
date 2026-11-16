@@ -1063,7 +1063,7 @@ internal sealed partial class MainWindow
                     return new QueueTaskItem(
                         b.ViaId,
                         b.ViaLabel,
-                        b.BrowserProfile,
+                        GetEffectiveBatchProfileKey(mv, b.BrowserProfile),
                         b.NetworkLabel,
                         string.IsNullOrWhiteSpace(b.LaunchUrl) ? "https://www.facebook.com/pages/creation" : b.LaunchUrl,
                         $"Tạo Page: {b.PageName}",
@@ -1093,7 +1093,8 @@ internal sealed partial class MainWindow
                     enforceSoakQuarantine: _config.EnforceSoakQuarantine,
                     enforceClientSilo: _config.EnforceClientSilo,
                     interleaveByProxy: true,
-                    sameProxyMinStaggerSeconds: _config.SameProxyMinStaggerSeconds);
+                    sameProxyMinStaggerSeconds: _config.SameProxyMinStaggerSeconds,
+                    maxConcurrentBrowsers: _config.MaxConcurrentBrowsers);
             }
             catch (Exception ex)
             {
@@ -2666,6 +2667,8 @@ internal sealed partial class MainWindow
                 _teamSummary = null;
                 _teamMembers.Clear();
                 _teamInvitations.Clear();
+                _communityQuota = null;
+                _isOfflineSnapshotMode = false;
                 _hasLoadedOnce = false;
                 RefreshHeaderAndSidebar();
                 RenderCurrentView();
@@ -2673,6 +2676,50 @@ internal sealed partial class MainWindow
             authBtns.Children.Add(logoutBtn);
         }
         authPanel.Children.Add(authBtns);
+
+        if (_communityQuota != null || _currentUser?.Workspace != null)
+        {
+            var tierName = (_communityQuota?.PlanTier ?? _currentUser?.Workspace?.PlanTier ?? "agency").ToUpperInvariant();
+            var usedV = _communityQuota?.ViasUsed ?? _vias.Count;
+            var maxV = _communityQuota?.MaxVias ?? _currentUser?.Workspace?.MaxVias ?? 500;
+            var usedA = _communityQuota?.AdAccountsUsed ?? _adAccounts.Count;
+            var maxA = _communityQuota?.MaxAdAccounts ?? _currentUser?.Workspace?.MaxAdAccounts ?? 500;
+            var quotaSummary = new TextBlock
+            {
+                Text = $"🎟️ Gói Cộng đồng: {tierName} • Via: {usedV}/{maxV} • TKQC: {usedA}/{maxA}" + (_isOfflineSnapshotMode ? $" (Đệm Offline DPAPI {_offlineSnapshotAt})" : ""),
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = ThemeTokens.AccentText,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 10, 0, 6),
+            };
+            authPanel.Children.Add(quotaSummary);
+
+            var redeemRow = new Grid();
+            redeemRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            redeemRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+            redeemRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var tbInviteRedeem = UiComponents.CreateTextBox("", "Nhập Mã Mời / Nâng cấp Pro (VD: ADSOPS-PRO-...)");
+            var btnRedeem = UiComponents.CreateButton("Kích hoạt Mã", ButtonVariant.Secondary, compact: true, onClick: async (_, _) =>
+            {
+                var code = tbInviteRedeem.Text.Trim();
+                if (string.IsNullOrEmpty(code)) return;
+                try
+                {
+                    _communityQuota = await _api.RedeemCommunityCodeAsync(code);
+                    AppendLog($"Đã kích hoạt Mã Cộng Đồng '{code.ToUpperInvariant()}' -> Gói {_communityQuota.PlanTier.ToUpperInvariant()} ({_communityQuota.MaxVias} Via).");
+                    RenderCurrentView();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, ex.Message, "Không nạp được Mã Mời", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            });
+            Grid.SetColumn(btnRedeem, 2);
+            redeemRow.Children.Add(tbInviteRedeem);
+            redeemRow.Children.Add(btnRedeem);
+            authPanel.Children.Add(redeemRow);
+        }
 
         var authCard = UiComponents.CreateCard(authPanel);
         authCard.Margin = new Thickness(0, 0, 0, 14);
@@ -2733,11 +2780,227 @@ internal sealed partial class MainWindow
             FontSize = 12,
             Foreground = ThemeTokens.TextMuted,
             TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 10),
         });
+
+        // Zero-Trust Local Bridge Security Box (127.0.0.1:17890)
+        var curBridgeTok = _config.GetOrCreateBridgeToken();
+        var maskedTok = curBridgeTok.Length > 14 ? $"{curBridgeTok[..8]}••••••••{curBridgeTok[^6..]}" : "••••••••";
+        var ztPanel = new StackPanel();
+        ztPanel.Children.Add(new TextBlock
+        {
+            Text = $"🛡️ Khóa Cầu nối Zero-Trust (X-AdsOps-Bridge-Token): {maskedTok}",
+            FontFamily = ThemeTokens.MonoFont,
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = ThemeTokens.SuccessText,
+            Margin = new Thickness(0, 0, 0, 4),
+        });
+        ztPanel.Children.Add(new TextBlock
+        {
+            Text = "Chặn 100% trang web lạ & Extension không chính chủ đọc lén Cookie DPAPI / 2FA trên 127.0.0.1:17890. App tự gắn vào toàn bộ Extension của Via.",
+            FontSize = 11,
+            Foreground = ThemeTokens.TextSecondary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 8),
+        });
+        var ztBtns = new StackPanel { Orientation = Orientation.Horizontal };
+        var copyBridgeBtn = UiComponents.CreateButton("Chép Mã Bridge Token", ButtonVariant.Secondary, FluentIcons.Copy, compact: true, onClick: (_, _) =>
+        {
+            Clipboard.SetText(_config.GetOrCreateBridgeToken());
+            AppendLog("Đã sao chép X-AdsOps-Bridge-Token (DPAPI) vào Clipboard.");
+            MessageBox.Show(this, "Đã sao chép Mã Bridge Token vào Clipboard. Nếu cài Extension thủ công trên Web, dán mã này vào ô Bridge Token trong Popup Extension.", "Đã sao chép", MessageBoxButton.OK, MessageBoxImage.Information);
+        });
+        copyBridgeBtn.Margin = new Thickness(0, 0, 8, 0);
+        var rotateBridgeBtn = UiComponents.CreateButton("Xoay vòng Khóa & Cấp lại Ext", ButtonVariant.Secondary, FluentIcons.Sync, compact: true, onClick: (_, _) =>
+        {
+            var fresh = _config.RotateBridgeToken();
+            var count = ProvisionAllViaExtensions(silent: false);
+            AppendLog($"🔐 Đã xoay vòng X-AdsOps-Bridge-Token mới ({fresh[..8]}...) và cấp lại {count} Extension v{DesktopAppInfo.ExtVersion}.");
+            RenderCurrentView();
+        });
+        ztBtns.Children.Add(copyBridgeBtn);
+        ztBtns.Children.Add(rotateBridgeBtn);
+        ztPanel.Children.Add(ztBtns);
+        osPanel.Children.Add(UiComponents.CreateCard(ztPanel, new Thickness(10), ThemeTokens.SuccessBg, ThemeTokens.SuccessBorder));
 
         var osCard = UiComponents.CreateCard(osPanel);
         osCard.Margin = new Thickness(0, 0, 0, 14);
         leftStack.Children.Add(osCard);
+
+        // 5-Engine Antidetect Browser Integration & Performance Optimizer Card (v2.5.0)
+        var adPanel = new StackPanel();
+        adPanel.Children.Add(new TextBlock
+        {
+            Text = "🎭 Kết nối 5 Trình duyệt Antidetect & Tối ưu Hiệu năng Dàn Nuôi",
+            FontSize = 15,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeTokens.TextPrimary,
+            Margin = new Thickness(0, 0, 0, 6),
+        });
+        adPanel.Children.Add(new TextBlock
+        {
+            Text = "Mặc định dùng Chrome Gốc siêu sạch (tích hợp Khiên WebRTC + Chống AutomationControlled). Với dàn 50–300 Via trên 1 máy, có thể kết nối trực tiếp API của AdsPower, Dolphin{anty}, Hidemyacc, Genlogin hoặc GoLogin.",
+            FontSize = 12,
+            Foreground = ThemeTokens.TextSecondary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 10),
+        });
+
+        var adGrid = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+        adGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.2, GridUnitType.Star) });
+        adGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+        adGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var cbDefEng = UiComponents.CreateComboBox(
+            AntidetectBrowserConnector.SupportedEngines.Select(e => new ComboBoxItem { Content = e.Label, Tag = e.Key }));
+        var defEngNorm = AntidetectBrowserConnector.NormalizeEngine(_config.DefaultBrowserEngine);
+        var defEngIdx = Array.FindIndex(AntidetectBrowserConnector.SupportedEngines, e => e.Key == defEngNorm);
+        cbDefEng.SelectedIndex = defEngIdx >= 0 ? defEngIdx : 0;
+        var tbAdUrl = UiComponents.CreateTextBox(
+            string.IsNullOrWhiteSpace(_config.AntidetectApiBaseUrl) ? "" : _config.AntidetectApiBaseUrl,
+            "Mặc định theo Engine (VD: http://127.0.0.1:50325)");
+        var adCol1 = BuildLabeledBox("Trình duyệt mặc định", cbDefEng);
+        var adCol2 = BuildLabeledBox("Local API URL (tùy chọn)", tbAdUrl);
+        Grid.SetColumn(adCol1, 0);
+        Grid.SetColumn(adCol2, 2);
+        adGrid.Children.Add(adCol1);
+        adGrid.Children.Add(adCol2);
+        adPanel.Children.Add(adGrid);
+
+        var perfGrid = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+        perfGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.4, GridUnitType.Star) });
+        perfGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+        perfGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.8, GridUnitType.Star) });
+        var pbAdApiKey = UiComponents.CreatePasswordBox();
+        var tbMaxConcurrent = UiComponents.CreateTextBox(_config.MaxConcurrentBrowsers.ToString(), "6");
+        var perfCol1 = BuildLabeledBox("API Key Antidetect (Dolphin/GoLogin - để trống nếu giữ nguyên)", pbAdApiKey);
+        var perfCol2 = BuildLabeledBox("Max Chrome mở cùng lúc (1–30)", tbMaxConcurrent);
+        Grid.SetColumn(perfCol1, 0);
+        Grid.SetColumn(perfCol2, 2);
+        perfGrid.Children.Add(perfCol1);
+        perfGrid.Children.Add(perfCol2);
+        adPanel.Children.Add(perfGrid);
+
+        var chkAdShield = UiComponents.CreateCheckBox("Bật Khiên Chrome Gốc: Khóa WebRTC UDP + Ẩn Automation + Viewport riêng từng Via", _config.EnableChromeAntidetectShield);
+        var chkLowRam = UiComponents.CreateCheckBox("Chế độ Tiết kiệm RAM (Giới hạn tiến trình Renderer + Disk Cache 64MB/Via)", _config.LowRamFarmMode);
+        chkAdShield.Margin = new Thickness(0, 0, 0, 4);
+        chkLowRam.Margin = new Thickness(0, 0, 0, 8);
+        adPanel.Children.Add(chkAdShield);
+        adPanel.Children.Add(chkLowRam);
+
+        if (!string.IsNullOrWhiteSpace(_antidetectStatusMessage))
+        {
+            adPanel.Children.Add(new TextBlock
+            {
+                Text = _antidetectStatusMessage,
+                FontSize = 12,
+                Foreground = _antidetectProfiles.Count > 0 ? ThemeTokens.SuccessText : ThemeTokens.AccentText,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 8),
+            });
+        }
+
+        var adBtns = new WrapPanel();
+        void AddAdBtn(Button b) { b.Margin = new Thickness(0, 0, 8, 6); adBtns.Children.Add(b); }
+        void ApplyAdConfigInputs()
+        {
+            _config.DefaultBrowserEngine = (cbDefEng.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "chrome_native";
+            _config.AntidetectApiBaseUrl = tbAdUrl.Text.Trim().TrimEnd('/');
+            if (!string.IsNullOrWhiteSpace(pbAdApiKey.Password))
+            {
+                _config.AntidetectApiKey = pbAdApiKey.Password.Trim();
+            }
+            _config.EnableChromeAntidetectShield = chkAdShield.IsChecked == true;
+            _config.LowRamFarmMode = chkLowRam.IsChecked == true;
+            if (int.TryParse(tbMaxConcurrent.Text, out var mc)) _config.MaxConcurrentBrowsers = Math.Clamp(mc, 1, 30);
+            _config.Save();
+        }
+
+        AddAdBtn(UiComponents.CreateButton("Lưu Cấu hình Antidetect & RAM", ButtonVariant.Primary, FluentIcons.CheckCircle, compact: true, onClick: (_, _) =>
+        {
+            ApplyAdConfigInputs();
+            _antidetectStatusMessage = $"Đã lưu Engine: {AntidetectBrowserConnector.GetDisplayName(_config.DefaultBrowserEngine)} · Giới hạn RAM: {_config.MaxConcurrentBrowsers} trình duyệt.";
+            AppendLog(_antidetectStatusMessage);
+            RenderCurrentView();
+        }));
+        AddAdBtn(UiComponents.CreateButton("🔌 Kiểm tra & Quét Profile", ButtonVariant.Secondary, FluentIcons.Sync, compact: true, onClick: async (_, _) =>
+        {
+            ApplyAdConfigInputs();
+            var probe = await AntidetectBrowserConnector.ProbeEngineAsync(_config.DefaultBrowserEngine, _config.AntidetectApiBaseUrl, _config.AntidetectApiKey);
+            _antidetectProfiles = probe.Online
+                ? await AntidetectBrowserConnector.ListProfilesAsync(_config.DefaultBrowserEngine, _config.AntidetectApiBaseUrl, _config.AntidetectApiKey)
+                : new List<AntidetectProfileSummary>();
+            _antidetectStatusMessage = probe.Online
+                ? $"✓ {probe.Message} Quét được {_antidetectProfiles.Count} Profile sẵn sàng ghép Via."
+                : $"⚠ {probe.Message}";
+            AppendLog(_antidetectStatusMessage);
+            RenderCurrentView();
+        }));
+        AddAdBtn(UiComponents.CreateButton("⚡ Tự ghép Via ↔ Antidetect", ButtonVariant.Secondary, FluentIcons.Lightning, compact: true, onClick: async (_, _) =>
+        {
+            ApplyAdConfigInputs();
+            var scanned = _antidetectProfiles.Count > 0
+                ? _antidetectProfiles
+                : await AntidetectBrowserConnector.ListProfilesAsync(_config.DefaultBrowserEngine, _config.AntidetectApiBaseUrl, _config.AntidetectApiKey);
+            if (scanned.Count == 0)
+            {
+                MessageBox.Show(this, $"Chưa quét được Profile nào từ {AntidetectBrowserConnector.GetDisplayName(_config.DefaultBrowserEngine)}.", "Chưa có Profile", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            int matchedCount = 0;
+            foreach (var v in _vias)
+            {
+                var found = scanned.FirstOrDefault(p => p.Name.Equals(v.Label, StringComparison.OrdinalIgnoreCase))
+                            ?? scanned.FirstOrDefault(p => p.Name.Contains(v.Label, StringComparison.OrdinalIgnoreCase) || v.Label.Contains(p.Name, StringComparison.OrdinalIgnoreCase));
+                if (found != null)
+                {
+                    v.AntidetectEngine = found.Engine;
+                    v.AntidetectProfileId = found.ProfileId;
+                    matchedCount++;
+                    if (!string.IsNullOrWhiteSpace(_config.GetJwt()) && !string.IsNullOrWhiteSpace(v.ViaId))
+                    {
+                        try
+                        {
+                            var notes = ViaMetadataParser.BuildNotes(v.CleanNotes, v.RoleTier, v.WarmupStartIso, v.ClientGroup, v.DefaultWarmupMode, v.AntidetectEngine, v.AntidetectProfileId);
+                            await _api.UpdatePersonalAccountAsync(v.ViaId, new PersonalAccountUpsertRequestDto
+                            {
+                                Label = v.Label,
+                                DisplayName = v.DisplayName,
+                                ExternalReferenceId = string.IsNullOrWhiteSpace(v.ExternalReferenceId) ? null : v.ExternalReferenceId,
+                                Status = v.Status,
+                                BrowserProfileLabel = v.BrowserProfileLabel,
+                                NetworkLabel = v.NetworkLabel,
+                                VaultReference = !string.IsNullOrWhiteSpace(v.TwoFaSecret) ? "Két DPAPI Local (Desktop)" : "",
+                                Notes = notes,
+                            });
+                        }
+                        catch { }
+                    }
+                }
+            }
+            ApplyUpdatedProxyClusterLimits();
+            _antidetectStatusMessage = $"⚡ Đã tự động ghép {matchedCount}/{_vias.Count} Via vào {AntidetectBrowserConnector.GetDisplayName(_config.DefaultBrowserEngine)}.";
+            AppendLog(_antidetectStatusMessage);
+            RenderCurrentView();
+        }));
+        AddAdBtn(UiComponents.CreateButton("🧹 Dọn Cache & Ép RAM", ButtonVariant.Secondary, FluentIcons.Delete, compact: true, onClick: (_, _) =>
+        {
+            var activeSlugs = new HashSet<string>(
+                ChromeSessionTracker.Default.GetSnapshot()
+                    .Where(s => s.Alive)
+                    .Select(s => ExtensionProvisioner.SanitizeFolderSlug(s.ViaLabel)),
+                StringComparer.OrdinalIgnoreCase);
+            var (folders, bytesFreed) = WorkstationPerformanceOptimizer.CleanProfileCachesAndTrimMemory(activeSlugs: activeSlugs);
+            var mb = Math.Round(bytesFreed / (1024.0 * 1024.0), 1);
+            _antidetectStatusMessage = $"🧹 Đã dọn {folders} thư mục cache tạm ({mb:0.0} MB) và thu hồi RAM thành công.";
+            AppendLog(_antidetectStatusMessage);
+            RenderCurrentView();
+        }));
+        adPanel.Children.Add(adBtns);
+
+        var adCard = UiComponents.CreateCard(adPanel);
+        adCard.Margin = new Thickness(0, 0, 0, 14);
+        leftStack.Children.Add(adCard);
 
         // Proxy Cluster Limits & Auto-Sync Settings Card (v2.4.2)
         var proxyPanel = new StackPanel();
@@ -4101,12 +4364,25 @@ internal sealed partial class MainWindow
             Foreground = ThemeTokens.TextPrimary,
             Margin = new Thickness(0, 0, 0, 4),
         });
+        var integrity = BinaryIntegrityInspector.InspectCurrentProcess();
+        var shaShort = integrity.Sha256Hex.Length > 24
+            ? $"{integrity.Sha256Hex[..16]}...{integrity.Sha256Hex[^8..]}"
+            : integrity.Sha256Hex;
         p.Children.Add(new TextBlock
         {
             Text = $"Phiên bản hiện tại: AdsOps Desktop Pro v{DesktopAppInfo.Version} (Extension v{DesktopAppInfo.ExtVersion})",
             FontFamily = ThemeTokens.MonoFont,
             FontSize = 12,
             Foreground = ThemeTokens.AccentText,
+            Margin = new Thickness(0, 0, 0, 4),
+        });
+        p.Children.Add(new TextBlock
+        {
+            Text = $"🔐 Chữ ký & Toàn vẹn: {integrity.SignatureStatus} • SHA-256: {shaShort}",
+            FontFamily = ThemeTokens.MonoFont,
+            FontSize = 11,
+            Foreground = integrity.HasEmbeddedSignature ? ThemeTokens.SuccessText : ThemeTokens.TextMuted,
+            TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 4),
         });
         p.Children.Add(new TextBlock

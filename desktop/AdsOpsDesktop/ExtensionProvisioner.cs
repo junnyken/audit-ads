@@ -271,6 +271,8 @@ public static class ExtensionProvisioner
             },
         };
 
+        var cfg = config ?? DesktopConfig.Load();
+        var bridgeToken = cfg.GetOrCreateBridgeToken();
         var cooldownUntilMs = via.CooldownUntilUtc.HasValue && via.CooldownUntilUtc.Value > DateTimeOffset.UtcNow
             ? via.CooldownUntilUtc.Value.ToUnixTimeMilliseconds()
             : 0L;
@@ -279,11 +281,11 @@ public static class ExtensionProvisioner
                 ? "soak_72h"
                 : !string.IsNullOrWhiteSpace(via.DefaultWarmupMode)
                     ? via.DefaultWarmupMode
-                    : config?.DefaultWarmupMode);
+                    : cfg.DefaultWarmupMode);
         var effectiveWarmupPhase = string.IsNullOrWhiteSpace(via.WarmupPhase) ? "trusted" : via.WarmupPhase;
-        var soakQuarantineEnabled = config?.EnforceSoakQuarantine ?? true;
-        var ipKillSwitch = config?.IpLeakKillSwitchEnabled ?? true;
-        var autoVaultCookieRefresh = config?.AutoRefreshCookieAfterKeepAlive ?? true;
+        var soakQuarantineEnabled = cfg.EnforceSoakQuarantine;
+        var ipKillSwitch = cfg.IpLeakKillSwitchEnabled;
+        var autoVaultCookieRefresh = cfg.AutoRefreshCookieAfterKeepAlive;
 
         var defaultStateJson = JsonSerializer.Serialize(new
         {
@@ -309,6 +311,7 @@ public static class ExtensionProvisioner
             cooldownUntilMs,
             cooldownReason = via.CooldownReason ?? "",
             trustScore = via.TrustScore,
+            bridgeToken,
         });
 
         var defaultAccountsJson = JsonSerializer.Serialize(accountsList);
@@ -330,6 +333,7 @@ public static class ExtensionProvisioner
             cooldownUntilMs,
             cooldownReason = via.CooldownReason ?? "",
             trustScore = via.TrustScore,
+            bridgeToken,
         });
         var popupJsBody = !string.IsNullOrEmpty(tpl.PopupJsAfterDefaults)
             ? $"const DEFAULT_ACCOUNTS = {defaultAccountsJson};\nconst DEFAULT_VIA_META = {defaultViaMetaJson};\n{tpl.PopupJsAfterDefaults}"
@@ -412,13 +416,93 @@ public static class ExtensionProvisioner
         return list;
     }
 
-    public static int? LaunchChrome(string url, string profileDir, string? extFolder, bool isolatedMode, string? viaSlug = null)
+    private static readonly (int Width, int Height)[] ViewportPresets =
+    {
+        (1366, 768),
+        (1440, 900),
+        (1536, 864),
+        (1600, 900),
+        (1920, 1080),
+    };
+
+    public static List<string> BuildChromeArguments(
+        string url,
+        string profileDir,
+        string? extFolder,
+        bool isolatedMode,
+        string? viaSlug = null,
+        bool antidetectShield = true,
+        bool lowRamMode = true)
     {
         if (string.IsNullOrWhiteSpace(url) || !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
             throw new ArgumentException("Chỉ cho phép mở đường dẫn https:// hợp lệ.");
         }
         var safeProfile = SafeProfileDirRegex.IsMatch(profileDir ?? "") ? profileDir! : "Default";
+        var args = new List<string>();
+
+        if (isolatedMode)
+        {
+            var isoSlug = SanitizeFolderSlug(string.IsNullOrWhiteSpace(viaSlug) ? safeProfile : viaSlug);
+            var isoDir = Path.Combine(IsolatedProfilesRoot, isoSlug);
+            Directory.CreateDirectory(isoDir);
+            args.Add($"--user-data-dir={isoDir}");
+            args.Add("--no-first-run");
+            args.Add("--no-default-browser-check");
+        }
+        else
+        {
+            args.Add($"--profile-directory={safeProfile}");
+        }
+
+        if (antidetectShield)
+        {
+            args.Add("--disable-blink-features=AutomationControlled");
+            args.Add("--force-webrtc-ip-handling-policy=disable_non_proxied_udp");
+            args.Add("--enforce-webrtc-ip-permission-check");
+            args.Add("--disable-features=Translate,OptimizationHints,MediaRouter,DialMediaRouteProvider");
+
+            var seed = $"{(viaSlug ?? "").Trim().ToLowerInvariant()}|{safeProfile.ToLowerInvariant()}";
+            unchecked
+            {
+                uint hash = 2166136261;
+                foreach (var ch in seed)
+                {
+                    hash ^= ch;
+                    hash *= 16777619;
+                }
+                var vp = ViewportPresets[hash % (uint)ViewportPresets.Length];
+                args.Add($"--window-size={vp.Width},{vp.Height}");
+            }
+        }
+
+        if (lowRamMode)
+        {
+            args.Add("--process-per-site");
+            args.Add("--renderer-process-limit=4");
+            args.Add("--disable-background-networking");
+            args.Add("--disk-cache-size=67108864");
+            args.Add("--media-cache-size=16777216");
+        }
+
+        if (!string.IsNullOrWhiteSpace(extFolder) && Directory.Exists(extFolder))
+        {
+            args.Add($"--load-extension={extFolder}");
+        }
+        args.Add(url);
+        return args;
+    }
+
+    public static int? LaunchChrome(
+        string url,
+        string profileDir,
+        string? extFolder,
+        bool isolatedMode,
+        string? viaSlug = null,
+        bool antidetectShield = true,
+        bool lowRamMode = true)
+    {
+        var args = BuildChromeArguments(url, profileDir, extFolder, isolatedMode, viaSlug, antidetectShield, lowRamMode);
         var chromeExe = FindChromeExecutable() ?? "chrome.exe";
         var useDirectExec = File.Exists(chromeExe);
         var psi = new ProcessStartInfo
@@ -426,26 +510,10 @@ public static class ExtensionProvisioner
             FileName = chromeExe,
             UseShellExecute = !useDirectExec,
         };
-
-        if (isolatedMode)
+        foreach (var a in args)
         {
-            var isoSlug = SanitizeFolderSlug(string.IsNullOrWhiteSpace(viaSlug) ? safeProfile : viaSlug);
-            var isoDir = Path.Combine(IsolatedProfilesRoot, isoSlug);
-            Directory.CreateDirectory(isoDir);
-            psi.ArgumentList.Add($"--user-data-dir={isoDir}");
-            psi.ArgumentList.Add("--no-first-run");
-            psi.ArgumentList.Add("--no-default-browser-check");
+            psi.ArgumentList.Add(a);
         }
-        else
-        {
-            psi.ArgumentList.Add($"--profile-directory={safeProfile}");
-        }
-
-        if (!string.IsNullOrWhiteSpace(extFolder) && Directory.Exists(extFolder))
-        {
-            psi.ArgumentList.Add($"--load-extension={extFolder}");
-        }
-        psi.ArgumentList.Add(url);
 
         Process? proc;
         try
@@ -458,5 +526,66 @@ public static class ExtensionProvisioner
             proc = Process.Start(psi);
         }
         return proc?.Id;
+    }
+}
+
+/// <summary>Dọn cache tạm của Chrome Profile không hoạt động và nén bộ nhớ tiến trình Desktop.</summary>
+public static class WorkstationPerformanceOptimizer
+{
+    public static (int CleanedFolders, long BytesFreed) CleanProfileCachesAndTrimMemory(
+        string? isolatedRootOverride = null,
+        ISet<string>? activeSlugs = null)
+    {
+        var root = isolatedRootOverride ?? ExtensionProvisioner.IsolatedProfilesRoot;
+        int cleaned = 0;
+        long bytes = 0;
+
+        try
+        {
+            if (Directory.Exists(root))
+            {
+                var cacheRelPaths = new[]
+                {
+                    Path.Combine("Default", "Code Cache"),
+                    Path.Combine("Default", "GPUCache"),
+                    Path.Combine("Default", "Cache", "Cache_Data"),
+                    "GrShaderCache",
+                    "ShaderCache",
+                };
+
+                foreach (var profDir in Directory.EnumerateDirectories(root))
+                {
+                    var folderName = Path.GetFileName(profDir);
+                    if (activeSlugs != null && activeSlugs.Contains(folderName))
+                    {
+                        continue;
+                    }
+                    foreach (var rel in cacheRelPaths)
+                    {
+                        var target = Path.Combine(profDir, rel);
+                        if (!Directory.Exists(target)) continue;
+                        try
+                        {
+                            long dirBytes = Directory.EnumerateFiles(target, "*", SearchOption.AllDirectories)
+                                .Sum(f => { try { return new FileInfo(f).Length; } catch { return 0L; } });
+                            Directory.Delete(target, recursive: true);
+                            cleaned++;
+                            bytes += dirBytes;
+                        }
+                        catch { }
+                    }
+                }
+            }
+        }
+        catch { }
+
+        try
+        {
+            GC.Collect(2, GCCollectionMode.Optimized, blocking: false);
+            GC.WaitForPendingFinalizers();
+        }
+        catch { }
+
+        return (cleaned, bytes);
     }
 }

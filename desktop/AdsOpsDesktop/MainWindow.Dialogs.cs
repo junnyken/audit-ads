@@ -165,6 +165,49 @@ internal sealed partial class MainWindow
         twoColSilo.Children.Add(clientBox);
         twoColSilo.Children.Add(routeBox);
 
+        // 5-Engine Antidetect Binding (AdsPower / Dolphin{anty} / Hidemyacc / Genlogin / GoLogin)
+        var twoColAnti = new Grid { Margin = new Thickness(0, 8, 0, 0) };
+        twoColAnti.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        twoColAnti.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+        twoColAnti.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var cbAdEngine = UiComponents.CreateComboBox(
+            AntidetectBrowserConnector.SupportedEngines.Select(e => new ComboBoxItem { Content = e.Label, Tag = e.Key }));
+        var curAdEng = string.IsNullOrWhiteSpace(existing?.AntidetectEngine)
+            ? AntidetectBrowserConnector.NormalizeEngine(_config.DefaultBrowserEngine)
+            : AntidetectBrowserConnector.NormalizeEngine(existing!.AntidetectEngine);
+        var adEngIdx = Array.FindIndex(AntidetectBrowserConnector.SupportedEngines, e => e.Key == curAdEng);
+        cbAdEngine.SelectedIndex = adEngIdx >= 0 ? adEngIdx : 0;
+
+        var tbAdProfileId = UiComponents.CreateTextBox(existing?.AntidetectProfileId ?? "", "Để trống nếu dùng Chrome Gốc (VD: j12ab3c)");
+        var pickAdWrap = new Grid();
+        pickAdWrap.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        pickAdWrap.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(6) });
+        pickAdWrap.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        pickAdWrap.Children.Add(tbAdProfileId);
+        var btnPickAd = UiComponents.CreateButton("Quét ID", ButtonVariant.Secondary, compact: true, onClick: async (_, _) =>
+        {
+            var engKey = (cbAdEngine.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "chrome_native";
+            var list = await AntidetectBrowserConnector.ListProfilesAsync(engKey, _config.AntidetectApiBaseUrl, _config.AntidetectApiKey);
+            if (list.Count == 0)
+            {
+                MessageBox.Show(dlg, $"Chưa đọc được Profile nào từ {AntidetectBrowserConnector.GetDisplayName(engKey)}. Hãy đảm bảo phần mềm Antidetect đang mở!", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            var exact = list.FirstOrDefault(p => p.Name.Equals(tbLabel.Text.Trim(), StringComparison.OrdinalIgnoreCase)) ?? list[0];
+            tbAdProfileId.Text = exact.ProfileId;
+            AppendLog($"Đã quét {list.Count} Profile từ {AntidetectBrowserConnector.GetDisplayName(engKey)}, chọn ID '{exact.ProfileId}' ({exact.Name}).");
+        });
+        Grid.SetColumn(btnPickAd, 2);
+        pickAdWrap.Children.Add(btnPickAd);
+
+        var adEngBox = BuildLabeledBox("Trình duyệt Antidetect (tùy chọn)", cbAdEngine);
+        var adIdBox = BuildLabeledBox("Antidetect Profile ID", pickAdWrap);
+        Grid.SetColumn(adEngBox, 0);
+        Grid.SetColumn(adIdBox, 2);
+        twoColAnti.Children.Add(adEngBox);
+        twoColAnti.Children.Add(adIdBox);
+
         void RefreshProxyDupWarning()
         {
             var hostPort = AutomationQueueEngine.ExtractProxyHostPort(tbProxy.Text);
@@ -236,6 +279,7 @@ internal sealed partial class MainWindow
         RefreshProxyDupWarning();
         root.Children.Add(proxyDupHint);
         root.Children.Add(twoColSilo);
+        root.Children.Add(twoColAnti);
 
         if (existing?.IsInCooldown == true)
         {
@@ -388,6 +432,7 @@ internal sealed partial class MainWindow
                 var statusTag = (cbStatus.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "active";
                 var wmTag = (warmupMode.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "keep";
                 var wModeTag = (cbWarmupRoute.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "human_organic";
+                var adEngTag = (cbAdEngine.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "chrome_native";
                 var nextWarmupIso = wmTag switch
                 {
                     "now" => DateTimeOffset.UtcNow.ToString("O"),
@@ -395,7 +440,7 @@ internal sealed partial class MainWindow
                     _ => existing?.WarmupStartIso ?? "",
                 };
 
-                var builtNotes = ViaMetadataParser.BuildNotes(tbNotes.Text.Trim(), tierTag, nextWarmupIso, tbClientGroup.Text.Trim(), wModeTag);
+                var builtNotes = ViaMetadataParser.BuildNotes(tbNotes.Text.Trim(), tierTag, nextWarmupIso, tbClientGroup.Text.Trim(), wModeTag, adEngTag, tbAdProfileId.Text.Trim());
                 var payload = new PersonalAccountUpsertRequestDto
                 {
                     Label = labelVal,

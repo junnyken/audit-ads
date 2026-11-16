@@ -13,6 +13,7 @@ export interface RegisterPayload {
   math_answer: string
   human_confirmed: boolean
   website_honeypot?: string
+  invite_code?: string
 }
 
 interface AuthState {

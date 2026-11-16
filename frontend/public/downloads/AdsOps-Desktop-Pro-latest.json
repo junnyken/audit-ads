@@ -1,9 +1,13 @@
 {
-  "version": "2.4.2",
-  "ext_version": "2.9.6",
-  "download_url": "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
-  "sha256": "01bf540416ba78f8b9721590b2c6db70a8a6e71c651298e934ce7ff1912a1cee",
-  "size_bytes": 65851909,
-  "published_at": "2026-11-16T02:50:31.383991Z",
-  "release_notes": "AdsOps Desktop Pro v2.4.2 + Extension v2.9.6: Cho phép tùy chỉnh Max Via / 1 Proxy (1–50, mặc định 4), Max Tạo Page / IP (1–20) & Nghỉ trùng IP (15–300s) ngay trong Cài đặt Desktop & Web; nâng cấp Full Backup di chuyển máy 5 lớp (.adsopsvault: Cookie+2FA DPAPI, Via+Proxy+Profile+Silo, Cài đặt Cụm Proxy, Lịch sử Ngâm 72h/Cooldown, Phiên Cloud) khỏi nhập lại từng cái."
+    "version":  "2.5.0",
+    "ext_version":  "2.9.7",
+    "authenticode_signed":  true,
+    "download_url":  "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
+    "mirror_urls":  [
+                        "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
+                    ],
+    "sha256":  "fc3ccfc5aa681129fb3bbebcbbe1c48478004e542ccbd9e47f9474c06f3aebae",
+    "size_bytes":  62148988,
+    "published_at":  "2026-11-16T04:33:40.748364Z",
+    "release_notes":  "AdsOps Desktop Pro v2.5.0 + Extension v2.9.7: Khoa Zero-Trust Bridge Token (127.0.0.1:17890), tich hop 5 API Antidetect (AdsPower/Dolphin/Hidemyacc/Genlogin/GoLogin), Toi uu RAM Dan Nuoi + Dọn Cache, Ban dem Offline DPAPI, Go Cong dong + Ma Moi \u0026 Trinh cai dat kem SHA-256/Authenticode."
 }

@@ -112,6 +112,10 @@ def _build_context(session: Session, payload: dict) -> ApiContext:
     ).scalar_one_or_none()
     if workspace is None:
         raise AuthenticationError("The workspace is not available.")
+    if getattr(workspace, "community_status", "active") == "suspended":
+        raise AuthorizationError(
+            "Workspace này đang tạm khóa bởi Quản trị viên Cộng đồng. Vui lòng liên hệ Admin để mở lại."
+        )
 
     membership = WorkspaceAccessService(session).get_membership(
         user_id=user.id, workspace_id=workspace.id

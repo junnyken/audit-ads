@@ -41,6 +41,7 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [fullName, setFullName] = useState('')
   const [workspaceName, setWorkspaceName] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
   const [captchaCode, setCaptchaCode] = useState('')
   const [mathAnswer, setMathAnswer] = useState('')
   const [humanConfirmed, setHumanConfirmed] = useState(false)
@@ -215,6 +216,7 @@ export default function Login() {
           math_answer: mathAnswer.trim(),
           human_confirmed: humanConfirmed,
           website_honeypot: websiteHoneypot,
+          invite_code: inviteCode.trim() ? inviteCode.trim().toUpperCase() : undefined,
         })
       }
     } catch (caught) {
@@ -680,6 +682,27 @@ export default function Login() {
                       className="w-full rounded-md border border-line-strong bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-subtle focus:border-brand focus:outline-none"
                     />
                   </Field>
+
+                  {authMode === 'register' && (
+                    <Field
+                      label={
+                        isEn
+                          ? 'Community Invite Code / Pro Upgrade (Optional)'
+                          : '🎟️ Mã Mời Cộng Đồng / Nâng Cấp Pro (Tùy chọn)'
+                      }
+                      htmlFor="reg-invite-code"
+                    >
+                      <input
+                        id="reg-invite-code"
+                        type="text"
+                        maxLength={64}
+                        value={inviteCode}
+                        onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                        placeholder={isEn ? 'e.g. ADSOPS-PRO-XXXXXX (leave blank for Free Community tier)' : 'VD: ADSOPS-PRO-XXXXXX (để trống = Gói Cộng đồng Free)'}
+                        className="w-full rounded-md border border-line-strong bg-canvas px-3 py-2 font-mono text-xs uppercase text-ink placeholder:text-ink-subtle focus:border-brand focus:outline-none"
+                      />
+                    </Field>
+                  )}
 
                   {/* 4-LAYER ANTI-BOT VERIFICATION FOR REGISTRATION */}
                   {authMode === 'register' && (

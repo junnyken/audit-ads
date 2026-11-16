@@ -84,6 +84,9 @@ def _mount(
 
     @router.post(path, tags=[tag], status_code=201, response_model=out_schema, name=f"create_{spec.entity_type}")
     def _create(ctx: WriteCtx, payload: create_schema) -> Any:  # type: ignore[valid-type]
+        if spec.entity_type == "personal_account_reference":
+            from app.services.community_quota import enforce_workspace_quota
+            enforce_workspace_quota(ctx.session, ctx.workspace, "via")
         instance = service(ctx).create(payload.model_dump(exclude_unset=False))
         ctx.commit()
         return out_schema.model_validate(instance)

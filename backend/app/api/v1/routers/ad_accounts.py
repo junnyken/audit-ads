@@ -469,6 +469,9 @@ def list_accounts(
 
 @router.post("", status_code=201)
 def create_account(ctx: WriteCtx, payload: s.AdAccountCreate) -> dict[str, Any]:
+    from app.services.community_quota import enforce_workspace_quota
+
+    enforce_workspace_quota(ctx.session, ctx.workspace, "ad_account")
     service = AdAccountRegistryService(ctx.session, ctx.workspace_id, ctx.audit, visible_ids=ctx.visible_ad_account_ids())
     account = service.create(payload.model_dump())
     trigger_health(ctx, account, EvaluationTrigger.ACCOUNT_MUTATION)

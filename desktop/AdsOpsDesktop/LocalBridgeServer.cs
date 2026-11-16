@@ -6,6 +6,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -45,9 +46,17 @@ public sealed class LocalVaultGetResult
     [JsonPropertyName("updated_at")] public string UpdatedAt { get; set; } = "";
 }
 
-/// <summary>Zero-Admin TCP HTTP server on 127.0.0.1 with full CORS + Chrome Private Network Access headers.</summary>
+/// <summary>
+/// Zero-Trust TCP HTTP server trên 127.0.0.1:
+/// 1) Anti-DNS-Rebinding kiểm tra header Host chặt chẽ;
+/// 2) Chặt bỏ wildcard `Access-Control-Allow-Origin: *`, chỉ phản hồi Origin Web AdsOps chính chủ & chrome-extension://;
+/// 3) Xác thực constant-time `X-AdsOps-Bridge-Token` trên mọi API Vault/2FA/Mutation và toàn bộ request từ Extension.
+/// </summary>
 public sealed class LocalBridgeServer : IDisposable
 {
+    private static readonly Regex LoopbackHostRegex = new(@"^(127\.0\.0\.1|localhost)(:\d{1,5})?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex LocalOriginRegex = new(@"^https?://(127\.0\.0\.1|localhost)(:\d{1,5})?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     private readonly int _requestedPort;
     private readonly Func<OpenChromeBridgeRequest, Task<(bool Ok, string Message)>> _onOpenChrome;
     private readonly Func<BrowserEventPayloadDto, Task<BrowserEventResponseDto>> _onBrowserEvent;
@@ -57,6 +66,8 @@ public sealed class LocalBridgeServer : IDisposable
     private readonly Func<AutoConnectTokenBridgeRequest, Task<AutoConnectTokenBridgeResponse>> _onAutoConnectToken;
     private readonly Func<BillingSyncRequestDto, Task<BillingSyncResponseDto>> _onSyncBilling;
     private readonly Func<TileWindowsRequestDto?, TileWindowsResultDto> _onTileWindows;
+    private readonly Func<string> _getBridgeToken;
+    private readonly Func<string> _getAllowedWebAppUrl;
     private readonly Action<string> _log;
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -74,7 +85,9 @@ public sealed class LocalBridgeServer : IDisposable
         Func<string, string, string, Task<LocalVaultGetResult>>? onVaultGet = null,
         Func<AutoConnectTokenBridgeRequest, Task<AutoConnectTokenBridgeResponse>>? onAutoConnectToken = null,
         Func<BillingSyncRequestDto, Task<BillingSyncResponseDto>>? onSyncBilling = null,
-        Func<TileWindowsRequestDto?, TileWindowsResultDto>? onTileWindows = null)
+        Func<TileWindowsRequestDto?, TileWindowsResultDto>? onTileWindows = null,
+        Func<string>? getBridgeToken = null,
+        Func<string>? getAllowedWebAppUrl = null)
     {
         _requestedPort = port;
         _onOpenChrome = onOpenChrome;
@@ -94,6 +107,8 @@ public sealed class LocalBridgeServer : IDisposable
             Reason = "handler_not_configured",
         }));
         _onTileWindows = onTileWindows ?? (req => WindowTilerService.TileChromeWindows(req?.Grid, req?.Pids));
+        _getBridgeToken = getBridgeToken ?? (() => DesktopConfig.Load().GetOrCreateBridgeToken());
+        _getAllowedWebAppUrl = getAllowedWebAppUrl ?? (() => DesktopConfig.DefaultWebAppUrl);
     }
 
     public static bool RetireLegacyBridgeHoldingPort(int port, Action<string> log)
@@ -185,6 +200,61 @@ public sealed class LocalBridgeServer : IDisposable
         }
     }
 
+    private static string NormalizeOrigin(string? rawOrigin)
+    {
+        if (string.IsNullOrWhiteSpace(rawOrigin)) return "";
+        return rawOrigin.Trim().TrimEnd('/');
+    }
+
+    private static bool IsExtensionOrigin(string origin) =>
+        !string.IsNullOrEmpty(origin) && origin.StartsWith("chrome-extension://", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsAllowedWebOrigin(string origin)
+    {
+        if (string.IsNullOrEmpty(origin)) return false;
+        if (string.Equals(origin, "https://adsops-app.vibe.tinhgon.xyz", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+        if (LocalOriginRegex.IsMatch(origin))
+        {
+            return true;
+        }
+        var configuredWeb = (_getAllowedWebAppUrl() ?? "").Trim();
+        if (Uri.TryCreate(configuredWeb, UriKind.Absolute, out var webUri) &&
+            (webUri.Scheme == "https" || webUri.IsLoopback))
+        {
+            var expectedOrigin = $"{webUri.Scheme}://{webUri.Authority}".TrimEnd('/');
+            if (string.Equals(origin, expectedOrigin, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private bool HasValidBridgeToken(Dictionary<string, string> headers)
+    {
+        var expected = (_getBridgeToken() ?? "").Trim();
+        if (string.IsNullOrEmpty(expected)) return false;
+        if (!headers.TryGetValue("X-AdsOps-Bridge-Token", out var supplied) || string.IsNullOrWhiteSpace(supplied))
+        {
+            return false;
+        }
+        var a = Encoding.UTF8.GetBytes(expected);
+        var b = Encoding.UTF8.GetBytes(supplied.Trim());
+        return a.Length == b.Length && CryptographicOperations.FixedTimeEquals(a, b);
+    }
+
+    private static bool IsTokenRequiredEndpoint(string method, string path)
+    {
+        if (path is "/local-vault/get" or "/local-vault/save" or "/totp" or "/auto-connect-token" or "/browser-event" or "/sync-billing" or "/provision-extensions")
+        {
+            return true;
+        }
+        return false;
+    }
+
     private async Task HandleClientAsync(TcpClient client, CancellationToken ct)
     {
         using (client)
@@ -194,12 +264,34 @@ public sealed class LocalBridgeServer : IDisposable
             try
             {
                 await using var stream = client.GetStream();
-                var (method, rawPath, bodyText) = await ReadHttpRequestAsync(stream, ct).ConfigureAwait(false);
+                var (method, rawPath, headers, bodyText) = await ReadHttpRequestAsync(stream, ct).ConfigureAwait(false);
                 if (string.IsNullOrEmpty(method)) return;
+
+                // Gate 1: Anti-DNS-Rebinding Host header validation
+                if (headers.TryGetValue("Host", out var hostHeader) &&
+                    !string.IsNullOrWhiteSpace(hostHeader) &&
+                    !LoopbackHostRegex.IsMatch(hostHeader.Trim()))
+                {
+                    _log($"[Bridge Zero-Trust] Chặn Host lạ '{hostHeader}'.");
+                    await WriteHttpResponseAsync(stream, 403, "Forbidden", "{\"ok\":false,\"error\":\"Forbidden Host\"}", null, ct).ConfigureAwait(false);
+                    return;
+                }
+
+                // Gate 2: Strict Origin Allowlist (never emit Access-Control-Allow-Origin: *)
+                var origin = headers.TryGetValue("Origin", out var rawOrig) ? NormalizeOrigin(rawOrig) : "";
+                var isExtOrig = IsExtensionOrigin(origin);
+                var isWebOrig = IsAllowedWebOrigin(origin);
+                if (!string.IsNullOrEmpty(origin) && !isExtOrig && !isWebOrig)
+                {
+                    _log($"[Bridge Zero-Trust] Chặn Origin lạ '{origin}' (CORS & PNA bị từ chối).");
+                    await WriteHttpResponseAsync(stream, 403, "Forbidden", "{\"ok\":false,\"error\":\"Origin blocked by AdsOps Zero-Trust Bridge\"}", null, ct).ConfigureAwait(false);
+                    return;
+                }
+                string? validatedOrigin = string.IsNullOrEmpty(origin) ? null : origin;
 
                 if (method == "OPTIONS")
                 {
-                    await WriteHttpResponseAsync(stream, 204, "No Content", "", ct).ConfigureAwait(false);
+                    await WriteHttpResponseAsync(stream, 204, "No Content", "", validatedOrigin, ct).ConfigureAwait(false);
                     return;
                 }
 
@@ -207,6 +299,24 @@ public sealed class LocalBridgeServer : IDisposable
                 var path = (qIdx >= 0 ? rawPath[..qIdx] : rawPath).TrimEnd('/');
                 var rawQuery = qIdx >= 0 ? rawPath[(qIdx + 1)..] : "";
                 if (string.IsNullOrEmpty(path)) path = "/";
+
+                // Gate 3: Constant-time X-AdsOps-Bridge-Token enforcement
+                // Required on ALL Vault/2FA/Mutation endpoints and ALL chrome-extension:// calls (prevents rogue extensions snooping)
+                if (isExtOrig || IsTokenRequiredEndpoint(method, path))
+                {
+                    if (!HasValidBridgeToken(headers))
+                    {
+                        var reason = isExtOrig ? "Extension missing/invalid X-AdsOps-Bridge-Token" : "Missing or invalid X-AdsOps-Bridge-Token";
+                        await WriteHttpResponseAsync(
+                            stream,
+                            401,
+                            "Unauthorized",
+                            JsonSerializer.Serialize(new { ok = false, error = reason, zero_trust = true }),
+                            validatedOrigin,
+                            ct).ConfigureAwait(false);
+                        return;
+                    }
+                }
 
                 if (method == "GET" && path == "/health")
                 {
@@ -218,8 +328,9 @@ public sealed class LocalBridgeServer : IDisposable
                         version = DesktopAppInfo.Version,
                         extVersion = tpl.Version,
                         port = BoundPort,
+                        zeroTrust = true,
                     });
-                    await WriteHttpResponseAsync(stream, 200, "OK", json, ct).ConfigureAwait(false);
+                    await WriteHttpResponseAsync(stream, 200, "OK", json, validatedOrigin, ct).ConfigureAwait(false);
                     return;
                 }
 
@@ -227,7 +338,7 @@ public sealed class LocalBridgeServer : IDisposable
                 {
                     var profiles = ExtensionProvisioner.ReadLocalChromeProfiles();
                     var json = JsonSerializer.Serialize(new { ok = true, profiles });
-                    await WriteHttpResponseAsync(stream, 200, "OK", json, ct).ConfigureAwait(false);
+                    await WriteHttpResponseAsync(stream, 200, "OK", json, validatedOrigin, ct).ConfigureAwait(false);
                     return;
                 }
 
@@ -238,12 +349,12 @@ public sealed class LocalBridgeServer : IDisposable
                         new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new OpenChromeBridgeRequest();
                     if (string.IsNullOrWhiteSpace(req.Url) || !req.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
                     {
-                        await WriteHttpResponseAsync(stream, 400, "Bad Request", "{\"ok\":false,\"error\":\"Invalid target URL\"}", ct).ConfigureAwait(false);
+                        await WriteHttpResponseAsync(stream, 400, "Bad Request", "{\"ok\":false,\"error\":\"Invalid target URL\"}", validatedOrigin, ct).ConfigureAwait(false);
                         return;
                     }
                     var (ok, msg) = await _onOpenChrome(req).ConfigureAwait(false);
                     var json = JsonSerializer.Serialize(new { ok, message = msg });
-                    await WriteHttpResponseAsync(stream, ok ? 200 : 500, ok ? "OK" : "Error", json, ct).ConfigureAwait(false);
+                    await WriteHttpResponseAsync(stream, ok ? 200 : 500, ok ? "OK" : "Error", json, validatedOrigin, ct).ConfigureAwait(false);
                     return;
                 }
 
@@ -251,7 +362,7 @@ public sealed class LocalBridgeServer : IDisposable
                 {
                     var count = await _onProvisionAll().ConfigureAwait(false);
                     var json = JsonSerializer.Serialize(new { ok = true, provisioned = count });
-                    await WriteHttpResponseAsync(stream, 200, "OK", json, ct).ConfigureAwait(false);
+                    await WriteHttpResponseAsync(stream, 200, "OK", json, validatedOrigin, ct).ConfigureAwait(false);
                     return;
                 }
 
@@ -262,7 +373,7 @@ public sealed class LocalBridgeServer : IDisposable
                         new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new BrowserEventPayloadDto();
                     var result = await _onBrowserEvent(ev).ConfigureAwait(false);
                     var json = JsonSerializer.Serialize(result);
-                    await WriteHttpResponseAsync(stream, 200, "OK", json, ct).ConfigureAwait(false);
+                    await WriteHttpResponseAsync(stream, 200, "OK", json, validatedOrigin, ct).ConfigureAwait(false);
                     return;
                 }
 
@@ -273,7 +384,7 @@ public sealed class LocalBridgeServer : IDisposable
                         new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new LocalVaultSaveRequest();
                     var result = await _onVaultSave(req).ConfigureAwait(false);
                     var json = JsonSerializer.Serialize(result);
-                    await WriteHttpResponseAsync(stream, result.Ok ? 200 : 400, result.Ok ? "OK" : "Bad Request", json, ct).ConfigureAwait(false);
+                    await WriteHttpResponseAsync(stream, result.Ok ? 200 : 400, result.Ok ? "OK" : "Bad Request", json, validatedOrigin, ct).ConfigureAwait(false);
                     return;
                 }
 
@@ -285,7 +396,7 @@ public sealed class LocalBridgeServer : IDisposable
                     var name = (qs["name"] ?? "").Trim();
                     var result = await _onVaultGet(viaId, profile, name).ConfigureAwait(false);
                     var json = JsonSerializer.Serialize(result);
-                    await WriteHttpResponseAsync(stream, 200, "OK", json, ct).ConfigureAwait(false);
+                    await WriteHttpResponseAsync(stream, 200, "OK", json, validatedOrigin, ct).ConfigureAwait(false);
                     return;
                 }
 
@@ -306,7 +417,7 @@ public sealed class LocalBridgeServer : IDisposable
                         seconds_remaining = totp.SecondsRemaining,
                         via_label = !string.IsNullOrWhiteSpace(vault.ViaLabel) ? vault.ViaLabel : name,
                     });
-                    await WriteHttpResponseAsync(stream, 200, "OK", json, ct).ConfigureAwait(false);
+                    await WriteHttpResponseAsync(stream, 200, "OK", json, validatedOrigin, ct).ConfigureAwait(false);
                     return;
                 }
 
@@ -322,12 +433,12 @@ public sealed class LocalBridgeServer : IDisposable
                             Ok = false,
                             Error = "Thiếu access_token (EAAB...) để đẩy lên Cloud.",
                         });
-                        await WriteHttpResponseAsync(stream, 400, "Bad Request", errJson, ct).ConfigureAwait(false);
+                        await WriteHttpResponseAsync(stream, 400, "Bad Request", errJson, validatedOrigin, ct).ConfigureAwait(false);
                         return;
                     }
                     var result = await _onAutoConnectToken(req).ConfigureAwait(false);
                     var json = JsonSerializer.Serialize(result);
-                    await WriteHttpResponseAsync(stream, result.Ok ? 200 : 400, result.Ok ? "OK" : "Bad Request", json, ct).ConfigureAwait(false);
+                    await WriteHttpResponseAsync(stream, result.Ok ? 200 : 400, result.Ok ? "OK" : "Bad Request", json, validatedOrigin, ct).ConfigureAwait(false);
                     return;
                 }
 
@@ -340,7 +451,7 @@ public sealed class LocalBridgeServer : IDisposable
                         active_count = sessions.Count(s => s.Alive),
                         sessions,
                     });
-                    await WriteHttpResponseAsync(stream, 200, "OK", json, ct).ConfigureAwait(false);
+                    await WriteHttpResponseAsync(stream, 200, "OK", json, validatedOrigin, ct).ConfigureAwait(false);
                     return;
                 }
 
@@ -356,6 +467,7 @@ public sealed class LocalBridgeServer : IDisposable
                             400,
                             "Bad Request",
                             "{\"ok\":false,\"error\":\"Thiếu external_account_id để đồng bộ Billing.\"}",
+                            validatedOrigin,
                             ct).ConfigureAwait(false);
                         return;
                     }
@@ -368,7 +480,7 @@ public sealed class LocalBridgeServer : IDisposable
                         updated_fields = syncRes.UpdatedFields,
                         reason = syncRes.Reason,
                     });
-                    await WriteHttpResponseAsync(stream, 200, "OK", json, ct).ConfigureAwait(false);
+                    await WriteHttpResponseAsync(stream, 200, "OK", json, validatedOrigin, ct).ConfigureAwait(false);
                     return;
                 }
 
@@ -385,11 +497,11 @@ public sealed class LocalBridgeServer : IDisposable
                     }
                     var tileRes = _onTileWindows(reqDto);
                     var json = JsonSerializer.Serialize(tileRes);
-                    await WriteHttpResponseAsync(stream, 200, "OK", json, ct).ConfigureAwait(false);
+                    await WriteHttpResponseAsync(stream, 200, "OK", json, validatedOrigin, ct).ConfigureAwait(false);
                     return;
                 }
 
-                await WriteHttpResponseAsync(stream, 404, "Not Found", "{\"ok\":false,\"error\":\"Not Found\"}", ct).ConfigureAwait(false);
+                await WriteHttpResponseAsync(stream, 404, "Not Found", "{\"ok\":false,\"error\":\"Not Found\"}", validatedOrigin, ct).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -398,7 +510,7 @@ public sealed class LocalBridgeServer : IDisposable
         }
     }
 
-    private static async Task<(string Method, string Path, string Body)> ReadHttpRequestAsync(NetworkStream stream, CancellationToken ct)
+    private static async Task<(string Method, string Path, Dictionary<string, string> Headers, string Body)> ReadHttpRequestAsync(NetworkStream stream, CancellationToken ct)
     {
         var buffer = new byte[8192];
         var ms = new MemoryStream();
@@ -410,25 +522,29 @@ public sealed class LocalBridgeServer : IDisposable
             ms.Write(buffer, 0, n);
             headerEnd = FindHeaderTerminator(ms.GetBuffer(), (int)ms.Length);
         }
-        if (headerEnd < 0) return ("", "", "");
+        var emptyHeaders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (headerEnd < 0) return ("", "", emptyHeaders, "");
 
         var rawBytes = ms.GetBuffer();
         var headerText = Encoding.ASCII.GetString(rawBytes, 0, headerEnd);
         var lines = headerText.Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
-        if (lines.Length == 0) return ("", "", "");
+        if (lines.Length == 0) return ("", "", emptyHeaders, "");
         var firstParts = lines[0].Split(' ');
-        if (firstParts.Length < 2) return ("", "", "");
+        if (firstParts.Length < 2) return ("", "", emptyHeaders, "");
 
         var method = firstParts[0].Trim().ToUpperInvariant();
         var path = firstParts[1].Trim();
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         int contentLength = 0;
         foreach (var line in lines[1..])
         {
             var colon = line.IndexOf(':');
             if (colon <= 0) continue;
             var k = line[..colon].Trim();
+            var v = line[(colon + 1)..].Trim();
+            headers[k] = v;
             if (string.Equals(k, "Content-Length", StringComparison.OrdinalIgnoreCase) &&
-                int.TryParse(line[(colon + 1)..].Trim(), out var len))
+                int.TryParse(v, out var len))
             {
                 contentLength = Math.Clamp(len, 0, 1_048_576);
             }
@@ -446,7 +562,7 @@ public sealed class LocalBridgeServer : IDisposable
         var body = contentLength > 0 && (totalLen - bodyStart) >= contentLength
             ? Encoding.UTF8.GetString(ms.GetBuffer(), bodyStart, contentLength)
             : "";
-        return (method, path, body);
+        return (method, path, headers, body);
     }
 
     private static int FindHeaderTerminator(byte[] buf, int length)
@@ -461,15 +577,19 @@ public sealed class LocalBridgeServer : IDisposable
         return -1;
     }
 
-    private static async Task WriteHttpResponseAsync(NetworkStream stream, int code, string reason, string jsonBody, CancellationToken ct)
+    private static async Task WriteHttpResponseAsync(NetworkStream stream, int code, string reason, string jsonBody, string? validatedOrigin, CancellationToken ct)
     {
         var bodyBytes = string.IsNullOrEmpty(jsonBody) ? Array.Empty<byte>() : Encoding.UTF8.GetBytes(jsonBody);
         var sb = new StringBuilder();
         sb.Append($"HTTP/1.1 {code} {reason}\r\n");
-        sb.Append("Access-Control-Allow-Origin: *\r\n");
-        sb.Append("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n");
-        sb.Append("Access-Control-Allow-Headers: Content-Type, Authorization\r\n");
-        sb.Append("Access-Control-Allow-Private-Network: true\r\n");
+        if (!string.IsNullOrEmpty(validatedOrigin))
+        {
+            sb.Append($"Access-Control-Allow-Origin: {validatedOrigin}\r\n");
+            sb.Append("Vary: Origin\r\n");
+            sb.Append("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n");
+            sb.Append("Access-Control-Allow-Headers: Content-Type, Authorization, X-AdsOps-Bridge-Token\r\n");
+            sb.Append("Access-Control-Allow-Private-Network: true\r\n");
+        }
         sb.Append("Cache-Control: no-store\r\n");
         sb.Append("Connection: close\r\n");
         if (bodyBytes.Length > 0)

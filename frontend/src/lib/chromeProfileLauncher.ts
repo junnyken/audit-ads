@@ -11,12 +11,42 @@ export interface RealChromeProfile {
 // Real Chrome profiles are read exclusively from the user's running Windows Local Bridge (:17890).
 export const WORKSTATION_REAL_CHROME_PROFILES: RealChromeProfile[] = []
 
+const BRIDGE_TOKEN_STORAGE_KEY = 'adsops_bridge_token'
+
+export function getLocalBridgeToken(): string {
+  try {
+    return typeof localStorage !== 'undefined' ? (localStorage.getItem(BRIDGE_TOKEN_STORAGE_KEY) || '').trim() : ''
+  } catch {
+    return ''
+  }
+}
+
+export function setLocalBridgeToken(token: string): void {
+  try {
+    if (typeof localStorage === 'undefined') return
+    const clean = (token || '').trim()
+    if (clean) localStorage.setItem(BRIDGE_TOKEN_STORAGE_KEY, clean)
+    else localStorage.removeItem(BRIDGE_TOKEN_STORAGE_KEY)
+  } catch {
+    // Ignore restricted storage
+  }
+}
+
+function buildWebBridgeHeaders(extra?: Record<string, string>): Record<string, string> {
+  const tok = getLocalBridgeToken()
+  return {
+    ...(extra || {}),
+    ...(tok ? { 'X-AdsOps-Bridge-Token': tok } : {}),
+  }
+}
+
 export async function fetchRealLocalChromeProfiles(): Promise<RealChromeProfile[]> {
   try {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 1500)
     const resp = await fetch('http://127.0.0.1:17890/chrome-profiles', {
       method: 'GET',
+      headers: buildWebBridgeHeaders(),
       signal: controller.signal,
     })
     clearTimeout(timer)
@@ -426,7 +456,7 @@ export async function launchInAssignedChromeProfile(
     const timer = setTimeout(() => controller.abort(), 1400)
     const resp = await fetch('http://127.0.0.1:17890/open', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildWebBridgeHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         profile: profileDir,
         name: nameHint,
@@ -812,6 +842,7 @@ export interface ExtensionStewardshipMeta {
   cooldownUntilMs?: number
   cooldownReason?: string
   trustScore?: number
+  bridgeToken?: string
 }
 
 export function buildExtensionFilesForVia(
@@ -839,6 +870,7 @@ export function buildExtensionFilesForVia(
   const cooldownUntilMs = Number(meta.cooldownUntilMs || 0) || 0
   const cooldownReason = (meta.cooldownReason || '').trim()
   const trustScore = Number.isFinite(meta.trustScore) ? Number(meta.trustScore) : (hasProxy ? 75 : 50)
+  const bridgeToken = (meta.bridgeToken || getLocalBridgeToken() || '').trim()
 
   const manifestObj = {
     manifest_version: 3,
@@ -846,9 +878,9 @@ export function buildExtensionFilesForVia(
       ? `AdsOps Companion Pro · ${profileDir} · Proxy ${parsed!.host}:${parsed!.port}`
       : `AdsOps Companion Pro · ${profileDir} (${viaName})`,
     short_name: 'AdsOps Companion Pro',
-    version: '2.9.6',
+    version: '2.9.7',
     description:
-      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.9.6 Pro: Tab Automatic Nuôi Trust riêng, Kill-Switch chống rò rỉ IP Proxy, Ngâm thiết bị mới 72h + Cooldown 24h, Tự làm ấm Cookie & Két DPAPI, Anti-Passkey & 2FA.',
+      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.9.7 Pro: Bảo mật Zero-Trust Bridge Token, Antidetect & Tab Automatic Nuôi Trust, Kill-Switch chống rò rỉ IP Proxy, Ngâm 72h + Cooldown 24h, Két DPAPI, Anti-Passkey & 2FA.',
     permissions: [
       'proxy',
       'privacy',
@@ -915,11 +947,12 @@ export function buildExtensionFilesForVia(
     cooldownUntilMs,
     cooldownReason,
     trustScore,
+    bridgeToken,
   })
 
   // Runs in MAIN world at document_start BEFORE Facebook's scripts load:
   // Completely blocks Windows Hello / WebAuthn / Passkey popup from ever appearing!
-  const passkeyShieldJs = `// AdsOps Companion Pro v2.9.6 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
+  const passkeyShieldJs = `// AdsOps Companion Pro v2.9.7 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
 (function() {
   try {
     if (window.PublicKeyCredential) {
@@ -953,6 +986,17 @@ export function buildExtensionFilesForVia(
 
   const backgroundJs = `const DEFAULT_STATE = ${defaultStateJson};
 let currentAuth = { user: "", pass: "" };
+
+function getBridgeHeaders(extraHeaders, cb) {
+  chrome.storage.local.get(["bridgeToken", "bridgeTokenManual"], (bt) => {
+    void chrome.runtime.lastError;
+    const fb = typeof DEFAULT_STATE !== "undefined" ? DEFAULT_STATE : {};
+    const tok = (bt && bt.bridgeTokenManual) || (fb && fb.bridgeToken) || (bt && bt.bridgeToken) || "";
+    const out = Object.assign({}, extraHeaders || {});
+    if (tok) out["X-AdsOps-Bridge-Token"] = String(tok).trim();
+    cb(out);
+  });
+}
 
 function parseProxy(raw) {
   if (!raw) return null;
@@ -1090,8 +1134,10 @@ function ensureVaultCookiesBootstrapped(force) {
           profile: String(pCode || "Default"),
           name: String(vName || "")
         });
+        const hdrs = await new Promise((resolve) => getBridgeHeaders({}, resolve));
         const resp = await fetch("http://127.0.0.1:17890/local-vault/get?" + qs.toString(), {
-          cache: "no-store"
+          cache: "no-store",
+          headers: hdrs
         });
         if (!resp.ok) return;
         const payload = await resp.json().catch(() => null);
@@ -1136,42 +1182,44 @@ function reportBrowserEventToDesktop(rawPayload, sender, onDone) {
       browser_profile: (rawPayload && rawPayload.browser_profile) || (st && st.profileCode) || fb.profileCode || "",
       via_tier: (rawPayload && rawPayload.via_tier) || (st && st.viaTier) || fb.viaTier || "camp"
     });
-    fetch("http://127.0.0.1:17890/browser-event", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
-    })
-      .then((r) => r.json().catch(() => ({ ok: r.ok })))
-      .then((d) => {
-        if (d && d.close_sender_window && sender && sender.tab && typeof sender.tab.id === "number") {
-          const sTabId = sender.tab.id;
-          const sWinId = sender.tab.windowId;
-          setTimeout(() => {
-            if (typeof sWinId === "number") {
-              chrome.tabs.query({ windowId: sWinId }, (winTabs) => {
-                void chrome.runtime.lastError;
-                if (Array.isArray(winTabs) && winTabs.length <= 2 && chrome.windows && chrome.windows.remove) {
-                  chrome.windows.remove(sWinId, () => {
-                    void chrome.runtime.lastError;
-                  });
-                } else {
-                  chrome.tabs.remove(sTabId, () => {
-                    void chrome.runtime.lastError;
-                  });
-                }
-              });
-            } else {
-              chrome.tabs.remove(sTabId, () => {
-                void chrome.runtime.lastError;
-              });
-            }
-          }, 600);
-        }
-        if (typeof onDone === "function") onDone({ ok: true, data: d });
+    getBridgeHeaders({ "Content-Type": "application/json" }, (hdrs) => {
+      fetch("http://127.0.0.1:17890/browser-event", {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify(body)
       })
-      .catch(() => {
-        if (typeof onDone === "function") onDone({ ok: false, offline: true });
-      });
+        .then((r) => r.json().catch(() => ({ ok: r.ok })))
+        .then((d) => {
+          if (d && d.close_sender_window && sender && sender.tab && typeof sender.tab.id === "number") {
+            const sTabId = sender.tab.id;
+            const sWinId = sender.tab.windowId;
+            setTimeout(() => {
+              if (typeof sWinId === "number") {
+                chrome.tabs.query({ windowId: sWinId }, (winTabs) => {
+                  void chrome.runtime.lastError;
+                  if (Array.isArray(winTabs) && winTabs.length <= 2 && chrome.windows && chrome.windows.remove) {
+                    chrome.windows.remove(sWinId, () => {
+                      void chrome.runtime.lastError;
+                    });
+                  } else {
+                    chrome.tabs.remove(sTabId, () => {
+                      void chrome.runtime.lastError;
+                    });
+                  }
+                });
+              } else {
+                chrome.tabs.remove(sTabId, () => {
+                  void chrome.runtime.lastError;
+                });
+              }
+            }, 600);
+          }
+          if (typeof onDone === "function") onDone({ ok: true, data: d });
+        })
+        .catch(() => {
+          if (typeof onDone === "function") onDone({ ok: false, offline: true });
+        });
+    });
   });
 }
 
@@ -1202,9 +1250,10 @@ function refreshVaultCookieToDesktop(source, force, onDone) {
       const cookieRaw = cookies.map((c) => c.name + "=" + c.value).join("; ");
       const fb = typeof DEFAULT_STATE !== "undefined" ? DEFAULT_STATE : {};
       try {
+        const hdrs = await new Promise((resolve) => getBridgeHeaders({ "Content-Type": "application/json" }, resolve));
         const resp = await fetch("http://127.0.0.1:17890/local-vault/save", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: hdrs,
           body: JSON.stringify({
             via_id: (st && st.viaId) || fb.viaId || "",
             via_label: (st && st.viaName) || fb.viaName || "Via Facebook",
@@ -1437,7 +1486,8 @@ chrome.runtime.onInstalled.addListener(() => {
         autoVaultCookieRefresh: res.autoVaultCookieRefresh !== undefined ? Boolean(res.autoVaultCookieRefresh) : (DEFAULT_STATE.autoVaultCookieRefresh !== false),
         cooldownUntilMs: res.cooldownUntilMs !== undefined ? Number(res.cooldownUntilMs) : Number(DEFAULT_STATE.cooldownUntilMs || 0),
         cooldownReason: res.cooldownReason !== undefined ? res.cooldownReason : (DEFAULT_STATE.cooldownReason || ""),
-        trustScore: res.trustScore !== undefined ? Number(res.trustScore) : Number(DEFAULT_STATE.trustScore || 0)
+        trustScore: res.trustScore !== undefined ? Number(res.trustScore) : Number(DEFAULT_STATE.trustScore || 0),
+        bridgeToken: DEFAULT_STATE.bridgeToken || res.bridgeToken || ""
       };
       chrome.storage.local.set(init, () => {
         applyProxyState(init);
@@ -1637,7 +1687,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const ctrl = new AbortController();
         const timer = setTimeout(() => ctrl.abort(), 1500);
         const qs = new URLSearchParams({ via_id: viaId, profile: profileCode, name: viaName }).toString();
-        const resp = await fetch("http://127.0.0.1:17890/totp?" + qs, { signal: ctrl.signal });
+        const hdrs = await new Promise((resolve) => getBridgeHeaders({}, resolve));
+        const resp = await fetch("http://127.0.0.1:17890/totp?" + qs, { headers: hdrs, signal: ctrl.signal });
         clearTimeout(timer);
         if (resp.ok) {
           const data = await resp.json().catch(() => null);
@@ -1670,18 +1721,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         via_label: rawPayload.via_label || (st && st.viaName) || "",
         browser_profile: rawPayload.browser_profile || (st && st.profileCode) || ""
       });
-      fetch("http://127.0.0.1:17890/sync-billing", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-      })
-        .then((r) => r.json().catch(() => ({ ok: r.ok })))
-        .then((d) => {
-          try { sendResponse(d); } catch (e) {}
+      getBridgeHeaders({ "Content-Type": "application/json" }, (hdrs) => {
+        fetch("http://127.0.0.1:17890/sync-billing", {
+          method: "POST",
+          headers: hdrs,
+          body: JSON.stringify(body)
         })
-        .catch(() => {
-          try { sendResponse({ ok: false }); } catch (e) {}
-        });
+          .then((r) => r.json().catch(() => ({ ok: r.ok })))
+          .then((d) => {
+            try { sendResponse(d); } catch (e) {}
+          })
+          .catch(() => {
+            try { sendResponse({ ok: false }); } catch (e) {}
+          });
+      });
     });
     return true;
   }
@@ -1793,7 +1846,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   <div class="header">
     <div class="brand">
       <span class="logo">AO</span>
-      <span>AdsOps Companion v2.9.6 Pro</span>
+      <span>AdsOps Companion v2.9.7 Pro</span>
     </div>
     <div style="display:flex; align-items:center; gap:5px;">
       <span id="hdr-trust-badge" class="badge badge-ok" title="Điểm Tin Cậy Môi Trường">🛡️ --/100</span>
@@ -1911,7 +1964,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           <button id="btn-export-cookie" type="button" class="btn btn-primary">🍪 Chép Cookie FB</button>
           <button id="btn-extract-token" type="button" class="btn btn-emerald">⚡ Bắt Token EAAB</button>
         </div>
-        <button id="btn-jump-auto" type="button" class="btn btn-amber" style="width:100%; margin-bottom:6px;">🤖 Mở Tab Automatic &amp; Đảo Ấm Sinh Học v2.9.6 →</button>
+        <button id="btn-jump-auto" type="button" class="btn btn-amber" style="width:100%; margin-bottom:6px;">🤖 Mở Tab Automatic &amp; Đảo Ấm Sinh Học v2.9.7 →</button>
         <textarea id="cookie-box" rows="2" class="mono" placeholder="Dán Cookie JSON hoặc c_user=...; xs=... vào đây để đăng nhập Via không cần mật khẩu"></textarea>
         <div class="btn-row">
           <button id="btn-import-cookie" type="button" class="btn">📥 Nạp Cookie vào Chrome này</button>
@@ -1924,6 +1977,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           <button id="btn-vault-load" type="button" class="btn btn-primary" title="Lấy Cookie + 2FA từ Két App Windows và nạp thẳng vào Chrome này">📥 Nạp từ Két App Win</button>
         </div>
         <div id="cookie-status" style="margin-top:4px; font-size:10.5px; color:#34d399;"></div>
+        <div style="margin-top:6px; padding-top:6px; border-top:1px dashed #334155;">
+          <div style="font-size:10px; color:#94a3b8; margin-bottom:4px;">🛡️ Mã Zero-Trust Bridge Token (tự điền khi mở từ App Windows):</div>
+          <div style="display:flex; gap:5px;">
+            <input id="bridge-token-input" type="text" class="mono" placeholder="Dán X-AdsOps-Bridge-Token nếu cài thủ công .zip" />
+            <button id="btn-save-bridge-token" type="button" class="btn btn-primary" style="flex:0 0 76px;">Lưu Token</button>
+          </div>
+        </div>
       </div>
     </details>
 
@@ -1998,7 +2058,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     <div class="card">
       <div class="section-title">
         <span>4. ☕ Automatic Đảo Ấm Sinh Học (4 Chế Độ)</span>
-        <span style="font-size:9.5px; color:#fcd34d;">v2.9.6</span>
+        <span style="font-size:9.5px; color:#fcd34d;">v2.9.7</span>
       </div>
       <select id="ka-mode-select" style="margin-bottom:6px; font-weight:600;">
         <option value="human_organic">☕ Đảo Ấm Sinh Học (Feed → Watch / Thông báo / Profile)</option>
@@ -2052,6 +2112,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     cooldownUntilMs,
     cooldownReason,
     trustScore,
+    bridgeToken,
   })
 
   const popupJs = `const DEFAULT_ACCOUNTS = ${JSON.stringify(bundledAccounts)};
@@ -2062,6 +2123,7 @@ const profileInput = document.getElementById("profile-code");
 const tierSelect = document.getElementById("via-tier");
 const twofaInput = document.getElementById("twofa-secret");
 const proxyInput = document.getElementById("proxy-raw");
+const bridgeTokenInput = document.getElementById("bridge-token-input");
 const badge = document.getElementById("proxy-badge");
 const passkeyBadge = document.getElementById("passkey-badge");
 const saveMsg = document.getElementById("save-msg");
@@ -2069,6 +2131,24 @@ const liveIp = document.getElementById("live-ip");
 const otpCodeEl = document.getElementById("otp-code");
 const otpTimerEl = document.getElementById("otp-timer");
 let currentOtpRaw = "";
+
+async function getPopupBridgeHeaders(extraHeaders) {
+  const out = Object.assign({}, extraHeaders || {});
+  let tok = (bridgeTokenInput && bridgeTokenInput.value ? bridgeTokenInput.value.trim() : "") || "";
+  if (!tok && typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+    try {
+      const st = await new Promise((resolve) => {
+        chrome.storage.local.get(["bridgeToken", "bridgeTokenManual"], (r) => resolve(r || {}));
+      });
+      tok = (st && st.bridgeTokenManual) || (typeof DEFAULT_VIA_META !== "undefined" ? DEFAULT_VIA_META.bridgeToken : "") || (st && st.bridgeToken) || "";
+    } catch (e) {}
+  }
+  if (!tok) {
+    tok = (typeof DEFAULT_VIA_META !== "undefined" ? DEFAULT_VIA_META.bridgeToken : "") || "";
+  }
+  if (tok) out["X-AdsOps-Bridge-Token"] = String(tok).trim();
+  return out;
+}
 
 // 1-Click Open Account Center & Auto-Delete Passkey
 document.getElementById("btn-nuke-passkey")?.addEventListener("click", () => {
@@ -2151,7 +2231,9 @@ async function tickOtp() {
           profile: (typeof profileInput !== "undefined" ? profileInput?.value : "") || "",
           name: (typeof viaInput !== "undefined" ? viaInput?.value : "") || ""
         }).toString();
-        const r = await fetch("http://127.0.0.1:17890/totp?" + qs);
+        const r = await fetch("http://127.0.0.1:17890/totp?" + qs, {
+          headers: await getPopupBridgeHeaders()
+        });
         if (r.ok) {
           const d = await r.json();
           if (d && d.ok && d.found && d.code) {
@@ -2313,9 +2395,10 @@ document.getElementById("btn-vault-save")?.addEventListener("click", () => {
       return;
     }
     try {
+      const hdrs = await getPopupBridgeHeaders({ "Content-Type": "application/json" });
       const resp = await fetch("http://127.0.0.1:17890/local-vault/save", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: hdrs,
         body: JSON.stringify({
           via_id: currentViaId || "",
           via_label: vName,
@@ -2333,7 +2416,7 @@ document.getElementById("btn-vault-save")?.addEventListener("click", () => {
       } else {
         if (statusEl) {
           statusEl.style.color = "#fda4af";
-          statusEl.textContent = "Lỗi lưu Két App Windows.";
+          statusEl.textContent = resp.status === 401 ? "⚠️ Sai / thiếu Zero-Trust Bridge Token." : "Lỗi lưu Két App Windows.";
         }
       }
     } catch (e) {
@@ -2356,12 +2439,14 @@ document.getElementById("btn-vault-load")?.addEventListener("click", async () =>
       profile: pCode,
       name: vName
     });
-    const resp = await fetch("http://127.0.0.1:17890/local-vault/get?" + qs.toString());
+    const resp = await fetch("http://127.0.0.1:17890/local-vault/get?" + qs.toString(), {
+      headers: await getPopupBridgeHeaders()
+    });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok || !data.ok) {
       if (statusEl) {
         statusEl.style.color = "#fda4af";
-        statusEl.textContent = "Không đọc được Két App Windows.";
+        statusEl.textContent = resp.status === 401 ? "⚠️ Sai / thiếu Zero-Trust Bridge Token." : "Không đọc được Két App Windows.";
       }
       return;
     }
@@ -2473,9 +2558,10 @@ document.getElementById("btn-push-token-cloud")?.addEventListener("click", async
   const pCode = (profileInput?.value || (typeof DEFAULT_VIA_META !== "undefined" ? DEFAULT_VIA_META.profileCode : "") || "Default").trim();
 
   try {
+    const hdrs = await getPopupBridgeHeaders({ "Content-Type": "application/json" });
     const resp = await fetch("http://127.0.0.1:17890/auto-connect-token", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: hdrs,
       body: JSON.stringify({
         access_token: tok,
         browser_profile_label: pCode || vName,
@@ -2785,7 +2871,9 @@ if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
       "ipLeakHalted",
       "ipLeakReason",
       "trustScore",
-      "lastVaultCookieRefreshAt"
+      "lastVaultCookieRefreshAt",
+      "bridgeToken",
+      "bridgeTokenManual"
     ],
     (res) => {
       currentViaId = res.viaId || DEFAULT_VIA_META.viaId || "";
@@ -2794,6 +2882,7 @@ if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
       if (tierSelect) tierSelect.value = res.viaTier || DEFAULT_VIA_META.viaTier || "camp";
       if (twofaInput) twofaInput.value = res.twoFaSecret || DEFAULT_VIA_META.twoFaSecret || "";
       if (proxyInput) proxyInput.value = res.proxyRaw || "";
+      if (bridgeTokenInput) bridgeTokenInput.value = res.bridgeTokenManual || DEFAULT_VIA_META.bridgeToken || res.bridgeToken || "";
       if (passkeyBadge) {
         if (res.passkeyStatus === "detected") {
           passkeyBadge.textContent = "⚠️ CÓ PASSKEY - BẤM XOÁ NGAY";
@@ -2969,12 +3058,24 @@ if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.query) {
   });
 }
 
+document.getElementById("btn-save-bridge-token")?.addEventListener("click", () => {
+  const val = (bridgeTokenInput?.value || "").trim();
+  const statusEl = document.getElementById("cookie-status");
+  chrome.storage?.local?.set({ bridgeTokenManual: val }, () => {
+    flashSaved();
+    if (statusEl) {
+      statusEl.style.color = val ? "#34d399" : "#fbbf24";
+      statusEl.textContent = val ? "🛡️ Đã lưu X-AdsOps-Bridge-Token bảo mật cho Extension!" : "Đã xóa Token thủ công (dùng Token mặc định từ App Win).";
+    }
+  });
+});
+
 refreshIp();
 tickOtp();
 recheckGeoAlignment();`
 
   const readmeTxt = [
-    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.9.6 PRO - ANTI-CHECKPOINT & TAB AUTOMATIC)',
+    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.9.7 PRO - ZERO-TRUST & ANTI-CHECKPOINT)',
     '========================================================================================================',
     'Bước 1: Giải nén file .zip này ra một thư mục cố định (ví dụ: Desktop\\AdsOps-Chrome-Extension).',
     'Bước 2: Mở trình duyệt Google Chrome của Via -> gõ vào thanh địa chỉ: chrome://extensions',
@@ -2983,7 +3084,7 @@ recheckGeoAlignment();`
     'Bước 5: Bấm biểu tượng mảnh ghép trên góc phải Chrome -> Bấm nút Ghim (Pin) cạnh "AdsOps Companion Pro".',
   ].join('\r\n')
 
-  const contentJs = `// AdsOps Companion Pro v2.9.6 — Anti-Checkpoint + 4-Mode Warmup + Auto Page Creator + Passkey Shield + HUD
+  const contentJs = `// AdsOps Companion Pro v2.9.7 — Anti-Checkpoint + 4-Mode Warmup + Auto Page Creator + Passkey Shield + HUD
 (function() {
   let lastSyncedAct = "";
   let autoDeletePasskeyTriggered = false;
@@ -4292,7 +4393,7 @@ export function downloadChromeExtensionZip(
   const url = URL.createObjectURL(zipBlob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `AdsOps-Chrome-Extension-v2.9.6-${slug}.zip`
+  a.download = `AdsOps-Chrome-Extension-v2.9.7-${slug}.zip`
   document.body.appendChild(a)
   a.click()
   a.remove()
@@ -4314,12 +4415,12 @@ export function downloadAllViasExtensionsBundleZip(items: ViaExtensionBundleSpec
   if (!Array.isArray(items) || items.length === 0) return
   const allFiles: Array<{ name: string; content: string | Uint8Array }> = []
   const guideLines: string[] = [
-    'TRON BO TIEN ICH ADSOPS COMPANION v2.9.6 PRO CHO TOAN BO DAN VIA',
+    'TRON BO TIEN ICH ADSOPS COMPANION v2.9.7 PRO CHO TOAN BO DAN VIA',
     '================================================================',
     `Tong so thu muc Extension da dong goi: ${items.length} Via`,
     '',
     'Cach cai nhanh:',
-    '1. Giai nen file .zip nay ra mot thu muc co dinh (VD: Desktop\\AdsOps-Extensions-v2.9.6).',
+    '1. Giai nen file .zip nay ra mot thu muc co dinh (VD: Desktop\\AdsOps-Extensions-v2.9.7).',
     '2. Mo Chrome cua tung Via -> chrome://extensions -> Bat Developer mode -> Load unpacked -> chon dung thu muc ten cua Via do ben duoi:',
     '',
   ]
@@ -4352,7 +4453,7 @@ export function downloadAllViasExtensionsBundleZip(items: ViaExtensionBundleSpec
   const url = URL.createObjectURL(zipBlob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `AdsOps-Tron-Bo-Extension-v2.9.6-${items.length}Via.zip`
+  a.download = `AdsOps-Tron-Bo-Extension-v2.9.7-${items.length}Via.zip`
   document.body.appendChild(a)
   a.click()
   a.remove()

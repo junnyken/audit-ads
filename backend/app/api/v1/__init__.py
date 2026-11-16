@@ -7,6 +7,7 @@ from app.api.v1.routers import (
     automation_ops,
     audit,
     auth,
+    community,
     events,
     extension,
     facebook_identities,
@@ -46,3 +47,4 @@ api_router.include_router(team.router)
 api_router.include_router(spend.router)
 api_router.include_router(facebook_identities.router)
 api_router.include_router(automation_ops.router)
+api_router.include_router(community.router)

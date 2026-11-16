@@ -142,11 +142,11 @@ internal static class Program
             }
             using (var mfDoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(extDir, "manifest.json"))))
             {
-                if (mfDoc.RootElement.GetProperty("version").GetString() != "2.9.6")
-                    throw new InvalidOperationException("Manifest version is not 2.9.6");
+                if (mfDoc.RootElement.GetProperty("version").GetString() != "2.9.7")
+                    throw new InvalidOperationException("Manifest version is not 2.9.7");
                 var perms = mfDoc.RootElement.GetProperty("permissions").EnumerateArray().Select(e => e.GetString()).ToList();
                 if (!perms.Contains("alarms"))
-                    throw new InvalidOperationException("Manifest permissions missing alarms for v2.9.6 IP Leak Watchdog");
+                    throw new InvalidOperationException("Manifest permissions missing alarms for v2.9.7 IP Leak Watchdog");
             }
             var bgText = File.ReadAllText(Path.Combine(extDir, "background.js"));
             if (!bgText.Contains("ADSOPS_REPORT_BROWSER_EVENT", StringComparison.Ordinal) ||
@@ -201,7 +201,8 @@ internal static class Program
             if (WindowsDpapi.UnprotectString(protectedJwt) != "eyJ.sample.jwt.token")
                 throw new InvalidOperationException("DPAPI roundtrip mismatch");
 
-            // 4. LocalBridgeServer ephemeral port 0 tests (/health v2.0.0, OPTIONS PNA, /chrome-profiles, /browser-event, /local-vault/save & get, /totp)
+            // 4. LocalBridgeServer ephemeral port 0 tests (/health v2.5.0, Zero-Trust OPTIONS/Host/Origin/Token, /chrome-profiles, /browser-event, /local-vault/save & get, /totp)
+            const string testBridgeToken = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
             BrowserEventPayloadDto? capturedEv = null;
             using var srv = new LocalBridgeServer(
                 0,
@@ -263,17 +264,21 @@ internal static class Program
                     TiledCount = 4,
                     Screen = "1920x1040",
                     Message = "Tiled 4 windows",
-                });
+                },
+                () => testBridgeToken,
+                () => "https://adsops-app.vibe.tinhgon.xyz");
             srv.Start();
+            using var anonHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+            http.DefaultRequestHeaders.Add("X-AdsOps-Bridge-Token", testBridgeToken);
             var baseUrl = $"http://127.0.0.1:{srv.BoundPort}";
 
-            var healthResp = await http.GetAsync($"{baseUrl}/health");
+            var healthResp = await anonHttp.GetAsync($"{baseUrl}/health");
             healthResp.EnsureSuccessStatusCode();
             var healthBody = await healthResp.Content.ReadAsStringAsync();
             if (!healthBody.Contains("\"app\":\"AdsOpsDesktop\"", StringComparison.Ordinal) ||
-                !healthBody.Contains("\"version\":\"2.4.2\"", StringComparison.Ordinal) ||
-                !healthBody.Contains("\"extVersion\":\"2.9.6\"", StringComparison.Ordinal))
+                !healthBody.Contains("\"version\":\"2.5.0\"", StringComparison.Ordinal) ||
+                !healthBody.Contains("\"extVersion\":\"2.9.7\"", StringComparison.Ordinal))
             {
                 throw new InvalidOperationException($"Unexpected /health response: {healthBody}");
             }
@@ -324,9 +329,12 @@ internal static class Program
                 throw new InvalidOperationException($"Unexpected /tile-windows response: {tileBody}");
 
             var optReq = new HttpRequestMessage(HttpMethod.Options, $"{baseUrl}/open");
-            var optResp = await http.SendAsync(optReq);
-            if ((int)optResp.StatusCode != 204 || !optResp.Headers.TryGetValues("Access-Control-Allow-Private-Network", out var pnaVals) || !pnaVals.Contains("true"))
-                throw new InvalidOperationException("OPTIONS /open missing 204 or PNA header");
+            optReq.Headers.TryAddWithoutValidation("Origin", "https://adsops-app.vibe.tinhgon.xyz");
+            var optResp = await anonHttp.SendAsync(optReq);
+            if ((int)optResp.StatusCode != 204 ||
+                !optResp.Headers.TryGetValues("Access-Control-Allow-Private-Network", out var pnaVals) || !pnaVals.Contains("true") ||
+                !optResp.Headers.TryGetValues("Access-Control-Allow-Origin", out var acaoVals) || acaoVals.FirstOrDefault() != "https://adsops-app.vibe.tinhgon.xyz")
+                throw new InvalidOperationException("OPTIONS /open missing 204, PNA header, or exact Origin echo");
 
             var profResp = await http.GetAsync($"{baseUrl}/chrome-profiles");
             profResp.EnsureSuccessStatusCode();
@@ -460,20 +468,24 @@ internal static class Program
                     throw new InvalidOperationException($"WCAG AA contrast failure for {pair.Name}: {pair.Ratio}:1 < 4.5:1");
             }
 
-            // 10. Extension v2.9.6 template verification (2FA bridge + billing sync + cookie bootstrap + keepalive auto-close + cloud token push)
+            // 10. Extension v2.9.7 template verification (Zero-Trust Bridge Token + 2FA bridge + billing sync + cookie bootstrap + keepalive auto-close + cloud token push)
             var extTpl = ExtensionProvisioner.LoadTemplates();
-            if (extTpl.Version != "2.9.6" ||
+            if (extTpl.Version != "2.9.7" ||
+                !extTpl.BackgroundJsAfterDefaultState.Contains("getBridgeHeaders", StringComparison.Ordinal) ||
+                !extTpl.BackgroundJsAfterDefaultState.Contains("X-AdsOps-Bridge-Token", StringComparison.Ordinal) ||
                 !extTpl.BackgroundJsAfterDefaultState.Contains("ADSOPS_GET_LOCAL_TOTP", StringComparison.Ordinal) ||
                 !extTpl.BackgroundJsAfterDefaultState.Contains("ADSOPS_SYNC_BILLING", StringComparison.Ordinal) ||
                 !extTpl.BackgroundJsAfterDefaultState.Contains("ensureVaultCookiesBootstrapped", StringComparison.Ordinal) ||
                 !extTpl.BackgroundJsAfterDefaultState.Contains("close_sender_window", StringComparison.Ordinal) ||
                 !extTpl.ContentJs.Contains("ADSOPS_SYNC_BILLING", StringComparison.Ordinal) ||
                 !extTpl.ContentJs.Contains("handleTwoFactorAssistDom", StringComparison.Ordinal) ||
+                !extTpl.PopupHtml.Contains("bridge-token-input", StringComparison.Ordinal) ||
                 !extTpl.PopupHtml.Contains("btn-push-token-cloud", StringComparison.Ordinal) ||
+                !extTpl.PopupJsAfterDefaults.Contains("getPopupBridgeHeaders", StringComparison.Ordinal) ||
                 !extTpl.PopupJsAfterDefaults.Contains("_desktopTotpCache", StringComparison.Ordinal) ||
                 !extTpl.PopupJsAfterDefaults.Contains("btn-push-token-cloud", StringComparison.Ordinal))
             {
-                throw new InvalidOperationException("Extension template bundle missing v2.9.6 helpers");
+                throw new InvalidOperationException("Extension template bundle missing v2.9.7 helpers");
             }
 
             // 11. ViaBulkImportParser (Pass/Mail secret stripping + auto Profile N + duplicate Proxy warning)
@@ -781,7 +793,7 @@ internal static class Program
             var legCfgPath = Path.Combine(tempRoot, "legacy_cfg.json");
             File.WriteAllText(legCfgPath, "{\"MaxViasPerProxyInBatch\":2}");
             var migratedCfg = DesktopConfig.Load(legCfgPath);
-            if (migratedCfg.MaxViasPerProxyInBatch != 4 || migratedCfg.ConfigMigrationVersion != 242)
+            if (migratedCfg.MaxViasPerProxyInBatch != 4 || migratedCfg.ConfigMigrationVersion != 250)
                 throw new InvalidOperationException($"DesktopConfig migration failed: max={migratedCfg.MaxViasPerProxyInBatch}, mig={migratedCfg.ConfigMigrationVersion}");
 
             // 18. v2.4.2 Custom Proxy Cluster Capacity (1-50) & 5-Layer Workstation Migration Backup
@@ -863,7 +875,228 @@ internal static class Program
             if (dstRec.KeepAliveSuccessCount != 2 || string.IsNullOrEmpty(dstRec.LastProxyKey) || !string.IsNullOrEmpty(dstRec.ProxyChangedUtc))
                 throw new InvalidOperationException("Restored ViaStewardshipStore lost KeepAliveSuccessCount, LastProxyKey, or falsely triggered proxy-change quarantine");
 
-            Console.WriteLine("ADSOPS_DESKTOP_V242_SELFTEST_100_PASS");
+            // 19. v2.5.0 Zero-Trust Bridge Security Gates (Host DNS-Rebinding, strict Origin Allowlist, X-AdsOps-Bridge-Token)
+            {
+                var rogueHostReq = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/health");
+                rogueHostReq.Headers.Host = "evil.attacker.com:17890";
+                var rogueHostResp = await anonHttp.SendAsync(rogueHostReq);
+                if ((int)rogueHostResp.StatusCode != 403)
+                    throw new InvalidOperationException($"Zero-Trust failed to block rogue Host header: HTTP {(int)rogueHostResp.StatusCode}");
+
+                var rogueOptReq = new HttpRequestMessage(HttpMethod.Options, $"{baseUrl}/local-vault/get?via_id=via-2");
+                rogueOptReq.Headers.TryAddWithoutValidation("Origin", "https://evil-site.example");
+                var rogueOptResp = await anonHttp.SendAsync(rogueOptReq);
+                if ((int)rogueOptResp.StatusCode != 403 || rogueOptResp.Headers.Contains("Access-Control-Allow-Origin"))
+                    throw new InvalidOperationException($"Zero-Trust failed on rogue OPTIONS Origin: {(int)rogueOptResp.StatusCode}");
+
+                var rogueGetReq = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/local-vault/get?via_id=via-2");
+                rogueGetReq.Headers.TryAddWithoutValidation("Origin", "https://evil-site.example");
+                var rogueGetResp = await anonHttp.SendAsync(rogueGetReq);
+                if ((int)rogueGetResp.StatusCode != 403 || rogueGetResp.Headers.Contains("Access-Control-Allow-Origin"))
+                    throw new InvalidOperationException($"Zero-Trust leaked Origin CORS on GET: {(int)rogueGetResp.StatusCode}");
+
+                var rogueExtReq = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/chrome-profiles");
+                rogueExtReq.Headers.TryAddWithoutValidation("Origin", "chrome-extension://rogueextensionid123");
+                var rogueExtResp = await anonHttp.SendAsync(rogueExtReq);
+                if ((int)rogueExtResp.StatusCode != 401)
+                    throw new InvalidOperationException($"Zero-Trust failed to block rogue extension without Bridge Token: {(int)rogueExtResp.StatusCode}");
+
+                var unauthVaultResp = await anonHttp.GetAsync($"{baseUrl}/local-vault/get?via_id=via-2");
+                var unauthTotpResp = await anonHttp.GetAsync($"{baseUrl}/totp?via_id=via-2");
+                if ((int)unauthVaultResp.StatusCode != 401 || (int)unauthTotpResp.StatusCode != 401)
+                    throw new InvalidOperationException($"Expected 401 on unauthenticated vault/totp: {(int)unauthVaultResp.StatusCode}/{(int)unauthTotpResp.StatusCode}");
+
+                var allowedHealthReq = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/health");
+                allowedHealthReq.Headers.TryAddWithoutValidation("Origin", "https://adsops-app.vibe.tinhgon.xyz");
+                var allowedHealthResp = await anonHttp.SendAsync(allowedHealthReq);
+                if (!allowedHealthResp.IsSuccessStatusCode ||
+                    !allowedHealthResp.Headers.TryGetValues("Access-Control-Allow-Origin", out var allowedOriginVals) ||
+                    allowedOriginVals.FirstOrDefault() != "https://adsops-app.vibe.tinhgon.xyz")
+                {
+                    throw new InvalidOperationException("Allowed Web Origin /health check failed or emitted wildcard");
+                }
+
+                var allowedWebUnauthVault = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/local-vault/get?via_id=via-2");
+                allowedWebUnauthVault.Headers.TryAddWithoutValidation("Origin", "https://adsops-app.vibe.tinhgon.xyz");
+                var allowedWebUnauthResp = await anonHttp.SendAsync(allowedWebUnauthVault);
+                if ((int)allowedWebUnauthResp.StatusCode != 401)
+                    throw new InvalidOperationException($"Allowed Web Origin must STILL get 401 on /local-vault/get without token, got {(int)allowedWebUnauthResp.StatusCode}");
+
+                var cfgTokA = Path.Combine(tempRoot, "cfg_tok.json");
+                var c1 = new DesktopConfig();
+                var tok1 = c1.GetOrCreateBridgeToken(cfgTokA);
+                var c2 = DesktopConfig.Load(cfgTokA);
+                var tok2 = c2.GetOrCreateBridgeToken(cfgTokA);
+                if (tok1.Length != 64 || tok1 != tok2)
+                    throw new InvalidOperationException("DPAPI Bridge Token persistence mismatch");
+                var rotTok = c2.RotateBridgeToken(cfgTokA);
+                if (rotTok == tok1 || rotTok.Length != 64 || !string.IsNullOrEmpty(c2.CloneWithoutSecrets().EncryptedBridgeTokenBase64))
+                    throw new InvalidOperationException("Bridge Token rotation or CloneWithoutSecrets scrub failed");
+            }
+
+            // 20. v2.5.0 5-Engine Antidetect Connector Loopback HTTP Contract + Metadata + Silo
+            {
+                using var adStubCts = new CancellationTokenSource();
+                var adListener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+                adListener.Start();
+                var adPort = ((System.Net.IPEndPoint)adListener.LocalEndpoint).Port;
+                var adStubTask = Task.Run(async () =>
+                {
+                    while (!adStubCts.IsCancellationRequested)
+                    {
+                        try
+                        {
+                            using var cli = await adListener.AcceptTcpClientAsync(adStubCts.Token);
+                            await using var ns = cli.GetStream();
+                            var buf = new byte[4096];
+                            var n = await ns.ReadAsync(buf, adStubCts.Token);
+                            var reqText = Encoding.ASCII.GetString(buf, 0, n);
+                            var firstLine = reqText.Split("\r\n")[0];
+                            var pathPart = firstLine.Split(' ').Length >= 2 ? firstLine.Split(' ')[1] : "/";
+                            string respJson = pathPart.StartsWith("/status", StringComparison.Ordinal)
+                                ? "{\"code\":0,\"msg\":\"success\"}"
+                                : pathPart.StartsWith("/api/v1/user/list", StringComparison.Ordinal)
+                                    ? "{\"code\":0,\"data\":{\"list\":[{\"user_id\":\"j99x1\",\"name\":\"Via AdsPower 1\",\"group_name\":\"Team A\"}]}}"
+                                    : pathPart.StartsWith("/api/v1/browser/start", StringComparison.Ordinal)
+                                        ? "{\"code\":0,\"data\":{\"ws\":{\"puppeteer\":\"ws://127.0.0.1:9222/devtools/browser/1\"},\"debug_port\":9222}}"
+                                        : "{\"data\":[{\"id\":\"d55\",\"name\":\"Via Dolphin 1\"}]}";
+                            var bodyBytes = Encoding.UTF8.GetBytes(respJson);
+                            var head = Encoding.ASCII.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {bodyBytes.Length}\r\nConnection: close\r\n\r\n");
+                            await ns.WriteAsync(head, adStubCts.Token);
+                            await ns.WriteAsync(bodyBytes, adStubCts.Token);
+                        }
+                        catch { break; }
+                    }
+                });
+
+                var adBaseUrl = $"http://127.0.0.1:{adPort}";
+                var probeAd = await AntidetectBrowserConnector.ProbeEngineAsync("adspower", adBaseUrl);
+                var profilesAd = await AntidetectBrowserConnector.ListProfilesAsync("adspower", adBaseUrl);
+                var launchAd = await AntidetectBrowserConnector.StartProfileAsync("adspower", adBaseUrl, null, "j99x1");
+                var profilesDol = await AntidetectBrowserConnector.ListProfilesAsync("dolphin_anty", adBaseUrl, "token-xyz");
+                adStubCts.Cancel();
+                adListener.Stop();
+                try { await adStubTask; } catch { }
+
+                if (!probeAd.Online || profilesAd.Count != 1 || profilesAd[0].ProfileId != "j99x1" ||
+                    !launchAd.Ok || launchAd.DebugPort != 9222 || profilesDol.Count != 1 || profilesDol[0].ProfileId != "d55")
+                {
+                    throw new InvalidOperationException($"Antidetect loopback test failed: online={probeAd.Online}, adCount={profilesAd.Count}, port={launchAd.DebugPort}, dolCount={profilesDol.Count}");
+                }
+
+                var adNotes = ViaMetadataParser.BuildNotes("note", "camp", "", "Khach A", "human_organic", "adspower", "j99x1");
+                var adParsed = ViaMetadataParser.ParseNotes(adNotes, "Via AdsPower 1");
+                if (adParsed.AntidetectEngine != "adspower" || adParsed.AntidetectProfileId != "j99x1")
+                    throw new InvalidOperationException($"Antidetect metadata roundtrip failed: {adNotes}");
+
+                var adSiloOk = new List<ViaWorkspaceEntry>
+                {
+                    new() { ViaId = "a1", Label = "Via 1", ProfileDir = "Default", AntidetectEngine = "adspower", AntidetectProfileId = "j99x1", NetworkLabel = "10.0.0.1:8080" },
+                    new() { ViaId = "a2", Label = "Via 2", ProfileDir = "Default", AntidetectEngine = "adspower", AntidetectProfileId = "j99x2", NetworkLabel = "10.0.0.1:8080" },
+                };
+                ViaTrustEvaluator.DetectClientSiloConflicts(adSiloOk, maxSharedPerProxy: 4);
+                if (adSiloOk[0].HasSiloConflict || adSiloOk[1].HasSiloConflict)
+                    throw new InvalidOperationException("Distinct Antidetect Profile IDs must not false-collide on Chrome Default");
+
+                var adSiloDup = new List<ViaWorkspaceEntry>
+                {
+                    new() { ViaId = "d1", Label = "Via D1", ProfileDir = "Default", AntidetectEngine = "adspower", AntidetectProfileId = "same_id" },
+                    new() { ViaId = "d2", Label = "Via D2", ProfileDir = "Profile 2", AntidetectEngine = "adspower", AntidetectProfileId = "same_id" },
+                };
+                ViaTrustEvaluator.DetectClientSiloConflicts(adSiloDup, maxSharedPerProxy: 4);
+                if (!adSiloDup[0].HasSiloConflict || !adSiloDup[1].HasSiloConflict)
+                    throw new InvalidOperationException("Duplicate Antidetect Profile ID must flag HasSiloConflict");
+            }
+
+            // 21. v2.5.0 Chrome Hardening Flags, RAM Governor & Cache Cleaner
+            {
+                var chromeArgs = ExtensionProvisioner.BuildChromeArguments(
+                    "https://www.facebook.com/",
+                    "Profile 2",
+                    null,
+                    isolatedMode: false,
+                    viaSlug: "via-ram-1",
+                    antidetectShield: true,
+                    lowRamMode: true);
+                if (!chromeArgs.Any(a => a.Contains("disable_non_proxied_udp", StringComparison.Ordinal)) ||
+                    !chromeArgs.Any(a => a.Contains("AutomationControlled", StringComparison.Ordinal)) ||
+                    !chromeArgs.Any(a => a.Contains("--renderer-process-limit=4", StringComparison.Ordinal)) ||
+                    !chromeArgs.Any(a => a.Contains("--disk-cache-size=67108864", StringComparison.Ordinal)))
+                {
+                    throw new InvalidOperationException("Chrome Antidetect/Low-RAM arguments missing expected flags");
+                }
+
+                int simulatedActiveBrowsers = 1;
+                var govLaunched = new List<string>();
+                using var govEngine = new AutomationQueueEngine(
+                    _ => Task.FromResult((true, "Live OK")),
+                    item => { govLaunched.Add(item.ViaId); return Task.CompletedTask; },
+                    _ => Task.CompletedTask,
+                    _ => { },
+                    getActiveBrowserCount: () => simulatedActiveBrowsers);
+                govEngine.ConfigureTiming(tickIntervalMs: 15, syncWaitSeconds: 1);
+                govEngine.StartQueue(
+                    QueueKind.KeepAlive,
+                    new[] { new QueueTaskItem("g1", "Via Gov", "Profile 9", "", "https://facebook.com", "KA", "standard_via") },
+                    baseStaggerSeconds: 1,
+                    preCheckProxy: false,
+                    enforceDaytimeWindow: false,
+                    maxConcurrentBrowsers: 1);
+                await Task.Delay(80);
+                if (govLaunched.Count != 0)
+                    throw new InvalidOperationException("RAM Governor launched browser while simulatedActiveBrowsers >= MaxConcurrentBrowsers");
+                simulatedActiveBrowsers = 0;
+                var ramGovDeadline = DateTime.UtcNow.AddSeconds(5);
+                while (govEngine.Current.Phase != QueuePhase.Completed && DateTime.UtcNow < ramGovDeadline)
+                {
+                    await Task.Delay(25);
+                }
+                if (govLaunched.Count != 1)
+                    throw new InvalidOperationException("RAM Governor failed to release browser once capacity freed");
+
+                var isoCacheRoot = Path.Combine(tempRoot, "iso_cache_test");
+                var activeCacheDir = Path.Combine(isoCacheRoot, "via-active", "Default", "Code Cache");
+                var idleCacheDir = Path.Combine(isoCacheRoot, "via-idle", "Default", "Code Cache");
+                Directory.CreateDirectory(activeCacheDir);
+                Directory.CreateDirectory(idleCacheDir);
+                File.WriteAllBytes(Path.Combine(activeCacheDir, "a.bin"), new byte[1024]);
+                File.WriteAllBytes(Path.Combine(idleCacheDir, "b.bin"), new byte[2048]);
+                var activeSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "via-active" };
+                var (cleanedCount, freedBytes) = WorkstationPerformanceOptimizer.CleanProfileCachesAndTrimMemory(isoCacheRoot, activeSet);
+                if (cleanedCount < 1 || freedBytes < 2048 || !Directory.Exists(activeCacheDir) || Directory.Exists(idleCacheDir))
+                    throw new InvalidOperationException($"WorkstationPerformanceOptimizer cache clean failed: cleaned={cleanedCount}, freed={freedBytes}");
+            }
+
+            // 22. v2.5.0 DPAPI Offline Cloud Snapshot Cache
+            {
+                var snapPath = Path.Combine(tempRoot, "cloud_snap.dpapi");
+                CloudSnapshotCacheStore.Save(new CloudSnapshotPayload
+                {
+                    UserEmail = "owner@agency.vn",
+                    CurrentUser = new CurrentUserDto { Email = "owner@agency.vn", FullName = "Agency Owner", IsPlatformAdmin = true },
+                    PersonalAccounts = new List<PersonalAccountRefDto> { new() { Id = "v-off-1", Label = "Via Offline 1" } },
+                    CommunityQuota = new CommunityQuotaDto { PlanTier = "agency", MaxVias = 500 },
+                }, snapPath);
+                var wrongUserLoad = CloudSnapshotCacheStore.Load("other@agency.vn", snapPath);
+                var okUserLoad = CloudSnapshotCacheStore.Load("owner@agency.vn", snapPath);
+                if (wrongUserLoad != null || okUserLoad == null || okUserLoad.PersonalAccounts.Count != 1 || okUserLoad.CommunityQuota?.MaxVias != 500)
+                    throw new InvalidOperationException("CloudSnapshotCacheStore DPAPI verification failed");
+            }
+
+            // 23. v2.5.0 BinaryIntegrityInspector SHA-256 check
+            {
+                var probeTarget = Environment.ProcessPath;
+                if (string.IsNullOrEmpty(probeTarget) || !File.Exists(probeTarget))
+                {
+                    probeTarget = Path.Combine(tempRoot, "integrity_probe.bin");
+                    File.WriteAllBytes(probeTarget, new byte[] { 0x4D, 0x5A, 0x90, 0x00, 0x01, 0x02, 0x03, 0x04 });
+                }
+                var report = BinaryIntegrityInspector.InspectFile(probeTarget);
+                if (report.Sha256Hex.Length != 64 || report.SizeBytes <= 0)
+                    throw new InvalidOperationException($"BinaryIntegrityInspector failed: sha={report.Sha256Hex}, size={report.SizeBytes}");
+            }
+
+            Console.WriteLine("ADSOPS_DESKTOP_V250_SELFTEST_100_PASS");
             return 0;
         }
         finally

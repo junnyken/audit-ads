@@ -24,3 +24,6 @@ extension/*.zip
 
 # Local dev server pids and logs (scripts/dev.sh)
 .dev/
+
+desktop/*.zip
+desktop/Release/

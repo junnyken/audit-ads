@@ -1,0 +1,310 @@
+"""Community governance: workspace quotas, invite-code redemption & Platform Super-Admin console."""
+from __future__ import annotations
+
+import secrets
+import uuid
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+import sqlalchemy as sa
+from fastapi import APIRouter
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.api.deps import Ctx, OwnerCtx
+from app.core.config import get_settings
+from app.core.errors import AuthorizationError, NotFoundError
+from app.models.entities import CommunityInviteCode, Workspace
+from app.services.community_quota import (
+    PLAN_QUOTA_DEFAULTS,
+    is_require_invite_code_enabled,
+    is_user_platform_admin,
+    normalize_plan_tier,
+    validate_and_consume_invite_code,
+    workspace_resource_usage,
+)
+
+router = APIRouter(prefix="/community", tags=["community"])
+
+
+def _require_platform_admin(ctx: Ctx) -> None:
+    if not is_user_platform_admin(ctx.user, get_settings()):
+        raise AuthorizationError("Chỉ Quản trị viên Nền tảng (Super-Admin) mới có quyền truy cập khu vực này.")
+
+
+class RedeemCodeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str = Field(min_length=3, max_length=64)
+
+
+class InviteCodeCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str | None = Field(default=None, max_length=64)
+    label: str = Field(default="", max_length=160)
+    plan_tier: str = Field(default="pro", max_length=32)
+    max_vias: int | None = Field(default=None, ge=1, le=50000)
+    max_ad_accounts: int | None = Field(default=None, ge=1, le=50000)
+    max_members: int | None = Field(default=None, ge=1, le=1000)
+    max_uses: int = Field(default=20, ge=1, le=10000)
+    expires_days: int | None = Field(default=None, ge=1, le=3650)
+
+
+class InviteCodePatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    is_active: bool | None = None
+    max_uses: int | None = Field(default=None, ge=1, le=10000)
+
+
+class WorkspaceGovernancePatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    plan_tier: str | None = Field(default=None, max_length=32)
+    max_vias: int | None = Field(default=None, ge=1, le=50000)
+    max_ad_accounts: int | None = Field(default=None, ge=1, le=50000)
+    max_members: int | None = Field(default=None, ge=1, le=1000)
+    community_status: str | None = Field(default=None, pattern="^(active|suspended)$")
+
+
+class CommunityPolicyPutRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    require_invite_code: bool
+
+
+def _serialize_quota(ctx: Ctx) -> dict[str, Any]:
+    vias_used, ad_accounts_used, members_used = workspace_resource_usage(ctx.session, ctx.workspace_id)
+    ws = ctx.workspace
+    return {
+        "plan_tier": getattr(ws, "plan_tier", "agency") or "agency",
+        "community_status": getattr(ws, "community_status", "active") or "active",
+        "max_vias": int(getattr(ws, "max_vias", 500) or 500),
+        "vias_used": vias_used,
+        "max_ad_accounts": int(getattr(ws, "max_ad_accounts", 500) or 500),
+        "ad_accounts_used": ad_accounts_used,
+        "max_members": int(getattr(ws, "max_members", 25) or 25),
+        "members_used": members_used,
+        "invited_by_code": getattr(ws, "invited_by_code", None),
+        "is_platform_admin": is_user_platform_admin(ctx.user, get_settings()),
+    }
+
+
+def _serialize_invite(row: CommunityInviteCode) -> dict[str, Any]:
+    return {
+        "id": str(row.id),
+        "code": row.code,
+        "label": row.label,
+        "plan_tier": row.plan_tier,
+        "max_vias": row.max_vias,
+        "max_ad_accounts": row.max_ad_accounts,
+        "max_members": row.max_members,
+        "max_uses": row.max_uses,
+        "used_count": row.used_count,
+        "is_active": row.is_active,
+        "expires_at": row.expires_at.isoformat() if row.expires_at else None,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+@router.get("/my-quota")
+def get_my_quota(ctx: Ctx) -> dict[str, Any]:
+    return _serialize_quota(ctx)
+
+
+@router.post("/redeem-code")
+def redeem_invite_code(ctx: OwnerCtx, payload: RedeemCodeRequest) -> dict[str, Any]:
+    invite = validate_and_consume_invite_code(ctx.session, payload.code)
+    ws = ctx.workspace
+    ws.plan_tier = invite.plan_tier
+    ws.max_vias = max(int(ws.max_vias or 10), int(invite.max_vias))
+    ws.max_ad_accounts = max(int(ws.max_ad_accounts or 5), int(invite.max_ad_accounts))
+    ws.max_members = max(int(ws.max_members or 2), int(invite.max_members))
+    ws.invited_by_code = invite.code
+    ctx.audit.record(
+        action="community.code_redeemed",
+        entity_type="workspace",
+        entity_id=ws.id,
+        metadata={
+            "code": invite.code,
+            "plan_tier": ws.plan_tier,
+            "max_vias": ws.max_vias,
+            "max_ad_accounts": ws.max_ad_accounts,
+            "max_members": ws.max_members,
+        },
+    )
+    ctx.commit()
+    return _serialize_quota(ctx)
+
+
+@router.get("/admin/overview")
+def admin_overview(ctx: Ctx) -> dict[str, Any]:
+    _require_platform_admin(ctx)
+    settings = get_settings()
+    workspaces = (
+        ctx.session.execute(
+            sa.select(Workspace).where(Workspace.archived_at.is_(None)).order_by(Workspace.created_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+    codes_count = int(
+        ctx.session.execute(sa.select(sa.func.count(CommunityInviteCode.id))).scalar_one() or 0
+    )
+    ws_rows: list[dict[str, Any]] = []
+    for ws in workspaces:
+        vias_used, ad_accounts_used, members_used = workspace_resource_usage(ctx.session, ws.id)
+        ws_rows.append(
+            {
+                "id": str(ws.id),
+                "name": ws.name,
+                "slug": ws.slug,
+                "plan_tier": getattr(ws, "plan_tier", "agency") or "agency",
+                "max_vias": int(getattr(ws, "max_vias", 500) or 500),
+                "vias_used": vias_used,
+                "max_ad_accounts": int(getattr(ws, "max_ad_accounts", 500) or 500),
+                "ad_accounts_used": ad_accounts_used,
+                "max_members": int(getattr(ws, "max_members", 25) or 25),
+                "members_used": members_used,
+                "community_status": getattr(ws, "community_status", "active") or "active",
+                "invited_by_code": getattr(ws, "invited_by_code", None),
+                "created_at": ws.created_at.isoformat() if ws.created_at else None,
+            }
+        )
+    return {
+        "require_invite_code": is_require_invite_code_enabled(ctx.session, settings),
+        "total_workspaces": len(ws_rows),
+        "active_workspaces": sum(1 for w in ws_rows if w["community_status"] == "active"),
+        "invite_codes_count": codes_count,
+        "workspaces": ws_rows,
+    }
+
+
+@router.get("/admin/invite-codes")
+def admin_list_invite_codes(ctx: Ctx) -> list[dict[str, Any]]:
+    _require_platform_admin(ctx)
+    rows = (
+        ctx.session.execute(
+            sa.select(CommunityInviteCode).order_by(CommunityInviteCode.created_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+    return [_serialize_invite(r) for r in rows]
+
+
+@router.post("/admin/invite-codes", status_code=201)
+def admin_create_invite_code(ctx: Ctx, payload: InviteCodeCreateRequest) -> dict[str, Any]:
+    _require_platform_admin(ctx)
+    tier = normalize_plan_tier(payload.plan_tier)
+    def_vias, def_ads, def_members = PLAN_QUOTA_DEFAULTS[tier]
+    raw_code = (payload.code or "").strip().upper()
+    if not raw_code:
+        prefix = "FREE" if tier == "community_free" else tier.upper()
+        raw_code = f"ADSOPS-{prefix}-{secrets.token_hex(3).upper()}"
+
+    expires_at = (
+        datetime.now(UTC) + timedelta(days=int(payload.expires_days))
+        if payload.expires_days is not None
+        else None
+    )
+    row = CommunityInviteCode(
+        code=raw_code[:64],
+        label=payload.label.strip()[:160],
+        plan_tier=tier,
+        max_vias=int(payload.max_vias or def_vias),
+        max_ad_accounts=int(payload.max_ad_accounts or def_ads),
+        max_members=int(payload.max_members or def_members),
+        max_uses=int(payload.max_uses),
+        used_count=0,
+        is_active=True,
+        expires_at=expires_at,
+        created_by_user_id=ctx.user.id,
+    )
+    ctx.session.add(row)
+    ctx.session.flush()
+    ctx.audit.record(
+        action="community.invite_code_created",
+        entity_type="community_invite_code",
+        entity_id=row.id,
+        metadata={"code": row.code, "plan_tier": row.plan_tier, "max_uses": row.max_uses},
+    )
+    ctx.commit()
+    return _serialize_invite(row)
+
+
+@router.patch("/admin/invite-codes/{code_id}")
+def admin_patch_invite_code(ctx: Ctx, code_id: uuid.UUID, payload: InviteCodePatchRequest) -> dict[str, Any]:
+    _require_platform_admin(ctx)
+    row = ctx.session.get(CommunityInviteCode, code_id)
+    if row is None:
+        raise NotFoundError("Invite code not found.")
+    if payload.is_active is not None:
+        row.is_active = payload.is_active
+    if payload.max_uses is not None:
+        row.max_uses = payload.max_uses
+    ctx.commit()
+    return _serialize_invite(row)
+
+
+@router.patch("/admin/workspaces/{workspace_id}")
+def admin_patch_workspace(
+    ctx: Ctx, workspace_id: uuid.UUID, payload: WorkspaceGovernancePatchRequest
+) -> dict[str, Any]:
+    _require_platform_admin(ctx)
+    ws = ctx.session.get(Workspace, workspace_id)
+    if ws is None or ws.archived_at is not None:
+        raise NotFoundError("Workspace not found.")
+
+    if payload.plan_tier is not None:
+        tier = normalize_plan_tier(payload.plan_tier)
+        ws.plan_tier = tier
+        if payload.max_vias is None and payload.max_ad_accounts is None and payload.max_members is None:
+            dv, da, dm = PLAN_QUOTA_DEFAULTS[tier]
+            ws.max_vias, ws.max_ad_accounts, ws.max_members = dv, da, dm
+
+    if payload.max_vias is not None:
+        ws.max_vias = payload.max_vias
+    if payload.max_ad_accounts is not None:
+        ws.max_ad_accounts = payload.max_ad_accounts
+    if payload.max_members is not None:
+        ws.max_members = payload.max_members
+    if payload.community_status is not None:
+        ws.community_status = payload.community_status
+
+    ctx.audit.record(
+        action="community.workspace_updated",
+        entity_type="workspace",
+        entity_id=ws.id,
+        metadata={
+            "plan_tier": ws.plan_tier,
+            "max_vias": ws.max_vias,
+            "max_ad_accounts": ws.max_ad_accounts,
+            "max_members": ws.max_members,
+            "community_status": ws.community_status,
+        },
+    )
+    ctx.commit()
+    vias_used, ad_accounts_used, members_used = workspace_resource_usage(ctx.session, ws.id)
+    return {
+        "id": str(ws.id),
+        "name": ws.name,
+        "slug": ws.slug,
+        "plan_tier": ws.plan_tier,
+        "max_vias": ws.max_vias,
+        "vias_used": vias_used,
+        "max_ad_accounts": ws.max_ad_accounts,
+        "ad_accounts_used": ad_accounts_used,
+        "max_members": ws.max_members,
+        "members_used": members_used,
+        "community_status": ws.community_status,
+        "invited_by_code": ws.invited_by_code,
+    }
+
+
+@router.put("/admin/policy")
+def admin_put_policy(ctx: Ctx, payload: CommunityPolicyPutRequest) -> dict[str, Any]:
+    _require_platform_admin(ctx)
+    ctx.audit.record(
+        action="community_policy.updated",
+        entity_type="community_policy",
+        entity_id="global",
+        metadata={"require_invite_code": bool(payload.require_invite_code)},
+    )
+    ctx.commit()
+    return {"require_invite_code": bool(payload.require_invite_code)}

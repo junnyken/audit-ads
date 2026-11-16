@@ -30,6 +30,12 @@ from app.schemas.auth import (
     TokenResponse,
 )
 from app.services.audit import AuditLogService
+from app.services.community_quota import (
+    is_require_invite_code_enabled,
+    is_user_platform_admin,
+    normalize_invite_code,
+    validate_and_consume_invite_code,
+)
 from app.services.session_registry import SessionRegistryService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -82,10 +88,49 @@ def register(
             details={"field": "email", "reason": "email_already_registered"},
         )
 
+    settings = get_settings()
+    existing_user_count = int(session.execute(sa.select(sa.func.count(User.id))).scalar_one() or 0)
+    is_first_user = existing_user_count == 0
+    raw_invite = normalize_invite_code(payload.invite_code)
+
+    if raw_invite:
+        invite = validate_and_consume_invite_code(session, raw_invite)
+        ws_plan_tier = invite.plan_tier
+        ws_max_vias = invite.max_vias
+        ws_max_ads = invite.max_ad_accounts
+        ws_max_members = invite.max_members
+        ws_invited_code = invite.code
+    elif is_first_user:
+        ws_plan_tier = "agency"
+        ws_max_vias = 500
+        ws_max_ads = 500
+        ws_max_members = 25
+        ws_invited_code = None
+    else:
+        if is_require_invite_code_enabled(session, settings):
+            raise ConflictError(
+                "Hệ thống Cộng đồng hiện đang bật chế độ Invite-Only. Vui lòng nhập Mã mời (Invite Code) hợp lệ để đăng ký.",
+                details={"field": "invite_code", "reason": "invite_code_required"},
+            )
+        ws_plan_tier = "community_free"
+        ws_max_vias = int(settings.community_free_max_vias)
+        ws_max_ads = int(settings.community_free_max_ad_accounts)
+        ws_max_members = int(settings.community_free_max_members)
+        ws_invited_code = None
+
     # 5. Create isolated Workspace + User + Owner Membership
     ws_name = payload.workspace_name.strip()[:120]
     ws_slug = _unique_workspace_slug(session, ws_name)
-    workspace = Workspace(name=ws_name, slug=ws_slug)
+    workspace = Workspace(
+        name=ws_name,
+        slug=ws_slug,
+        plan_tier=ws_plan_tier,
+        max_vias=ws_max_vias,
+        max_ad_accounts=ws_max_ads,
+        max_members=ws_max_members,
+        community_status="active",
+        invited_by_code=ws_invited_code,
+    )
     session.add(workspace)
     session.flush()
 
@@ -94,6 +139,7 @@ def register(
         full_name=payload.full_name.strip()[:120],
         password_hash=hash_password(payload.password),
         is_active=True,
+        is_platform_admin=is_first_user,
     )
     session.add(user)
     session.flush()
@@ -115,10 +161,11 @@ def register(
         metadata={
             "email_domain": clean_email.split("@")[-1],
             "workspace_slug": ws_slug,
+            "plan_tier": ws_plan_tier,
+            "invited_by_code": ws_invited_code,
         },
     )
 
-    settings = get_settings()
     expires_at = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
     registry = SessionRegistryService(session, workspace.id, audit)
     device_session = registry.create(
@@ -186,10 +233,21 @@ def login(
 
 @router.get("/me", response_model=CurrentUserResponse)
 def me(ctx: Ctx) -> CurrentUserResponse:
+    ws = ctx.workspace
     return CurrentUserResponse(
         id=ctx.user.id,
         email=ctx.user.email,
         full_name=ctx.user.full_name,
         role=ctx.membership.role,
-        workspace={"id": ctx.workspace.id, "name": ctx.workspace.name, "slug": ctx.workspace.slug},
+        is_platform_admin=is_user_platform_admin(ctx.user, get_settings()),
+        workspace={
+            "id": ws.id,
+            "name": ws.name,
+            "slug": ws.slug,
+            "plan_tier": getattr(ws, "plan_tier", "agency") or "agency",
+            "max_vias": int(getattr(ws, "max_vias", 500) or 500),
+            "max_ad_accounts": int(getattr(ws, "max_ad_accounts", 500) or 500),
+            "max_members": int(getattr(ws, "max_members", 25) or 25),
+            "community_status": getattr(ws, "community_status", "active") or "active",
+        },
     )

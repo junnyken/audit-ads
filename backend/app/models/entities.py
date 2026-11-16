@@ -57,6 +57,9 @@ class User(UUIDPrimaryKey, Timestamped, Base):
     reveal_pin_hash: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
     reveal_pin_failed_count: Mapped[int] = mapped_column(sa.Integer(), nullable=False, default=0)
     reveal_pin_locked_until: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
+    is_platform_admin: Mapped[bool] = mapped_column(
+        sa.Boolean(), nullable=False, default=False, server_default=sa.text("false")
+    )
 
 
 class Workspace(UUIDPrimaryKey, Timestamped, Archivable, Base):
@@ -64,6 +67,40 @@ class Workspace(UUIDPrimaryKey, Timestamped, Archivable, Base):
 
     name: Mapped[str] = mapped_column(sa.String(200), nullable=False)
     slug: Mapped[str] = mapped_column(sa.String(120), nullable=False, unique=True)
+    plan_tier: Mapped[str] = mapped_column(
+        sa.String(32), nullable=False, default="agency", server_default="agency"
+    )
+    max_vias: Mapped[int] = mapped_column(
+        sa.Integer(), nullable=False, default=500, server_default="500"
+    )
+    max_ad_accounts: Mapped[int] = mapped_column(
+        sa.Integer(), nullable=False, default=500, server_default="500"
+    )
+    max_members: Mapped[int] = mapped_column(
+        sa.Integer(), nullable=False, default=25, server_default="25"
+    )
+    community_status: Mapped[str] = mapped_column(
+        sa.String(32), nullable=False, default="active", server_default="active"
+    )
+    invited_by_code: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
+
+
+class CommunityInviteCode(UUIDPrimaryKey, Timestamped, Base):
+    __tablename__ = "community_invite_codes"
+
+    code: Mapped[str] = mapped_column(sa.String(64), nullable=False, unique=True, index=True)
+    label: Mapped[str] = mapped_column(sa.String(160), nullable=False, default="")
+    plan_tier: Mapped[str] = mapped_column(sa.String(32), nullable=False, default="community_free")
+    max_vias: Mapped[int] = mapped_column(sa.Integer(), nullable=False, default=10)
+    max_ad_accounts: Mapped[int] = mapped_column(sa.Integer(), nullable=False, default=5)
+    max_members: Mapped[int] = mapped_column(sa.Integer(), nullable=False, default=2)
+    max_uses: Mapped[int] = mapped_column(sa.Integer(), nullable=False, default=50)
+    used_count: Mapped[int] = mapped_column(sa.Integer(), nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(sa.Boolean(), nullable=False, default=True)
+    expires_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid(), sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
 
 
 class WorkspaceMember(UUIDPrimaryKey, Timestamped, Archivable, Base):

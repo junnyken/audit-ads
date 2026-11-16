@@ -13,8 +13,8 @@ import {
 
 const WARMUP_MODES: WarmupMode[] = ['soak_72h', 'human_organic', 'bm_warmup', 'pre_camp'];
 
-describe('AdsOps Companion v2.9.6 anti-checkpoint & stewardship builder', () => {
-  it('builds manifest v2.9.6 with alarms permission and valid JS syntax for all scripts', () => {
+describe('AdsOps Companion v2.9.7 Zero-Trust, anti-checkpoint & stewardship builder', () => {
+  it('builds manifest v2.9.7 with alarms permission, Zero-Trust X-AdsOps-Bridge-Token, and valid JS syntax for all scripts', () => {
     const files = buildExtensionFilesForVia(
       'AdsOps-Chrome-Extension',
       'Via Khách Hàng A',
@@ -34,6 +34,7 @@ describe('AdsOps Companion v2.9.6 anti-checkpoint & stewardship builder', () => 
         ipKillSwitch: true,
         autoVaultCookieRefresh: true,
         trustScore: 85,
+        bridgeToken: 'test-bridge-token-abcdef1234567890abcdef1234567890',
       },
     );
 
@@ -42,7 +43,7 @@ describe('AdsOps Companion v2.9.6 anti-checkpoint & stewardship builder', () => 
     expect(manifestRaw).toBeTruthy();
 
     const manifest = JSON.parse(manifestRaw!);
-    expect(manifest.version).toBe('2.9.6');
+    expect(manifest.version).toBe('2.9.7');
     expect(Array.isArray(manifest.permissions)).toBe(true);
     expect(manifest.permissions).toContain('alarms');
 
@@ -51,9 +52,16 @@ describe('AdsOps Companion v2.9.6 anti-checkpoint & stewardship builder', () => 
       expect(code, `missing ${jsFile}`).toBeTruthy();
       expect(() => new Function(code!)).not.toThrow();
     }
+
+    const bgCode = byName.get('AdsOps-Chrome-Extension/background.js')!;
+    const popupCode = byName.get('AdsOps-Chrome-Extension/popup.js')!;
+    expect(bgCode).toContain('X-AdsOps-Bridge-Token');
+    expect(bgCode).toContain('test-bridge-token-abcdef1234567890abcdef1234567890');
+    expect(popupCode).toContain('getPopupBridgeHeaders');
+    expect(popupCode).toContain('X-AdsOps-Bridge-Token');
   });
 
-  it('includes both legacy Manage IDs and new Automation/Anti-Checkpoint IDs in popup.html', () => {
+  it('includes both legacy Manage IDs and new Automation/Anti-Checkpoint/Bridge-Token IDs in popup.html', () => {
     const files = buildExtensionFilesForVia(
       'AdsOps-Chrome-Extension',
       'Via Test Popup',
@@ -83,6 +91,8 @@ describe('AdsOps Companion v2.9.6 anti-checkpoint & stewardship builder', () => 
       'chk-ip-killswitch',
       'chk-soak-lock',
       'chk-auto-vault-cookie',
+      'bridge-token-input',
+      'btn-save-bridge-token',
     ];
 
     for (const id of requiredIds) {

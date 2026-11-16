@@ -27,6 +27,7 @@ class RegisterRequest(BaseModel):
     math_answer: str = Field(min_length=1, max_length=10)
     human_confirmed: bool = False
     website_honeypot: str | None = Field(default="", max_length=200)
+    invite_code: str | None = Field(default=None, max_length=64)
 
 
 class BotChallengeResponse(BaseModel):
@@ -46,6 +47,11 @@ class WorkspaceSummary(BaseModel):
     id: uuid.UUID
     name: str
     slug: str
+    plan_tier: str = "agency"
+    max_vias: int = 500
+    max_ad_accounts: int = 500
+    max_members: int = 25
+    community_status: str = "active"
 
 
 class CurrentUserResponse(BaseModel):
@@ -53,4 +59,5 @@ class CurrentUserResponse(BaseModel):
     email: str
     full_name: str
     role: WorkspaceRole
+    is_platform_admin: bool = False
     workspace: WorkspaceSummary

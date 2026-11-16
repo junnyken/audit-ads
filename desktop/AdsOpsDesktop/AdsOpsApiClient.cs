@@ -547,5 +547,15 @@ public sealed class AdsOpsApiClient : IDisposable
             new { reason = reason.Trim() },
             ct);
 
+    public Task<CommunityQuotaDto> GetMyCommunityQuotaAsync(CancellationToken ct = default) =>
+        SendJsonAsync<CommunityQuotaDto>(HttpMethod.Get, "/api/v1/community/my-quota", null, ct);
+
+    public Task<CommunityQuotaDto> RedeemCommunityCodeAsync(string code, CancellationToken ct = default) =>
+        SendJsonAsync<CommunityQuotaDto>(
+            HttpMethod.Post,
+            "/api/v1/community/redeem-code",
+            new { code = code.Trim().ToUpperInvariant() },
+            ct);
+
     public void Dispose() => _http.Dispose();
 }
