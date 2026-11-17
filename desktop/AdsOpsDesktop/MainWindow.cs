@@ -2596,28 +2596,50 @@ internal sealed partial class MainWindow : Window
     private const uint WM_GETOBJECT = 0x003D;
     private const int OBJID_CLIENT = unchecked((int)0xFFFFFFFC);
 
-    private static bool TryInvokeElementNonIntrusive(AutomationElement el)
+    private static bool TryInvokeElementNonIntrusive(AutomationElement? el)
     {
-        try
+        var cur = el;
+        for (int depth = 0; depth < 4 && cur != null; depth++)
         {
-            if (el.TryGetCurrentPattern(InvokePattern.Pattern, out var ipObj) && ipObj is InvokePattern ip)
+            try
             {
-                ip.Invoke();
-                return true;
+                if (cur.TryGetCurrentPattern(InvokePattern.Pattern, out var ipObj) && ipObj is InvokePattern ip)
+                {
+                    ip.Invoke();
+                    return true;
+                }
+            }
+            catch { }
+
+            try
+            {
+                if (cur.TryGetCurrentPattern(TogglePattern.Pattern, out var tpObj) && tpObj is TogglePattern tp)
+                {
+                    tp.Toggle();
+                    return true;
+                }
+            }
+            catch { }
+
+            try
+            {
+                if (cur.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var spObj) && spObj is SelectionItemPattern sp)
+                {
+                    sp.Select();
+                    return true;
+                }
+            }
+            catch { }
+
+            try
+            {
+                cur = TreeWalker.ControlViewWalker.GetParent(cur);
+            }
+            catch
+            {
+                break;
             }
         }
-        catch { }
-
-        try
-        {
-            if (el.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var spObj) && spObj is SelectionItemPattern sp)
-            {
-                sp.Select();
-                return true;
-            }
-        }
-        catch { }
-
         return false;
     }
 
@@ -2716,16 +2738,30 @@ internal sealed partial class MainWindow : Window
                             catch { }
                         }
 
-                        // If modal is already open, look for CheckBoxes or "Mời" / "Gửi lời mời" inside modal using ONLY non-intrusive patterns
+                        // If modal is already open: Select ALL people who reacted & commented ("Chọn tất cả" + all CheckBoxes) and immediately click "Gửi lời mời"
                         if (modalOpened)
                         {
+                            var selectAllEl = elements.FirstOrDefault(x =>
+                                x.Name.StartsWith("Chọn tất cả", StringComparison.OrdinalIgnoreCase) ||
+                                x.Name.StartsWith("Select all", StringComparison.OrdinalIgnoreCase));
+
+                            if (selectAllEl.El != null && invitedClicks == 0)
+                            {
+                                if (TryInvokeElementNonIntrusive(selectAllEl.El))
+                                {
+                                    invitedClicks = Math.Max(1, detectedCount > 0 ? detectedCount : 1);
+                                    System.Threading.Thread.Sleep(350);
+                                }
+                            }
+
                             var checkBoxes = elements
                                 .Where(x => x.Type == ControlType.CheckBox && x.Bounds.Width >= 8 && x.Bounds.Height >= 8)
                                 .ToList();
 
-                            if (checkBoxes.Count > 0 && invitedClicks == 0)
+                            if (checkBoxes.Count > 0)
                             {
                                 int toCheck = Math.Min(maxInvites, checkBoxes.Count);
+                                int newlyToggled = 0;
                                 for (int i = 0; i < toCheck && !ct.IsCancellationRequested; i++)
                                 {
                                     var cb = checkBoxes[i];
@@ -2736,18 +2772,68 @@ internal sealed partial class MainWindow : Window
                                             if (tp.Current.ToggleState == ToggleState.Off)
                                             {
                                                 tp.Toggle();
-                                                invitedClicks++;
+                                                newlyToggled++;
                                             }
                                         }
-                                        else if (TryInvokeElementNonIntrusive(cb.El))
+                                        else if (invitedClicks == 0 && TryInvokeElementNonIntrusive(cb.El))
                                         {
-                                            invitedClicks++;
+                                            newlyToggled++;
                                         }
                                     }
                                     catch { }
-                                    System.Threading.Thread.Sleep(350);
+                                    System.Threading.Thread.Sleep(80);
                                 }
-                                System.Threading.Thread.Sleep(650);
+                                if (newlyToggled > 0)
+                                {
+                                    invitedClicks = Math.Max(invitedClicks, newlyToggled);
+                                }
+                            }
+
+                            // Re-query fresh UIAutomation elements after selecting checkboxes so the newly-enabled "Gửi lời mời (X)" button is captured accurately
+                            if (invitedClicks > 0)
+                            {
+                                System.Threading.Thread.Sleep(750);
+                                FindActiveMetaBusinessSuiteChromeWindow();
+                                var freshAll = root.FindAll(TreeScope.Descendants, System.Windows.Automation.Condition.TrueCondition);
+                                if (freshAll != null && freshAll.Count > 0)
+                                {
+                                    elements.Clear();
+                                    foreach (AutomationElement el in freshAll)
+                                    {
+                                        try
+                                        {
+                                            if (!el.Current.IsEnabled) continue;
+                                            var nm = (el.Current.Name ?? "").Trim();
+                                            if (string.IsNullOrEmpty(nm)) continue;
+                                            var b = el.Current.BoundingRectangle;
+                                            if (double.IsInfinity(b.Width) || double.IsInfinity(b.Height) || b.Width <= 2 || b.Height <= 2) continue;
+                                            elements.Add((el, nm, el.Current.ControlType, b));
+                                        }
+                                        catch { }
+                                    }
+                                }
+                            }
+
+                            var confirmSendBtns = elements.Where(x =>
+                                (x.Type == ControlType.Button || x.Type == ControlType.Custom || x.Type == ControlType.Text) &&
+                                !x.Name.Contains("bạn bè", StringComparison.OrdinalIgnoreCase) &&
+                                !x.Name.Contains("friends", StringComparison.OrdinalIgnoreCase) &&
+                                (x.Name.StartsWith("Gửi lời mời", StringComparison.OrdinalIgnoreCase) ||
+                                 x.Name.StartsWith("Send invitation", StringComparison.OrdinalIgnoreCase) ||
+                                 x.Name.StartsWith("Send invite", StringComparison.OrdinalIgnoreCase)))
+                                .OrderByDescending(x => x.Name.Contains('(') ? 1 : 0)
+                                .ThenByDescending(x => x.Bounds.Top)
+                                .ToList();
+
+                            if (confirmSendBtns.Count > 0 && invitedClicks > 0)
+                            {
+                                var finalBtn = confirmSendBtns[0];
+                                if (TryInvokeElementNonIntrusive(finalBtn.El))
+                                {
+                                    _ = Dispatcher.BeginInvoke(() =>
+                                        AppendLog($"🚀 [Auto-Invite] Đã tự động chọn tất cả ({invitedClicks} người bình luận & thả cảm xúc) và nhấn '{finalBtn.Name}' thành công!"));
+                                    return true;
+                                }
                             }
 
                             var singleInviteBtns = elements.Where(x =>
@@ -2765,26 +2851,9 @@ internal sealed partial class MainWindow : Window
                                     {
                                         invitedClicks++;
                                     }
-                                    System.Threading.Thread.Sleep(2400);
+                                    System.Threading.Thread.Sleep(250);
                                 }
                                 return invitedClicks > 0;
-                            }
-
-                            var confirmSendBtns = elements.Where(x =>
-                                (x.Type == ControlType.Button || x.Type == ControlType.Custom) &&
-                                (x.Name.StartsWith("Gửi lời mời", StringComparison.OrdinalIgnoreCase) ||
-                                 x.Name.StartsWith("Send invitation", StringComparison.OrdinalIgnoreCase) ||
-                                 x.Name.StartsWith("Send invite", StringComparison.OrdinalIgnoreCase)))
-                                .OrderByDescending(x => x.Bounds.Top)
-                                .ToList();
-
-                            if (confirmSendBtns.Count > 0 && invitedClicks > 0)
-                            {
-                                var finalBtn = confirmSendBtns[0];
-                                if (TryInvokeElementNonIntrusive(finalBtn.El))
-                                {
-                                    return true;
-                                }
                             }
                         }
 

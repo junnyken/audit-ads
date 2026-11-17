@@ -4708,65 +4708,114 @@ recheckGeoAlignment();`
 
     if (dialogs.length > 0) {
       const topDialog = dialogs[dialogs.length - 1];
-      const checkboxes = Array.from(
+      const findDialogSubmitBtn = () => {
+        const btns = Array.from(topDialog.querySelectorAll('div[role="button"], button, span[role="button"]')).filter((b) => {
+          if (b.disabled || b.getAttribute("aria-disabled") === "true") return false;
+          const r = b.getBoundingClientRect();
+          return r.width > 24 && r.height > 16;
+        });
+        return btns.find((b) => {
+          const txt = ((b.getAttribute("aria-label") || "") + " " + (b.textContent || "")).trim().toLowerCase();
+          if (txt.includes("đã mời") || txt.includes("invited") || txt.includes("bạn bè") || txt.includes("friends")) return false;
+          return (
+            txt === "gửi lời mời" ||
+            txt === "send invitations" ||
+            txt === "send invite" ||
+            txt.startsWith("gửi lời mời (") ||
+            txt.startsWith("send invitations (")
+          );
+        }) || null;
+      };
+
+      // Priority 1: Click "Chọn tất cả" (Select all) if present, then select any remaining unchecked reactor/commenter checkboxes & submit immediately!
+      const allDialogClickables = Array.from(topDialog.querySelectorAll('div[role="button"], button, span[role="button"], label, div[role="checkbox"], input[type="checkbox"]'));
+      const selectAllBtn = allDialogClickables.find((el) => {
+        const txt = ((el.getAttribute("aria-label") || "") + " " + (el.textContent || "")).trim().toLowerCase();
+        return txt === "chọn tất cả" || txt === "select all" || txt.startsWith("chọn tất cả (") || txt.startsWith("select all (");
+      });
+
+      const uncheckedBoxes = Array.from(
         topDialog.querySelectorAll('input[type="checkbox"]:not(:checked), div[role="checkbox"][aria-checked="false"]')
       ).filter((cb) => {
         const r = cb.getBoundingClientRect();
         return r.width > 8 && r.height > 8;
       });
 
-      const dialogBtns = Array.from(topDialog.querySelectorAll('div[role="button"], button, span[role="button"]')).filter((b) => {
-        if (b.disabled || b.getAttribute("aria-disabled") === "true") return false;
-        const r = b.getBoundingClientRect();
-        return r.width > 24 && r.height > 16;
-      });
-
-      if (checkboxes.length > 0 && count < maxInvites) {
+      if (uncheckedBoxes.length > 0) {
         pageInvitePending = true;
-        const waitMs = randDelay(900, 1900);
         setTimeout(() => {
-          pageInvitePending = false;
-          if (pageAutoPilotHalted) return;
-          const remaining = Math.max(1, maxInvites - count);
-          const toSelect = checkboxes.slice(0, remaining);
-          toSelect.forEach((cb) => {
-            triggerReactSafeClick(cb);
+          if (pageAutoPilotHalted) { pageInvitePending = false; return; }
+          if (selectAllBtn) {
+            triggerReactSafeClick(selectAllBtn);
+          }
+          const remainingBoxes = Array.from(
+            topDialog.querySelectorAll('input[type="checkbox"]:not(:checked), div[role="checkbox"][aria-checked="false"]')
+          ).filter((cb) => {
+            const r = cb.getBoundingClientRect();
+            return r.width > 8 && r.height > 8;
           });
-          lastPageInviteClickAt = Date.now();
-          const newCount = count + toSelect.length;
-          try { sessionStorage.setItem("adsops_auto_invite_count", String(newCount)); } catch (e) {}
-          setHudPageStatus("🤝 [Auto-Invite] Đã chọn " + toSelect.length + " người bày tỏ cảm xúc, chuẩn bị gửi lời mời...", "#38bdf8");
-        }, waitMs);
+          const toSelect = remainingBoxes.slice(0, Math.max(1, maxInvites));
+          toSelect.forEach((cb) => triggerReactSafeClick(cb));
+          const selectedTotal = Math.max(toSelect.length, uncheckedBoxes.length);
+          setHudPageStatus("🤝 [Auto-Invite] Đã chọn tất cả (" + selectedTotal + " người bình luận & thả cảm xúc), đang nhấn Gửi lời mời...", "#38bdf8");
+
+          setTimeout(() => {
+            pageInvitePending = false;
+            if (pageAutoPilotHalted) return;
+            const submitBtn = findDialogSubmitBtn();
+            if (submitBtn) {
+              submitBtn.style.outline = "2px solid #10b981";
+              triggerReactSafeClick(submitBtn);
+              lastPageInviteClickAt = Date.now();
+              count = selectedTotal;
+              try { sessionStorage.setItem("adsops_auto_invite_count", String(selectedTotal)); } catch (e) {}
+              finishAutoInvite("Đã tự động chọn tất cả và gửi " + selectedTotal + " lời mời theo dõi Fanpage");
+            }
+          }, 700);
+        }, 550);
         return;
       }
 
-      const inviteBtnInDialog = dialogBtns.find((b) => {
-        const txt = ((b.getAttribute("aria-label") || "") + " " + (b.textContent || "")).trim().toLowerCase();
-        if (txt.includes("đã mời") || txt.includes("invited") || txt.includes("bạn bè") || txt.includes("friends")) return false;
-        return (
-          txt === "mời" ||
-          txt === "invite" ||
-          txt === "gửi lời mời" ||
-          txt === "send invitations" ||
-          txt === "send invite" ||
-          txt.startsWith("gửi lời mời (") ||
-          txt.startsWith("send invitations (")
-        );
-      });
-
-      if (inviteBtnInDialog) {
+      // Priority 2: If checkboxes are already checked and "Gửi lời mời" submit button is enabled, click it immediately and finish!
+      const readySubmitBtn = findDialogSubmitBtn();
+      if (readySubmitBtn) {
         pageInvitePending = true;
-        const waitMs = randDelay(3200, 6200);
         setTimeout(() => {
           pageInvitePending = false;
           if (pageAutoPilotHalted) return;
-          inviteBtnInDialog.style.outline = "2px solid #10b981";
-          triggerReactSafeClick(inviteBtnInDialog);
+          readySubmitBtn.style.outline = "2px solid #10b981";
+          triggerReactSafeClick(readySubmitBtn);
           lastPageInviteClickAt = Date.now();
-          const nextCount = count + 1;
-          try { sessionStorage.setItem("adsops_auto_invite_count", String(nextCount)); } catch (e) {}
-          setHudPageStatus("🤝 [Auto-Invite] Đã gửi lời mời theo dõi #" + nextCount + "/" + maxInvites + "...", "#34d399");
-        }, waitMs);
+          const sentCnt = Math.max(1, count);
+          count = sentCnt;
+          finishAutoInvite("Đã tự động gửi " + sentCnt + " lời mời theo dõi Fanpage");
+        }, 500);
+        return;
+      }
+
+      // Priority 3: Classic row-by-row "Mời" / "Invite" buttons inside modal — click all in one batch!
+      const rowInviteBtns = Array.from(topDialog.querySelectorAll('div[role="button"], button, span[role="button"]')).filter((b) => {
+        if (b.disabled || b.getAttribute("aria-disabled") === "true") return false;
+        const r = b.getBoundingClientRect();
+        if (r.width <= 24 || r.height <= 16) return false;
+        const txt = ((b.getAttribute("aria-label") || "") + " " + (b.textContent || "")).trim().toLowerCase();
+        return txt === "mời" || txt === "invite";
+      });
+      if (rowInviteBtns.length > 0) {
+        pageInvitePending = true;
+        const batchBtns = rowInviteBtns.slice(0, Math.max(1, maxInvites - count));
+        batchBtns.forEach((btn, idx) => {
+          setTimeout(() => {
+            if (pageAutoPilotHalted) return;
+            btn.style.outline = "2px solid #10b981";
+            triggerReactSafeClick(btn);
+            if (idx === batchBtns.length - 1) {
+              pageInvitePending = false;
+              count += batchBtns.length;
+              finishAutoInvite("Đã tự động mời tất cả " + count + " người tương tác & bình luận");
+            }
+          }, idx * 350);
+        });
         return;
       }
     }
