@@ -1,2 +1,0 @@
-c:\Users\trieunt\Documents\Tool\audit-ads\desktop\AdsOpsDesktop\bin\Release\net8.0-windows\win-x64\publish\AdsOpsDesktop.pdb
-c:\Users\trieunt\Documents\Tool\audit-ads\desktop\AdsOpsDesktop\bin\Release\net8.0-windows\win-x64\publish\AdsOpsDesktop.exe

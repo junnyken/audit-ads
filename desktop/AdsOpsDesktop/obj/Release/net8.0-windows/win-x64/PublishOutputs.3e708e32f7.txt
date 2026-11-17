@@ -1,2 +1,0 @@
-C:\Users\trieunt\Documents\Tool\audit-ads\desktop\Release_stage\AdsOpsDesktop.pdb
-C:\Users\trieunt\Documents\Tool\audit-ads\desktop\Release_stage\AdsOpsDesktop.exe
