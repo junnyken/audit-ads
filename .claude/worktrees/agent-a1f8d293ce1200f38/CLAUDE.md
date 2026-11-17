@@ -1,0 +1,179 @@
+# AdsOps Control Center — agent instructions
+
+Governing process: `MINI_SPEC_PLAYBOOK.md`. Read it, plus `FEATURES.md`, `ARCH.md`, `API.md` and
+`TEST_LOG.md`, before changing code. Current release: O4 (stored Meta readers: Facebook Login for Business with a System User configuration as the main path, credentials encrypted in a vault (`cryptography`/Fernet, key in server configuration), read scopes only — `ads_management` refused; a dead credential never falls back to a server token, its accounts read `not_observable` with a reason and one critical alert is raised; the credential check is off by default (`CREDENTIAL_CHECK_EVERY_N_PASSES=0`); never run live), on O3 (scheduled discovery + automatic import, Meta read-only: off by default on two switches — `DISCOVERY_SWEEP_EVERY_N_PASSES` and the owner's per-connection flags; never fake connections, never archive/restore; never run live), on S2 (Meta account status: four health
+rules read from S1's stored observations, so no extra Meta call; never shown with success
+styling; extension 0.3.0), on S1 (spend tracking: read-only spend observations, four spend
+health rules, a sweep that is off by default, the Spend tab and the Accounts column), on O1.1
+(connection discovery workspace) and the
+per-Business-Manager reader credential, on A10/A10.1/A10.2/A10.3 (real Meta reads, one guarded
+write capability, authority gate, registry import), A9 (team seats), A6-A8, A5 (Chrome extension),
+A4 Stage A, A3, A2, A1.
+
+**Product state, each line carrying the date it was measured and how.** Rule 41: do
+not copy these forward — re-measure them at the moment you write about them.
+
+| Claim | Verified | How |
+|---|---|---|
+| Backend deployed and healthy | 2026-10-27 | `audit-ads-backend.vibe1.tinhgon.xyz/health/ready` → 200 `{"status":"ok","database":"reachable"}`. The old `cmc-1.vibenode.matbao.ai` host answers 404 since the platform's domain migration |
+| Production frontend reachable | 2026-10-27 | `adsops-app.vibe.tinhgon.xyz` → 200, `config.js` names the backend above; CORS preflight from that origin → 200 with `access-control-allow-origin`, from the old origin → 400. The months of 404 were **our** HEALTHCHECK (`localhost` → `::1`, nginx on IPv4 only → container unhealthy → Traefik dropped the route), fixed in `1588022` — not platform routing, as this table used to say |
+| Real Meta reads work | 2026-09-14 | run `8d153a28…` holds 8 ad-account observations (5 owned + 3 client) and 7 Pixel observations |
+| Registry is no longer empty | 2026-09-14 | `business_managers` = 1, `ad_accounts` = 2 |
+| No real Telegram message ever sent | 2026-09-14 | `notification_deliveries`: 6 rows, all `SKIPPED`; no `SENT` row exists |
+| No real ad account ever created | 2026-09-14 | every `meta_*_batch` / `*_batch_items` table is 0 rows |
+| CI green | 2026-09-14 | run `34819289771` on `b2f3fd6`: 2 jobs, every step success, 341s |
+| Production runs the dispatcher in the API container and holds a Meta server token | 2026-10-27 | runtime log `dispatcher started` with `spend_sweep_every_n_passes: 60`, discovery and credential check `0`; `list_env` shows `RUN_DISPATCHER_IN_API`, `META_ACCESS_TOKEN`, `META_BUSINESS_ID` and no O4 variable (`CREDENTIAL_VAULT_KEY`, `META_APP_*`) yet |
+| Local dev database was rebuilt empty | 2026-10-26 | The old `adsops-db` container was gone. The new one holds 0 users, 0 BMs, 0 ad accounts. The 2026-09-14 rows above describe a database that no longer exists |
+| Extension never published | **not verifiable here** | no Chrome Web Store listing can be checked from this workspace; it rests on the operator's word |
+| Production schema at head (`0018_o4_reader_credentials`) | 2026-10-27 | runtime log `applying migrations at startup because MIGRATE_ON_START names this head` then `migration complete`; `MIGRATE_ON_START` removed afterwards (`list_env`). The database itself is internal-only |
+
+## Hard rules (these are product requirements, not preferences)
+
+1. Never store or accept passwords, cookies, session data, access/refresh tokens, credentials or
+   raw proxy authentication secrets. `StrictPayload` refuses such fields by name — keep it that
+   way. Exactly two request bodies are allowed to opt out of it, each a plain `BaseModel` with
+   `extra="forbid"` and a docstring saying why: `LoginRequest` (a password, verified against a
+   PBKDF2 hash and never stored) and `InvitationAcceptRequest` (A9 — the one-time invitation
+   token, compared by hash and never persisted, plus the password a brand-new employee is
+   choosing for the account being created in that same call). Adding a third needs the same
+   deliberate, documented justification, not a quiet swap of the base class.
+   **One exception, by design and not by drift (O4): a Meta reader credential that the product itself obtained
+   from Meta's login flow — never typed, pasted or posted by a person, never read from a browser — may be stored
+   in `meta_reader_credentials.encrypted_secret`, encrypted with `CREDENTIAL_VAULT_KEY` from server
+   configuration by `core/secret_vault.py`, the only module that may encrypt or decrypt. It is decrypted only
+   inside `resolve_reader`, lives in memory for one provider call chain, is never cached across passes, and
+   never reaches a request body, a response, an audit row, a log line or the frontend bundle. Cookies, sessions
+   and passwords remain forbidden without exception.**
+2. Never hard-delete a domain entity. Use `archived_at`; audit history is permanent.
+3. Every mutation writes a redacted audit row **in the same transaction** as the change.
+4. Missing evidence is never positive evidence. It degrades to `unknown` or `not_ready`.
+5. `unknown` and `not_ready` must never be rendered with success styling. The colour map in
+   `frontend/src/lib/readiness.ts` is the only place that decision lives.
+6. Never claim an account cannot be restricted or that an ad will be approved — in code,
+   copy, comments or docs.
+7. No Chromium, Playwright, Selenium, fingerprinting, cookie handling or proxy rotation.
+8. Workspace scope always comes from the authenticated membership, never from a request body.
+9. Do not introduce a numeric risk score.
+10. Do not scatter a hard-coded user id; authorization goes through `WorkspaceAccessService`.
+11. Readiness and health are different questions. Do not merge them, do not let health write a
+    readiness state (health calls the readiness rollup with `persist=False`), and do not give
+    either a numeric score.
+12. Acknowledging a health signal is not resolving it: an acknowledged signal keeps counting.
+13. `clear_signals` may only ever be worded "No current issues found by configured checks".
+14. A health signal action must never mutate the A1 event, checklist item or evidence behind it.
+15. Health evaluation runs inside a SAVEPOINT. An A1 mutation must still commit when it fails,
+    and the account's health must then read `unknown` — never a stale clear result.
+16. Alerts are a notification/attention layer. They never recompute health, and an alert action
+    never mutates the A2 signal, the A1 event, the checklist item or the evidence behind it.
+17. Acknowledging an alert is not resolving it. Suppression needs a reason and a finite expiry,
+    mutes delivery only, and never hides an alert or its history.
+18. The Telegram bot token lives only in server configuration. It never reaches the database, an
+    API response, an audit row, a log line or the frontend bundle.
+19. Telegram is one-way. No bot command, callback or endpoint may change anything.
+20. Only three modules may make an outbound request, each to a narrow purpose:
+    `services/telegram_transport.py` (only to the configured API base — tests use
+    `FakeNotificationTransport`; never send a real message without the user's explicit approval
+    of a named chat) and `services/preflight_safe_http.py` (A6's landing-page check only —
+    every call goes through its SSRF guard: scheme allowlist, DNS/IP validation before
+    connecting and on every redirect hop, timeout, redirect cap, response-size cap). No other
+    module may import an HTTP client or a browser driver; `test_alert_security.py` enforces
+    this by name. The third is `services/meta_graph_transport.py` (A10 — the Meta Graph API
+    only, to the configured base; **read-only except the single documented write path
+    `{business-id}/adaccount`, enforced by `_WRITABLE_PATH` and its tests — it has no method that can PATCH or
+    DELETE. O4 adds two GET paths on that same host, `oauth/access_token` and `debug_token`, whose query strings
+    carry a credential by Meta's design; the transport never logs a URL, and a test pins that these two paths
+    appear in no log line and no response**).
+21. Alert derivation runs in a nested SAVEPOINT inside the health evaluation. An alerting failure
+    must degrade alerting only.
+22. Never deploy, run `docker compose up` against a target, change DNS/firewall/proxy, or send a
+    real Telegram message without the user's explicit, separate approval for that specific
+    action. Deployment approval never implies send approval.
+23. Migrations are an explicit release step with a backup in front of them. The API image does
+    not migrate on container start **unless `MIGRATE_ON_START` names this code's head revision**
+    — a narrowing forced by a platform with no shell and an internal-only database, documented
+    in `app/startup_migration.py`. It is not a boolean: a stale or boolean-shaped value is
+    refused and logged, so a migration can never be applied that nobody named. Set it for one
+    release, watch the log, unset it. Do not widen this into an unconditional migrate-on-start.
+24. Never use a `latest` or otherwise mutable image tag. `IMAGE_TAG` is the release commit.
+25. `pilot-local-password` and every placeholder secret are refused by production configuration
+    validation. Do not weaken that guard to make an environment start.
+26. A configuration finding names a code and a sentence, never the offending value. The same
+    applies to logs, audit rows and every API response.
+27. Never mount the Docker socket into an application container.
+28. "Never run" is a distinct state from "stale" everywhere it is reported. Do not collapse them,
+    and never report an unavailable metric as healthy.
+29. A controlled test send creates no Alert, writes no NotificationDelivery, and accepts no
+    recipient or message body from the caller.
+30. Do not automatically downgrade a schema or overwrite a production database during an
+    incident; both are deliberate decisions with a person present.
+31. The extension matches an account by **exact** external id only, after the stated `act_`
+    canonicalisation. Never add name, fuzzy or partial matching. `ambiguous` and `unknown` are
+    correct answers.
+32. The extension never reads cookies, `localStorage`, `sessionStorage`, IndexedDB or network
+    traffic, and never writes to a page it did not create. Lint rules enforce this — do not
+    disable them.
+33. The extension never performs, automates or blocks an action in Ads Manager. The Workspace
+    Guard records that someone checked; the UI must keep saying so.
+34. An extension token is refused by every dashboard route. Do not widen `Ctx` to accept one.
+35. Extension event types are an allowlist and the severity is decided server-side. Never accept
+    a severity, a workspace id or a raw URL from a client.
+36. Host permissions stay minimal and path-scoped. Never add `<all_urls>`, a bare
+    `facebook.com` host, or a host permission for the API origin.
+37. Rate limit buckets are per process and the limiter is in-process by design. Do not claim
+    it is distributed, and do not read `X-Forwarded-For` unless `RATE_LIMIT_TRUSTED_PROXY_HOPS`
+    says a proxy is there — a client sets that header itself.
+38. Identity for a bucket comes from a signature-**verified** token, never a decoded one. An
+    unverified subject would let a caller drain a victim's allowance.
+39. Health probes are never rate limited. A limited probe turns a busy minute into a restart loop.
+40. A Meta reader credential lives in exactly one of two places: server configuration keyed by Business
+    Manager id (`META_ACCESS_TOKENS_BY_BUSINESS`, with `META_ACCESS_TOKEN` as the documented fallback), or the
+    encrypted credential vault (`meta_reader_credentials`, rule 1's single exception), filled only by the
+    product's own Facebook Login for Business flow and bound to a connection through
+    `meta_connections.reader_credential_id`. Never add any other column, a request field or a response field
+    that carries one; `reader_source` (`vault` / `vault_reconnect_required` / `business_specific` /
+    `server_default` / `none` / `fake`) names *which* credential answered, and the credential's label, kind,
+    granting account, scopes, expiry, last verification and status are the most that may be disclosed. For one
+    Business Manager the order is fixed: a connection bound to an `active` vault credential is read with it and
+    never with a server token; a Business Manager with its own configuration entry is never read with the
+    default token; the fallback from an unmapped Business Manager to the default token stays, deliberate and
+    documented. A vault credential that is not `active` — unverified, expired, invalidated, revoked — is never
+    used and never falls back silently to another identity: every read under it degrades to
+    `not_observable` with a stated reason until a person reconnects. The Meta app secret, login configuration
+    id and vault key are server configuration under rule 18's terms. Read scopes only: a credential carrying
+    `ads_management` is refused at the door.
+41. Never describe this product's state from memory. Before writing that something is or is not
+    built, deployed, sent or verified, check it: `FEATURES.md`'s own follow-up list had accumulated
+    five false statements by 2026-09-14, including "no real Meta provider exists" written while the
+    product was reading a live Business Manager.
+42. A live-verification credential lives only in the environment, read through
+    `scripts/lib/live_auth.py` (`ADSOPS_LIVE_EMAIL` / `ADSOPS_LIVE_PASSWORD`), and a missing one
+    exits **2** before a browser opens. Never commit an email or password — not in a script, a
+    test or a document; a test that must detect an old one matches a prefix. Never mint a token,
+    inject `localStorage` or set a cookie to skip the login: a check that bypasses authentication
+    is not checking the product. **A documented credential is not evidence that the account still
+    exists** — three scripts signed in as a deleted account for weeks and nobody knew, because
+    nobody ran them. See `docs/LIVE_VERIFICATION_RUNBOOK.md`.
+
+## Working style
+
+- Audit before build; confirm gaps; pick one design; implement only the agreed scope.
+- Additive-first. Reuse the existing entities, enums, services and components.
+- An unrelated defect becomes a documented follow-up, not silent scope.
+- Update `FEATURES.md`, `ARCH.md`, `API.md` and `TEST_LOG.md`, then submit the MINI-SPEC report.
+- Record real results in `TEST_LOG.md`. Never write that something was verified when it was not.
+
+## Commands
+
+```bash
+# local dev servers — always through this, never by hand
+scripts/dev.sh start|status|stop|restart|logs
+
+cd backend  && .venv/bin/python -m pytest && .venv/bin/ruff check .
+cd frontend && npx vitest run && npm run build && npx eslint .
+# `npm run typecheck` is `tsc -b`. Plain `tsc --noEmit` compiles ZERO files here — the root
+# tsconfig is `{"files": [], "references": [...]}` — so it always "passes" and proves nothing.
+
+# live verification against a running API (opt-in)
+VITE_API_BASE_URL=http://127.0.0.1:8000 ADSOPS_LIVE_API=http://127.0.0.1:8000 \
+ADSOPS_LIVE_EMAIL=... ADSOPS_LIVE_PASSWORD=... npx vitest run src/test/live.app.test.tsx
+```

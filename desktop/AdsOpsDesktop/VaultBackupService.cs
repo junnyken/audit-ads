@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -92,5 +93,56 @@ public static class VaultBackupService
 
         return JsonSerializer.Deserialize<VaultBackupPayload>(Encoding.UTF8.GetString(plain))
             ?? throw new InvalidDataException("Nội dung giải mã Vault rỗng.");
+    }
+
+    public static string AutoBackupsFolder => Path.Combine(DesktopConfig.AppDataRoot, "AutoBackups");
+
+    public static (bool Created, string FilePath, int RetainedCount) CreateDailyAutoBackup(
+        DesktopConfig config,
+        List<ViaWorkspaceEntry> vias,
+        string? customFolder = null,
+        int maxRetainedFiles = 14)
+    {
+        var folder = customFolder ?? AutoBackupsFolder;
+        Directory.CreateDirectory(folder);
+
+        var todayKey = DateTime.Now.ToString("yyyy-MM-dd");
+        var targetFile = Path.Combine(folder, $"AdsOps-AutoBackup-{todayKey}.adsopsvault");
+
+        var payload = new VaultBackupPayload
+        {
+            AppVersion = DesktopAppInfo.Version,
+            ExportedAtUtc = DateTime.UtcNow.ToString("O"),
+            BackendBaseUrl = config.BackendBaseUrl,
+            UserEmail = config.UserEmail,
+            CloudJwtPlain = config.GetJwt(),
+            ConfigSnapshot = config.CloneWithoutSecrets(),
+            StewardshipSnapshot = ViaStewardshipStore.Default.ExportSnapshot(),
+            Vias = vias ?? new List<ViaWorkspaceEntry>(),
+            LocalSecrets = LocalSecretVaultStore.Default.ExportPlainEntries(),
+        };
+
+        // Derive deterministic machine-bound passphrase from the DPAPI-protected bridge token
+        var autoPass = config.GetOrCreateBridgeToken();
+        if (string.IsNullOrWhiteSpace(autoPass) || autoPass.Length < 8)
+        {
+            autoPass = $"adsops-dpapi-{Environment.MachineName}-{Environment.UserName}";
+        }
+
+        var encrypted = EncryptToBytes(payload, autoPass);
+        File.WriteAllBytes(targetFile, encrypted);
+
+        var allFiles = new DirectoryInfo(folder)
+            .GetFiles("AdsOps-AutoBackup-*.adsopsvault")
+            .OrderByDescending(f => f.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        for (int i = Math.Max(1, maxRetainedFiles); i < allFiles.Length; i++)
+        {
+            try { allFiles[i].Delete(); } catch { }
+        }
+
+        var retained = Math.Min(allFiles.Length, Math.Max(1, maxRetainedFiles));
+        return (true, targetFile, retained);
     }
 }

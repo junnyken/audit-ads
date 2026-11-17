@@ -1,13 +1,18 @@
 {
-  "version": "3.0.2",
+  "version": "3.0.3",
+  "display_version": "v3.0.3",
   "ext_version": "2.10.0",
-  "authenticode_signed": true,
-  "download_url": "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
-  "mirror_urls": [
-    "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
-  ],
-  "sha256": "848fb1577999df8dc1bad23990b5e9c9a2ef144266388a92b099533267fa41c1",
-  "size_bytes": 66500196,
-  "published_at": "2026-11-17T09:21:59.849046Z",
-  "release_notes": "AdsOps Desktop Pro v3.0.2 (UI/UX Pro Max) + Extension v2.10.0: Tinh nang Native Windows UIAutomation Auto-Invite (Tu dong doc so nguoi da bay to cam xuc tren Meta Business Suite hien thi thang len App Windows '🔔 X nguoi can moi' va tu dong bam nut 'Gui loi moi' + chon danh sach nguoi tuong tac tren moi phien ban Chrome 158+ khong phu thuoc --load-extension)."
+  "published_at": "2026-11-17T09:53:59Z",
+  "download_url": "/downloads/AdsOps-Desktop-Pro-v2.3.zip",
+  "exe_size_bytes": 162927600,
+  "exe_sha256": "87aaf6b20f4e0be3ab2870045406474d4707e87d96bfc4c7c8e1f7d79c67569c",
+  "zip_size_bytes": 66066641,
+  "zip_sha256": "3effeeaab818d9ad8e2a7cda4d88eb70b26f6887ad420fdf3d6ddc193083980f",
+  "authenticode_publisher": "CN=AdsOps Pro Community Publisher, O=AdsOps Suite, C=VN",
+  "authenticode_thumbprint": "43D0E31722646B750334397C66E22AD0A1FEDE87",
+  "highlights": [
+    "Khắc phục triệt để Auto-Invite Fanpage: Gỡ bỏ số đếm mẫu cứng, chỉ hiển thị số người bày tỏ cảm xúc thật từ Meta Business Suite (PAGE_PENDING_INVITES_COUNT) và kích hoạt ngầm hoàn toàn không chiếm chuột vật lý + nút Dừng Auto-Invite tức thì.",
+    "Bổ sung Pre-Flight Safety Check (#2) & Smart Step Retry (#5): Tự động kiểm tra RAM trống, phiên Chrome đang mở, Proxy DEAD trước khi chạy Auto-Pilot 5 Bước và tự động thử lại 2 lần với Exponential Backoff + Jitter.",
+    "Hẹn giờ đa khung giờ Auto-Pilot (#6 - VD: 08:30, 20:00) & Sao lưu tự động Két DPAPI hằng ngày (#7 - .adsopsvault mã hóa AES-256-GCM giữ 14 bản gần nhất)."
+  ]
 }

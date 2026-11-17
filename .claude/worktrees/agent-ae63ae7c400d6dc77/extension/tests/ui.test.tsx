@@ -1,0 +1,430 @@
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { installChromeStub } from './setup'
+import { LanguageProvider } from '../src/shared/i18n'
+import PopupApp from '../src/popup/PopupApp'
+import SidePanelApp from '../src/sidepanel/SidePanelApp'
+import OptionsApp from '../src/options/OptionsApp'
+import type { ContextResolution } from '../src/shared/types'
+import { translate } from '../src/shared/i18n/translate'
+import { en } from '../src/shared/i18n/en'
+import type { TranslationKey } from '../src/shared/i18n/types'
+
+function renderPopup() {
+  return render(
+    <LanguageProvider>
+      <PopupApp />
+    </LanguageProvider>,
+  )
+}
+
+function renderSidePanel() {
+  return render(
+    <LanguageProvider>
+      <SidePanelApp />
+    </LanguageProvider>,
+  )
+}
+
+function renderOptions() {
+  return render(
+    <LanguageProvider>
+      <OptionsApp />
+    </LanguageProvider>,
+  )
+}
+
+const CONNECTED = {
+  connected: true,
+  dashboardUrl: 'https://adsops.example.com',
+  workspaceName: 'Matbao AdsOps',
+  userEmail: 'operator@example.com',
+  expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+  error: null,
+}
+
+const CONFIRMED: ContextResolution = {
+  context_status: 'confirmed',
+  reason_code: null,
+  message: null,
+  page_type: 'campaign',
+  safe_path: '/adsmanager/manage/campaigns',
+  account: {
+    id: 'account-uuid',
+    display_name: 'BM USA - Account 03',
+    external_account_id: 'act_123456789',
+    business_manager_name: 'BM USA',
+    owner_label: 'Owner 1',
+    status: 'active',
+    archived: false,
+  },
+  readiness: {
+    status: 'ready_with_warnings',
+    evaluated_at: new Date().toISOString(),
+    reasons: [{ code: 'payment_method_review_due', message: 'Payment method review is due.' }],
+    reason_count: 1,
+  },
+  health: {
+    status: 'warning',
+    freshness_status: 'current',
+    evaluated_at: new Date().toISOString(),
+    top_reasons: [{ severity: 'warning', message: 'Manual review is older than the interval.' }],
+    counts: { critical: 0, warning: 1, attention: 0, unknown: 0 },
+  },
+  alerts: { open_count: 2, critical_count: 0, warning_count: 2, info_count: 0 },
+  dashboard_paths: {
+    account_detail: '/accounts/account-uuid',
+    alerts: '/alerts?ad_account_id=account-uuid',
+  },
+  disclaimer: 'Operational states recorded in this product.',
+  generated_at: new Date().toISOString(),
+}
+
+function stubWorker(handlers: Record<string, unknown>) {
+  const { stub } = installChromeStub()
+  stub.runtime.sendMessage = vi.fn(async (request: { kind: string }) => {
+    const value = handlers[request.kind]
+    if (value === undefined) return { ok: true }
+    return typeof value === 'function' ? (value as (r: unknown) => unknown)(request) : value
+  })
+  return stub
+}
+
+describe('popup', () => {
+  beforeEach(() => installChromeStub())
+
+  it('sends the operator to settings when the extension is not connected', async () => {
+    stubWorker({ getConnection: { ok: true, data: { ...CONNECTED, connected: false } } })
+    renderPopup()
+    expect(await screen.findByText(/not connected to a dashboard/i)).toBeInTheDocument()
+    expect(screen.queryByText('BM USA - Account 03')).toBeNull()
+  })
+
+  it('shows account, readiness, health and alerts as separate values when confirmed', async () => {
+    stubWorker({
+      getConnection: { ok: true, data: CONNECTED },
+      getContext: { ok: true, data: CONFIRMED },
+    })
+    renderPopup()
+    expect(await screen.findByText('BM USA - Account 03')).toBeInTheDocument()
+    expect(await screen.findByText('Confirmed')).toBeInTheDocument()
+    expect(await screen.findByText('act_123456789')).toBeInTheDocument()
+    expect(await screen.findByText('Ready with warnings')).toBeInTheDocument()
+    expect(await screen.findByText('Warning')).toBeInTheDocument()
+    expect(await screen.findByText('Warning: 2')).toBeInTheDocument()
+    expect(await screen.findByText(/Payment method review is due/)).toBeInTheDocument()
+  })
+
+  it('U1e: names the page type in words and paints "Current" freshness neutral, not success', async () => {
+    stubWorker({
+      getConnection: { ok: true, data: CONNECTED },
+      getContext: { ok: true, data: { ...CONFIRMED, page_type: 'billing' } },
+    })
+    renderPopup()
+    expect(await screen.findByText('Billing')).toBeInTheDocument()
+    expect(screen.queryByText('billing')).toBeNull()
+    const badge = await screen.findByText('Current')
+    expect(badge.className).toContain('neutral')
+    expect(badge.className).not.toContain('positive')
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument()
+  })
+
+  describe('spend block', () => {
+    const withSpend = (spend: ContextResolution['spend']): ContextResolution => ({ ...CONFIRMED, spend })
+    const base = {
+      freshness: 'current',
+      observable: true,
+      currency: 'VND',
+      currency_conflict: false,
+      observed_at: new Date().toISOString(),
+      latest_complete_day: { date: '2026-10-25', spend_raw: '1600000' },
+      today_partial: { date: '2026-10-26', spend_raw: '77', label: 'incomplete_day' },
+      signal_open: false,
+    }
+
+    async function show(spend: ContextResolution['spend'], render_: () => unknown = renderSidePanel) {
+      stubWorker({
+        getConnection: { ok: true, data: CONNECTED },
+        getContext: { ok: true, data: withSpend(spend) },
+      })
+      render_()
+      return within(await screen.findByTestId('spend-state'))
+    }
+
+    it('shows raw amounts with the observed currency in the side panel and the popup', async () => {
+      const panel = await show(base)
+      expect(panel.getByText(/1600000 VND/)).toBeInTheDocument()
+      expect(panel.getByText('77 VND')).toBeInTheDocument()
+      expect(panel.getByText('No open signal')).toBeInTheDocument()
+    })
+
+    it('renders the popup too', async () => {
+      const popup = await show({ ...base, signal_open: true }, renderPopup)
+      expect(popup.getByText('Open')).toBeInTheDocument()
+    })
+
+    it('never uses success styling for freshness and never shows 0 for missing data', async () => {
+      const panel = await show({
+        ...base,
+        freshness: 'never_observed',
+        observed_at: null,
+        latest_complete_day: null,
+        today_partial: null,
+      })
+      const badge = panel.getByText('Never read')
+      expect(badge.className).not.toContain('positive')
+      expect(panel.queryByText(/^0/)).toBeNull()
+      expect(panel.getAllByText('—').length).toBeGreaterThanOrEqual(3)
+    })
+
+    it('shows a day without a row as a dash, not zero', async () => {
+      const panel = await show({
+        ...base,
+        latest_complete_day: { date: '2026-10-25', spend_raw: null },
+        today_partial: null,
+      })
+      expect(panel.getByText(/Meta returned no row/)).toBeInTheDocument()
+      expect(panel.queryByText(/\b0 VND/)).toBeNull()
+    })
+
+    it('current freshness is neutral (U1e): recent data is not a verdict on the account', async () => {
+      const badge = (await show(base)).getByText('Recent')
+      expect(badge.className).toContain('neutral')
+      expect(badge.className).not.toContain('positive')
+      expect(badge.className).not.toContain('info')
+    })
+
+    it('hides amounts when currencies conflict', async () => {
+      const panel = await show({ ...base, currency_conflict: true })
+      expect(panel.queryByText(/1600000/)).toBeNull()
+      expect(panel.getByText(/Currencies conflict/)).toBeInTheDocument()
+    })
+
+    it('says nothing is known when an older backend sends no spend block', async () => {
+      stubWorker({
+        getConnection: { ok: true, data: CONNECTED },
+        getContext: { ok: true, data: CONFIRMED },
+      })
+      renderSidePanel()
+      expect(await screen.findByText('No spend data for this account yet.')).toBeInTheDocument()
+    })
+  })
+
+  describe('Meta status line (S2)', () => {
+    const block = {
+      status: 'disabled',
+      status_class: 'blocking',
+      account_status_raw: '2',
+      disable_reason: 'risk_payment',
+      disable_reason_raw: '3',
+      freshness: 'current',
+      observed_at: new Date().toISOString(),
+      observation_status: 'succeeded',
+    }
+
+    async function line(value: ContextResolution['platform_status'], render_: () => unknown = renderSidePanel) {
+      stubWorker({
+        getConnection: { ok: true, data: CONNECTED },
+        getContext: { ok: true, data: { ...CONFIRMED, platform_status: value } },
+      })
+      render_()
+      return within(await screen.findByTestId('platform-status'))
+    }
+
+    it.each([
+      ['active', 'Active (Meta)'],
+      ['disabled', 'Disabled (Meta)'],
+      ['unsettled', 'Unsettled balance (Meta)'],
+      ['pending_risk_review', 'Pending risk review (Meta)'],
+      ['pending_settlement', 'Pending settlement (Meta)'],
+      ['in_grace_period', 'In grace period (Meta)'],
+      ['pending_closure', 'Pending closure (Meta)'],
+      ['closed', 'Closed (Meta)'],
+    ])('renders %s with its label and never success styling', async (status, label) => {
+      const view = await line({ ...block, status })
+      const badge = view.getByText(label)
+      expect(badge.className).not.toContain('positive')
+      expect(view.getByText(/as of/)).toBeInTheDocument()
+    })
+
+    it('shows an unrecognised code as unknown, never active', async () => {
+      const view = await line({ ...block, status: 'unknown', account_status_raw: '201' })
+      expect(view.getByText('Unrecognised status code 201').className).toContain('neutral')
+    })
+
+    it('treats a status this build does not know as unknown', async () => {
+      const view = await line({ ...block, status: 'something_new', account_status_raw: '555' })
+      expect(view.getByText('Unrecognised status code 555')).toBeInTheDocument()
+      expect(view.queryByText('Active (Meta)')).toBeNull()
+    })
+
+    it('shows a dash when no status was observed, and when an older backend sends none', async () => {
+      expect((await line(null)).getByText('—')).toBeInTheDocument()
+    })
+
+    it('says when the status is only the last word', async () => {
+      const view = await line({ ...block, freshness: 'stale' })
+      expect(view.getByText(/last status Meta returned, not recent/)).toBeInTheDocument()
+    })
+
+    it('renders in the popup too', async () => {
+      const view = await line(block, renderPopup)
+      expect(view.getByText('Disabled (Meta)').className).toContain('attention')
+    })
+
+    it('has Vietnamese wording for every key', () => {
+      expect(translate('vi', 'platformStatus.active')).toBe('Đang hoạt động (theo Meta)')
+      expect(translate('vi', 'platformStatus.unknown', { code: '201' })).toBe('Mã trạng thái lạ: 201')
+      for (const key of Object.keys(en).filter((k) => k.startsWith('platformStatus.')))
+        expect(translate('vi', key as TranslationKey)).not.toBe(translate('en', key as TranslationKey))
+    })
+  })
+
+  it('refuses to guess when the context is not confirmed', async () => {
+    stubWorker({
+      getConnection: { ok: true, data: CONNECTED },
+      getContext: {
+        ok: true,
+        data: {
+          context_status: 'unknown',
+          reason_code: 'account_not_registered',
+          message: 'No exact registered account matches the detected account id.',
+          page_type: 'campaign',
+          safe_path: '/adsmanager/manage/campaigns',
+        },
+      },
+    })
+    renderPopup()
+    expect(await screen.findByText('Not registered')).toBeInTheDocument()
+    expect(await screen.findByText(/will not guess which account/i)).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Select account manually' })).toBeInTheDocument()
+    expect(screen.queryByText('Ready with warnings')).toBeNull()
+  })
+
+  it('states plainly that it changes nothing in Ads Manager', async () => {
+    stubWorker({
+      getConnection: { ok: true, data: CONNECTED },
+      getContext: { ok: true, data: CONFIRMED },
+    })
+    renderPopup()
+    expect(await screen.findByText(/changes nothing in Ads Manager/i)).toBeInTheDocument()
+    const body = document.body.textContent ?? ''
+    for (const claim of ['protected', 'no ban risk', 'guaranteed', 'bypass', 'unlock']) {
+      expect(body.toLowerCase()).not.toContain(claim)
+    }
+  })
+})
+
+describe('side panel workspace guard', () => {
+  beforeEach(() => installChromeStub())
+
+  it('requires every checklist item and a reason before it will record an intent', async () => {
+    stubWorker({
+      getConnection: { ok: true, data: CONNECTED },
+      getContext: { ok: true, data: CONFIRMED },
+    })
+    const user = userEvent.setup()
+    renderSidePanel()
+
+    const save = await screen.findByRole('button', { name: 'Save change intent' })
+    expect(save).toBeDisabled()
+
+    for (const box of screen.getAllByRole('checkbox')) await user.click(box)
+    expect(save).toBeDisabled()
+
+    await user.type(screen.getByPlaceholderText(/Recorded in the account timeline/), 'Budget fix.')
+    await waitFor(() => expect(save).toBeEnabled())
+  })
+
+  it('says the checklist records, and does not block', async () => {
+    stubWorker({
+      getConnection: { ok: true, data: CONNECTED },
+      getContext: { ok: true, data: CONFIRMED },
+    })
+    renderSidePanel()
+    expect(
+      await screen.findByText(/does not block anything in Ads Manager/i),
+    ).toBeInTheDocument()
+  })
+
+  it('records a change intent through the worker and never touches the page', async () => {
+    const stub = stubWorker({
+      getConnection: { ok: true, data: CONNECTED },
+      getContext: { ok: true, data: CONFIRMED },
+      recordEvent: { ok: true, data: { id: 'event-1' } },
+    })
+    const user = userEvent.setup()
+    renderSidePanel()
+
+    for (const box of await screen.findAllByRole('checkbox')) await user.click(box)
+    await user.type(screen.getByPlaceholderText(/Recorded in the account timeline/), 'Budget fix.')
+    await user.click(screen.getByRole('button', { name: 'Save change intent' }))
+
+    await waitFor(() =>
+      expect(screen.getByText(/recorded in the account timeline/i)).toBeInTheDocument(),
+    )
+    const calls = (stub.runtime.sendMessage as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0])
+    const recorded = calls.find((call) => call.kind === 'recordEvent')
+    expect(recorded).toMatchObject({
+      adAccountId: 'account-uuid',
+      eventType: 'campaign_change_intent',
+      note: 'Budget fix.',
+    })
+    // The extension has no control over Ads Manager, and the panel must offer none.
+    const buttons = screen.getAllByRole('button').map((b) => (b.textContent ?? '').toLowerCase())
+    for (const banned of ['pause', 'publish', 'duplicate', 'apply to meta', 'launch']) {
+      expect(buttons.some((label) => label.includes(banned))).toBe(false)
+    }
+  })
+
+  it('offers no guard or actions at all when the context is not confirmed', async () => {
+    stubWorker({
+      getConnection: { ok: true, data: CONNECTED },
+      getContext: {
+        ok: true,
+        data: { ...CONFIRMED, context_status: 'ambiguous', account: null, message: 'Not sure.' },
+      },
+    })
+    renderSidePanel()
+    expect(await screen.findByText('Not confirmed')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Save change intent' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Record event' })).toBeNull()
+  })
+})
+
+describe('options', () => {
+  beforeEach(() => installChromeStub())
+
+  it('refuses a non-HTTPS dashboard URL for a real host', async () => {
+    stubWorker({ getConnection: { ok: true, data: { ...CONNECTED, connected: false, dashboardUrl: '' } } })
+    const user = userEvent.setup()
+    renderOptions()
+    await user.type(await screen.findByLabelText('Dashboard URL'), 'http://adsops.example.com')
+    expect(await screen.findByText(/Use an HTTPS address/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Connect' })).toBeDisabled()
+  })
+
+  it('clears the password field after connecting', async () => {
+    stubWorker({
+      getConnection: { ok: true, data: { ...CONNECTED, connected: false, dashboardUrl: '' } },
+      connect: { ok: true, data: CONNECTED },
+    })
+    const user = userEvent.setup()
+    renderOptions()
+    await user.type(await screen.findByLabelText('Dashboard URL'), 'https://adsops.example.com')
+    await user.type(screen.getByLabelText('Email'), 'operator@example.com')
+    const password = screen.getByLabelText('Password') as HTMLInputElement
+    await user.type(password, 'a-real-password')
+    await user.click(screen.getByRole('button', { name: 'Connect' }))
+    await waitFor(() => expect(password.value).toBe(''))
+  })
+
+  it('explains exactly what is read and what is never read', async () => {
+    stubWorker({ getConnection: { ok: true, data: CONNECTED } })
+    renderOptions()
+    expect(await screen.findByText(/never reads cookies, local storage/i)).toBeInTheDocument()
+    expect(await screen.findByText(/password is used once to connect and is never stored/i)).toBeInTheDocument()
+    expect(await screen.findByText(/revokes the session on the server/i)).toBeInTheDocument()
+  })
+})

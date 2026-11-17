@@ -4575,8 +4575,63 @@ recheckGeoAlignment();`
 
   let pageInvitePending = false;
   let lastPageInviteClickAt = 0;
+  let lastReportedReactorCount = -1;
+
+  function triggerReactSafeClick(el) {
+    if (!el) return;
+    try {
+      const opts = { bubbles: true, cancelable: true, view: window };
+      el.dispatchEvent(new PointerEvent("pointerdown", opts));
+      el.dispatchEvent(new MouseEvent("mousedown", opts));
+      el.dispatchEvent(new PointerEvent("pointerup", opts));
+      el.dispatchEvent(new MouseEvent("mouseup", opts));
+      el.click();
+    } catch (e) {
+      try { el.click(); } catch (e2) {}
+    }
+  }
+
+  function scanAndReportPendingReactorCountDom() {
+    try {
+      const url = window.location.href || "";
+      if (!url.includes("business.facebook.com")) return;
+      const u = new URL(url);
+      const assetId = u.searchParams.get("asset_id") || "";
+      const candidates = Array.from(document.querySelectorAll("div, span, h2, h3, h4, p")).filter((el) => {
+        const t = (el.textContent || "").trim().toLowerCase();
+        return (
+          (t.includes("tiếp cận những người đã bày tỏ cảm xúc") ||
+            t.includes("reach people who reacted to your content") ||
+            t.includes("bày tỏ cảm xúc và bình luận về nội dung")) &&
+          t.length < 280
+        );
+      });
+      if (candidates.length === 0) return;
+      for (const node of candidates) {
+        let container = node.parentElement;
+        for (let depth = 0; depth < 6 && container; depth++) {
+          const texts = Array.from(container.querySelectorAll("span, div"))
+            .map((x) => (x.textContent || "").trim())
+            .filter((t) => /^\d{1,4}$/.test(t));
+          if (texts.length > 0) {
+            const cnt = parseInt(texts[0], 10);
+            if (!isNaN(cnt) && cnt !== lastReportedReactorCount) {
+              lastReportedReactorCount = cnt;
+              reportBrowserEventBg("PAGE_PENDING_INVITES_COUNT", {
+                external_page_id: assetId,
+                detail: String(cnt),
+              });
+            }
+            return;
+          }
+          container = container.parentElement;
+        }
+      }
+    } catch (e) {}
+  }
 
   function handlePageReactorAutoInviteDom() {
+    scanAndReportPendingReactorCountDom();
     if (pageAutoPilotHalted || pageInvitePending) return;
     const challenge = detectSafetyChallenge();
     if (challenge) {
@@ -4675,7 +4730,7 @@ recheckGeoAlignment();`
           const remaining = Math.max(1, maxInvites - count);
           const toSelect = checkboxes.slice(0, remaining);
           toSelect.forEach((cb) => {
-            try { cb.click(); } catch (e) {}
+            triggerReactSafeClick(cb);
           });
           lastPageInviteClickAt = Date.now();
           const newCount = count + toSelect.length;
@@ -4706,7 +4761,7 @@ recheckGeoAlignment();`
           pageInvitePending = false;
           if (pageAutoPilotHalted) return;
           inviteBtnInDialog.style.outline = "2px solid #10b981";
-          inviteBtnInDialog.click();
+          triggerReactSafeClick(inviteBtnInDialog);
           lastPageInviteClickAt = Date.now();
           const nextCount = count + 1;
           try { sessionStorage.setItem("adsops_auto_invite_count", String(nextCount)); } catch (e) {}
@@ -4759,7 +4814,7 @@ recheckGeoAlignment();`
             mbsInviteBtn.scrollIntoView({ behavior: "smooth", block: "center" });
           } catch (e) {}
           mbsInviteBtn.style.outline = "2px solid #10b981";
-          mbsInviteBtn.click();
+          triggerReactSafeClick(mbsInviteBtn);
           lastPageInviteClickAt = Date.now();
           try { sessionStorage.setItem("adsops_auto_invite_opened_modal", "1"); } catch (e) {}
           setHudPageStatus("🤝 [Auto-Invite] Đã mở bảng 'Tiếp cận người đã bày tỏ cảm xúc' — Đang quét danh sách...", "#38bdf8");

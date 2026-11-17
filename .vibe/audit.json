@@ -1,0 +1,38 @@
+{
+  "auditedAt": "2026-11-17T06:57:34.095253+00:00",
+  "by": "trieunt@matbao.com",
+  "project": "audit-ads",
+  "checklist": {
+    "ARCH": "fail",
+    "PRD": "fail",
+    "README": "pass",
+    "CLAUDE": "pass",
+    "git": "fail",
+    "PLAN": "fail",
+    "phaseState": "fail",
+    "stack": "exception:pending"
+  },
+  "techExceptions": [
+    {
+      "requestId": 362,
+      "tech": "React 18 + Vite + TypeScript frontend",
+      "status": "pending"
+    }
+  ],
+  "cve": {
+    "scanned": {
+      "frontendNpmAudit": true,
+      "backendPipAudit": false,
+      "reason": "pip-audit is not installed in the workspace"
+    },
+    "high": 3,
+    "critical": 2,
+    "fixedBy": "Review frontend lockfile and upgrade affected tooling deliberately; npm audit fix --force may install a breaking Vitest major"
+  },
+  "notes": [
+    "Canonical docs/ARCH.md and docs/PRD.md are missing; a detailed root ARCH.md exists but was not copied or overwritten.",
+    "Remote is GitHub, not git.matbao.support.",
+    "Compose files do not declare mb.env/mb.owner labels; production compose uses restart: unless-stopped.",
+    "Working tree had extensive pre-existing modifications; no existing files were changed by this audit."
+  ]
+}

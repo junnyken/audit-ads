@@ -728,16 +728,16 @@ export default function FacebookAccounts() {
                 className="inline-flex items-center gap-1 rounded-md border border-emerald-500/50 bg-emerald-500/15 px-2.5 py-1.5 text-xs font-extrabold text-emerald-700 dark:text-emerald-300"
                 title={`AdsOps Desktop Pro đang chạy ngầm tại 127.0.0.1:${bridgeProbe.port || 17890}`}
               >
-                💻 App Windows v{bridgeProbe.version || '3.0.2'} Đang Chạy
+                💻 App Windows v{bridgeProbe.version || '3.0.3'} Đang Chạy
               </span>
             )}
             <a
               href="/downloads/AdsOps-Desktop-Pro-v2.3.zip"
               download
               className="inline-flex h-9 items-center gap-1 rounded-md border border-indigo-500/45 bg-indigo-500/15 px-3 text-xs font-bold text-indigo-700 hover:bg-indigo-500/25 dark:text-indigo-300"
-              title="Tải App Windows AdsOps Desktop Pro v3.0.2 (Tự gia hạn phiên 24/7 DPAPI, Chrome Profile gốc & Cô lập, Broker PID Tracking, Chia Proxy 1:4, Watchdog, 5 Engine Antidetect & Extension v2.10.0)"
+              title="Tải App Windows AdsOps Desktop Pro v3.0.3 (Tự gia hạn phiên 24/7 DPAPI, Chrome Profile gốc & Cô lập, Broker PID Tracking, Chia Proxy 1:4, Watchdog, 5 Engine Antidetect & Extension v2.10.0)"
             >
-              💻 Tải App Windows v3.0.2 (.zip)
+              💻 Tải App Windows v3.0.3 (.zip)
             </a>
             <Button
               type="button"

@@ -925,6 +925,7 @@ internal sealed partial class MainWindow : Window
         var evType = (payload.EventType ?? "").Trim().ToUpperInvariant();
         var isKeepAliveOk = string.Equals(evType, "KEEPALIVE_OK", StringComparison.OrdinalIgnoreCase);
         var isPageInviteOk = string.Equals(evType, "PAGE_INVITE_FOLLOWERS_OK", StringComparison.OrdinalIgnoreCase);
+        var isPendingInvitesCount = string.Equals(evType, "PAGE_PENDING_INVITES_COUNT", StringComparison.OrdinalIgnoreCase);
         var isSafetyFreeze = evType is "IP_LEAK_BLOCKED" or "SAFETY_CHALLENGE";
 
         ViaWorkspaceEntry? matched = null;
@@ -977,6 +978,23 @@ internal sealed partial class MainWindow : Window
                 _ = Dispatcher.BeginInvoke(() => { matched.KeepAliveSuccessCount++; });
             }
         }
+        else if (isPendingInvitesCount)
+        {
+            if (int.TryParse((payload.Detail ?? "").Trim(), out var pendingCnt) && pendingCnt >= 0)
+            {
+                var pages = _pagesSummary?.Items ?? new List<FanpageItemDto>();
+                var matchedPage = pages.FirstOrDefault(p =>
+                    (!string.IsNullOrWhiteSpace(payload.ExternalPageId) && string.Equals(p.ExternalPageId, payload.ExternalPageId.Trim(), StringComparison.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrWhiteSpace(payload.PageId) && string.Equals(p.Id, payload.PageId.Trim(), StringComparison.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrWhiteSpace(payload.PageName) && string.Equals(p.Name, payload.PageName.Trim(), StringComparison.OrdinalIgnoreCase)));
+                if (matchedPage != null)
+                {
+                    SetPagePendingInviteCount(matchedPage, pendingCnt, renderNow: true);
+                    AppendLog($"🔔 [Quét cảm xúc thật] Fanpage '{matchedPage.Name}' hiện có {pendingCnt} người bày tỏ cảm xúc cần mời theo dõi.");
+                }
+            }
+            return new BrowserEventResponseDto { Ok = true, EventType = payload.EventType };
+        }
         else if (isPageInviteOk)
         {
             int invitedAdded = 1;
@@ -992,6 +1010,15 @@ internal sealed partial class MainWindow : Window
             {
                 _config.TotalPageFollowerInvitesSent += invitedAdded;
                 try { _config.Save(); } catch { }
+            }
+            var pages = _pagesSummary?.Items ?? new List<FanpageItemDto>();
+            var matchedPage = pages.FirstOrDefault(p =>
+                (!string.IsNullOrWhiteSpace(payload.ExternalPageId) && string.Equals(p.ExternalPageId, payload.ExternalPageId.Trim(), StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(payload.PageId) && string.Equals(p.Id, payload.PageId.Trim(), StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(payload.PageName) && string.Equals(p.Name, payload.PageName.Trim(), StringComparison.OrdinalIgnoreCase)));
+            if (matchedPage != null)
+            {
+                SetPagePendingInviteCount(matchedPage, 0, renderNow: false);
             }
             AppendLog($"🤝 [Auto-Invite Page] Via '{resolvedViaLabel ?? "Via"}' hoàn tất mời theo dõi Fanpage ({payload.Detail ?? "OK"}). Tổng tích lũy: {_config.TotalPageFollowerInvitesSent} lời mời.");
             _ = Dispatcher.BeginInvoke(() =>
@@ -2132,6 +2159,61 @@ internal sealed partial class MainWindow : Window
         RenderCurrentView();
     }
 
+    internal (WorkstationMemorySnapshot Mem, int OpenChromeCount, int DeadProxyCount, int CooldownCount, int ReadyDueCount) EvaluateAutoPilotPreFlight()
+    {
+        var mem = WorkstationPerformanceOptimizer.ReadWorkstationMemory();
+        _workstationMem = mem;
+        var openChrome = ChromeSessionTracker.Default.GetSnapshot().Count(s => s.Alive);
+        var deadPx = _vias.Count(v => string.Equals(v.ProxyLastStatus, "DEAD", StringComparison.OrdinalIgnoreCase));
+        var cooldown = _vias.Count(v => v.IsInCooldown);
+        var readyDue = _vias.Count(v => v.NeedsKeepAlive && !v.IsInCooldown && !string.Equals(v.ProxyLastStatus, "DEAD", StringComparison.OrdinalIgnoreCase));
+        return (mem, openChrome, deadPx, cooldown, readyDue);
+    }
+
+    private async Task ExecuteAutoPilotStepWithRetryAsync(string stepTitle, Func<Task> stepAction, int maxRetries = 2)
+    {
+        for (int attempt = 0; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                await stepAction().ConfigureAwait(true);
+                return;
+            }
+            catch (Exception ex) when (attempt < maxRetries)
+            {
+                var delayMs = (1200 * (1 << attempt)) + Random.Shared.Next(200, 650);
+                AppendLog($"🔄 [{stepTitle}] Lỗi tạm thời ({ex.Message}) -> Tự động thử lại lần {attempt + 1}/{maxRetries} sau {delayMs}ms...");
+                await Task.Delay(delayMs).ConfigureAwait(true);
+            }
+        }
+    }
+
+    internal string? RunDailyAutoVaultBackupIfNeeded(bool force = false)
+    {
+        if (!force && !_config.AutoDailyVaultBackup) return null;
+        var todayKey = DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        if (!force && string.Equals(_config.LastAutoVaultBackupDateLocal, todayKey, StringComparison.Ordinal))
+        {
+            return null;
+        }
+        try
+        {
+            var (created, filePath, retained) = VaultBackupService.CreateDailyAutoBackup(_config, _vias);
+            if (created && !string.IsNullOrWhiteSpace(filePath))
+            {
+                _config.LastAutoVaultBackupDateLocal = todayKey;
+                try { _config.Save(); } catch { }
+                AppendLog($"🔐 [Auto-Backup Két DPAPI] Đã tự động sao lưu file mã hóa AES-256-GCM: {Path.GetFileName(filePath)} (giữ {retained} bản gần nhất).");
+                return filePath;
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"⚠️ Lỗi sao lưu tự động Két DPAPI: {ex.Message}");
+        }
+        return null;
+    }
+
     public async Task RunFullAutoPilotPipelineAsync(bool interactiveConfirm = true)
     {
         if (_autoPipelineRunning || _queue.Current.Phase is QueuePhase.Running or QueuePhase.Paused)
@@ -2151,22 +2233,29 @@ internal sealed partial class MainWindow : Window
             return;
         }
 
+        // #2 Pre-Flight Safety Check
+        var preFlight = EvaluateAutoPilotPreFlight();
+        AppendLog($"🛡️ [Pre-Flight Check] RAM trống: {preFlight.Mem.AvailablePhysicalMb:N0} MB • Chrome đang mở: {preFlight.OpenChromeCount} phiên • Proxy DEAD tự bỏ qua: {preFlight.DeadProxyCount} • Cooldown: {preFlight.CooldownCount} • Sẵn sàng Đảo Ấm: {preFlight.ReadyDueCount} Via.");
+
         if (interactiveConfirm)
         {
-            var dueCountPreview = _vias.Count(v => v.NeedsKeepAlive && !v.IsInCooldown && !string.Equals(v.ProxyLastStatus, "DEAD", StringComparison.OrdinalIgnoreCase));
+            var preFlightWarn = preFlight.Mem.AvailablePhysicalMb < 1200
+                ? $"⚠️ RAM trống thấp ({preFlight.Mem.AvailablePhysicalMb:N0} MB < 1,200 MB): Bước 1 sẽ tự động dọn Cache & thu hồi RAM trước khi chạy. Có thể Tạm dừng hoặc Dừng hẳn bất cứ lúc nào."
+                : $"✓ Pre-Flight an toàn: RAM trống {preFlight.Mem.AvailablePhysicalMb:N0} MB • Đang mở {preFlight.OpenChromeCount} Chrome • Sẵn sàng chạy {preFlight.ReadyDueCount} Via (tự bỏ qua {preFlight.DeadProxyCount} Proxy DEAD).";
             var ok = UiComponents.ShowConfirmActionDialog(
                 this,
-                "Chu trình Auto-Pilot Khép Kín 5 Bước",
-                "Thực thi tuần tự toàn bộ quy trình tự động hóa hằng ngày cho Dàn Via & Fanpage chỉ với 1 chạm.",
+                "Chu trình Auto-Pilot Khép Kín 5 Bước (Pre-Flight Safe)",
+                "Thực thi tuần tự toàn bộ quy trình tự động hóa hằng ngày cho Dàn Via & Fanpage với cơ chế Pre-Flight Check & Smart Retry.",
                 new (string, string)[]
                 {
-                    ("Bước 1:", "Dọn Cache Chrome không chạy & Giải phóng RAM (< 1.2 GB)"),
-                    ("Bước 2:", "Quét Proxy Live/Dead & kiểm tra khớp Múi giờ"),
-                    ("Bước 3:", "Chạy Cloud Cron + Đồng bộ Fanpage & TKQC từ Meta"),
-                    ("Bước 4:", "Tự động Nuôi bài Fanpage đến hạn (tối đa 10 Page)"),
-                    ("Bước 5:", $"Xếp hàng Đảo Ấm tự động các Via quá hạn ({dueCountPreview} Via)"),
+                    ("Pre-Flight Check:", $"RAM {preFlight.Mem.AvailablePhysicalMb:N0} MB • {preFlight.OpenChromeCount} Chrome đang mở • Bỏ qua {preFlight.DeadProxyCount} Proxy Dead"),
+                    ("Bước 1:", "Sao lưu Két DPAPI (.adsopsvault) & Dọn Cache Chrome + Giải phóng RAM"),
+                    ("Bước 2:", "Quét Proxy Live/Dead & kiểm tra khớp Múi giờ (Smart Retry 2x)"),
+                    ("Bước 3:", "Chạy Cloud Cron + Đồng bộ Fanpage & TKQC từ Meta (Smart Retry 2x)"),
+                    ("Bước 4:", "Tự động Nuôi bài Fanpage đến hạn (tối đa 10 Page • Smart Retry 2x)"),
+                    ("Bước 5:", $"Xếp hàng Đảo Ấm tự động các Via quá hạn ({preFlight.ReadyDueCount} Via hợp lệ)"),
                 },
-                "Có thể Tạm dừng hoặc Dừng hẳn Hàng đợi bất cứ lúc nào sau khi Bước 5 khởi chạy.",
+                preFlightWarn,
                 "Chạy Auto-Pilot 5 Bước");
             if (!ok) return;
         }
@@ -2175,49 +2264,59 @@ internal sealed partial class MainWindow : Window
         SetBusy(true);
         try
         {
-            // Bước 1: Dọn Cache & Thu hồi RAM
+            // Bước 1: Sao lưu Két DPAPI hằng ngày + Dọn Cache & Thu hồi RAM
+            RunDailyAutoVaultBackupIfNeeded(force: false);
             var activeSlugs = BuildActiveChromeSlugSet();
             var (cleaned, bytes) = await Task.Run(() =>
                 WorkstationPerformanceOptimizer.CleanProfileCachesAndTrimMemory(activeSlugs: activeSlugs));
             _workstationMem = await Task.Run(() => WorkstationPerformanceOptimizer.ReadWorkstationMemory());
             AppendLog($"🤖 [Auto-Pilot 1/5] Đã dọn {cleaned} thư mục Cache ({bytes / (1024.0 * 1024.0):0.0} MB) • RAM trống: {_workstationMem.AvailablePhysicalMb:N0}/{_workstationMem.TotalPhysicalMb:N0} MB.");
 
-            // Bước 2: Quét Proxy Live/Dead & Múi giờ
+            // Bước 2: Quét Proxy Live/Dead & Múi giờ (với Smart Step Retry #5)
             try
             {
-                var pxRes = await _api.CheckProxyBatchAsync();
-                ApplyProxyHealthMapToVias(pxRes.HealthMap);
-                AppendLog($"🤖 [Auto-Pilot 2/5] Quét Proxy xong: {pxRes.LiveCount} Live / {pxRes.DeadCount} Dead (Tổng {pxRes.CheckedCount}).");
+                await ExecuteAutoPilotStepWithRetryAsync("Auto-Pilot 2/5 Proxy", async () =>
+                {
+                    var pxRes = await _api.CheckProxyBatchAsync();
+                    ApplyProxyHealthMapToVias(pxRes.HealthMap);
+                    AppendLog($"🤖 [Auto-Pilot 2/5] Quét Proxy xong: {pxRes.LiveCount} Live / {pxRes.DeadCount} Dead (Tổng {pxRes.CheckedCount}).");
+                });
             }
             catch (Exception exPx)
             {
-                AppendLog($"⚠️ [Auto-Pilot 2/5] Bỏ qua quét Proxy do lỗi mạng: {exPx.Message}");
+                AppendLog($"⚠️ [Auto-Pilot 2/5] Bỏ qua quét Proxy sau khi thử lại: {exPx.Message}");
             }
 
-            // Bước 3: Kích hoạt Cloud Cron + Đồng bộ Fanpage từ Meta
+            // Bước 3: Kích hoạt Cloud Cron + Đồng bộ Fanpage từ Meta (với Smart Step Retry #5)
             try
             {
-                await _api.RunAutomationCronNowAsync(sync: true, warmup: false);
-                var syncPg = await _api.SyncPagesFromMetaAsync();
-                AppendLog($"🤖 [Auto-Pilot 3/5] Đã chạy Cloud Cron & Đồng bộ {syncPg.SyncedCount} Fanpage từ Meta (Mới: {syncPg.NewCount}).");
+                await ExecuteAutoPilotStepWithRetryAsync("Auto-Pilot 3/5 Meta Sync", async () =>
+                {
+                    await _api.RunAutomationCronNowAsync(sync: true, warmup: false);
+                    var syncPg = await _api.SyncPagesFromMetaAsync();
+                    AppendLog($"🤖 [Auto-Pilot 3/5] Đã chạy Cloud Cron & Đồng bộ {syncPg.SyncedCount} Fanpage từ Meta (Mới: {syncPg.NewCount}).");
+                });
             }
             catch (Exception exCron)
             {
-                AppendLog($"⚠️ [Auto-Pilot 3/5] Bỏ qua đồng bộ Meta/Cron: {exCron.Message}");
+                AppendLog($"⚠️ [Auto-Pilot 3/5] Bỏ qua đồng bộ Meta/Cron sau khi thử lại: {exCron.Message}");
             }
 
-            // Bước 4: Tự động Nuôi bài Fanpage đến hạn & Mời người tương tác theo dõi Page
+            // Bước 4: Tự động Nuôi bài Fanpage đến hạn & Mời người tương tác theo dõi Page (với Smart Step Retry #5)
             try
             {
-                var warmRes = await _api.BatchWarmupPagesAsync(10);
-                var inviteHint = _config.AutoInvitePageFollowersOnWarmup
-                    ? $" • Auto-Invite Follow: BẬT (Max {_config.MaxPageFollowerInvitesPerRun}/phiên)"
-                    : "";
-                AppendLog($"🤖 [Auto-Pilot 4/5] Đã nuôi lô tự động {warmRes.NurturedCount} Fanpage (Graph API: {warmRes.GraphPublishedCount}){inviteHint}.");
+                await ExecuteAutoPilotStepWithRetryAsync("Auto-Pilot 4/5 Page Warmup", async () =>
+                {
+                    var warmRes = await _api.BatchWarmupPagesAsync(10);
+                    var inviteHint = _config.AutoInvitePageFollowersOnWarmup
+                        ? $" • Auto-Invite Follow: BẬT (Max {_config.MaxPageFollowerInvitesPerRun}/phiên)"
+                        : "";
+                    AppendLog($"🤖 [Auto-Pilot 4/5] Đã nuôi lô tự động {warmRes.NurturedCount} Fanpage (Graph API: {warmRes.GraphPublishedCount}){inviteHint}.");
+                });
             }
             catch (Exception exWarm)
             {
-                AppendLog($"⚠️ [Auto-Pilot 4/5] Bỏ qua Nuôi lô Fanpage: {exWarm.Message}");
+                AppendLog($"⚠️ [Auto-Pilot 4/5] Bỏ qua Nuôi lô Fanpage sau khi thử lại: {exWarm.Message}");
             }
 
             SetBusy(false);
@@ -2277,11 +2376,6 @@ internal sealed partial class MainWindow : Window
         var pages = _pagesSummary?.Items;
         if (pages == null || pages.Count == 0) return;
         _config.PagePendingInviteCounts ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        if (_config.PagePendingInviteCounts.Count == 0)
-        {
-            // Seed initial known reactor count for Matbao-invoice if not yet scanned
-            _config.PagePendingInviteCounts["109674987393491"] = 3;
-        }
         foreach (var p in pages)
         {
             _ = ResolveEffectiveViaForPage(p);
@@ -2474,31 +2568,57 @@ internal sealed partial class MainWindow : Window
         }
     }
 
-    // Win32 & UIAutomation helpers for Native Browser Auto-Invite (works on any Chrome 158+ window even without Extension!)
+    // Non-intrusive UIAutomation helpers for Native Browser Auto-Invite (NEVER moves physical cursor or steals focus)
+    private System.Threading.CancellationTokenSource? _autoInviteCts;
+    internal bool IsAutoInviteRunning => _autoInviteCts != null;
+    internal string ActiveAutoInvitePageId { get; private set; } = "";
+
+    internal void CancelAutoInvite()
+    {
+        try { _autoInviteCts?.Cancel(); } catch { }
+        _autoInviteCts = null;
+        ActiveAutoInvitePageId = "";
+        AppendLog("⏹️ Đã dừng tác vụ Auto-Invite Followers theo yêu cầu.");
+        if (_activeView is AppView.PagesBm or AppView.Automation or AppView.Overview)
+        {
+            RenderCurrentView();
+        }
+    }
+
     private delegate bool EnumWinProc(IntPtr hWnd, IntPtr lParam);
     [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWinProc lpEnumFunc, IntPtr lParam);
     [DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr hWndParent, EnumWinProc lpEnumFunc, IntPtr lParam);
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
-    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam, uint fuFlags, uint uTimeout, out IntPtr lpdwResult);
-    [DllImport("user32.dll")] private static extern bool SetCursorPos(int X, int Y);
-    [DllImport("user32.dll")] private static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, UIntPtr dwExtraInfo);
 
     private const uint WM_GETOBJECT = 0x003D;
     private const int OBJID_CLIENT = unchecked((int)0xFFFFFFFC);
-    private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
-    private const uint MOUSEEVENTF_LEFTUP = 0x0004;
-    private const uint MOUSEEVENTF_WHEEL = 0x0800;
 
-    private static void ClickScreenPoint(int x, int y)
+    private static bool TryInvokeElementNonIntrusive(AutomationElement el)
     {
-        SetCursorPos(x, y);
-        System.Threading.Thread.Sleep(60);
-        mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
-        System.Threading.Thread.Sleep(45);
-        mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+        try
+        {
+            if (el.TryGetCurrentPattern(InvokePattern.Pattern, out var ipObj) && ipObj is InvokePattern ip)
+            {
+                ip.Invoke();
+                return true;
+            }
+        }
+        catch { }
+
+        try
+        {
+            if (el.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var spObj) && spObj is SelectionItemPattern sp)
+            {
+                sp.Select();
+                return true;
+            }
+        }
+        catch { }
+
+        return false;
     }
 
     private static IntPtr FindActiveMetaBusinessSuiteChromeWindow()
@@ -2532,7 +2652,7 @@ internal sealed partial class MainWindow : Window
         var target = bestMetaHwnd != IntPtr.Zero ? bestMetaHwnd : anyChromeHwnd;
         if (target != IntPtr.Zero)
         {
-            // Wake up Chrome renderer accessibility tree immediately via WM_GETOBJECT (OBJID_CLIENT)
+            // Wake up Chrome renderer accessibility tree immediately via WM_GETOBJECT (OBJID_CLIENT) without stealing focus
             EnumChildWindows(target, (child, _) =>
             {
                 var ccls = new System.Text.StringBuilder(128);
@@ -2549,242 +2669,238 @@ internal sealed partial class MainWindow : Window
 
     private async Task RunNativeUiAutoInviteForPageAsync(FanpageItemDto page, int maxInvites)
     {
-        await Task.Delay(3800).ConfigureAwait(false);
-        int detectedCount = -1;
-        bool modalOpened = false;
-        int invitedClicks = 0;
-
-        for (int attempt = 0; attempt < 20; attempt++)
+        try { _autoInviteCts?.Cancel(); } catch { }
+        var cts = new System.Threading.CancellationTokenSource();
+        _autoInviteCts = cts;
+        ActiveAutoInvitePageId = page.Id ?? page.ExternalPageId ?? "";
+        _ = Dispatcher.BeginInvoke(() =>
         {
-            try
+            if (_activeView is AppView.PagesBm or AppView.Automation) RenderCurrentView();
+        });
+
+        var ct = cts.Token;
+        try
+        {
+            await Task.Delay(3800, ct).ConfigureAwait(false);
+            int detectedCount = -1;
+            bool modalOpened = false;
+            int invitedClicks = 0;
+
+            for (int attempt = 0; attempt < 18 && !ct.IsCancellationRequested; attempt++)
             {
-                var completed = await Task.Run(() =>
+                try
                 {
-                    var hwnd = FindActiveMetaBusinessSuiteChromeWindow();
-                    if (hwnd == IntPtr.Zero) return false;
-
-                    var root = AutomationElement.FromHandle(hwnd);
-                    if (root == null) return false;
-
-                    var all = root.FindAll(TreeScope.Descendants, System.Windows.Automation.Condition.TrueCondition);
-                    if (all == null || all.Count == 0) return false;
-
-                    var elements = new List<(AutomationElement El, string Name, ControlType Type, Rect Bounds)>(all.Count);
-                    foreach (AutomationElement el in all)
+                    var completed = await Task.Run(() =>
                     {
-                        try
-                        {
-                            var nm = (el.Current.Name ?? "").Trim();
-                            if (string.IsNullOrEmpty(nm) && el.Current.ControlType != ControlType.CheckBox) continue;
-                            var b = el.Current.BoundingRectangle;
-                            if (double.IsInfinity(b.Width) || double.IsInfinity(b.Height) || b.Width <= 2 || b.Height <= 2) continue;
-                            elements.Add((el, nm, el.Current.ControlType, b));
-                        }
-                        catch { }
-                    }
+                        if (ct.IsCancellationRequested) return false;
+                        var hwnd = FindActiveMetaBusinessSuiteChromeWindow();
+                        if (hwnd == IntPtr.Zero) return false;
 
-                    // If modal is already open, look for CheckBoxes or "Mời" / "Gửi lời mời" inside modal
-                    if (modalOpened)
-                    {
-                        var checkBoxes = elements
-                            .Where(x => x.Type == ControlType.CheckBox && x.Bounds.Width >= 8 && x.Bounds.Height >= 8)
-                            .ToList();
+                        var root = AutomationElement.FromHandle(hwnd);
+                        if (root == null) return false;
 
-                        if (checkBoxes.Count > 0 && invitedClicks == 0)
+                        var all = root.FindAll(TreeScope.Descendants, System.Windows.Automation.Condition.TrueCondition);
+                        if (all == null || all.Count == 0) return false;
+
+                        var elements = new List<(AutomationElement El, string Name, ControlType Type, Rect Bounds)>(all.Count);
+                        foreach (AutomationElement el in all)
                         {
-                            SetForegroundWindow(hwnd);
-                            int toCheck = Math.Min(maxInvites, checkBoxes.Count);
-                            for (int i = 0; i < toCheck; i++)
+                            try
                             {
-                                var cb = checkBoxes[i];
-                                bool toggled = false;
+                                var nm = (el.Current.Name ?? "").Trim();
+                                if (string.IsNullOrEmpty(nm) && el.Current.ControlType != ControlType.CheckBox) continue;
+                                var b = el.Current.BoundingRectangle;
+                                if (double.IsInfinity(b.Width) || double.IsInfinity(b.Height) || b.Width <= 2 || b.Height <= 2) continue;
+                                elements.Add((el, nm, el.Current.ControlType, b));
+                            }
+                            catch { }
+                        }
+
+                        // If modal is already open, look for CheckBoxes or "Mời" / "Gửi lời mời" inside modal using ONLY non-intrusive patterns
+                        if (modalOpened)
+                        {
+                            var checkBoxes = elements
+                                .Where(x => x.Type == ControlType.CheckBox && x.Bounds.Width >= 8 && x.Bounds.Height >= 8)
+                                .ToList();
+
+                            if (checkBoxes.Count > 0 && invitedClicks == 0)
+                            {
+                                int toCheck = Math.Min(maxInvites, checkBoxes.Count);
+                                for (int i = 0; i < toCheck && !ct.IsCancellationRequested; i++)
+                                {
+                                    var cb = checkBoxes[i];
+                                    try
+                                    {
+                                        if (cb.El.TryGetCurrentPattern(TogglePattern.Pattern, out var tpObj) && tpObj is TogglePattern tp)
+                                        {
+                                            if (tp.Current.ToggleState == ToggleState.Off)
+                                            {
+                                                tp.Toggle();
+                                                invitedClicks++;
+                                            }
+                                        }
+                                        else if (TryInvokeElementNonIntrusive(cb.El))
+                                        {
+                                            invitedClicks++;
+                                        }
+                                    }
+                                    catch { }
+                                    System.Threading.Thread.Sleep(350);
+                                }
+                                System.Threading.Thread.Sleep(650);
+                            }
+
+                            var singleInviteBtns = elements.Where(x =>
+                                (x.Type == ControlType.Button || x.Type == ControlType.Custom || x.Type == ControlType.Text) &&
+                                (string.Equals(x.Name, "Mời", StringComparison.OrdinalIgnoreCase) ||
+                                 string.Equals(x.Name, "Invite", StringComparison.OrdinalIgnoreCase))).ToList();
+
+                            if (singleInviteBtns.Count > 0)
+                            {
+                                int toClick = Math.Min(maxInvites, singleInviteBtns.Count);
+                                for (int i = 0; i < toClick && !ct.IsCancellationRequested; i++)
+                                {
+                                    var b = singleInviteBtns[i];
+                                    if (TryInvokeElementNonIntrusive(b.El))
+                                    {
+                                        invitedClicks++;
+                                    }
+                                    System.Threading.Thread.Sleep(2400);
+                                }
+                                return invitedClicks > 0;
+                            }
+
+                            var confirmSendBtns = elements.Where(x =>
+                                (x.Type == ControlType.Button || x.Type == ControlType.Custom) &&
+                                (x.Name.StartsWith("Gửi lời mời", StringComparison.OrdinalIgnoreCase) ||
+                                 x.Name.StartsWith("Send invitation", StringComparison.OrdinalIgnoreCase) ||
+                                 x.Name.StartsWith("Send invite", StringComparison.OrdinalIgnoreCase)))
+                                .OrderByDescending(x => x.Bounds.Top)
+                                .ToList();
+
+                            if (confirmSendBtns.Count > 0 && invitedClicks > 0)
+                            {
+                                var finalBtn = confirmSendBtns[0];
+                                if (TryInvokeElementNonIntrusive(finalBtn.El))
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+
+                        // Step 1: Locate "Tiếp cận những người đã bày tỏ cảm xúc với nội dung của bạn"
+                        var anchor = elements.FirstOrDefault(x =>
+                            x.Name.Contains("Tiếp cận những người đã bày tỏ cảm xúc", StringComparison.OrdinalIgnoreCase) ||
+                            x.Name.Contains("Reach people who reacted to your content", StringComparison.OrdinalIgnoreCase) ||
+                            x.Name.Contains("bày tỏ cảm xúc và bình luận về nội dung", StringComparison.OrdinalIgnoreCase));
+
+                        if (anchor.El == null)
+                        {
+                            if (attempt >= 2)
+                            {
+                                // Scroll down non-intrusively via ScrollPattern if available
                                 try
                                 {
-                                    if (cb.El.TryGetCurrentPattern(TogglePattern.Pattern, out var tpObj) && tpObj is TogglePattern tp)
+                                    foreach (AutomationElement el in all)
                                     {
-                                        if (tp.Current.ToggleState == ToggleState.Off)
+                                        if (el.TryGetCurrentPattern(ScrollPattern.Pattern, out var scObj) && scObj is ScrollPattern sc && sc.Current.VerticallyScrollable)
                                         {
-                                            tp.Toggle();
-                                            toggled = true;
+                                            sc.Scroll(ScrollAmount.NoAmount, ScrollAmount.LargeIncrement);
+                                            break;
                                         }
                                     }
                                 }
                                 catch { }
-                                if (!toggled)
-                                {
-                                    ClickScreenPoint((int)(cb.Bounds.Left + cb.Bounds.Width / 2), (int)(cb.Bounds.Top + cb.Bounds.Height / 2));
-                                }
-                                System.Threading.Thread.Sleep(350);
                             }
-                            invitedClicks = toCheck;
-                            System.Threading.Thread.Sleep(700);
+                            return false;
                         }
 
-                        // Find individual "Mời" / "Invite" buttons or final "Gửi lời mời" button inside dialog
-                        var singleInviteBtns = elements.Where(x =>
-                            (x.Type == ControlType.Button || x.Type == ControlType.Custom || x.Type == ControlType.Text) &&
-                            (string.Equals(x.Name, "Mời", StringComparison.OrdinalIgnoreCase) ||
-                             string.Equals(x.Name, "Invite", StringComparison.OrdinalIgnoreCase))).ToList();
+                        // Step 2: Read pending reactor count number (e.g. "3") near anchor
+                        var numCandidate = elements.FirstOrDefault(x =>
+                            int.TryParse(x.Name, out var n) && n >= 0 && n <= 9999 &&
+                            x.Bounds.Top >= anchor.Bounds.Top - 10 &&
+                            x.Bounds.Top <= anchor.Bounds.Bottom + 150 &&
+                            Math.Abs(x.Bounds.Left - anchor.Bounds.Left) <= 260);
 
-                        if (singleInviteBtns.Count > 0)
+                        if (numCandidate.El != null && int.TryParse(numCandidate.Name, out var parsedNum))
                         {
-                            SetForegroundWindow(hwnd);
-                            int toClick = Math.Min(maxInvites, singleInviteBtns.Count);
-                            for (int i = 0; i < toClick; i++)
+                            if (detectedCount != parsedNum)
                             {
-                                var b = singleInviteBtns[i];
-                                try
-                                {
-                                    if (b.El.TryGetCurrentPattern(InvokePattern.Pattern, out var ipObj) && ipObj is InvokePattern ip)
-                                    {
-                                        ip.Invoke();
-                                    }
-                                    else
-                                    {
-                                        ClickScreenPoint((int)(b.Bounds.Left + b.Bounds.Width / 2), (int)(b.Bounds.Top + b.Bounds.Height / 2));
-                                    }
-                                }
-                                catch
-                                {
-                                    ClickScreenPoint((int)(b.Bounds.Left + b.Bounds.Width / 2), (int)(b.Bounds.Top + b.Bounds.Height / 2));
-                                }
-                                invitedClicks++;
-                                System.Threading.Thread.Sleep(2400);
+                                detectedCount = parsedNum;
+                                SetPagePendingInviteCount(page, parsedNum, renderNow: true);
+                                _ = Dispatcher.BeginInvoke(() =>
+                                    AppendLog($"🔍 [Auto-Invite] Fanpage '{page.Name}' hiện có {parsedNum} người bày tỏ cảm xúc cần mời theo dõi!"));
                             }
-                            return true;
+                            if (parsedNum == 0)
+                            {
+                                return true;
+                            }
                         }
 
-                        var confirmSendBtns = elements.Where(x =>
-                            (x.Type == ControlType.Button || x.Type == ControlType.Custom) &&
-                            (x.Name.StartsWith("Gửi lời mời", StringComparison.OrdinalIgnoreCase) ||
-                             x.Name.StartsWith("Send invitation", StringComparison.OrdinalIgnoreCase) ||
-                             x.Name.StartsWith("Send invite", StringComparison.OrdinalIgnoreCase)))
-                            .OrderByDescending(x => x.Bounds.Top)
-                            .ToList();
-
-                        if (confirmSendBtns.Count > 0 && invitedClicks > 0)
+                        // Step 3: Find "Gửi lời mời" button aligned with the reactor section
+                        if (!modalOpened)
                         {
-                            var finalBtn = confirmSendBtns[0];
-                            SetForegroundWindow(hwnd);
-                            try
-                            {
-                                if (finalBtn.El.TryGetCurrentPattern(InvokePattern.Pattern, out var ipObj) && ipObj is InvokePattern ip)
-                                {
-                                    ip.Invoke();
-                                }
-                                else
-                                {
-                                    ClickScreenPoint((int)(finalBtn.Bounds.Left + finalBtn.Bounds.Width / 2), (int)(finalBtn.Bounds.Top + finalBtn.Bounds.Height / 2));
-                                }
-                            }
-                            catch
-                            {
-                                ClickScreenPoint((int)(finalBtn.Bounds.Left + finalBtn.Bounds.Width / 2), (int)(finalBtn.Bounds.Top + finalBtn.Bounds.Height / 2));
-                            }
-                            return true;
-                        }
-                    }
+                            var sendBtn = elements
+                                .Where(x =>
+                                    (string.Equals(x.Name, "Gửi lời mời", StringComparison.OrdinalIgnoreCase) ||
+                                     string.Equals(x.Name, "Send invitations", StringComparison.OrdinalIgnoreCase) ||
+                                     string.Equals(x.Name, "Send invite", StringComparison.OrdinalIgnoreCase)) &&
+                                    x.Bounds.Top >= anchor.Bounds.Top - 35 &&
+                                    x.Bounds.Top <= anchor.Bounds.Bottom + 140)
+                                .OrderBy(x => Math.Abs(x.Bounds.Top - anchor.Bounds.Top))
+                                .FirstOrDefault();
 
-                    // Step 1: Locate "Tiếp cận những người đã bày tỏ cảm xúc với nội dung của bạn"
-                    var anchor = elements.FirstOrDefault(x =>
-                        x.Name.Contains("Tiếp cận những người đã bày tỏ cảm xúc", StringComparison.OrdinalIgnoreCase) ||
-                        x.Name.Contains("Reach people who reacted to your content", StringComparison.OrdinalIgnoreCase) ||
-                        x.Name.Contains("bày tỏ cảm xúc và bình luận về nội dung", StringComparison.OrdinalIgnoreCase));
-
-                    if (anchor.El == null)
-                    {
-                        if (attempt >= 2)
-                        {
-                            // Scroll down slightly in case "Phát triển đối tượng" is below the fold
-                            var winRect = root.Current.BoundingRectangle;
-                            if (!double.IsInfinity(winRect.Width) && winRect.Width > 300)
+                            if (sendBtn.El != null && TryInvokeElementNonIntrusive(sendBtn.El))
                             {
-                                SetForegroundWindow(hwnd);
-                                SetCursorPos((int)(winRect.Left + winRect.Width * 0.55), (int)(winRect.Top + winRect.Height * 0.55));
-                                mouse_event(MOUSEEVENTF_WHEEL, 0, 0, unchecked((uint)-420), UIntPtr.Zero);
+                                modalOpened = true;
+                                _ = Dispatcher.BeginInvoke(() =>
+                                    AppendLog($"🤖 [Auto-Invite] Đã kích hoạt ngầm nút 'Gửi lời mời' trên Meta Business Suite cho Page '{page.Name}' (không chiếm chuột)..."));
                             }
                         }
+
                         return false;
-                    }
+                    }, ct).ConfigureAwait(false);
 
-                    // Step 2: Read pending reactor count number (e.g. "3") near anchor
-                    var numCandidate = elements.FirstOrDefault(x =>
-                        int.TryParse(x.Name, out var n) && n >= 0 && n <= 9999 &&
-                        x.Bounds.Top >= anchor.Bounds.Top - 10 &&
-                        x.Bounds.Top <= anchor.Bounds.Bottom + 150 &&
-                        Math.Abs(x.Bounds.Left - anchor.Bounds.Left) <= 260);
-
-                    if (numCandidate.El != null && int.TryParse(numCandidate.Name, out var parsedNum))
+                    if (completed)
                     {
-                        if (detectedCount != parsedNum)
+                        var sentNow = invitedClicks > 0 ? invitedClicks : Math.Max(0, detectedCount);
+                        if (sentNow > 0)
                         {
-                            detectedCount = parsedNum;
-                            SetPagePendingInviteCount(page, parsedNum, renderNow: true);
+                            _config.TotalPageFollowerInvitesSent += sentNow;
+                            SetPagePendingInviteCount(page, 0, renderNow: true);
                             _ = Dispatcher.BeginInvoke(() =>
-                                AppendLog($"🔍 [Auto-Invite] Fanpage '{page.Name}' hiện có {parsedNum} người bày tỏ cảm xúc cần mời theo dõi!"));
+                                AppendLog($"✅ [Auto-Invite Hoàn tất] Đã tự động mời {sentNow} người tương tác theo dõi Fanpage '{page.Name}'! (Còn cần mời: 0)"));
                         }
-                        if (parsedNum == 0)
+                        else
                         {
-                            return true;
-                        }
-                    }
-
-                    // Step 3: Find "Gửi lời mời" button aligned with the reactor section
-                    if (!modalOpened)
-                    {
-                        var sendBtn = elements
-                            .Where(x =>
-                                (string.Equals(x.Name, "Gửi lời mời", StringComparison.OrdinalIgnoreCase) ||
-                                 string.Equals(x.Name, "Send invitations", StringComparison.OrdinalIgnoreCase) ||
-                                 string.Equals(x.Name, "Send invite", StringComparison.OrdinalIgnoreCase)) &&
-                                x.Bounds.Top >= anchor.Bounds.Top - 35 &&
-                                x.Bounds.Top <= anchor.Bounds.Bottom + 140)
-                            .OrderBy(x => Math.Abs(x.Bounds.Top - anchor.Bounds.Top))
-                            .FirstOrDefault();
-
-                        if (sendBtn.El != null)
-                        {
-                            SetForegroundWindow(hwnd);
-                            try
-                            {
-                                if (sendBtn.El.TryGetCurrentPattern(InvokePattern.Pattern, out var ipObj) && ipObj is InvokePattern ip)
-                                {
-                                    ip.Invoke();
-                                }
-                            }
-                            catch { }
-                            ClickScreenPoint((int)(sendBtn.Bounds.Left + sendBtn.Bounds.Width / 2), (int)(sendBtn.Bounds.Top + sendBtn.Bounds.Height / 2));
-                            modalOpened = true;
+                            SetPagePendingInviteCount(page, 0, renderNow: true);
                             _ = Dispatcher.BeginInvoke(() =>
-                                AppendLog($"🤖 [Auto-Invite] Đã tự động nhấn nút 'Gửi lời mời' trên Meta Business Suite cho Page '{page.Name}'..."));
+                                AppendLog($"✓ [Auto-Invite] Fanpage '{page.Name}' hiện có 0 người mới cần mời theo dõi."));
                         }
+                        return;
                     }
-
-                    return false;
-                }).ConfigureAwait(false);
-
-                if (completed)
-                {
-                    var sentNow = invitedClicks > 0 ? invitedClicks : Math.Max(0, detectedCount);
-                    if (sentNow > 0)
-                    {
-                        _config.TotalPageFollowerInvitesSent += sentNow;
-                        SetPagePendingInviteCount(page, 0, renderNow: true);
-                        _ = Dispatcher.BeginInvoke(() =>
-                            AppendLog($"✅ [Auto-Invite Hoàn tất] Đã tự động mời {sentNow} người tương tác theo dõi Fanpage '{page.Name}'! (Còn cần mời: 0)"));
-                    }
-                    else
-                    {
-                        SetPagePendingInviteCount(page, 0, renderNow: true);
-                        _ = Dispatcher.BeginInvoke(() =>
-                            AppendLog($"✓ [Auto-Invite] Fanpage '{page.Name}' hiện có 0 người mới cần mời theo dõi."));
-                    }
-                    return;
                 }
-            }
-            catch { }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch { }
 
-            await Task.Delay(2500).ConfigureAwait(false);
+                await Task.Delay(2500, ct).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            if (ReferenceEquals(_autoInviteCts, cts))
+            {
+                _autoInviteCts = null;
+                ActiveAutoInvitePageId = "";
+                _ = Dispatcher.BeginInvoke(() =>
+                {
+                    if (_activeView is AppView.PagesBm or AppView.Automation) RenderCurrentView();
+                });
+            }
         }
     }
 
@@ -2932,14 +3048,32 @@ internal sealed partial class MainWindow : Window
 
     private async Task RunAutoKeepAliveTickAsync()
     {
+        var now = DateTime.Now;
+        // #7 Daily Automatic DPAPI Vault Backup (.adsopsvault)
+        RunDailyAutoVaultBackupIfNeeded(force: false);
+
         if (string.IsNullOrWhiteSpace(_config.GetJwt())) return;
         if (_isOfflineSnapshotMode || _isAuthExpired || _autoPipelineRunning) return;
         if (_queue.Current.Phase != QueuePhase.Idle && _queue.Current.Phase != QueuePhase.Completed) return;
 
-        var now = DateTime.Now;
+        // #6 Multi-Time Specific Schedule (e.g. "08:30, 20:00")
+        if (_config.AutoDailyFullPipeline)
+        {
+            var matchedSlot = DesktopConfig.FindMatchingScheduleSlot(_config.AutoPilotScheduleTimesCsv, now, _config.LastTriggeredScheduleSlotKey);
+            if (!string.IsNullOrWhiteSpace(matchedSlot))
+            {
+                _config.LastTriggeredScheduleSlotKey = matchedSlot;
+                _config.LastAutoPipelineDateLocal = now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                _config.Save();
+                AppendLog($"⏰ [Hẹn Giờ Auto-Pilot] Đến khung giờ '{matchedSlot}' -> Tự động khởi chạy Chu trình Khép Kín 5 Bước...");
+                await RunFullAutoPilotPipelineAsync(interactiveConfirm: false);
+                return;
+            }
+        }
+
         if (now.Hour < _config.AutoKeepAliveStartHour || now.Hour >= _config.AutoKeepAliveEndHour) return;
 
-        if (_config.AutoDailyFullPipeline)
+        if (_config.AutoDailyFullPipeline && string.IsNullOrWhiteSpace(_config.AutoPilotScheduleTimesCsv))
         {
             var todayKey = now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             if (!string.Equals(_config.LastAutoPipelineDateLocal, todayKey, StringComparison.Ordinal))

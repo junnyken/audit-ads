@@ -129,7 +129,7 @@ public sealed class DesktopConfig
 {
     public const string DefaultBackendUrl = "https://audit-ads-backend.vibe1.tinhgon.xyz";
     public const string DefaultWebAppUrl = "https://adsops-app.vibe.tinhgon.xyz";
-    public const int CurrentMigrationVersion = 302;
+    public const int CurrentMigrationVersion = 303;
     internal static string? AppDataRootOverride { get; set; }
 
     public string BackendBaseUrl { get; set; } = DefaultBackendUrl;
@@ -190,6 +190,11 @@ public sealed class DesktopConfig
     public Dictionary<string, string> AdAccountViaOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     // v3.0.2 Per-Fanpage Pending Follower Invites Counter (detected from Meta Business Suite)
     public Dictionary<string, int> PagePendingInviteCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    // v3.0.3 Multi-Time Auto-Pilot Schedule & Daily DPAPI Vault Auto-Backup
+    public string AutoPilotScheduleTimesCsv { get; set; } = "08:30, 20:00";
+    public string LastTriggeredScheduleSlotKey { get; set; } = "";
+    public bool AutoDailyVaultBackup { get; set; } = true;
+    public string LastAutoVaultBackupDateLocal { get; set; } = "";
 
     [JsonIgnore]
     public string AccessToken
@@ -307,6 +312,12 @@ public sealed class DesktopConfig
                     cfg.PageHolderViaOverrides ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                     cfg.AdAccountViaOverrides ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                     cfg.PagePendingInviteCounts ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                    if (string.IsNullOrWhiteSpace(cfg.AutoPilotScheduleTimesCsv)) cfg.AutoPilotScheduleTimesCsv = "08:30, 20:00";
+                    if (cfg.ConfigMigrationVersion < 303 && customPath == null)
+                    {
+                        // Remove legacy hardcoded seed count on upgrade to v3.0.3 so only real scanned counts are shown
+                        cfg.PagePendingInviteCounts.Remove("109674987393491");
+                    }
                     if (string.IsNullOrWhiteSpace(cfg.DefaultWarmupMode)) cfg.DefaultWarmupMode = "human_organic";
                     if (cfg.ConfigMigrationVersion < 261)
                     {
@@ -422,7 +433,63 @@ public sealed class DesktopConfig
                 }
             }
         }
+        if (!string.IsNullOrWhiteSpace(src.AutoPilotScheduleTimesCsv))
+        {
+            AutoPilotScheduleTimesCsv = src.AutoPilotScheduleTimesCsv.Trim();
+        }
+        if (!string.IsNullOrWhiteSpace(src.LastTriggeredScheduleSlotKey))
+        {
+            LastTriggeredScheduleSlotKey = src.LastTriggeredScheduleSlotKey.Trim();
+        }
+        AutoDailyVaultBackup = src.AutoDailyVaultBackup;
+        if (!string.IsNullOrWhiteSpace(src.LastAutoVaultBackupDateLocal))
+        {
+            LastAutoVaultBackupDateLocal = src.LastAutoVaultBackupDateLocal.Trim();
+        }
         ConfigMigrationVersion = CurrentMigrationVersion;
+    }
+
+    public static List<(int Hour, int Minute, string CanonicalSlot)> ParseScheduleSlots(string? csv)
+    {
+        var list = new List<(int Hour, int Minute, string CanonicalSlot)>();
+        if (string.IsNullOrWhiteSpace(csv)) return list;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var raw in csv.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var token = raw.Trim();
+            var parts = token.Split(':');
+            if (parts.Length == 2 &&
+                int.TryParse(parts[0], out var h) && h >= 0 && h <= 23 &&
+                int.TryParse(parts[1], out var m) && m >= 0 && m <= 59)
+            {
+                var canon = $"{h:D2}:{m:D2}";
+                if (seen.Add(canon))
+                {
+                    list.Add((h, m, canon));
+                }
+            }
+        }
+        return list;
+    }
+
+    public static string? FindMatchingScheduleSlot(string? csv, DateTime nowLocal, string? lastTriggeredKey)
+    {
+        var slots = ParseScheduleSlots(csv);
+        var today = nowLocal.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        foreach (var (h, m, canon) in slots)
+        {
+            var slotDt = new DateTime(nowLocal.Year, nowLocal.Month, nowLocal.Day, h, m, 0);
+            var diffMin = (nowLocal - slotDt).TotalMinutes;
+            if (diffMin >= 0 && diffMin <= 15)
+            {
+                var key = $"{today}|{canon}";
+                if (!string.Equals(key, lastTriggeredKey, StringComparison.Ordinal))
+                {
+                    return key;
+                }
+            }
+        }
+        return null;
     }
 
     public void Save(string? customPath = null)
@@ -2484,8 +2551,8 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "3.0.2";
-    public const string DisplayVersion = "v3.0.2";
+    public const string Version = "3.0.3";
+    public const string DisplayVersion = "v3.0.3";
     public const string ExtVersion = "2.10.0";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 

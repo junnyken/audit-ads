@@ -1,0 +1,82 @@
+/*
+ * Design tokens (U1e). The VALUES are the dashboard's (frontend/src/tokens.css, spec section 10):
+ * tests/tokens.test.ts reads both files and fails if one drifts. Light by default; dark follows the
+ * operating system through prefers-color-scheme (the extension has no theme setting of its own).
+ * Which tone a state gets is decided in src/shared/presentation.ts only.
+ */
+:root {
+  --bg: 244 246 249;
+  --surface: 255 255 255;
+  --surface-2: 238 241 245;
+  --border: 221 227 234;
+  --border-strong: 198 207 218;
+  --fg: 18 26 43;
+  --fg-muted: 75 87 103;
+  --fg-faint: 91 105 128;
+  --brand: 31 95 191;
+  --brand-hover: 24 79 159;
+  --brand-fg: 255 255 255;
+  --brand-text: 26 79 158;
+  --brand-soft: 231 238 251;
+  --tone-positive-bg: 230 246 238;
+  --tone-positive-fg: 15 107 67;
+  --tone-positive-border: 169 223 194;
+  --tone-caution-bg: 255 245 220;
+  --tone-caution-fg: 122 75 0;
+  --tone-caution-border: 241 212 138;
+  --tone-attention-bg: 253 234 234;
+  --tone-attention-fg: 155 28 28;
+  --tone-attention-border: 243 180 180;
+  --tone-info-bg: 232 243 253;
+  --tone-info-fg: 11 79 134;
+  --tone-info-border: 168 207 240;
+  --tone-neutral-bg: 236 239 244;
+  --tone-neutral-fg: 59 70 86;
+  --tone-neutral-border: 205 213 223;
+  --tone-muted-bg: 244 246 249;
+  --tone-muted-fg: 92 104 120;
+  --tone-muted-border: 221 227 234;
+  color-scheme: light;
+  --font-sans: "Be Vietnam Pro", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: 12 18 32;
+    --surface: 19 27 44;
+    --surface-2: 26 36 56;
+    --border: 39 50 70;
+    --border-strong: 52 65 88;
+    --fg: 231 236 243;
+    --fg-muted: 167 178 195;
+    --fg-faint: 132 145 166;
+    --brand: 110 160 236;
+    --brand-hover: 136 179 243;
+    --brand-fg: 12 18 32;
+    --brand-text: 143 184 245;
+    --brand-soft: 25 40 74;
+    --tone-positive-bg: 15 43 34;
+    --tone-positive-fg: 111 211 163;
+    --tone-positive-border: 31 90 66;
+    --tone-caution-bg: 51 38 7;
+    --tone-caution-fg: 243 200 107;
+    --tone-caution-border: 107 82 19;
+    --tone-attention-bg: 58 21 24;
+    --tone-attention-fg: 242 154 154;
+    --tone-attention-border: 122 42 46;
+    --tone-info-bg: 15 39 64;
+    --tone-info-fg: 134 191 240;
+    --tone-info-border: 31 77 120;
+    --tone-neutral-bg: 31 42 61;
+    --tone-neutral-fg: 194 203 216;
+    --tone-neutral-border: 58 72 96;
+    --tone-muted-bg: 22 31 48;
+    --tone-muted-fg: 149 162 182;
+    --tone-muted-border: 39 50 70;
+    color-scheme: dark;
+  }
+}

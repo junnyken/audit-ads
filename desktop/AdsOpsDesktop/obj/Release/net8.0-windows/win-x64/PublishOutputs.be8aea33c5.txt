@@ -1,0 +1,7 @@
+c:\Users\trieunt\Documents\Tool\audit-ads\desktop\Release\AdsOpsDesktop.pdb
+c:\Users\trieunt\Documents\Tool\audit-ads\desktop\Release\D3DCompiler_47_cor3.dll
+c:\Users\trieunt\Documents\Tool\audit-ads\desktop\Release\PenImc_cor3.dll
+c:\Users\trieunt\Documents\Tool\audit-ads\desktop\Release\PresentationNative_cor3.dll
+c:\Users\trieunt\Documents\Tool\audit-ads\desktop\Release\vcruntime140_cor3.dll
+c:\Users\trieunt\Documents\Tool\audit-ads\desktop\Release\wpfgfx_cor3.dll
+c:\Users\trieunt\Documents\Tool\audit-ads\desktop\Release\AdsOpsDesktop.exe

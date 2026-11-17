@@ -1495,7 +1495,7 @@ internal static class Program
                 }
                 ThemeTokens.ApplyPalette("obsidian");
 
-                var pipeCfgPath = Path.Combine(tempRoot, "cfg_v302.json");
+                var pipeCfgPath = Path.Combine(tempRoot, "cfg_v303.json");
                 var pipeCfg = new DesktopConfig
                 {
                     AutoDailyFullPipeline = true,
@@ -1504,9 +1504,11 @@ internal static class Program
                     MaxPageFollowerInvitesPerRun = 30,
                     TotalPageFollowerInvitesSent = 12,
                     UiThemePalette = "emerald",
+                    AutoPilotScheduleTimesCsv = "08:30, 20:00",
+                    AutoDailyVaultBackup = true,
                 };
                 pipeCfg.PageHolderViaOverrides["109674987393491"] = "v1|Profile 4|Thiên Triều MKMB";
-                pipeCfg.PagePendingInviteCounts["109674987393491"] = 3;
+                pipeCfg.PagePendingInviteCounts["112252982140512"] = 5;
                 pipeCfg.Save(pipeCfgPath);
                 var reloadedPipeCfg = DesktopConfig.Load(pipeCfgPath);
                 if (!reloadedPipeCfg.AutoDailyFullPipeline ||
@@ -1517,12 +1519,35 @@ internal static class Program
                     reloadedPipeCfg.UiThemePalette != "emerald" ||
                     !reloadedPipeCfg.PageHolderViaOverrides.TryGetValue("109674987393491", out var savedOv) ||
                     savedOv != "v1|Profile 4|Thiên Triều MKMB" ||
-                    !reloadedPipeCfg.PagePendingInviteCounts.TryGetValue("109674987393491", out var savedCnt) ||
-                    savedCnt != 3 ||
+                    !reloadedPipeCfg.PagePendingInviteCounts.TryGetValue("112252982140512", out var savedCnt) ||
+                    savedCnt != 5 ||
                     reloadedPipeCfg.ConfigMigrationVersion != DesktopConfig.CurrentMigrationVersion ||
-                    DesktopConfig.CurrentMigrationVersion != 302)
+                    DesktopConfig.CurrentMigrationVersion != 303)
                 {
-                    throw new InvalidOperationException($"v3.0.2 DesktopConfig roundtrip/migration check failed: mig={reloadedPipeCfg.ConfigMigrationVersion}");
+                    throw new InvalidOperationException($"v3.0.3 DesktopConfig roundtrip/migration check failed: mig={reloadedPipeCfg.ConfigMigrationVersion}");
+                }
+
+                var parsedSlots = DesktopConfig.ParseScheduleSlots("08:30, 20:00; 14:15");
+                if (parsedSlots.Count != 3 || parsedSlots[0] != (8, 30, "08:30") || parsedSlots[1] != (20, 0, "20:00") || parsedSlots[2] != (14, 15, "14:15"))
+                {
+                    throw new InvalidOperationException("ParseScheduleSlots failed.");
+                }
+                var slotMatch = DesktopConfig.FindMatchingScheduleSlot("08:30, 20:00", new DateTime(2026, 11, 17, 8, 31, 0), "");
+                if (slotMatch != "2026-11-17|08:30")
+                {
+                    throw new InvalidOperationException($"FindMatchingScheduleSlot expected 2026-11-17|08:30, got '{slotMatch}'");
+                }
+                var slotDup = DesktopConfig.FindMatchingScheduleSlot("08:30, 20:00", new DateTime(2026, 11, 17, 8, 32, 0), "2026-11-17|08:30");
+                if (slotDup != null)
+                {
+                    throw new InvalidOperationException("FindMatchingScheduleSlot should not re-trigger same slot.");
+                }
+
+                var autoBkFolder = Path.Combine(tempRoot, "AutoBackupsTest");
+                var bkRes = VaultBackupService.CreateDailyAutoBackup(reloadedPipeCfg, new List<ViaWorkspaceEntry>(), autoBkFolder, maxRetainedFiles: 3);
+                if (!bkRes.Created || string.IsNullOrWhiteSpace(bkRes.FilePath) || !File.Exists(bkRes.FilePath))
+                {
+                    throw new InvalidOperationException("CreateDailyAutoBackup failed to create .adsopsvault file.");
                 }
             }
 
