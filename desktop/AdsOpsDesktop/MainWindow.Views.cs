@@ -510,19 +510,28 @@ internal sealed partial class MainWindow
         foreach (var pg in livePagesForInvite)
         {
             var resolvedPgVia = ResolveEffectiveViaForPage(pg);
+            var pendingCnt = GetPagePendingInviteCount(pg);
             var pRow = new Grid();
             pRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             pRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             var pInfo = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
-            pInfo.Children.Add(new TextBlock
+            var nameRow = new WrapPanel();
+            nameRow.Children.Add(new TextBlock
             {
                 Text = pg.Name,
                 FontSize = 12.5,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = ThemeTokens.TextPrimary,
-                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0),
             });
+            if (pendingCnt.HasValue && pendingCnt.Value > 0)
+            {
+                nameRow.Children.Add(UiComponents.CreateBadgePill($"🔔 {pendingCnt.Value} cần mời", ThemeTokens.WarningText, ThemeTokens.WarningBg, ThemeTokens.WarningBorder));
+            }
+            pInfo.Children.Add(nameRow);
+
             var fans = pg.FanCount ?? pg.FollowersCount;
             var viaDisp = resolvedPgVia != null ? $"{resolvedPgVia.Label} ({resolvedPgVia.ProfileDir})" : (string.IsNullOrWhiteSpace(pg.HolderLabel) ? "Mặc định" : pg.HolderLabel);
             pInfo.Children.Add(new TextBlock
@@ -531,10 +540,12 @@ internal sealed partial class MainWindow
                 FontSize = 11.5,
                 Foreground = ThemeTokens.TextMuted,
                 TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(0, 2, 0, 0),
             });
             pRow.Children.Add(pInfo);
 
-            var invBtn = UiComponents.CreateButton("👥 Mời Follow", ButtonVariant.Primary, compact: true, onClick: (_, _) => LaunchPageAutoInviteFollowers(pg, autoClose: false));
+            var invBtnLbl = pendingCnt.HasValue && pendingCnt.Value > 0 ? $"👥 Mời Follow ({pendingCnt.Value})" : "👥 Mời Follow";
+            var invBtn = UiComponents.CreateButton(invBtnLbl, ButtonVariant.Primary, compact: true, onClick: (_, _) => LaunchPageAutoInviteFollowers(pg, autoClose: false));
             Grid.SetColumn(invBtn, 1);
             pRow.Children.Add(invBtn);
 
@@ -2620,9 +2631,10 @@ internal sealed partial class MainWindow
         col0Grid.Children.Add(left);
         grid.Children.Add(col0Grid);
 
-        // Col 1: Followers + Warmup Progress Bar
+        // Col 1: Followers + Pending Invites Badge + Warmup Progress Bar
+        var pendingInvites = GetPagePendingInviteCount(p);
         var growthStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
-        var growthTop = new Grid { Margin = new Thickness(0, 0, 0, 5) };
+        var growthTop = new Grid { Margin = new Thickness(0, 0, 0, 4) };
         growthTop.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         growthTop.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
@@ -2638,13 +2650,21 @@ internal sealed partial class MainWindow
             VerticalAlignment = VerticalAlignment.Center,
         });
 
+        var pendingText = pendingInvites.HasValue
+            ? (pendingInvites.Value > 0 ? $"🔔 {pendingInvites.Value} người cần mời" : "✓ 0 cần mời")
+            : $"{p.WarmupPostsCount} bài nuôi";
+        var pendingFg = pendingInvites.HasValue && pendingInvites.Value > 0
+            ? ThemeTokens.WarningText
+            : ThemeTokens.TextSecondary;
         var warmTb = new TextBlock
         {
-            Text = $"{p.WarmupPostsCount} bài nuôi",
+            Text = pendingText,
             FontSize = 11.5,
-            Foreground = ThemeTokens.TextSecondary,
+            FontWeight = pendingInvites.HasValue && pendingInvites.Value > 0 ? FontWeights.Bold : FontWeights.SemiBold,
+            Foreground = pendingFg,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = "Số người đã bày tỏ cảm xúc với bài viết trên Fanpage đang chờ gửi lời mời theo dõi",
         };
         Grid.SetColumn(warmTb, 1);
         growthTop.Children.Add(warmTb);
@@ -2735,7 +2755,10 @@ internal sealed partial class MainWindow
 
         // Col 3: Streamlined Actions ("👥 Mời Follow", "Nuôi bài", "Mở Page", "⋯") — Auto width so nothing is clipped!
         var btns = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right };
-        var inviteFollowBtn = UiComponents.CreateButton("👥 Mời Follow", ButtonVariant.Primary, compact: true, onClick: (_, _) => LaunchPageAutoInviteFollowers(p, autoClose: false), tooltip: "Mở Meta Business Suite của Page bằng đúng Chrome Profile đã chọn ở cột bên trái và tự động bấm 'Gửi lời mời'");
+        var inviteBtnLabel = pendingInvites.HasValue && pendingInvites.Value > 0
+            ? $"👥 Mời Follow ({pendingInvites.Value})"
+            : "👥 Mời Follow";
+        var inviteFollowBtn = UiComponents.CreateButton(inviteBtnLabel, ButtonVariant.Primary, compact: true, onClick: (_, _) => LaunchPageAutoInviteFollowers(p, autoClose: false), tooltip: "Mở Meta Business Suite bằng đúng Chrome Profile đã chọn, tự động đọc số người cần mời và tự động bấm 'Gửi lời mời'");
         inviteFollowBtn.Margin = new Thickness(0, 0, 6, 0);
 
         var warmBtn = UiComponents.CreateButton("Nuôi bài", ButtonVariant.Success, compact: true, onClick: (_, _) => OpenWarmupPostDialog(p));
@@ -2759,6 +2782,11 @@ internal sealed partial class MainWindow
             mi.Click += handler;
             pgMenu.Items.Add(mi);
         }
+        AddPgMenu("⚡ Quét số người cần mời & Tự bấm 'Gửi lời mời' trên Chrome đang mở", async (_, _) =>
+        {
+            AppendLog($"🤖 Đang quét cửa sổ Chrome Meta Business Suite cho Page '{p.Name}' và tự động bấm 'Gửi lời mời'...");
+            await RunNativeUiAutoInviteForPageAsync(p, _config.MaxPageFollowerInvitesPerRun);
+        });
         AddPgMenu("🏢 Kéo Fanpage vào Business Manager (Claim BM)", (_, _) => OpenClaimBmDialog(p));
         AddPgMenu("🔄 Kiểm tra trạng thái Live trên Facebook (Check Live)", async (_, _) =>
         {

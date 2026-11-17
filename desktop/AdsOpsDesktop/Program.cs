@@ -1495,7 +1495,7 @@ internal static class Program
                 }
                 ThemeTokens.ApplyPalette("obsidian");
 
-                var pipeCfgPath = Path.Combine(tempRoot, "cfg_v301.json");
+                var pipeCfgPath = Path.Combine(tempRoot, "cfg_v302.json");
                 var pipeCfg = new DesktopConfig
                 {
                     AutoDailyFullPipeline = true,
@@ -1506,6 +1506,7 @@ internal static class Program
                     UiThemePalette = "emerald",
                 };
                 pipeCfg.PageHolderViaOverrides["109674987393491"] = "v1|Profile 4|Thiên Triều MKMB";
+                pipeCfg.PagePendingInviteCounts["109674987393491"] = 3;
                 pipeCfg.Save(pipeCfgPath);
                 var reloadedPipeCfg = DesktopConfig.Load(pipeCfgPath);
                 if (!reloadedPipeCfg.AutoDailyFullPipeline ||
@@ -1516,10 +1517,12 @@ internal static class Program
                     reloadedPipeCfg.UiThemePalette != "emerald" ||
                     !reloadedPipeCfg.PageHolderViaOverrides.TryGetValue("109674987393491", out var savedOv) ||
                     savedOv != "v1|Profile 4|Thiên Triều MKMB" ||
+                    !reloadedPipeCfg.PagePendingInviteCounts.TryGetValue("109674987393491", out var savedCnt) ||
+                    savedCnt != 3 ||
                     reloadedPipeCfg.ConfigMigrationVersion != DesktopConfig.CurrentMigrationVersion ||
-                    DesktopConfig.CurrentMigrationVersion != 301)
+                    DesktopConfig.CurrentMigrationVersion != 302)
                 {
-                    throw new InvalidOperationException($"v3.0.1 DesktopConfig roundtrip/migration check failed: mig={reloadedPipeCfg.ConfigMigrationVersion}");
+                    throw new InvalidOperationException($"v3.0.2 DesktopConfig roundtrip/migration check failed: mig={reloadedPipeCfg.ConfigMigrationVersion}");
                 }
             }
 

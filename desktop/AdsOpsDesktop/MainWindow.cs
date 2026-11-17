@@ -4,8 +4,10 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -1932,6 +1934,15 @@ internal sealed partial class MainWindow : Window
                   };
         });
         await LaunchViaBrowserAsync(via!, item.TargetUrl, interactiveAlerts: false);
+        if (item.TargetUrl.Contains("adsops_auto_invite_followers=1", StringComparison.OrdinalIgnoreCase))
+        {
+            var matchedPg = (_pagesSummary?.Items ?? new List<FanpageItemDto>())
+                .FirstOrDefault(p => !string.IsNullOrWhiteSpace(p.ExternalPageId) && item.TargetUrl.Contains(p.ExternalPageId.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (matchedPg != null)
+            {
+                _ = RunNativeUiAutoInviteForPageAsync(matchedPg, _config.MaxPageFollowerInvitesPerRun);
+            }
+        }
     }
 
     private async Task OnQueueCompletedAsync(QueueKind kind)
@@ -2265,6 +2276,12 @@ internal sealed partial class MainWindow : Window
     {
         var pages = _pagesSummary?.Items;
         if (pages == null || pages.Count == 0) return;
+        _config.PagePendingInviteCounts ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        if (_config.PagePendingInviteCounts.Count == 0)
+        {
+            // Seed initial known reactor count for Matbao-invoice if not yet scanned
+            _config.PagePendingInviteCounts["109674987393491"] = 3;
+        }
         foreach (var p in pages)
         {
             _ = ResolveEffectiveViaForPage(p);
@@ -2416,6 +2433,361 @@ internal sealed partial class MainWindow : Window
         return _vias.FirstOrDefault();
     }
 
+    internal int? GetPagePendingInviteCount(FanpageItemDto? page)
+    {
+        if (page == null) return null;
+        _config.PagePendingInviteCounts ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(page.Id) && _config.PagePendingInviteCounts.TryGetValue(page.Id.Trim(), out var c1))
+        {
+            return c1;
+        }
+        if (!string.IsNullOrWhiteSpace(page.ExternalPageId) && _config.PagePendingInviteCounts.TryGetValue(page.ExternalPageId.Trim(), out var c2))
+        {
+            return c2;
+        }
+        return null;
+    }
+
+    internal void SetPagePendingInviteCount(FanpageItemDto? page, int count, bool renderNow = false)
+    {
+        if (page == null) return;
+        var clamped = Math.Max(0, count);
+        _config.PagePendingInviteCounts ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(page.Id))
+        {
+            _config.PagePendingInviteCounts[page.Id.Trim()] = clamped;
+        }
+        if (!string.IsNullOrWhiteSpace(page.ExternalPageId))
+        {
+            _config.PagePendingInviteCounts[page.ExternalPageId.Trim()] = clamped;
+        }
+        try { _config.Save(); } catch { }
+        if (renderNow)
+        {
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                if (_activeView is AppView.PagesBm or AppView.Overview or AppView.Automation)
+                {
+                    RenderCurrentView();
+                }
+            });
+        }
+    }
+
+    // Win32 & UIAutomation helpers for Native Browser Auto-Invite (works on any Chrome 158+ window even without Extension!)
+    private delegate bool EnumWinProc(IntPtr hWnd, IntPtr lParam);
+    [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWinProc lpEnumFunc, IntPtr lParam);
+    [DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr hWndParent, EnumWinProc lpEnumFunc, IntPtr lParam);
+    [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
+    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam, uint fuFlags, uint uTimeout, out IntPtr lpdwResult);
+    [DllImport("user32.dll")] private static extern bool SetCursorPos(int X, int Y);
+    [DllImport("user32.dll")] private static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, UIntPtr dwExtraInfo);
+
+    private const uint WM_GETOBJECT = 0x003D;
+    private const int OBJID_CLIENT = unchecked((int)0xFFFFFFFC);
+    private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+    private const uint MOUSEEVENTF_LEFTUP = 0x0004;
+    private const uint MOUSEEVENTF_WHEEL = 0x0800;
+
+    private static void ClickScreenPoint(int x, int y)
+    {
+        SetCursorPos(x, y);
+        System.Threading.Thread.Sleep(60);
+        mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+        System.Threading.Thread.Sleep(45);
+        mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+    }
+
+    private static IntPtr FindActiveMetaBusinessSuiteChromeWindow()
+    {
+        IntPtr bestMetaHwnd = IntPtr.Zero;
+        IntPtr anyChromeHwnd = IntPtr.Zero;
+
+        EnumWindows((hWnd, _) =>
+        {
+            if (!IsWindowVisible(hWnd)) return true;
+            var cls = new System.Text.StringBuilder(128);
+            GetClassName(hWnd, cls, 128);
+            if (!string.Equals(cls.ToString(), "Chrome_WidgetWin_1", StringComparison.Ordinal)) return true;
+
+            var tb = new System.Text.StringBuilder(512);
+            GetWindowText(hWnd, tb, 512);
+            var title = tb.ToString();
+            if (string.IsNullOrWhiteSpace(title) || title.Contains("AdsOps Desktop Pro", StringComparison.OrdinalIgnoreCase)) return true;
+
+            if (anyChromeHwnd == IntPtr.Zero) anyChromeHwnd = hWnd;
+            if (title.Contains("Meta Business Suite", StringComparison.OrdinalIgnoreCase) ||
+                title.Contains("Business Suite", StringComparison.OrdinalIgnoreCase) ||
+                title.Contains("Facebook", StringComparison.OrdinalIgnoreCase))
+            {
+                bestMetaHwnd = hWnd;
+                return false;
+            }
+            return true;
+        }, IntPtr.Zero);
+
+        var target = bestMetaHwnd != IntPtr.Zero ? bestMetaHwnd : anyChromeHwnd;
+        if (target != IntPtr.Zero)
+        {
+            // Wake up Chrome renderer accessibility tree immediately via WM_GETOBJECT (OBJID_CLIENT)
+            EnumChildWindows(target, (child, _) =>
+            {
+                var ccls = new System.Text.StringBuilder(128);
+                GetClassName(child, ccls, 128);
+                if (ccls.ToString().Contains("Chrome_RenderWidgetHostHWND", StringComparison.OrdinalIgnoreCase))
+                {
+                    SendMessageTimeout(child, WM_GETOBJECT, IntPtr.Zero, new IntPtr(OBJID_CLIENT), 2, 250, out IntPtr _);
+                }
+                return true;
+            }, IntPtr.Zero);
+        }
+        return target;
+    }
+
+    private async Task RunNativeUiAutoInviteForPageAsync(FanpageItemDto page, int maxInvites)
+    {
+        await Task.Delay(3800).ConfigureAwait(false);
+        int detectedCount = -1;
+        bool modalOpened = false;
+        int invitedClicks = 0;
+
+        for (int attempt = 0; attempt < 20; attempt++)
+        {
+            try
+            {
+                var completed = await Task.Run(() =>
+                {
+                    var hwnd = FindActiveMetaBusinessSuiteChromeWindow();
+                    if (hwnd == IntPtr.Zero) return false;
+
+                    var root = AutomationElement.FromHandle(hwnd);
+                    if (root == null) return false;
+
+                    var all = root.FindAll(TreeScope.Descendants, System.Windows.Automation.Condition.TrueCondition);
+                    if (all == null || all.Count == 0) return false;
+
+                    var elements = new List<(AutomationElement El, string Name, ControlType Type, Rect Bounds)>(all.Count);
+                    foreach (AutomationElement el in all)
+                    {
+                        try
+                        {
+                            var nm = (el.Current.Name ?? "").Trim();
+                            if (string.IsNullOrEmpty(nm) && el.Current.ControlType != ControlType.CheckBox) continue;
+                            var b = el.Current.BoundingRectangle;
+                            if (double.IsInfinity(b.Width) || double.IsInfinity(b.Height) || b.Width <= 2 || b.Height <= 2) continue;
+                            elements.Add((el, nm, el.Current.ControlType, b));
+                        }
+                        catch { }
+                    }
+
+                    // If modal is already open, look for CheckBoxes or "Mời" / "Gửi lời mời" inside modal
+                    if (modalOpened)
+                    {
+                        var checkBoxes = elements
+                            .Where(x => x.Type == ControlType.CheckBox && x.Bounds.Width >= 8 && x.Bounds.Height >= 8)
+                            .ToList();
+
+                        if (checkBoxes.Count > 0 && invitedClicks == 0)
+                        {
+                            SetForegroundWindow(hwnd);
+                            int toCheck = Math.Min(maxInvites, checkBoxes.Count);
+                            for (int i = 0; i < toCheck; i++)
+                            {
+                                var cb = checkBoxes[i];
+                                bool toggled = false;
+                                try
+                                {
+                                    if (cb.El.TryGetCurrentPattern(TogglePattern.Pattern, out var tpObj) && tpObj is TogglePattern tp)
+                                    {
+                                        if (tp.Current.ToggleState == ToggleState.Off)
+                                        {
+                                            tp.Toggle();
+                                            toggled = true;
+                                        }
+                                    }
+                                }
+                                catch { }
+                                if (!toggled)
+                                {
+                                    ClickScreenPoint((int)(cb.Bounds.Left + cb.Bounds.Width / 2), (int)(cb.Bounds.Top + cb.Bounds.Height / 2));
+                                }
+                                System.Threading.Thread.Sleep(350);
+                            }
+                            invitedClicks = toCheck;
+                            System.Threading.Thread.Sleep(700);
+                        }
+
+                        // Find individual "Mời" / "Invite" buttons or final "Gửi lời mời" button inside dialog
+                        var singleInviteBtns = elements.Where(x =>
+                            (x.Type == ControlType.Button || x.Type == ControlType.Custom || x.Type == ControlType.Text) &&
+                            (string.Equals(x.Name, "Mời", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(x.Name, "Invite", StringComparison.OrdinalIgnoreCase))).ToList();
+
+                        if (singleInviteBtns.Count > 0)
+                        {
+                            SetForegroundWindow(hwnd);
+                            int toClick = Math.Min(maxInvites, singleInviteBtns.Count);
+                            for (int i = 0; i < toClick; i++)
+                            {
+                                var b = singleInviteBtns[i];
+                                try
+                                {
+                                    if (b.El.TryGetCurrentPattern(InvokePattern.Pattern, out var ipObj) && ipObj is InvokePattern ip)
+                                    {
+                                        ip.Invoke();
+                                    }
+                                    else
+                                    {
+                                        ClickScreenPoint((int)(b.Bounds.Left + b.Bounds.Width / 2), (int)(b.Bounds.Top + b.Bounds.Height / 2));
+                                    }
+                                }
+                                catch
+                                {
+                                    ClickScreenPoint((int)(b.Bounds.Left + b.Bounds.Width / 2), (int)(b.Bounds.Top + b.Bounds.Height / 2));
+                                }
+                                invitedClicks++;
+                                System.Threading.Thread.Sleep(2400);
+                            }
+                            return true;
+                        }
+
+                        var confirmSendBtns = elements.Where(x =>
+                            (x.Type == ControlType.Button || x.Type == ControlType.Custom) &&
+                            (x.Name.StartsWith("Gửi lời mời", StringComparison.OrdinalIgnoreCase) ||
+                             x.Name.StartsWith("Send invitation", StringComparison.OrdinalIgnoreCase) ||
+                             x.Name.StartsWith("Send invite", StringComparison.OrdinalIgnoreCase)))
+                            .OrderByDescending(x => x.Bounds.Top)
+                            .ToList();
+
+                        if (confirmSendBtns.Count > 0 && invitedClicks > 0)
+                        {
+                            var finalBtn = confirmSendBtns[0];
+                            SetForegroundWindow(hwnd);
+                            try
+                            {
+                                if (finalBtn.El.TryGetCurrentPattern(InvokePattern.Pattern, out var ipObj) && ipObj is InvokePattern ip)
+                                {
+                                    ip.Invoke();
+                                }
+                                else
+                                {
+                                    ClickScreenPoint((int)(finalBtn.Bounds.Left + finalBtn.Bounds.Width / 2), (int)(finalBtn.Bounds.Top + finalBtn.Bounds.Height / 2));
+                                }
+                            }
+                            catch
+                            {
+                                ClickScreenPoint((int)(finalBtn.Bounds.Left + finalBtn.Bounds.Width / 2), (int)(finalBtn.Bounds.Top + finalBtn.Bounds.Height / 2));
+                            }
+                            return true;
+                        }
+                    }
+
+                    // Step 1: Locate "Tiếp cận những người đã bày tỏ cảm xúc với nội dung của bạn"
+                    var anchor = elements.FirstOrDefault(x =>
+                        x.Name.Contains("Tiếp cận những người đã bày tỏ cảm xúc", StringComparison.OrdinalIgnoreCase) ||
+                        x.Name.Contains("Reach people who reacted to your content", StringComparison.OrdinalIgnoreCase) ||
+                        x.Name.Contains("bày tỏ cảm xúc và bình luận về nội dung", StringComparison.OrdinalIgnoreCase));
+
+                    if (anchor.El == null)
+                    {
+                        if (attempt >= 2)
+                        {
+                            // Scroll down slightly in case "Phát triển đối tượng" is below the fold
+                            var winRect = root.Current.BoundingRectangle;
+                            if (!double.IsInfinity(winRect.Width) && winRect.Width > 300)
+                            {
+                                SetForegroundWindow(hwnd);
+                                SetCursorPos((int)(winRect.Left + winRect.Width * 0.55), (int)(winRect.Top + winRect.Height * 0.55));
+                                mouse_event(MOUSEEVENTF_WHEEL, 0, 0, unchecked((uint)-420), UIntPtr.Zero);
+                            }
+                        }
+                        return false;
+                    }
+
+                    // Step 2: Read pending reactor count number (e.g. "3") near anchor
+                    var numCandidate = elements.FirstOrDefault(x =>
+                        int.TryParse(x.Name, out var n) && n >= 0 && n <= 9999 &&
+                        x.Bounds.Top >= anchor.Bounds.Top - 10 &&
+                        x.Bounds.Top <= anchor.Bounds.Bottom + 150 &&
+                        Math.Abs(x.Bounds.Left - anchor.Bounds.Left) <= 260);
+
+                    if (numCandidate.El != null && int.TryParse(numCandidate.Name, out var parsedNum))
+                    {
+                        if (detectedCount != parsedNum)
+                        {
+                            detectedCount = parsedNum;
+                            SetPagePendingInviteCount(page, parsedNum, renderNow: true);
+                            _ = Dispatcher.BeginInvoke(() =>
+                                AppendLog($"🔍 [Auto-Invite] Fanpage '{page.Name}' hiện có {parsedNum} người bày tỏ cảm xúc cần mời theo dõi!"));
+                        }
+                        if (parsedNum == 0)
+                        {
+                            return true;
+                        }
+                    }
+
+                    // Step 3: Find "Gửi lời mời" button aligned with the reactor section
+                    if (!modalOpened)
+                    {
+                        var sendBtn = elements
+                            .Where(x =>
+                                (string.Equals(x.Name, "Gửi lời mời", StringComparison.OrdinalIgnoreCase) ||
+                                 string.Equals(x.Name, "Send invitations", StringComparison.OrdinalIgnoreCase) ||
+                                 string.Equals(x.Name, "Send invite", StringComparison.OrdinalIgnoreCase)) &&
+                                x.Bounds.Top >= anchor.Bounds.Top - 35 &&
+                                x.Bounds.Top <= anchor.Bounds.Bottom + 140)
+                            .OrderBy(x => Math.Abs(x.Bounds.Top - anchor.Bounds.Top))
+                            .FirstOrDefault();
+
+                        if (sendBtn.El != null)
+                        {
+                            SetForegroundWindow(hwnd);
+                            try
+                            {
+                                if (sendBtn.El.TryGetCurrentPattern(InvokePattern.Pattern, out var ipObj) && ipObj is InvokePattern ip)
+                                {
+                                    ip.Invoke();
+                                }
+                            }
+                            catch { }
+                            ClickScreenPoint((int)(sendBtn.Bounds.Left + sendBtn.Bounds.Width / 2), (int)(sendBtn.Bounds.Top + sendBtn.Bounds.Height / 2));
+                            modalOpened = true;
+                            _ = Dispatcher.BeginInvoke(() =>
+                                AppendLog($"🤖 [Auto-Invite] Đã tự động nhấn nút 'Gửi lời mời' trên Meta Business Suite cho Page '{page.Name}'..."));
+                        }
+                    }
+
+                    return false;
+                }).ConfigureAwait(false);
+
+                if (completed)
+                {
+                    var sentNow = invitedClicks > 0 ? invitedClicks : Math.Max(0, detectedCount);
+                    if (sentNow > 0)
+                    {
+                        _config.TotalPageFollowerInvitesSent += sentNow;
+                        SetPagePendingInviteCount(page, 0, renderNow: true);
+                        _ = Dispatcher.BeginInvoke(() =>
+                            AppendLog($"✅ [Auto-Invite Hoàn tất] Đã tự động mời {sentNow} người tương tác theo dõi Fanpage '{page.Name}'! (Còn cần mời: 0)"));
+                    }
+                    else
+                    {
+                        SetPagePendingInviteCount(page, 0, renderNow: true);
+                        _ = Dispatcher.BeginInvoke(() =>
+                            AppendLog($"✓ [Auto-Invite] Fanpage '{page.Name}' hiện có 0 người mới cần mời theo dõi."));
+                    }
+                    return;
+                }
+            }
+            catch { }
+
+            await Task.Delay(2500).ConfigureAwait(false);
+        }
+    }
+
     public void LaunchPageAutoInviteFollowers(FanpageItemDto page, bool autoClose = false)
     {
         var via = ResolveEffectiveViaForPage(page);
@@ -2425,8 +2797,9 @@ internal sealed partial class MainWindow : Window
             return;
         }
         var targetUrl = BuildPageAutoInviteUrl(page, _config.MaxPageFollowerInvitesPerRun, autoClose);
-        AppendLog($"🤝 Khởi chạy Auto-Invite Followers cho Page '{page.Name}' qua '{via.Label}' (Chrome: {via.ProfileDir}, tối đa {_config.MaxPageFollowerInvitesPerRun} lời mời)...");
+        AppendLog($"🤝 Khởi chạy Auto-Invite Followers cho Page '{page.Name}' qua '{via.Label}' (Chrome: {via.ProfileDir}) — Đang tự động quét số người cần mời & bấm 'Gửi lời mời'...");
         LaunchViaChromeSafe(via, targetUrl);
+        _ = RunNativeUiAutoInviteForPageAsync(page, _config.MaxPageFollowerInvitesPerRun);
     }
 
     public void EnqueueBatchPageAutoInviteFollowers(bool requireConfirm = true)

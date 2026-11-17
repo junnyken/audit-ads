@@ -1,13 +1,13 @@
 {
-  "version": "3.0.1",
+  "version": "3.0.2",
   "ext_version": "2.10.0",
   "authenticode_signed": true,
   "download_url": "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
   "mirror_urls": [
     "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
   ],
-  "sha256": "58d4ce38c9bbf9300dc6554e83c63a1bb6dee95b33607eb938cac6aaf4adbae6",
-  "size_bytes": 66493360,
-  "published_at": "2026-11-17T08:56:51.125449Z",
-  "release_notes": "AdsOps Desktop Pro v3.0.1 (UI/UX Pro Max) + Extension v2.10.0: Bo sung Dropdown chon truc tiep Via & Chrome Profile cam Page ngay tren tung dong Fanpage (luu co dinh de Moi Follow, Nuoi bai, Mo Page mo dung 100% trinh duyet cua Via do), sua cat chu nut Moi Follow, dinh dang gio kiem tra Token."
+  "sha256": "848fb1577999df8dc1bad23990b5e9c9a2ef144266388a92b099533267fa41c1",
+  "size_bytes": 66500196,
+  "published_at": "2026-11-17T09:21:59.849046Z",
+  "release_notes": "AdsOps Desktop Pro v3.0.2 (UI/UX Pro Max) + Extension v2.10.0: Tinh nang Native Windows UIAutomation Auto-Invite (Tu dong doc so nguoi da bay to cam xuc tren Meta Business Suite hien thi thang len App Windows '🔔 X nguoi can moi' va tu dong bam nut 'Gui loi moi' + chon danh sach nguoi tuong tac tren moi phien ban Chrome 158+ khong phu thuoc --load-extension)."
 }

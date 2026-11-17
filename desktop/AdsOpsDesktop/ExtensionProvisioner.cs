@@ -609,6 +609,7 @@ public static class ExtensionProvisioner
             args.Add("--media-cache-size=16777216");
         }
 
+        args.Add("--force-renderer-accessibility");
         if (!string.IsNullOrWhiteSpace(extFolder) && Directory.Exists(extFolder))
         {
             args.Add($"--load-extension={extFolder}");
