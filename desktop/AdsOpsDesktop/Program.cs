@@ -1487,7 +1487,15 @@ internal static class Program
                     throw new InvalidOperationException($"BuildPageAutoInviteUrl check failed: {inviteUrl}");
                 }
 
-                var pipeCfgPath = Path.Combine(tempRoot, "cfg_v265.json");
+                ThemeTokens.ApplyPalette("emerald");
+                foreach (var (pairName, ratio) in ThemeTokens.RunContrastAudit())
+                {
+                    if (ratio < 4.5)
+                        throw new InvalidOperationException($"Emerald palette WCAG AA contrast failed for '{pairName}': {ratio}");
+                }
+                ThemeTokens.ApplyPalette("obsidian");
+
+                var pipeCfgPath = Path.Combine(tempRoot, "cfg_v300.json");
                 var pipeCfg = new DesktopConfig
                 {
                     AutoDailyFullPipeline = true,
@@ -1495,6 +1503,7 @@ internal static class Program
                     AutoInvitePageFollowersOnWarmup = true,
                     MaxPageFollowerInvitesPerRun = 30,
                     TotalPageFollowerInvitesSent = 12,
+                    UiThemePalette = "emerald",
                 };
                 pipeCfg.Save(pipeCfgPath);
                 var reloadedPipeCfg = DesktopConfig.Load(pipeCfgPath);
@@ -1503,10 +1512,11 @@ internal static class Program
                     !reloadedPipeCfg.AutoInvitePageFollowersOnWarmup ||
                     reloadedPipeCfg.MaxPageFollowerInvitesPerRun != 30 ||
                     reloadedPipeCfg.TotalPageFollowerInvitesSent != 12 ||
+                    reloadedPipeCfg.UiThemePalette != "emerald" ||
                     reloadedPipeCfg.ConfigMigrationVersion != DesktopConfig.CurrentMigrationVersion ||
-                    DesktopConfig.CurrentMigrationVersion != 265)
+                    DesktopConfig.CurrentMigrationVersion != 300)
                 {
-                    throw new InvalidOperationException($"v2.6.5 DesktopConfig roundtrip/migration check failed: mig={reloadedPipeCfg.ConfigMigrationVersion}");
+                    throw new InvalidOperationException($"v3.0.0 DesktopConfig roundtrip/migration check failed: mig={reloadedPipeCfg.ConfigMigrationVersion}");
                 }
             }
 

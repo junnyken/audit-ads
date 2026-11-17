@@ -129,7 +129,7 @@ public sealed class DesktopConfig
 {
     public const string DefaultBackendUrl = "https://audit-ads-backend.vibe1.tinhgon.xyz";
     public const string DefaultWebAppUrl = "https://adsops-app.vibe.tinhgon.xyz";
-    public const int CurrentMigrationVersion = 265;
+    public const int CurrentMigrationVersion = 300;
     internal static string? AppDataRootOverride { get; set; }
 
     public string BackendBaseUrl { get; set; } = DefaultBackendUrl;
@@ -183,6 +183,8 @@ public sealed class DesktopConfig
     public bool AutoInvitePageFollowersOnWarmup { get; set; } = true;
     public int MaxPageFollowerInvitesPerRun { get; set; } = 25;
     public int TotalPageFollowerInvitesSent { get; set; } = 0;
+    // v3.0.0 UI/UX Pro Max Theme Palette ("obsidian" | "emerald")
+    public string UiThemePalette { get; set; } = "obsidian";
 
     [JsonIgnore]
     public string AccessToken
@@ -374,6 +376,10 @@ public sealed class DesktopConfig
         if (src.TotalPageFollowerInvitesSent > TotalPageFollowerInvitesSent)
         {
             TotalPageFollowerInvitesSent = src.TotalPageFollowerInvitesSent;
+        }
+        if (!string.IsNullOrWhiteSpace(src.UiThemePalette))
+        {
+            UiThemePalette = src.UiThemePalette.Trim().ToLowerInvariant();
         }
         ConfigMigrationVersion = CurrentMigrationVersion;
     }
@@ -2437,8 +2443,8 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "2.6.5";
-    public const string DisplayVersion = "v2.6.5";
+    public const string Version = "3.0.0";
+    public const string DisplayVersion = "v3.0.0";
     public const string ExtVersion = "2.10.0";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 

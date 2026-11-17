@@ -152,15 +152,15 @@ internal sealed partial class MainWindow
     }
 
     // ------------------------------------------------------------------------
-    // VIEW 1: TỔNG QUAN (OVERVIEW)
+    // VIEW 1: TỔNG QUAN BENTO COMMAND CENTER (UI/UX PRO MAX v3.0)
     // ------------------------------------------------------------------------
     private UIElement BuildOverviewView()
     {
         var stack = new StackPanel();
         stack.Children.Add(BuildQueueRunnerBanner(alwaysShow: false));
 
-        // 4 KPI Cards
-        var kpiGrid = new Grid { Margin = new Thickness(0, 0, 0, 16) };
+        // 1. 4 Hero Bento Metric Cards with Visual Progress Bars
+        var kpiGrid = new Grid { Margin = new Thickness(0, 0, 0, 14) };
         for (int i = 0; i < 4; i++)
         {
             kpiGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -168,37 +168,44 @@ internal sealed partial class MainWindow
         }
 
         var dueCount = _vias.Count(v => v.NeedsKeepAlive);
+        var cookieSavedCount = _vias.Count(v => v.HasVaultCookie);
+        var viaProgress = _vias.Count > 0 ? Math.Max(15.0, (cookieSavedCount * 100.0) / _vias.Count) : 100.0;
         var viaCard = UiComponents.CreateMetricCard(
-            "Quản lý Đa Via",
+            "Dàn Via Đang Quản Lý",
             _hasLoadedOnce ? _vias.Count.ToString() : "—",
-            _hasLoadedOnce ? (dueCount > 0 ? $"{dueCount} Via quá hạn Đảo Ấm" : "Tất cả Via đều đang ấm") : "Chưa đồng bộ",
+            _hasLoadedOnce ? $"{cookieSavedCount}/{_vias.Count} Két Cookie • {(dueCount > 0 ? $"{dueCount} cần Đảo Ấm" : "Tất cả đang ấm")}" : "Chưa đồng bộ",
             FluentIcons.People,
             ThemeTokens.AccentText,
-            out _, out _);
+            out _, out _,
+            viaProgress);
         Grid.SetColumn(viaCard, 0);
         kpiGrid.Children.Add(viaCard);
 
         var pages = _pagesSummary?.Items ?? new();
         var readyCount = pages.Count(p => p.AdsReady);
+        var pageProgress = pages.Count > 0 ? Math.Max(20.0, (readyCount * 100.0) / pages.Count) : 85.0;
         var pageCard = UiComponents.CreateMetricCard(
-            "Fanpage & BM",
+            "Fanpage & Tăng Trưởng",
             _pagesSummary != null ? pages.Count.ToString() : "—",
-            _pagesSummary != null ? $"{readyCount} sẵn sàng Ads • {_bms.Count} BM" : "Chưa đồng bộ",
+            _pagesSummary != null ? $"{readyCount} sẵn sàng Ads • +{_config.TotalPageFollowerInvitesSent} mời Follow" : "Chưa đồng bộ",
             FluentIcons.Page,
             ThemeTokens.SuccessText,
-            out _, out _);
+            out _, out _,
+            pageProgress);
         Grid.SetColumn(pageCard, 2);
         kpiGrid.Children.Add(pageCard);
 
         var activeAds = _adAccounts.Count(a => a.Status.Contains("active", StringComparison.OrdinalIgnoreCase));
         var alertTot = (_alertSummary?.OpenCritical ?? 0) + (_alertSummary?.OpenWarning ?? 0);
+        var adProgress = _adAccounts.Count > 0 ? Math.Max(15.0, (activeAds * 100.0) / _adAccounts.Count) : 80.0;
         var adCard = UiComponents.CreateMetricCard(
-            "Tài khoản QC & Cảnh báo",
+            "Tài Khoản Quảng Cáo",
             _hasLoadedOnce ? _adAccounts.Count.ToString() : "—",
             _hasLoadedOnce ? $"{activeAds} Active • {alertTot} cảnh báo mở" : "Chưa đồng bộ",
             FluentIcons.Chart,
             alertTot > 0 ? ThemeTokens.WarningText : ThemeTokens.SuccessText,
-            out _, out _);
+            out _, out _,
+            adProgress);
         Grid.SetColumn(adCard, 4);
         kpiGrid.Children.Add(adCard);
 
@@ -208,37 +215,198 @@ internal sealed partial class MainWindow
             return TotpService.ComputeTotp(!string.IsNullOrEmpty(s.TwoFaSecret) ? s.TwoFaSecret : v.TwoFaSecret).Valid;
         });
         var bridgeCard = UiComponents.CreateMetricCard(
-            "Cầu nối Local & Két 2FA",
+            "Khiên Bảo Vệ & Két 2FA",
             _bridge != null ? $":{_bridge.BoundPort}" : "OFF",
-            $"{twoFaReady} Via có TOTP 2FA Live",
+            $"{twoFaReady} Via 2FA Live • Ext v{DesktopAppInfo.ExtVersion}",
             FluentIcons.ShieldKey,
             ThemeTokens.PurpleText,
-            out _, out _);
+            out _, out _,
+            _bridge != null ? 100.0 : 20.0);
         Grid.SetColumn(bridgeCard, 6);
         kpiGrid.Children.Add(bridgeCard);
 
         stack.Children.Add(kpiGrid);
 
-        // 2-Column split: Actionable Alerts + Quick Tools / Recent Logs
+        // 2. Horizontal 5-Step Auto-Pilot Pipeline Stepper Card (UI/UX Pro Max Bento Hero)
+        var stepperPanel = new StackPanel();
+        var stepperHdr = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+        stepperHdr.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        stepperHdr.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var stepperTitleStack = new StackPanel();
+        var stepperTitleRow = new StackPanel { Orientation = Orientation.Horizontal };
+        stepperTitleRow.Children.Add(new TextBlock
+        {
+            Text = "⚡ Chu Trình Auto-Pilot 5 Bước Khép Kín",
+            FontFamily = ThemeTokens.UiFont,
+            FontSize = 14.5,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeTokens.TextPrimary,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 10, 0),
+        });
+        var pipeBadge = UiComponents.CreateBadgePill(
+            _config.AutoDailyFullPipeline ? "Tự động mỗi sáng: BẬT" : "Chế độ Kích hoạt 1-Chạm",
+            ThemeTokens.SuccessText,
+            ThemeTokens.SuccessBg,
+            ThemeTokens.SuccessBorder);
+        stepperTitleRow.Children.Add(pipeBadge);
+        stepperTitleStack.Children.Add(stepperTitleRow);
+
+        var wsMem = _workstationMem ?? WorkstationPerformanceOptimizer.ReadWorkstationMemory();
+        var recConcurrent = WorkstationPerformanceOptimizer.ComputeRecommendedMaxConcurrent(_config.LowRamFarmMode, wsMem);
+        var lowRam = wsMem.AvailablePhysicalMb < 1200;
+        stepperTitleStack.Children.Add(new TextBlock
+        {
+            Text = $"💻 RAM trống: {wsMem.AvailablePhysicalMb:N0}/{wsMem.TotalPhysicalMb:N0} MB ({100 - (int)wsMem.MemoryLoadPercent}% trống) • Tối ưu mở {recConcurrent} luồng song song" + (lowRam ? " • ⚠ RAM thấp (<1.2 GB)" : ""),
+            FontSize = 12,
+            Foreground = lowRam ? ThemeTokens.WarningText : ThemeTokens.TextSecondary,
+            Margin = new Thickness(0, 3, 0, 0),
+        });
+        stepperHdr.Children.Add(stepperTitleStack);
+
+        var stepperActions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        var cleanRamQuickBtn = UiComponents.CreateButton("🧹 Dọn RAM", ButtonVariant.Secondary, compact: true, onClick: (_, _) => RunCacheAndRamCleanupNow(renderAfter: true), tooltip: "Dọn Cache các Chrome Profile đang đóng & thu hồi RAM tức thì");
+        cleanRamQuickBtn.Margin = new Thickness(0, 0, 6, 0);
+        stepperActions.Children.Add(cleanRamQuickBtn);
+
+        var sysToolsBtn = UiComponents.CreateButton("⚙️ Công cụ Hệ thống ▾", ButtonVariant.Secondary, compact: true);
+        var sysMenu = new ContextMenu();
+        void AddSysMenuItem(string header, RoutedEventHandler handler)
+        {
+            var mi = new MenuItem { Header = header };
+            mi.Click += handler;
+            sysMenu.Items.Add(mi);
+        }
+        AddSysMenuItem("🌐 Quét kiểm tra Proxy hàng loạt (Live/Dead)", async (_, _) => await RunBatchProxyCheckAsync());
+        AddSysMenuItem("☕ Đảo Ấm toàn bộ Via quá hạn ngay", (_, _) => StartKeepAliveDueQueue(requireConfirm: true));
+        AddSysMenuItem("🤝 Chạy lô Tự động Mời người tương tác theo dõi Fanpage", (_, _) => EnqueueBatchPageAutoInviteFollowers(requireConfirm: true));
+        AddSysMenuItem("🔄 Đồng bộ Fanpage từ Meta Graph API", async (_, _) => await RunMetaPageSyncAsync());
+        AddSysMenuItem("🛡️ Cấp lại Chrome Extension v" + DesktopAppInfo.ExtVersion + " cho tất cả Via", (_, _) =>
+        {
+            var n = ProvisionAllViaExtensions(silent: false);
+            MessageBox.Show(this, $"Đã cấp mới Chrome Extension Companion v{DesktopAppInfo.ExtVersion} cho {n} Via.", "Hoàn tất", MessageBoxButton.OK, MessageBoxImage.Information);
+        });
+        AddSysMenuItem("⚡ Benchmark tốc độ 5 Engine Antidetect", async (_, _) => await RunBenchmarkAllEnginesUiAsync());
+        AddSysMenuItem("📋 Xem Nhật ký Mở Profile (Audit Log)", (_, _) => OpenProfileLaunchAuditDialog());
+        AddSysMenuItem("✨ Áp dụng Preset An Toàn Chuẩn (1-Click)", (_, _) =>
+        {
+            _config.EnableChromeAntidetectShield = true;
+            _config.LowRamFarmMode = true;
+            _config.AutoScaleConcurrentByRam = true;
+            _config.PreCheckProxyBeforeLaunch = true;
+            _config.EnforceSoakQuarantine = true;
+            _config.EnforceClientSilo = true;
+            _config.MaxViasPerProxyInBatch = 4;
+            _config.DefaultStaggerSeconds = 60;
+            _config.Save();
+            var cnt = ProvisionAllViaExtensions(silent: true);
+            AppendLog($"⚡ Đã áp dụng Preset An Toàn Chuẩn và cấp lại {cnt} Extension.");
+            RenderCurrentView();
+        });
+        sysToolsBtn.Click += (_, _) =>
+        {
+            sysToolsBtn.ContextMenu = sysMenu;
+            sysMenu.PlacementTarget = sysToolsBtn;
+            sysMenu.IsOpen = true;
+        };
+        sysToolsBtn.Margin = new Thickness(0, 0, 6, 0);
+        stepperActions.Children.Add(sysToolsBtn);
+
+        var runAutoPilotBtn = UiComponents.CreateButton("▶ Kích hoạt Chu trình", ButtonVariant.Primary, FluentIcons.Lightning, compact: true, onClick: async (_, _) => await RunFullAutoPilotPipelineAsync(interactiveConfirm: true));
+        stepperActions.Children.Add(runAutoPilotBtn);
+        Grid.SetColumn(stepperActions, 1);
+        stepperHdr.Children.Add(stepperActions);
+        stepperPanel.Children.Add(stepperHdr);
+
+        var stepsGrid = new Grid();
+        for (int i = 0; i < 5; i++)
+        {
+            stepsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            if (i < 4) stepsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+        }
+
+        Border BuildStepTile(string numTitle, string subDesc, Brush accent)
+        {
+            var sp = new StackPanel();
+            sp.Children.Add(new TextBlock
+            {
+                Text = numTitle,
+                FontSize = 12,
+                FontWeight = FontWeights.Bold,
+                Foreground = accent,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(0, 0, 0, 3),
+            });
+            sp.Children.Add(new TextBlock
+            {
+                Text = subDesc,
+                FontSize = 11.5,
+                Foreground = ThemeTokens.TextSecondary,
+                TextWrapping = TextWrapping.Wrap,
+            });
+            return new Border
+            {
+                Background = ThemeTokens.BgSurfaceElevated,
+                BorderBrush = accent,
+                BorderThickness = new Thickness(2.5, 1, 1, 1),
+                CornerRadius = new CornerRadius(9),
+                Padding = new Thickness(10, 8, 10, 8),
+                Child = sp,
+            };
+        }
+
+        var st1 = BuildStepTile("01 • Dọn Cache & RAM", "Thu hồi bộ nhớ các Profile đóng", ThemeTokens.SuccessText);
+        var st2 = BuildStepTile("02 • Quét Proxy Live", "Kiểm tra IP & khớp Múi giờ", ThemeTokens.SuccessText);
+        var st3 = BuildStepTile("03 • Đồng bộ Meta & BM", $"Quét {pages.Count} Page & {_adAccounts.Count} TKQC", ThemeTokens.AccentText);
+        var st4 = BuildStepTile("04 • Nuôi Page & Follow", $"Đăng bài + Mời người tương tác", ThemeTokens.AccentText);
+        var st5 = BuildStepTile("05 • Đảo Ấm Đa Via", dueCount > 0 ? $"{dueCount} Via đến hạn cuộn Feed" : "Toàn bộ Via đã ấm đủ", dueCount > 0 ? ThemeTokens.WarningText : ThemeTokens.SuccessText);
+        Grid.SetColumn(st1, 0);
+        Grid.SetColumn(st2, 2);
+        Grid.SetColumn(st3, 4);
+        Grid.SetColumn(st4, 6);
+        Grid.SetColumn(st5, 8);
+        stepsGrid.Children.Add(st1);
+        stepsGrid.Children.Add(st2);
+        stepsGrid.Children.Add(st3);
+        stepsGrid.Children.Add(st4);
+        stepsGrid.Children.Add(st5);
+        stepperPanel.Children.Add(stepsGrid);
+
+        var stepperCard = UiComponents.CreateCard(stepperPanel, new Thickness(15, 13, 15, 13));
+        stepperCard.Margin = new Thickness(0, 0, 0, 14);
+        stack.Children.Add(stepperCard);
+
+        // 3. Two-Column Bottom Bento: Smart Grouped Alerts (Left) + Auto-Invite Page Followers & Activity Feed (Right)
         var mainCols = new Grid();
-        mainCols.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.25, GridUnitType.Star) });
+        mainCols.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.3, GridUnitType.Star) });
         mainCols.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(14) });
         mainCols.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        // Left: Alerts panel
+        // Left: Smart Grouped Alerts Panel
         var alertsPanel = new StackPanel();
         var alertHeader = new Grid { Margin = new Thickness(0, 0, 0, 10) };
         alertHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         alertHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        alertHeader.Children.Add(new TextBlock
+
+        var alertTitleStack = new StackPanel();
+        alertTitleStack.Children.Add(new TextBlock
         {
-            Text = "Cảnh báo Hệ thống & Tài khoản cần xử lý",
+            Text = "🔔 Cảnh Báo Tài Khoản Đã Gom Nhóm Thông Minh",
             FontFamily = ThemeTokens.UiFont,
             FontSize = 14,
             FontWeight = FontWeights.Bold,
             Foreground = ThemeTokens.TextPrimary,
-            VerticalAlignment = VerticalAlignment.Center,
         });
+        alertTitleStack.Children.Add(new TextBlock
+        {
+            Text = "Tự động gom các sự cố trùng loại & BM để không làm rối màn hình điều hành",
+            FontSize = 11.5,
+            Foreground = ThemeTokens.TextMuted,
+            Margin = new Thickness(0, 1, 0, 0),
+        });
+        alertHeader.Children.Add(alertTitleStack);
+
         var alertHdrBtns = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         var openAlertCount = _alerts.Count(a => a.Status.Equals("open", StringComparison.OrdinalIgnoreCase));
         if (openAlertCount > 0)
@@ -274,18 +442,30 @@ internal sealed partial class MainWindow
         {
             alertsPanel.Children.Add(new TextBlock
             {
-                Text = "Không có cảnh báo nào đang mở. Hệ thống hoạt động ổn định.",
+                Text = "✓ Không có cảnh báo nào đang mở. Toàn bộ TKQC & Hệ thống hoạt động ổn định.",
                 FontFamily = ThemeTokens.UiFont,
                 FontSize = 13,
-                Foreground = ThemeTokens.TextSecondary,
-                Margin = new Thickness(0, 8, 0, 8),
+                Foreground = ThemeTokens.SuccessText,
+                Margin = new Thickness(0, 10, 0, 10),
             });
         }
         else
         {
-            foreach (var al in _alerts.Take(8))
+            var groupedAlerts = _alerts
+                .GroupBy(a => $"{a.Severity.ToUpperInvariant()}|{a.GetLocalizedTitle()}")
+                .Take(6)
+                .ToList();
+            foreach (var grp in groupedAlerts)
             {
-                alertsPanel.Children.Add(BuildAlertRowCard(al));
+                var items = grp.ToList();
+                if (items.Count == 1)
+                {
+                    alertsPanel.Children.Add(BuildAlertRowCard(items[0]));
+                }
+                else
+                {
+                    alertsPanel.Children.Add(BuildGroupedAlertRowCard(items));
+                }
             }
         }
 
@@ -293,127 +473,87 @@ internal sealed partial class MainWindow
         Grid.SetColumn(leftCard, 0);
         mainCols.Children.Add(leftCard);
 
-        // Right: Quick Actions + Live 2FA & Recent Activity
+        // Right Column: Auto-Invite Page Followers Quick Studio + Recent Activity
         var rightStack = new StackPanel();
 
-        var quickPanel = new StackPanel();
-        quickPanel.Children.Add(new TextBlock
+        var invitePanel = new StackPanel();
+        var invHdr = new Grid { Margin = new Thickness(0, 0, 0, 6) };
+        invHdr.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        invHdr.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        invHdr.Children.Add(new TextBlock
         {
-            Text = "Thao tác nhanh Toàn hệ thống",
-            FontFamily = ThemeTokens.UiFont,
+            Text = "🤝 Auto-Invite Page Followers",
             FontSize = 14,
             FontWeight = FontWeights.Bold,
             Foreground = ThemeTokens.TextPrimary,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        var invBadge = UiComponents.CreateBadgePill($"Đã mời: {_config.TotalPageFollowerInvitesSent}", ThemeTokens.SuccessText, ThemeTokens.SuccessBg, ThemeTokens.SuccessBorder);
+        Grid.SetColumn(invBadge, 1);
+        invHdr.Children.Add(invBadge);
+        invitePanel.Children.Add(invHdr);
+
+        invitePanel.Children.Add(new TextBlock
+        {
+            Text = "Tự động bấm 'Gửi lời mời' trong mục Tiếp cận những người đã bày tỏ cảm xúc với nội dung của bạn trên Meta Business Suite.",
+            FontSize = 12,
+            Foreground = ThemeTokens.TextSecondary,
+            TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 10),
         });
 
-        var quickWrap = new WrapPanel { Margin = new Thickness(0, 0, 0, 4) };
-        void AddQuickBtn(Button b)
-        {
-            b.Margin = new Thickness(0, 0, 8, 8);
-            quickWrap.Children.Add(b);
-        }
-
-        AddQuickBtn(UiComponents.CreateButton("⚡ Chạy Auto-Pilot 5 Bước", ButtonVariant.Success, FluentIcons.Lightning, onClick: async (_, _) => await RunFullAutoPilotPipelineAsync(interactiveConfirm: true), tooltip: "Tự động 5 bước: Dọn Cache/RAM -> Quét Proxy -> Sync Meta/Cron -> Nuôi Page -> Đảo Ấm Via"));
-        AddQuickBtn(UiComponents.CreateButton("Đảo Ấm Via quá hạn", ButtonVariant.Primary, FluentIcons.CoffeeWarmup, onClick: (_, _) => StartKeepAliveDueQueue(requireConfirm: true)));
-        AddQuickBtn(UiComponents.CreateButton("Check Proxy hàng loạt", ButtonVariant.Secondary, FluentIcons.Globe, onClick: async (_, _) => await RunBatchProxyCheckAsync()));
-        AddQuickBtn(UiComponents.CreateButton("Cấp lại Extension tất cả", ButtonVariant.Secondary, FluentIcons.ShieldCheck, onClick: (_, _) =>
-        {
-            var n = ProvisionAllViaExtensions(silent: false);
-            MessageBox.Show(this, $"Đã cấp mới Chrome Extension Companion cho {n} Via.", "Hoàn tất", MessageBoxButton.OK, MessageBoxImage.Information);
-        }));
-        AddQuickBtn(UiComponents.CreateButton("Đồng bộ Page từ Meta", ButtonVariant.Secondary, FluentIcons.Sync, onClick: async (_, _) => await RunMetaPageSyncAsync()));
-        AddQuickBtn(UiComponents.CreateButton("Benchmark 5 Engine", ButtonVariant.Secondary, FluentIcons.Diagnostic, onClick: async (_, _) => await RunBenchmarkAllEnginesUiAsync()));
-        AddQuickBtn(UiComponents.CreateButton("Nhật ký Mở Profile", ButtonVariant.Secondary, FluentIcons.ShieldCheck, onClick: (_, _) => OpenProfileLaunchAuditDialog()));
-        quickPanel.Children.Add(quickWrap);
-
-        // v2.6.0/v2.6.4 Workstation RAM & Recommended Concurrency Strip + Low-RAM Cleanup
-        var wsMem = _workstationMem ?? WorkstationPerformanceOptimizer.ReadWorkstationMemory();
-        var recConcurrent = WorkstationPerformanceOptimizer.ComputeRecommendedMaxConcurrent(_config.LowRamFarmMode, wsMem);
-        var lowRam = wsMem.AvailablePhysicalMb < 1200;
-        var onlineBenchNames = _engineProbes.Where(p => p.Online && p.Engine != "chrome_native")
-            .Select(p => $"{AntidetectBrowserConnector.GetDisplayName(p.Engine)} ({p.LatencyMs}ms)")
+        var livePagesForInvite = pages
+            .Where(p => !p.IsUnsyncedDraft && p.HealthStatus.Equals("LIVE", StringComparison.OrdinalIgnoreCase))
+            .Take(3)
             .ToList();
-        var memSummary = $"💻 RAM trống: {wsMem.AvailablePhysicalMb:N0}/{wsMem.TotalPhysicalMb:N0} MB ({100 - (int)wsMem.MemoryLoadPercent}% trống) • Khuyên mở tối đa: {recConcurrent} luồng song song"
-            + (lowRam ? " • ⚠ RAM trống thấp (<1.2 GB)" : "")
-            + (onlineBenchNames.Count > 0
-                ? $" • Đang bật: {string.Join(", ", onlineBenchNames)} (Nhanh nhất: {AntidetectBrowserConnector.GetDisplayName(_recommendedFastestEngine)})"
-                : " • Chưa dò thấy App Antidetect đang mở (bấm Benchmark để quét lại)");
-        quickPanel.Children.Add(new TextBlock
-        {
-            Text = memSummary,
-            FontSize = 11.5,
-            Foreground = lowRam ? ThemeTokens.WarningText : ThemeTokens.AccentText,
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 4, 0, 0),
-        });
-        if (lowRam)
-        {
-            var cleanRamBtn = UiComponents.CreateButton("🧹 Dọn Cache & Giải phóng RAM ngay", ButtonVariant.Secondary, compact: true, onClick: (_, _) => RunCacheAndRamCleanupNow(renderAfter: true));
-            cleanRamBtn.HorizontalAlignment = HorizontalAlignment.Left;
-            cleanRamBtn.Margin = new Thickness(0, 6, 0, 0);
-            quickPanel.Children.Add(cleanRamBtn);
-        }
 
-        var quickCard = UiComponents.CreateCard(quickPanel);
-        quickCard.Margin = new Thickness(0, 0, 0, 14);
-        rightStack.Children.Add(quickCard);
+        foreach (var pg in livePagesForInvite)
+        {
+            var pRow = new Grid();
+            pRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            pRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        // 5-Step Safety Onboarding & 1-Click Safe Preset (v2.6.0)
-        var onboardPanel = new StackPanel();
-        onboardPanel.Children.Add(new TextBlock
-        {
-            Text = "🛡️ Lộ trình Thiết lập An toàn 5 Bước (Dành cho Người mới)",
-            FontFamily = ThemeTokens.UiFont,
-            FontSize = 14,
-            FontWeight = FontWeights.Bold,
-            Foreground = ThemeTokens.TextPrimary,
-            Margin = new Thickness(0, 0, 0, 6),
-        });
-        var step1Ok = _bridge != null && !string.IsNullOrWhiteSpace(_config.GetJwt());
-        var step2Ok = _config.EnableChromeAntidetectShield && _config.EnforceSoakQuarantine && _config.PreCheckProxyBeforeLaunch;
-        var step3Ok = _vias.Count > 0 && _vias.All(v => !v.HasSiloConflict);
-        var step4Ok = _vias.Any(v => v.ProxyLastStatus == "LIVE") && !_vias.Any(v => v.HasTimezoneMismatch);
-        var step5Ok = twoFaReady > 0;
-        var steps = new[]
-        {
-            (step1Ok, "1. Kết nối AdsOps Cloud & Local Bridge Zero-Trust :17890"),
-            (step2Ok, "2. Bật Khiên Chrome WebRTC + Ngâm 72h + Check Proxy trước khi mở"),
-            (step3Ok, "3. Gắn mỗi Via 1 Chrome/Antidetect Profile riêng (0 trùng Silo)"),
-            (step4Ok, "4. Quét Proxy LIVE & kiểm tra IP khớp Múi giờ với tài khoản"),
-            (step5Ok, "5. Lưu ít nhất 1 mã 2FA/Cookie trong Két DPAPI Local để bật Auto-Failover"),
-        };
-        foreach (var (okStep, textStep) in steps)
-        {
-            onboardPanel.Children.Add(new TextBlock
+            var pInfo = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+            pInfo.Children.Add(new TextBlock
             {
-                Text = (okStep ? "✓ " : "○ ") + textStep,
-                FontSize = 12,
-                Foreground = okStep ? ThemeTokens.SuccessText : ThemeTokens.TextSecondary,
-                Margin = new Thickness(0, 0, 0, 3),
-                TextWrapping = TextWrapping.Wrap,
+                Text = pg.Name,
+                FontSize = 12.5,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = ThemeTokens.TextPrimary,
+                TextTrimming = TextTrimming.CharacterEllipsis,
             });
+            var fans = pg.FanCount ?? pg.FollowersCount;
+            pInfo.Children.Add(new TextBlock
+            {
+                Text = $"{(fans.HasValue ? $"{fans.Value:N0} theo dõi" : "LIVE")} • Via: {(string.IsNullOrWhiteSpace(pg.HolderLabel) ? "Mặc định" : pg.HolderLabel)}",
+                FontSize = 11.5,
+                Foreground = ThemeTokens.TextMuted,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+            pRow.Children.Add(pInfo);
+
+            var invBtn = UiComponents.CreateButton("👥 Mời Follow", ButtonVariant.Primary, compact: true, onClick: (_, _) => LaunchPageAutoInviteFollowers(pg, autoClose: false));
+            Grid.SetColumn(invBtn, 1);
+            pRow.Children.Add(invBtn);
+
+            var pTile = UiComponents.CreateCard(pRow, new Thickness(10, 7, 10, 7), ThemeTokens.BgSurfaceElevated, ThemeTokens.BorderSubtle);
+            pTile.Margin = new Thickness(0, 0, 0, 6);
+            invitePanel.Children.Add(pTile);
         }
-        var presetBtn = UiComponents.CreateButton("Áp dụng Preset An Toàn Chuẩn (1-Click)", ButtonVariant.Primary, FluentIcons.ShieldCheck, compact: true, onClick: (_, _) =>
-        {
-            _config.EnableChromeAntidetectShield = true;
-            _config.LowRamFarmMode = true;
-            _config.AutoScaleConcurrentByRam = true;
-            _config.PreCheckProxyBeforeLaunch = true;
-            _config.EnforceSoakQuarantine = true;
-            _config.EnforceClientSilo = true;
-            _config.MaxViasPerProxyInBatch = 4;
-            _config.DefaultStaggerSeconds = 60;
-            _config.Save();
-            var cnt = ProvisionAllViaExtensions(silent: true);
-            AppendLog($"⚡ Đã áp dụng Preset An Toàn Chuẩn (WebRTC Shield, RAM Auto-Cap, Ngâm 72h, 4 Via/Proxy, 60s Jitter) và cấp lại {cnt} Extension.");
-            RenderCurrentView();
-        });
-        presetBtn.Margin = new Thickness(0, 8, 0, 0);
-        onboardPanel.Children.Add(presetBtn);
-        var onboardCard = UiComponents.CreateCard(onboardPanel);
-        onboardCard.Margin = new Thickness(0, 0, 0, 14);
-        rightStack.Children.Add(onboardCard);
+
+        var batchInviteOverviewBtn = UiComponents.CreateButton(
+            $"🚀 Chạy Lô Mời Follow Tự Động ({pages.Count(p => !p.IsUnsyncedDraft)} Fanpage)",
+            ButtonVariant.Secondary,
+            FluentIcons.People,
+            compact: true,
+            onClick: (_, _) => EnqueueBatchPageAutoInviteFollowers(requireConfirm: true));
+        batchInviteOverviewBtn.HorizontalAlignment = HorizontalAlignment.Stretch;
+        batchInviteOverviewBtn.Margin = new Thickness(0, 4, 0, 0);
+        invitePanel.Children.Add(batchInviteOverviewBtn);
+
+        var inviteCard = UiComponents.CreateCard(invitePanel);
+        inviteCard.Margin = new Thickness(0, 0, 0, 14);
+        rightStack.Children.Add(inviteCard);
 
         // Recent Via Activity
         var actPanel = new StackPanel();
@@ -439,7 +579,7 @@ internal sealed partial class MainWindow
         }
         else
         {
-            foreach (var l in logs.Take(7))
+            foreach (var l in logs.Take(5))
             {
                 var line = new Border
                 {
@@ -474,6 +614,112 @@ internal sealed partial class MainWindow
         stack.Children.Add(mainCols);
 
         return stack;
+    }
+
+    private Border BuildGroupedAlertRowCard(List<AlertItemDto> groupItems)
+    {
+        var first = groupItems[0];
+        var isCrit = first.Severity.Equals("critical", StringComparison.OrdinalIgnoreCase);
+        var isWarn = first.Severity.Equals("warning", StringComparison.OrdinalIgnoreCase);
+        var fg = isCrit ? ThemeTokens.DangerText : isWarn ? ThemeTokens.WarningText : ThemeTokens.AccentText;
+        var bg = isCrit ? ThemeTokens.DangerBg : isWarn ? ThemeTokens.WarningBg : ThemeTokens.InfoBg;
+        var bd = isCrit ? ThemeTokens.DangerBorder : isWarn ? ThemeTokens.WarningBorder : ThemeTokens.InfoBorder;
+
+        var g = new Grid();
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var info = new StackPanel();
+        var localizedTitle = first.GetLocalizedTitle();
+        var top = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 4) };
+        var sevLabel = isCrit ? $"NGHIÊM TRỌNG ({groupItems.Count})" : $"CẢNH BÁO ({groupItems.Count})";
+        var pill = UiComponents.CreateBadgePill(sevLabel, fg, bg, bd);
+        pill.Margin = new Thickness(0, 0, 8, 0);
+        top.Children.Add(pill);
+        top.Children.Add(new TextBlock
+        {
+            Text = localizedTitle,
+            FontSize = 13,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeTokens.TextPrimary,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextWrapping = TextWrapping.Wrap,
+        });
+        info.Children.Add(top);
+
+        var accNames = groupItems
+            .Select(x => !string.IsNullOrWhiteSpace(x.AccountDisplayName) ? x.AccountDisplayName!.Trim() : x.SourceLabel)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(4)
+            .ToList();
+        var bmNames = groupItems
+            .Select(x => x.BusinessManagerName?.Trim())
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(3)
+            .ToList();
+
+        var bmSummary = bmNames.Count > 0 ? $" • BM: {string.Join(", ", bmNames)}" : "";
+        var accSummary = accNames.Count > 0 ? string.Join(", ", accNames) + (groupItems.Count > accNames.Count ? $" (+{groupItems.Count - accNames.Count} TKQC khác)" : "") : $"{groupItems.Count} TKQC";
+        info.Children.Add(new TextBlock
+        {
+            Text = $"🏢 Ảnh hưởng {groupItems.Count} TKQC: {accSummary}{bmSummary}",
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = ThemeTokens.AccentText,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 2),
+        });
+
+        var desc = first.GetLocalizedSummary();
+        if (!string.IsNullOrWhiteSpace(desc))
+        {
+            info.Children.Add(new TextBlock
+            {
+                Text = desc,
+                FontSize = 12,
+                Foreground = ThemeTokens.TextSecondary,
+                TextWrapping = TextWrapping.Wrap,
+            });
+        }
+        g.Children.Add(info);
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
+        var viewAllBtn = UiComponents.CreateButton($"Xem {groupItems.Count} TKQC", ButtonVariant.Secondary, compact: true, onClick: (_, _) =>
+        {
+            _adSearch = "";
+            _adFilter = "restricted";
+            SwitchView(AppView.AdAccounts);
+        });
+        viewAllBtn.Margin = new Thickness(0, 0, 6, 0);
+        actions.Children.Add(viewAllBtn);
+
+        var ackGrpBtn = UiComponents.CreateButton("✓ Ghi nhận nhóm", ButtonVariant.Primary, compact: true, onClick: async (_, _) =>
+        {
+            SetBusy(true);
+            try
+            {
+                foreach (var item in groupItems.Where(x => x.Status.Equals("open", StringComparison.OrdinalIgnoreCase)))
+                {
+                    try { await _api.AcknowledgeAlertAsync(item.Id, "Ghi nhận theo nhóm từ AdsOps Desktop Pro v3.0"); } catch { }
+                }
+                AppendLog($"✓ Đã ghi nhận nhóm {groupItems.Count} cảnh báo '{localizedTitle}'.");
+                await SyncCloudAsync(silent: false);
+            }
+            finally
+            {
+                SetBusy(false);
+            }
+        });
+        actions.Children.Add(ackGrpBtn);
+
+        Grid.SetColumn(actions, 1);
+        g.Children.Add(actions);
+
+        var card = UiComponents.CreateCard(g, new Thickness(12, 10, 12, 10), ThemeTokens.BgSurfaceElevated, ThemeTokens.BorderSubtle);
+        card.Margin = new Thickness(0, 0, 0, 8);
+        return card;
     }
 
     private Border BuildAlertRowCard(AlertItemDto al)
@@ -601,7 +847,7 @@ internal sealed partial class MainWindow
     }
 
     // ------------------------------------------------------------------------
-    // VIEW 2: QUẢN LÝ ĐA VIA (MULTI-VIA)
+    // VIEW 2: QUẢN LÝ ĐA VIA TINH GỌN (LINEAR TABLE HIERARCHY — UI/UX PRO MAX v3.0)
     // ------------------------------------------------------------------------
     private UIElement BuildViasView()
     {
@@ -637,6 +883,36 @@ internal sealed partial class MainWindow
                 return;
             }
 
+            // Linear Table Column Header Bar
+            var hdrGrid = new Grid { Margin = new Thickness(12, 2, 12, 6) };
+            hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(32) });
+            hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.45, GridUnitType.Star) });
+            hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.95, GridUnitType.Star) });
+            hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.15, GridUnitType.Star) });
+            hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(168) });
+            hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(154) });
+
+            TextBlock MakeColHdr(string txt, int col, HorizontalAlignment align = HorizontalAlignment.Left)
+            {
+                var tb = new TextBlock
+                {
+                    Text = txt,
+                    FontSize = 11,
+                    FontWeight = FontWeights.Bold,
+                    Foreground = ThemeTokens.TextMuted,
+                    HorizontalAlignment = align,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                Grid.SetColumn(tb, col);
+                return tb;
+            }
+            hdrGrid.Children.Add(MakeColHdr("TÀI KHOẢN VIA & VAI TRÒ", 1));
+            hdrGrid.Children.Add(MakeColHdr("ĐIỂM TRUST & COOKIE", 2));
+            hdrGrid.Children.Add(MakeColHdr("PROFILE & MẠNG PROXY", 3));
+            hdrGrid.Children.Add(MakeColHdr("MÃ 2FA LIVE", 4));
+            hdrGrid.Children.Add(MakeColHdr("THAO TÁC", 5, HorizontalAlignment.Right));
+            listHost.Children.Add(hdrGrid);
+
             foreach (var v in filtered)
             {
                 listHost.Children.Add(BuildViaRowCard(v, RefreshBulkAndList));
@@ -644,13 +920,13 @@ internal sealed partial class MainWindow
             OnUiSecondTick();
         }
 
-        // Static Search & Filter Header (preserves SearchBox focus!)
+        // Clean 3-Action Search & Filter Header (UI/UX Pro Max — No 14-button clutter!)
         var filterCardStack = new StackPanel();
         var searchRow = new Grid { Margin = new Thickness(0, 0, 0, 10) };
         searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        var searchBox = UiComponents.CreateTextBox(_viaSearch, "Tìm theo tên Via, UID, Profile Chrome, Proxy...");
+        var searchBox = UiComponents.CreateTextBox(_viaSearch, "🔍 Tìm theo tên Via, UID, Profile Chrome, Proxy...");
         searchBox.TextChanged += (_, _) =>
         {
             _viaSearch = searchBox.Text;
@@ -659,19 +935,30 @@ internal sealed partial class MainWindow
         searchRow.Children.Add(searchBox);
 
         var rightHeaderBtns = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(10, 0, 0, 0) };
-        var distProxyBtn = UiComponents.CreateButton($"Chia Proxy 1:{_config.MaxViasPerProxyInBatch}", ButtonVariant.Primary, FluentIcons.Globe, onClick: (_, _) => OpenBulkDistributeProxiesDialog(), tooltip: "Dán danh sách Proxy để tự động chia đều 1 Proxy cho N Via (chống Direct IP hàng loạt)");
+        var distProxyBtn = UiComponents.CreateButton($"🌐 Chia Proxy 1:{_config.MaxViasPerProxyInBatch}", ButtonVariant.Secondary, onClick: (_, _) => OpenBulkDistributeProxiesDialog(), tooltip: "Dán danh sách Proxy để tự động chia đều 1 Proxy cho N Via");
         distProxyBtn.Margin = new Thickness(0, 0, 6, 0);
         rightHeaderBtns.Children.Add(distProxyBtn);
 
-        var bulkTierBtn = UiComponents.CreateButton("Đổi Lớp / Profile", ButtonVariant.Secondary, FluentIcons.People, onClick: (_, _) => OpenBulkChangeTierAndSiloDialog(), tooltip: "Đổi hàng loạt Lớp Via (Hold BM / Lên Camp / Dự phòng), Nhóm Khách & tách Chrome Profile riêng");
-        bulkTierBtn.Margin = new Thickness(0, 0, 6, 0);
-        rightHeaderBtns.Children.Add(bulkTierBtn);
-
-        var proxyBatchBtn = UiComponents.CreateButton("Quét Proxy", ButtonVariant.Secondary, FluentIcons.Globe, onClick: async (_, _) => await RunBatchProxyCheckAsync(), tooltip: "Quét kiểm tra Live/Dead toàn bộ Proxy của Workspace");
-        proxyBatchBtn.Margin = new Thickness(0, 0, 6, 0);
-        rightHeaderBtns.Children.Add(proxyBatchBtn);
-
-        var selectAllBtn = UiComponents.CreateButton("Chọn hết", ButtonVariant.Secondary, onClick: (_, _) =>
+        var batchToolsMenuBtn = UiComponents.CreateButton("⚙️ Công cụ Lô ▾", ButtonVariant.Secondary, tooltip: "Toàn bộ công cụ quản lý lô, kiểm tra Proxy, Benchmark 5 Engine & Xuất/Nhập dữ liệu");
+        var batchMenu = new ContextMenu();
+        void AddToolMenu(string header, RoutedEventHandler onClick)
+        {
+            var mi = new MenuItem { Header = header };
+            mi.Click += onClick;
+            batchMenu.Items.Add(mi);
+        }
+        AddToolMenu("👥 Đổi Lớp Via / Nhóm Khách & Tách Profile hàng loạt", (_, _) => OpenBulkChangeTierAndSiloDialog());
+        AddToolMenu("🌐 Quét kiểm tra Proxy Live/Dead toàn bộ", async (_, _) => await RunBatchProxyCheckAsync());
+        AddToolMenu("📥 Nhập Lô nhiều Via từ Clipboard (Ctrl+B)", (_, _) => OpenBulkImportViasDialog());
+        AddToolMenu("📤 Xuất danh sách Via & Proxy ra file CSV", (_, _) => ExportViasCsv());
+        batchMenu.Items.Add(new Separator());
+        AddToolMenu("🪟 Xếp cửa sổ Chrome đang mở dạng lưới 2×2", (_, _) => TileActiveChromeWindows("2x2"));
+        AddToolMenu("🔑 Dán Token EAAB... kết nối nhanh Via & TKQC", (_, _) => OpenAutoConnectTokenDialog(null));
+        AddToolMenu("⚡ Benchmark tốc độ 5 Engine Antidetect", async (_, _) => await RunBenchmarkAllEnginesUiAsync());
+        batchMenu.Items.Add(new Separator());
+        AddToolMenu("🛡️ Xem Nhật ký Bảo vệ & Chặn rò rỉ IP", (_, _) => OpenStewardshipLogDialog());
+        AddToolMenu("📋 Xem Nhật ký Mở Profile (Audit Log)", (_, _) => OpenProfileLaunchAuditDialog());
+        AddToolMenu("☑️ Chọn / Bỏ chọn tất cả Via đang hiển thị", (_, _) =>
         {
             var visibleIds = FilterVias().Select(x => x.ViaId).ToList();
             var allSelected = visibleIds.Count > 0 && visibleIds.All(id => _selectedViaIds.Contains(id));
@@ -679,24 +966,21 @@ internal sealed partial class MainWindow
             else foreach (var id in visibleIds) _selectedViaIds.Add(id);
             RefreshBulkAndList();
         });
-        rightHeaderBtns.Children.Add(selectAllBtn);
+        batchToolsMenuBtn.Click += (_, _) =>
+        {
+            batchToolsMenuBtn.ContextMenu = batchMenu;
+            batchMenu.PlacementTarget = batchToolsMenuBtn;
+            batchMenu.IsOpen = true;
+        };
+        batchToolsMenuBtn.Margin = new Thickness(0, 0, 6, 0);
+        rightHeaderBtns.Children.Add(batchToolsMenuBtn);
+
+        var addViaMainBtn = UiComponents.CreateButton("+ Thêm Via", ButtonVariant.Primary, onClick: (_, _) => OpenViaEditorDialog(null), tooltip: "Thêm 1 Via mới (Ctrl+N)");
+        rightHeaderBtns.Children.Add(addViaMainBtn);
+
         Grid.SetColumn(rightHeaderBtns, 1);
         searchRow.Children.Add(rightHeaderBtns);
         filterCardStack.Children.Add(searchRow);
-
-        var toolsWrap = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
-        void AddSecondaryToolBtn(Button b)
-        {
-            b.Margin = new Thickness(0, 0, 6, 4);
-            toolsWrap.Children.Add(b);
-        }
-        AddSecondaryToolBtn(UiComponents.CreateButton("Xếp 2×2", ButtonVariant.Secondary, FluentIcons.Play, compact: true, onClick: (_, _) => TileActiveChromeWindows("2x2"), tooltip: "Xếp các cửa sổ Chrome đang mở thành lưới 2×2 trên màn hình"));
-        AddSecondaryToolBtn(UiComponents.CreateButton("Token EAAB", ButtonVariant.Secondary, FluentIcons.ShieldKey, compact: true, onClick: (_, _) => OpenAutoConnectTokenDialog(null), tooltip: "Dán Token EAAB... để tự động kết nối Via, BM & TKQC lên Cloud"));
-        AddSecondaryToolBtn(UiComponents.CreateButton("Nhật ký Bảo vệ", ButtonVariant.Secondary, FluentIcons.ShieldCheck, compact: true, onClick: (_, _) => OpenStewardshipLogDialog(), tooltip: $"Xem lịch sử chặn rò rỉ IP, Cooldown 24h & Cách ly Khách hàng ({DesktopAppInfo.DisplayVersion})"));
-        AddSecondaryToolBtn(UiComponents.CreateButton("Nhật ký Mở Profile", ButtonVariant.Secondary, FluentIcons.Diagnostic, compact: true, onClick: (_, _) => OpenProfileLaunchAuditDialog(), tooltip: "Xem ai đã mở Profile nào, qua Engine nào, trên máy nào"));
-        AddSecondaryToolBtn(UiComponents.CreateButton("Benchmark 5 Engine", ButtonVariant.Secondary, FluentIcons.Lightning, compact: true, onClick: async (_, _) => await RunBenchmarkAllEnginesUiAsync(), tooltip: "Đo tốc độ phản hồi Chrome Gốc & 5 Engine Antidetect"));
-        AddSecondaryToolBtn(UiComponents.CreateButton("Xuất CSV", ButtonVariant.Secondary, FluentIcons.Upload, compact: true, onClick: (_, _) => ExportViasCsv(), tooltip: "Xuất danh sách Via, Proxy, 2FA & Cookie DPAPI ra file CSV"));
-        filterCardStack.Children.Add(toolsWrap);
 
         var chipWrap = new WrapPanel();
         void AddViaChip(string key, string label)
@@ -711,14 +995,14 @@ internal sealed partial class MainWindow
         AddViaChip("vault", $"Hold BM ({_vias.Count(v => v.RoleTier is "vault" or "hold")})");
         AddViaChip("camp", $"Lên Camp ({_vias.Count(v => v.RoleTier is not "vault" and not "hold" and not "standby")})");
         AddViaChip("standby", $"Dự phòng ({_vias.Count(v => v.RoleTier == "standby")})");
-        AddViaChip("keepalive_due", $"Quá hạn Đảo Ấm ({_vias.Count(v => v.NeedsKeepAlive)})");
-        AddViaChip("72h_lock", $"Đang ngâm 72h ({_vias.Count(v => v.WarmupPhase == "72h_lock")})");
-        AddViaChip("cooldown", $"Đang Cooldown ({_vias.Count(v => v.IsInCooldown)})");
-        AddViaChip("silo_conflict", $"Trùng Silo ({_vias.Count(v => v.HasSiloConflict)})");
-        AddViaChip("proxy_dead", $"Proxy Chết ({_vias.Count(v => v.ProxyLastStatus == "DEAD")})");
+        AddViaChip("keepalive_due", $"Cần Đảo Ấm ({_vias.Count(v => v.NeedsKeepAlive)})");
+        AddViaChip("no_cookie", $"Thiếu Cookie ({_vias.Count(v => !v.HasVaultCookie)})");
         AddViaChip("running", $"Đang mở ({_vias.Count(v => v.IsBrowserRunning)})");
-        AddViaChip("tz_mismatch", $"Lệch Múi giờ ({_vias.Count(v => v.HasTimezoneMismatch)})");
-        AddViaChip("no_cookie", $"Thiếu Cookie Két ({_vias.Count(v => !v.HasVaultCookie)})");
+        var issueCount = _vias.Count(v => v.IsInCooldown || v.HasSiloConflict || v.ProxyLastStatus == "DEAD");
+        if (issueCount > 0 || _viaTierFilter is "cooldown" or "silo_conflict" or "proxy_dead")
+        {
+            AddViaChip("cooldown", $"Cooldown/Cảnh báo ({issueCount})");
+        }
         filterCardStack.Children.Add(chipWrap);
 
         // Unified 5-Engine Hub Filter Row (Engine + Proxy Cluster + Người phụ trách)
@@ -949,12 +1233,13 @@ internal sealed partial class MainWindow
 
     private Border BuildViaRowCard(ViaWorkspaceEntry v, Action refreshList)
     {
-        var grid = new Grid { MinHeight = 72 };
+        var grid = new Grid { MinHeight = 66 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(32) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.45, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(180) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.95, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.15, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(168) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(154) });
 
         var cb = new CheckBox
         {
@@ -967,9 +1252,47 @@ internal sealed partial class MainWindow
         Grid.SetColumn(cb, 0);
         grid.Children.Add(cb);
 
-        // Col 1: Identity + Badges
-        var idStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 10, 0) };
-        var titleRow = new WrapPanel { Margin = new Thickness(0, 0, 0, 4) };
+        // Col 1: Avatar Initials + Via Name + 1 Role Pill + Clean Monospace Subtitle (No badge soup!)
+        var col1Grid = new Grid { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 10, 0) };
+        col1Grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        col1Grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var words = (v.Label ?? "V").Split(new[] { ' ', '-', '_' }, StringSplitOptions.RemoveEmptyEntries);
+        var initials = words.Length >= 2
+            ? $"{char.ToUpperInvariant(words[0][0])}{char.ToUpperInvariant(words[^1][0])}"
+            : (v.Label ?? "V").Length >= 2 ? v.Label![..2].ToUpperInvariant() : "VA";
+
+        var (avFg, avBg, avBd) = v.RoleTier switch
+        {
+            "vault" or "hold" => (ThemeTokens.AccentText, ThemeTokens.InfoBg, ThemeTokens.InfoBorder),
+            "standby" => (ThemeTokens.WarningText, ThemeTokens.WarningBg, ThemeTokens.WarningBorder),
+            _ => (ThemeTokens.SuccessText, ThemeTokens.SuccessBg, ThemeTokens.SuccessBorder),
+        };
+        var avatarBox = new Border
+        {
+            Width = 36,
+            Height = 36,
+            CornerRadius = new CornerRadius(10),
+            Background = avBg,
+            BorderBrush = avBd,
+            BorderThickness = new Thickness(1),
+            Margin = new Thickness(0, 0, 10, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = initials,
+                FontFamily = ThemeTokens.MonoFont,
+                FontSize = 12,
+                FontWeight = FontWeights.Bold,
+                Foreground = avFg,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            },
+        };
+        col1Grid.Children.Add(avatarBox);
+
+        var idStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        var titleRow = new WrapPanel { Margin = new Thickness(0, 0, 0, 3) };
         titleRow.Children.Add(new TextBlock
         {
             Text = v.Label,
@@ -977,159 +1300,146 @@ internal sealed partial class MainWindow
             FontWeight = FontWeights.Bold,
             Foreground = ThemeTokens.TextPrimary,
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 8, 2),
+            Margin = new Thickness(0, 0, 8, 0),
         });
 
         var tierPill = v.RoleTier switch
         {
-            "vault" or "hold" => UiComponents.CreateBadgePill("HOLD BM", ThemeTokens.PurpleText, ThemeTokens.PurpleBg, ThemeTokens.PurpleBorder),
+            "vault" or "hold" => UiComponents.CreateBadgePill("HOLD BM", ThemeTokens.AccentText, ThemeTokens.InfoBg, ThemeTokens.InfoBorder),
             "standby" => UiComponents.CreateBadgePill("DỰ PHÒNG", ThemeTokens.WarningText, ThemeTokens.WarningBg, ThemeTokens.WarningBorder),
-            _ => UiComponents.CreateBadgePill("LÊN CAMP", ThemeTokens.AccentText, ThemeTokens.InfoBg, ThemeTokens.InfoBorder),
+            _ => UiComponents.CreateBadgePill("LÊN CAMP", ThemeTokens.SuccessText, ThemeTokens.SuccessBg, ThemeTokens.SuccessBorder),
         };
-        tierPill.Margin = new Thickness(0, 0, 6, 2);
+        tierPill.Margin = new Thickness(0, 0, 6, 0);
         titleRow.Children.Add(tierPill);
-
-        var (wmFg, wmBg, wmBd) = v.WarmupPhase switch
-        {
-            "72h_lock" => (ThemeTokens.DangerText, ThemeTokens.DangerBg, ThemeTokens.DangerBorder),
-            "7d_warmup" => (ThemeTokens.WarningText, ThemeTokens.WarningBg, ThemeTokens.WarningBorder),
-            _ => (ThemeTokens.SuccessText, ThemeTokens.SuccessBg, ThemeTokens.SuccessBorder),
-        };
-        var wmPill = UiComponents.CreateBadgePill(v.WarmupLabel, wmFg, wmBg, wmBd);
-        wmPill.Margin = new Thickness(0, 0, 6, 2);
-        titleRow.Children.Add(wmPill);
-
-        var (trFg, trBg, trBd) = v.TrustScore >= 75
-            ? (ThemeTokens.SuccessText, ThemeTokens.SuccessBg, ThemeTokens.SuccessBorder)
-            : v.TrustScore >= 50
-                ? (ThemeTokens.WarningText, ThemeTokens.WarningBg, ThemeTokens.WarningBorder)
-                : (ThemeTokens.DangerText, ThemeTokens.DangerBg, ThemeTokens.DangerBorder);
-        var trustPill = UiComponents.CreateBadgePill($"Trust {v.TrustScore}/100", trFg, trBg, trBd);
-        trustPill.ToolTip = string.IsNullOrWhiteSpace(v.TrustSummary) ? "Điểm Tin Cậy Môi Trường" : v.TrustSummary;
-        trustPill.Margin = new Thickness(0, 0, 6, 2);
-        titleRow.Children.Add(trustPill);
-
-        if (!string.IsNullOrWhiteSpace(v.ClientGroup))
-        {
-            var siloPill = UiComponents.CreateBadgePill($"Silo: {v.ClientGroup}", ThemeTokens.AccentText, ThemeTokens.InfoBg, ThemeTokens.InfoBorder);
-            siloPill.ToolTip = $"Khách hàng riêng: {v.ClientGroup} (cách ly chéo Proxy & Chrome Profile)";
-            siloPill.Margin = new Thickness(0, 0, 6, 2);
-            titleRow.Children.Add(siloPill);
-        }
 
         if (v.IsInCooldown)
         {
             var cdPill = UiComponents.CreateBadgePill("❄️ COOLDOWN", ThemeTokens.DangerText, ThemeTokens.DangerBg, ThemeTokens.DangerBorder);
             cdPill.ToolTip = $"Đóng băng đến {v.CooldownUntilUtc!.Value.ToLocalTime():dd/MM HH:mm}: {v.CooldownReason}";
-            cdPill.Margin = new Thickness(0, 0, 6, 2);
+            cdPill.Margin = new Thickness(0, 0, 6, 0);
             titleRow.Children.Add(cdPill);
         }
-
-        if (v.HasSiloConflict)
+        else if (v.HasSiloConflict)
         {
             var confPill = UiComponents.CreateBadgePill("⚠️ TRÙNG SILO", ThemeTokens.DangerText, ThemeTokens.DangerBg, ThemeTokens.DangerBorder);
             confPill.ToolTip = v.SiloConflictDetail;
-            confPill.Margin = new Thickness(0, 0, 6, 2);
+            confPill.Margin = new Thickness(0, 0, 6, 0);
             titleRow.Children.Add(confPill);
         }
-
-        var normEngine = AntidetectBrowserConnector.NormalizeEngine(v.AntidetectEngine);
-        var engineBadgeText = normEngine == "chrome_native"
-            ? "Chrome Gốc"
-            : $"🎭 {AntidetectBrowserConnector.GetDisplayName(normEngine)}" + (string.IsNullOrWhiteSpace(v.AntidetectProfileId) ? "" : $" #{v.AntidetectProfileId}");
-        var engPill = UiComponents.CreateBadgePill(
-            engineBadgeText,
-            normEngine == "chrome_native" ? ThemeTokens.TextSecondary : ThemeTokens.AccentText,
-            ThemeTokens.BgSurfaceElevated,
-            ThemeTokens.BorderSubtle);
-        engPill.Margin = new Thickness(0, 0, 6, 2);
-        titleRow.Children.Add(engPill);
-
-        if (!string.IsNullOrWhiteSpace(v.OwnerMemberName))
+        else if (v.IsBrowserRunning)
         {
-            var ownPill = UiComponents.CreateBadgePill($"👤 {v.OwnerMemberName}", ThemeTokens.PurpleText, ThemeTokens.PurpleBg, ThemeTokens.PurpleBorder);
-            ownPill.Margin = new Thickness(0, 0, 6, 2);
-            titleRow.Children.Add(ownPill);
-        }
-
-        if (v.IsBrowserRunning)
-        {
-            var ramPill = UiComponents.CreateBadgePill($"⚡ {v.ActiveRamMb:0}MB • {v.ActiveCpuPercent:0.0}%", ThemeTokens.SuccessText, ThemeTokens.SuccessBg, ThemeTokens.SuccessBorder);
-            ramPill.ToolTip = $"Đang chạy trực tiếp ({v.ActiveRamMb:0.0} MB RAM / {v.ActiveCpuPercent:0.0}% CPU)";
-            ramPill.Margin = new Thickness(0, 0, 6, 2);
+            var ramPill = UiComponents.CreateBadgePill($"⚡ ĐANG MỞ ({v.ActiveRamMb:0}MB)", ThemeTokens.SuccessText, ThemeTokens.SuccessBg, ThemeTokens.SuccessBorder);
+            ramPill.Margin = new Thickness(0, 0, 6, 0);
             titleRow.Children.Add(ramPill);
         }
 
-        if (v.HasTimezoneMismatch)
-        {
-            var tzPill = UiComponents.CreateBadgePill("🕒 LỆCH MÚI GIỜ IP", ThemeTokens.WarningText, ThemeTokens.WarningBg, ThemeTokens.WarningBorder);
-            tzPill.ToolTip = v.TimezoneWarning;
-            tzPill.Margin = new Thickness(0, 0, 6, 2);
-            titleRow.Children.Add(tzPill);
-        }
-
-        var ckPill = v.HasVaultCookie
-            ? UiComponents.CreateBadgePill("🍪 Cookie Két", ThemeTokens.SuccessText, ThemeTokens.SuccessBg, ThemeTokens.SuccessBorder)
-            : UiComponents.CreateBadgePill("⚠️ Chưa lưu Cookie", ThemeTokens.WarningText, ThemeTokens.WarningBg, ThemeTokens.WarningBorder);
-        ckPill.ToolTip = v.HasVaultCookie
-            ? "Đã lưu Cookie c_user/xs dự phòng trong Két DPAPI Local — sẵn sàng tự nạp khi mở Chrome cô lập & Auto-Failover"
-            : "Chưa có Cookie dự phòng trong Két DPAPI Local. Bấm nút 🔑 (Két DPAPI) hoặc chạy Đảo Ấm để lưu.";
-        ckPill.Margin = new Thickness(0, 0, 6, 2);
-        titleRow.Children.Add(ckPill);
         idStack.Children.Add(titleRow);
 
         var uidDisplay = string.IsNullOrWhiteSpace(v.ExternalReferenceId) ? "UID: —" : $"UID: {v.ExternalReferenceId}";
-        var dispName = string.IsNullOrWhiteSpace(v.DisplayName) ? "" : $" • {v.DisplayName}";
+        var ownerSuffix = string.IsNullOrWhiteSpace(v.OwnerMemberName) ? "" : $" • 👤 {v.OwnerMemberName}";
         idStack.Children.Add(new TextBlock
         {
-            Text = $"{uidDisplay}{dispName} • Cầm {v.HoldingPagesCount}/{v.HoldingLimit} Page • Hôm nay {v.CreatedTodayCount}/{v.DailyLimit}",
-            FontSize = 12,
-            Foreground = ThemeTokens.TextSecondary,
+            Text = $"{uidDisplay} • Cầm {v.HoldingPagesCount}/{v.HoldingLimit} Page • {v.BundledAccounts.Count} TKQC{ownerSuffix}",
+            FontFamily = ThemeTokens.MonoFont,
+            FontSize = 11.5,
+            Foreground = ThemeTokens.TextMuted,
             TextTrimming = TextTrimming.CharacterEllipsis,
         });
         Grid.SetColumn(idStack, 1);
-        grid.Children.Add(idStack);
+        col1Grid.Children.Add(idStack);
+        Grid.SetColumn(col1Grid, 1);
+        grid.Children.Add(col1Grid);
 
-        // Col 2: Profile + Proxy + Keep-Alive
+        // Col 2: Visual Trust Score Progress Bar + Vault Cookie Status
+        var trustStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
+        var trustTop = new Grid { Margin = new Thickness(0, 0, 0, 5) };
+        trustTop.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        trustTop.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var trFg = v.TrustScore >= 70
+            ? ThemeTokens.SuccessText
+            : v.TrustScore >= 45
+                ? ThemeTokens.WarningText
+                : ThemeTokens.DangerText;
+        trustTop.Children.Add(new TextBlock
+        {
+            Text = $"{v.TrustScore}/100",
+            FontFamily = ThemeTokens.MonoFont,
+            FontSize = 12.5,
+            FontWeight = FontWeights.Bold,
+            Foreground = trFg,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0),
+        });
+
+        var ckText = v.HasVaultCookie ? "✓ Két Cookie" : "⚠ Chưa lưu";
+        var ckFg = v.HasVaultCookie ? ThemeTokens.SuccessText : ThemeTokens.WarningText;
+        var ckTb = new TextBlock
+        {
+            Text = ckText,
+            FontSize = 11.5,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = ckFg,
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            ToolTip = v.HasVaultCookie
+                ? "Đã lưu Cookie dự phòng trong Két DPAPI Local"
+                : "Chưa có Cookie trong Két DPAPI — Mở trình duyệt hoặc bấm menu ⋯ -> Két DPAPI để lưu",
+        };
+        Grid.SetColumn(ckTb, 1);
+        trustTop.Children.Add(ckTb);
+        trustStack.Children.Add(trustTop);
+
+        var trustBar = UiComponents.CreateProgressBar(Math.Max(12, v.TrustScore), trFg, 5);
+        trustBar.ToolTip = string.IsNullOrWhiteSpace(v.TrustSummary) ? $"Điểm Trust: {v.TrustScore}/100 ({v.WarmupLabel})" : v.TrustSummary;
+        trustStack.Children.Add(trustBar);
+        Grid.SetColumn(trustStack, 2);
+        grid.Children.Add(trustStack);
+
+        // Col 3: Browser Profile + Proxy + Keep-Alive Status
+        var normEngine = AntidetectBrowserConnector.NormalizeEngine(v.AntidetectEngine);
+        var engineLabel = normEngine == "chrome_native"
+            ? $"Chrome Cô lập • {v.ProfileDir}"
+            : $"🎭 {AntidetectBrowserConnector.GetDisplayName(normEngine)} #{v.AntidetectProfileId}";
         var netStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
-        var parsedProxy = ExtensionProvisioner.ParseProxy(v.NetworkLabel);
-        var proxyDesc = string.IsNullOrWhiteSpace(v.NetworkLabel)
-            ? "Mạng: IP Trực tiếp (Chưa gắn Proxy)"
-            : parsedProxy != null
-                ? $"Proxy: {parsedProxy.Host}:{parsedProxy.Port}"
-                : $"Proxy: {v.NetworkLabel}";
-
         netStack.Children.Add(new TextBlock
         {
-            Text = $"Chrome: {v.ProfileDir}  •  {v.BundledAccounts.Count} TKQC",
-            FontSize = 12,
+            Text = engineLabel,
+            FontSize = 12.5,
             FontWeight = FontWeights.SemiBold,
             Foreground = ThemeTokens.TextPrimary,
             TextTrimming = TextTrimming.CharacterEllipsis,
             Margin = new Thickness(0, 0, 0, 3),
         });
 
-        // Honest proxy & keep-alive state (NEVER fake 0ms!)
+        var parsedProxy = ExtensionProvisioner.ParseProxy(v.NetworkLabel);
+        var proxyShort = string.IsNullOrWhiteSpace(v.NetworkLabel)
+            ? "Direct IP (Mạng gốc)"
+            : parsedProxy != null
+                ? $"{parsedProxy.Host}:{parsedProxy.Port}"
+                : v.NetworkLabel;
         var proxyHealthText = v.ProxyLastStatus switch
         {
-            "LIVE" => v.ProxyLatencyMs.HasValue ? $"LIVE ({v.ProxyLatencyMs.Value}ms)" : "LIVE (Chưa đo ms)",
-            "DEAD" => "DEAD / Lỗi",
-            "DIRECT" => "Direct IP",
-            _ => "Chưa kiểm",
+            "LIVE" => v.ProxyLatencyMs.HasValue ? $"LIVE ({v.ProxyLatencyMs.Value}ms)" : "LIVE",
+            "DEAD" => "DEAD",
+            _ => "",
         };
         var keepText = v.NeedsKeepAlive ? $"Cần Đảo Ấm ({v.IdleDays:0.#}d)" : $"Ấm ({v.IdleDays:0.#}d)";
+        var netLine = string.IsNullOrEmpty(proxyHealthText)
+            ? $"● {proxyShort} • {keepText}"
+            : $"● {proxyShort} ({proxyHealthText}) • {keepText}";
         netStack.Children.Add(new TextBlock
         {
-            Text = $"{proxyDesc} • {proxyHealthText} • {keepText}",
-            FontSize = 12,
-            Foreground = v.ProxyLastStatus == "DEAD" || v.NeedsKeepAlive ? ThemeTokens.WarningText : ThemeTokens.TextMuted,
+            Text = netLine,
+            FontSize = 11.5,
+            Foreground = v.ProxyLastStatus == "DEAD" ? ThemeTokens.DangerText : v.NeedsKeepAlive ? ThemeTokens.WarningText : ThemeTokens.SuccessText,
             TextTrimming = TextTrimming.CharacterEllipsis,
         });
-        Grid.SetColumn(netStack, 2);
+        Grid.SetColumn(netStack, 3);
         grid.Children.Add(netStack);
 
-        // Col 3: Live 6-digit 2FA OTP widget
-        var otpBox = new Grid { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
+        // Col 4: Live 6-digit 2FA OTP widget
+        var otpBox = new Grid { VerticalAlignment = VerticalAlignment.Center };
         otpBox.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         otpBox.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
@@ -1137,7 +1447,7 @@ internal sealed partial class MainWindow
         {
             Text = "—",
             FontFamily = ThemeTokens.MonoFont,
-            FontSize = 15,
+            FontSize = 14,
             FontWeight = FontWeights.Bold,
             Foreground = ThemeTokens.AccentText,
             VerticalAlignment = VerticalAlignment.Center,
@@ -1146,7 +1456,7 @@ internal sealed partial class MainWindow
         {
             Text = "—",
             FontFamily = ThemeTokens.MonoFont,
-            FontSize = 12,
+            FontSize = 11.5,
             Foreground = ThemeTokens.TextSecondary,
         };
         var remainPill = new Border
@@ -1154,9 +1464,9 @@ internal sealed partial class MainWindow
             Background = ThemeTokens.NeutralBg,
             BorderBrush = ThemeTokens.BorderSubtle,
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(6),
-            Padding = new Thickness(6, 2, 6, 2),
-            Margin = new Thickness(6, 0, 6, 0),
+            CornerRadius = new CornerRadius(5),
+            Padding = new Thickness(5, 1, 5, 1),
+            Margin = new Thickness(5, 0, 5, 0),
             VerticalAlignment = VerticalAlignment.Center,
             Child = remainTb,
         };
@@ -1177,14 +1487,14 @@ internal sealed partial class MainWindow
         otpBox.Children.Add(copyBtn);
 
         _liveTotpBindings.Add(new LiveTotpBinding(v.ViaId, v.ProfileDir, v.Label, v.TwoFaSecret, codeTb, remainTb, remainPill));
-        var otpBorder = UiComponents.CreateCard(otpBox, new Thickness(8, 6, 8, 6), ThemeTokens.BgSurfaceElevated, ThemeTokens.BorderSubtle);
+        var otpBorder = UiComponents.CreateCard(otpBox, new Thickness(8, 5, 8, 5), ThemeTokens.BgSurfaceElevated, ThemeTokens.BorderSubtle);
         otpBorder.Margin = new Thickness(0, 0, 10, 0);
         otpBorder.VerticalAlignment = VerticalAlignment.Center;
-        Grid.SetColumn(otpBorder, 3);
+        Grid.SetColumn(otpBorder, 4);
         grid.Children.Add(otpBorder);
 
-        // Col 4: Row Actions (RBAC-guarded Launch)
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        // Col 5: Primary Launch Button + Clean Overflow Menu "⋯"
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right };
         var canLaunch = CanCurrentUserLaunchVia(v, out var denyReason);
         var launchBtnLabel = normEngine == "chrome_native" ? "Mở Chrome" : $"Mở {AntidetectBrowserConnector.GetDisplayName(normEngine)}";
         var openBtn = UiComponents.CreateButton(
@@ -1198,27 +1508,27 @@ internal sealed partial class MainWindow
         openBtn.Margin = new Thickness(0, 0, 6, 0);
         actions.Children.Add(openBtn);
 
+        var moreBtn = UiComponents.CreateButton("⋯", ButtonVariant.Secondary, compact: true, tooltip: "Thao tác Via: Đảo Ấm, Két Cookie/2FA DPAPI, Kiểm tra IP, Chỉnh sửa & Lưu trữ");
+        var rowMenu = new ContextMenu();
+        void AddRowMenu(string header, RoutedEventHandler handler)
+        {
+            var mi = new MenuItem { Header = header };
+            mi.Click += handler;
+            rowMenu.Items.Add(mi);
+        }
+        AddRowMenu("☕ Đảo Ấm thụ động cho Via này", (_, _) => EnqueueKeepAliveVias(new[] { v }, $"Đảo Ấm {v.Label}", requireConfirm: false));
+        AddRowMenu("🔑 Quản lý Cookie & 2FA trong Két DPAPI Local", (_, _) => OpenLocalVaultDialog(v));
+        AddRowMenu("✏️ Chỉnh sửa thông tin Via & Proxy", (_, _) => OpenViaEditorDialog(v));
         if (!string.IsNullOrWhiteSpace(v.NetworkLabel))
         {
-            var testIpBtn = UiComponents.CreateButton("Test IP", ButtonVariant.Secondary, FluentIcons.Globe, compact: true, onClick: async (_, _) =>
+            AddRowMenu("🌐 Kiểm tra nhanh Proxy Live/Dead (Test IP)", async (_, _) =>
             {
                 await CheckSelectedViaProxiesAsync(new List<ViaWorkspaceEntry> { v });
                 RenderCurrentView();
-            }, tooltip: "Kiểm tra nhanh Proxy Live/Dead cho Via này");
-            testIpBtn.Margin = new Thickness(0, 0, 6, 0);
-            actions.Children.Add(testIpBtn);
+            });
         }
-
-        var warmBtn = UiComponents.CreateButton("", ButtonVariant.Secondary, FluentIcons.CoffeeWarmup, compact: true, onClick: (_, _) => EnqueueKeepAliveVias(new[] { v }, $"Đảo Ấm {v.Label}", requireConfirm: false), tooltip: "Đảo Ấm thụ động cho Via này");
-        warmBtn.Margin = new Thickness(0, 0, 6, 0);
-
-        var vaultBtn = UiComponents.CreateButton("", ButtonVariant.Secondary, FluentIcons.Key, compact: true, onClick: (_, _) => OpenLocalVaultDialog(v), tooltip: "Quản lý Cookie & 2FA trong Két DPAPI Local");
-        vaultBtn.Margin = new Thickness(0, 0, 6, 0);
-
-        var editBtn = UiComponents.CreateButton("", ButtonVariant.Secondary, FluentIcons.Edit, compact: true, onClick: (_, _) => OpenViaEditorDialog(v), tooltip: "Chỉnh sửa thông tin Via");
-        editBtn.Margin = new Thickness(0, 0, 6, 0);
-
-        var archBtn = UiComponents.CreateButton("", ButtonVariant.Subtle, FluentIcons.Delete, compact: true, onClick: async (_, _) =>
+        rowMenu.Items.Add(new Separator());
+        AddRowMenu("🗑️ Lưu trữ (Archive) Via này", async (_, _) =>
         {
             var confirm = UiComponents.ShowConfirmActionDialog(
                 this,
@@ -1236,17 +1546,20 @@ internal sealed partial class MainWindow
                 await SyncCloudAsync(silent: false);
             }
             catch (Exception ex) { AppendLog($"Lỗi lưu trữ Via: {ex.Message}"); }
-        }, tooltip: "Lưu trữ Via");
+        });
+        moreBtn.Click += (_, _) =>
+        {
+            moreBtn.ContextMenu = rowMenu;
+            rowMenu.PlacementTarget = moreBtn;
+            rowMenu.IsOpen = true;
+        };
+        actions.Children.Add(moreBtn);
 
-        actions.Children.Add(warmBtn);
-        actions.Children.Add(vaultBtn);
-        actions.Children.Add(editBtn);
-        actions.Children.Add(archBtn);
-        Grid.SetColumn(actions, 4);
+        Grid.SetColumn(actions, 5);
         grid.Children.Add(actions);
 
-        var card = UiComponents.CreateCard(grid, new Thickness(12, 10, 12, 10));
-        card.Margin = new Thickness(0, 0, 0, 8);
+        var card = UiComponents.CreateCard(grid, new Thickness(12, 9, 12, 9));
+        card.Margin = new Thickness(0, 0, 0, 7);
         return card;
     }
 

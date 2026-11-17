@@ -169,6 +169,7 @@ internal sealed partial class MainWindow : Window
         _startMinimized = startMinimized;
         ProtocolRegistrar.CleanupLegacyPythonBridgeAutostart();
         _config = DesktopConfig.Load();
+        ThemeTokens.ApplyPalette(_config.UiThemePalette);
         ConfigureApiClient();
 
         _queue = new AutomationQueueEngine(
@@ -2584,31 +2585,40 @@ internal sealed partial class MainWindow : Window
         };
 
         _headerActionsPanel.Children.Clear();
-        var cmdBtn = UiComponents.CreateButton("Lệnh nhanh (Ctrl+K)", ButtonVariant.Secondary, FluentIcons.Lightning, onClick: (_, _) => OpenCommandPaletteDialog(), tooltip: "Bảng tìm nhanh Via / Copy 2FA / Điều hướng (Ctrl+K hoặc Ctrl+P)");
+        var nextPalette = ThemeTokens.CurrentPalette == "emerald" ? "obsidian" : "emerald";
+        var paletteLabel = ThemeTokens.CurrentPalette == "emerald" ? "🎨 Emerald Vault" : "🎨 Linear Obsidian";
+        var themeBtn = UiComponents.CreateButton(paletteLabel, ButtonVariant.Secondary, compact: true, onClick: (_, _) =>
+        {
+            _config.UiThemePalette = nextPalette;
+            _config.Save();
+            ThemeTokens.ApplyPalette(nextPalette);
+            Background = ThemeTokens.BgCanvas;
+            Foreground = ThemeTokens.TextPrimary;
+            _navButtons.Clear();
+            _navBadges.Clear();
+            BuildShellLayout();
+            UpdateNavStyles();
+            RefreshHeaderAndSidebar();
+            RenderCurrentView();
+            AppendLog($"🎨 Đã chuyển giao diện UI/UX Pro Max sang chủ đề '{(nextPalette == "emerald" ? "Emerald Cyber-Vault" : "Linear Obsidian")}'.");
+        }, tooltip: "Chuyển đổi chủ đề màu UI/UX Pro Max (Linear Obsidian <-> Emerald Cyber-Vault)");
+        themeBtn.Margin = new Thickness(0, 0, 8, 0);
+        _headerActionsPanel.Children.Add(themeBtn);
+
+        var cmdBtn = UiComponents.CreateButton("⌘K Lệnh nhanh", ButtonVariant.Secondary, FluentIcons.Lightning, onClick: (_, _) => OpenCommandPaletteDialog(), tooltip: "Bảng tìm nhanh Via / Copy 2FA / Điều hướng (Ctrl+K hoặc Ctrl+P)");
         cmdBtn.Margin = new Thickness(0, 0, 8, 0);
         _headerActionsPanel.Children.Add(cmdBtn);
 
-        if (isLoggedIn)
-        {
-            var bulkBtn = UiComponents.CreateButton("Nhập Lô", ButtonVariant.Secondary, FluentIcons.Download, onClick: (_, _) => OpenBulkImportViasDialog(), tooltip: "Nhập danh sách nhiều Via từ Clipboard (Ctrl+B)");
-            bulkBtn.Margin = new Thickness(0, 0, 8, 0);
-            _headerActionsPanel.Children.Add(bulkBtn);
-
-            var addViaBtn = UiComponents.CreateButton("Thêm Via", ButtonVariant.Primary, FluentIcons.Add, onClick: (_, _) => OpenViaEditorDialog(null), tooltip: "Thêm 1 Via mới (Ctrl+N)");
-            addViaBtn.Margin = new Thickness(0, 0, 8, 0);
-            _headerActionsPanel.Children.Add(addViaBtn);
-
-            if (dueCount > 0)
-            {
-                var warmupBtn = UiComponents.CreateButton($"Đảo Ấm ({dueCount})", ButtonVariant.Secondary, FluentIcons.CoffeeWarmup, onClick: (_, _) => StartKeepAliveDueQueue(requireConfirm: true));
-                warmupBtn.Margin = new Thickness(0, 0, 8, 0);
-                _headerActionsPanel.Children.Add(warmupBtn);
-            }
-        }
-
         var syncBtn = UiComponents.CreateButton("Đồng bộ", ButtonVariant.Secondary, FluentIcons.Sync, onClick: async (_, _) => await SyncCloudAsync(silent: false), tooltip: "Đồng bộ dữ liệu từ AdsOps Cloud (F5)");
         syncBtn.IsEnabled = !_isBusy;
+        syncBtn.Margin = new Thickness(0, 0, isLoggedIn ? 8 : 0, 0);
         _headerActionsPanel.Children.Add(syncBtn);
+
+        if (isLoggedIn)
+        {
+            var autoPilotHdrBtn = UiComponents.CreateButton("⚡ Auto-Pilot 5 Bước", ButtonVariant.Primary, FluentIcons.Lightning, onClick: async (_, _) => await RunFullAutoPilotPipelineAsync(interactiveConfirm: true), tooltip: "Chạy tuần tự 5 bước: Dọn Cache/RAM -> Quét Proxy -> Đồng bộ Meta -> Nuôi Page/Mời Follow -> Đảo Ấm Via");
+            _headerActionsPanel.Children.Add(autoPilotHdrBtn);
+        }
     }
 
     private void SetNavBadge(AppView view, string text)

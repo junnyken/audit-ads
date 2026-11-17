@@ -8,67 +8,120 @@ using System.Windows.Media;
 namespace AdsOpsDesktop;
 
 /// <summary>
-/// Semantic Design Tokens for AdsOps Desktop Pro v2.3 (Slate Dark UI, WCAG AA >= 4.5:1 verified).
+/// Semantic Design Tokens for AdsOps Desktop Pro v3.0 (UI/UX Pro Max — Linear Obsidian &amp; Emerald Cyber-Vault, WCAG AA >= 4.5:1 verified).
 /// </summary>
 internal static class ThemeTokens
 {
-    public static readonly FontFamily UiFont = new("Segoe UI");
-    public static readonly FontFamily MonoFont = new("Cascadia Mono, Consolas, Courier New");
+    public static readonly FontFamily UiFont = new("Segoe UI Variable Text, Segoe UI");
+    public static readonly FontFamily MonoFont = new("Cascadia Mono, JetBrains Mono, Consolas, Courier New");
     public static readonly FontFamily IconFont = new("Segoe Fluent Icons, Segoe MDL2 Assets, Segoe UI Symbol");
 
-    // Surfaces
-    public static readonly SolidColorBrush BgCanvas = Freeze(15, 23, 42);           // #0F172A
-    public static readonly SolidColorBrush BgSidebar = Freeze(11, 17, 32);          // #0B1120
-    public static readonly SolidColorBrush BgHeader = Freeze(15, 23, 42);           // #0F172A
-    public static readonly SolidColorBrush BgSurface = Freeze(22, 32, 50);          // #162032
-    public static readonly SolidColorBrush BgSurfaceElevated = Freeze(30, 41, 59);  // #1E293B
-    public static readonly SolidColorBrush BgSurfaceHover = Freeze(40, 53, 72);     // #283548
-    public static readonly SolidColorBrush BgNavActive = Freeze(23, 37, 84);        // #172554
-    public static readonly SolidColorBrush BgNavHover = Freeze(26, 36, 56);         // #1A2438
-    public static readonly SolidColorBrush BgLogDrawer = Freeze(9, 14, 26);         // #090E1A
+    public static string CurrentPalette { get; private set; } = "obsidian";
+
+    // Surfaces (Default: Linear Obsidian #090A0F / #121521)
+    public static SolidColorBrush BgCanvas { get; private set; } = Freeze(9, 10, 15);            // #090A0F
+    public static SolidColorBrush BgSidebar { get; private set; } = Freeze(13, 15, 23);         // #0D0F17
+    public static SolidColorBrush BgHeader { get; private set; } = Freeze(9, 10, 15);           // #090A0F
+    public static SolidColorBrush BgSurface { get; private set; } = Freeze(18, 21, 33);         // #121521
+    public static SolidColorBrush BgSurfaceElevated { get; private set; } = Freeze(24, 28, 43); // #181C2B
+    public static SolidColorBrush BgSurfaceHover { get; private set; } = Freeze(34, 40, 62);    // #22283E
+    public static SolidColorBrush BgNavActive { get; private set; } = Freeze(30, 27, 75);       // #1E1B4B
+    public static SolidColorBrush BgNavHover { get; private set; } = Freeze(22, 26, 41);        // #161A29
+    public static SolidColorBrush BgLogDrawer { get; private set; } = Freeze(7, 8, 13);         // #07080D
 
     // Borders
-    public static readonly SolidColorBrush BorderSubtle = Freeze(38, 51, 72);       // #263348
-    public static readonly SolidColorBrush BorderDefault = Freeze(51, 65, 85);      // #334155
-    public static readonly SolidColorBrush BorderFocus = Freeze(96, 165, 250);      // #60A5FA
+    public static SolidColorBrush BorderSubtle { get; private set; } = Freeze(35, 41, 62);      // #23293E
+    public static SolidColorBrush BorderDefault { get; private set; } = Freeze(49, 57, 84);     // #313954
+    public static SolidColorBrush BorderFocus { get; private set; } = Freeze(129, 140, 248);    // #818CF8
 
     // Text
-    public static readonly SolidColorBrush TextWhite = Freeze(255, 255, 255);       // #FFFFFF
-    public static readonly SolidColorBrush TextPrimary = Freeze(241, 245, 249);     // #F1F5F9
-    public static readonly SolidColorBrush TextSecondary = Freeze(203, 213, 225);   // #CBD5E1
-    public static readonly SolidColorBrush TextMuted = Freeze(148, 163, 184);       // #94A3B8
+    public static readonly SolidColorBrush TextWhite = Freeze(255, 255, 255);                   // #FFFFFF
+    public static SolidColorBrush TextPrimary { get; private set; } = Freeze(248, 250, 252);    // #F8FAFC
+    public static SolidColorBrush TextSecondary { get; private set; } = Freeze(203, 213, 225);  // #CBD5E1
+    public static SolidColorBrush TextMuted { get; private set; } = Freeze(148, 163, 184);      // #94A3B8
 
     // Solid action fills (chosen so #FFFFFF label achieves >= 4.5:1 WCAG AA)
-    public static readonly SolidColorBrush AccentPrimary = Freeze(29, 78, 216);     // #1D4ED8 (6.52:1)
-    public static readonly SolidColorBrush AccentPrimaryHover = Freeze(30, 64, 175);// #1E40AF
-    public static readonly SolidColorBrush SuccessSolid = Freeze(4, 120, 87);       // #047857 (5.55:1)
-    public static readonly SolidColorBrush SuccessSolidHover = Freeze(6, 95, 70);   // #065F46
-    public static readonly SolidColorBrush DangerSolid = Freeze(185, 28, 28);       // #B91C1C (6.48:1)
-    public static readonly SolidColorBrush DangerSolidHover = Freeze(153, 27, 27);  // #991B1B
+    public static SolidColorBrush AccentPrimary { get; private set; } = Freeze(79, 70, 229);      // #4F46E5 (6.29:1)
+    public static SolidColorBrush AccentPrimaryHover { get; private set; } = Freeze(67, 56, 202); // #4338CA
+    public static SolidColorBrush SuccessSolid { get; private set; } = Freeze(4, 120, 87);        // #047857 (5.55:1)
+    public static SolidColorBrush SuccessSolidHover { get; private set; } = Freeze(6, 95, 70);    // #065F46
+    public static SolidColorBrush DangerSolid { get; private set; } = Freeze(185, 28, 28);        // #B91C1C (6.48:1)
+    public static SolidColorBrush DangerSolidHover { get; private set; } = Freeze(153, 27, 27);   // #991B1B
 
     // Semantic foregrounds & dark tinted pill backgrounds (>= 4.5:1)
-    public static readonly SolidColorBrush AccentText = Freeze(96, 165, 250);       // #60A5FA
-    public static readonly SolidColorBrush InfoBg = Freeze(18, 36, 64);             // #122440
-    public static readonly SolidColorBrush InfoBorder = Freeze(37, 99, 235);        // #2563EB
+    public static SolidColorBrush AccentText { get; private set; } = Freeze(129, 140, 248);     // #818CF8
+    public static SolidColorBrush InfoBg { get; private set; } = Freeze(22, 24, 56);            // #161838
+    public static SolidColorBrush InfoBorder { get; private set; } = Freeze(79, 70, 229);       // #4F46E5
 
-    public static readonly SolidColorBrush SuccessText = Freeze(52, 211, 153);      // #34D399
-    public static readonly SolidColorBrush SuccessBg = Freeze(11, 43, 35);          // #0B2B23
-    public static readonly SolidColorBrush SuccessBorder = Freeze(16, 185, 129);    // #10B981
+    public static SolidColorBrush SuccessText { get; private set; } = Freeze(52, 211, 153);     // #34D399
+    public static SolidColorBrush SuccessBg { get; private set; } = Freeze(11, 43, 35);         // #0B2B23
+    public static SolidColorBrush SuccessBorder { get; private set; } = Freeze(16, 185, 129);   // #10B981
 
-    public static readonly SolidColorBrush WarningText = Freeze(251, 191, 36);      // #FBBF24
-    public static readonly SolidColorBrush WarningBg = Freeze(43, 33, 11);          // #2B210B
-    public static readonly SolidColorBrush WarningBorder = Freeze(217, 119, 6);     // #D97706
+    public static SolidColorBrush WarningText { get; private set; } = Freeze(251, 191, 36);     // #FBBF24
+    public static SolidColorBrush WarningBg { get; private set; } = Freeze(43, 33, 11);         // #2B210B
+    public static SolidColorBrush WarningBorder { get; private set; } = Freeze(217, 119, 6);    // #D97706
 
-    public static readonly SolidColorBrush DangerText = Freeze(248, 113, 113);      // #F87171
-    public static readonly SolidColorBrush DangerBg = Freeze(45, 21, 25);           // #2D1519
-    public static readonly SolidColorBrush DangerBorder = Freeze(220, 38, 38);      // #DC2626
+    public static SolidColorBrush DangerText { get; private set; } = Freeze(248, 113, 113);     // #F87171
+    public static SolidColorBrush DangerBg { get; private set; } = Freeze(45, 21, 25);          // #2D1519
+    public static SolidColorBrush DangerBorder { get; private set; } = Freeze(220, 38, 38);     // #DC2626
 
-    public static readonly SolidColorBrush PurpleText = Freeze(192, 132, 252);      // #C084FC
-    public static readonly SolidColorBrush PurpleBg = Freeze(37, 24, 56);           // #251838
-    public static readonly SolidColorBrush PurpleBorder = Freeze(147, 51, 234);     // #9333EA
+    public static SolidColorBrush PurpleText { get; private set; } = Freeze(192, 132, 252);     // #C084FC
+    public static SolidColorBrush PurpleBg { get; private set; } = Freeze(37, 24, 56);          // #251838
+    public static SolidColorBrush PurpleBorder { get; private set; } = Freeze(147, 51, 234);    // #9333EA
 
-    public static readonly SolidColorBrush NeutralBg = Freeze(30, 41, 59);          // #1E293B
-    public static readonly SolidColorBrush NeutralBorder = Freeze(71, 85, 105);     // #475569
+    public static SolidColorBrush NeutralBg { get; private set; } = Freeze(24, 28, 43);         // #181C2B
+    public static SolidColorBrush NeutralBorder { get; private set; } = Freeze(63, 73, 107);    // #3F496B
+
+    public static void ApplyPalette(string? paletteKey)
+    {
+        var norm = (paletteKey ?? "obsidian").Trim().ToLowerInvariant();
+        if (norm == "emerald")
+        {
+            CurrentPalette = "emerald";
+            BgCanvas = Freeze(7, 11, 10);
+            BgSidebar = Freeze(11, 18, 16);
+            BgHeader = Freeze(7, 11, 10);
+            BgSurface = Freeze(16, 26, 23);
+            BgSurfaceElevated = Freeze(22, 36, 32);
+            BgSurfaceHover = Freeze(29, 48, 42);
+            BgNavActive = Freeze(13, 48, 38);
+            BgNavHover = Freeze(18, 32, 28);
+            BgLogDrawer = Freeze(5, 9, 8);
+            BorderSubtle = Freeze(31, 53, 46);
+            BorderDefault = Freeze(45, 79, 68);
+            BorderFocus = Freeze(52, 211, 153);
+            AccentPrimary = Freeze(4, 120, 87);
+            AccentPrimaryHover = Freeze(6, 95, 70);
+            AccentText = Freeze(52, 211, 153);
+            InfoBg = Freeze(11, 43, 35);
+            InfoBorder = Freeze(16, 185, 129);
+            NeutralBg = Freeze(22, 36, 32);
+            NeutralBorder = Freeze(45, 79, 68);
+        }
+        else
+        {
+            CurrentPalette = "obsidian";
+            BgCanvas = Freeze(9, 10, 15);
+            BgSidebar = Freeze(13, 15, 23);
+            BgHeader = Freeze(9, 10, 15);
+            BgSurface = Freeze(18, 21, 33);
+            BgSurfaceElevated = Freeze(24, 28, 43);
+            BgSurfaceHover = Freeze(34, 40, 62);
+            BgNavActive = Freeze(30, 27, 75);
+            BgNavHover = Freeze(22, 26, 41);
+            BgLogDrawer = Freeze(7, 8, 13);
+            BorderSubtle = Freeze(35, 41, 62);
+            BorderDefault = Freeze(49, 57, 84);
+            BorderFocus = Freeze(129, 140, 248);
+            AccentPrimary = Freeze(79, 70, 229);
+            AccentPrimaryHover = Freeze(67, 56, 202);
+            AccentText = Freeze(129, 140, 248);
+            InfoBg = Freeze(22, 24, 56);
+            InfoBorder = Freeze(79, 70, 229);
+            NeutralBg = Freeze(24, 28, 43);
+            NeutralBorder = Freeze(63, 73, 107);
+        }
+    }
 
     private static SolidColorBrush Freeze(byte r, byte g, byte b)
     {

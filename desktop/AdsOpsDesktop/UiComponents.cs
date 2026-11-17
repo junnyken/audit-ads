@@ -149,9 +149,39 @@ internal static class UiComponents
             Background = bg ?? ThemeTokens.BgSurface,
             BorderBrush = border ?? ThemeTokens.BorderSubtle,
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(10),
-            Padding = padding ?? new Thickness(14),
+            CornerRadius = new CornerRadius(12),
+            Padding = padding ?? new Thickness(15),
+            SnapsToDevicePixels = true,
             Child = child,
+        };
+    }
+
+    public static Border CreateProgressBar(double percent, Brush fillBrush, double height = 5)
+    {
+        var clamped = Math.Clamp(percent, 0.0, 100.0);
+        var track = new Grid
+        {
+            Height = height,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        track.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(1.0, clamped), GridUnitType.Star) });
+        track.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(0.01, 100.0 - clamped), GridUnitType.Star) });
+
+        var fill = new Border
+        {
+            Background = fillBrush,
+            CornerRadius = new CornerRadius(height / 2.0),
+        };
+        Grid.SetColumn(fill, 0);
+        track.Children.Add(fill);
+
+        return new Border
+        {
+            Background = ThemeTokens.BgSurfaceElevated,
+            CornerRadius = new CornerRadius(height / 2.0),
+            Height = height,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Child = track,
         };
     }
 
@@ -233,9 +263,11 @@ internal static class UiComponents
         string iconGlyph,
         Brush accentBrush,
         out TextBlock valueBlock,
-        out TextBlock subBlock)
+        out TextBlock subBlock,
+        double progressPercent = 82.0)
     {
         var grid = new Grid();
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -250,7 +282,7 @@ internal static class UiComponents
             FontFamily = ThemeTokens.UiFont,
             FontSize = 12,
             FontWeight = FontWeights.SemiBold,
-            Foreground = ThemeTokens.TextMuted,
+            Foreground = ThemeTokens.TextSecondary,
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -258,10 +290,12 @@ internal static class UiComponents
 
         var iconBox = new Border
         {
-            Width = 26,
-            Height = 26,
-            CornerRadius = new CornerRadius(7),
-            Background = ThemeTokens.WithAlpha(((SolidColorBrush)accentBrush).Color, 34),
+            Width = 30,
+            Height = 30,
+            CornerRadius = new CornerRadius(8),
+            Background = ThemeTokens.WithAlpha(((SolidColorBrush)accentBrush).Color, 36),
+            BorderBrush = ThemeTokens.WithAlpha(((SolidColorBrush)accentBrush).Color, 72),
+            BorderThickness = new Thickness(1),
             Child = CreateIcon(iconGlyph, 14, accentBrush),
         };
         Grid.SetColumn(iconBox, 1);
@@ -272,10 +306,10 @@ internal static class UiComponents
         {
             Text = initialValue,
             FontFamily = ThemeTokens.MonoFont,
-            FontSize = 22,
+            FontSize = 24,
             FontWeight = FontWeights.Bold,
             Foreground = ThemeTokens.TextPrimary,
-            Margin = new Thickness(0, 6, 0, 2),
+            Margin = new Thickness(0, 8, 0, 3),
         };
         Grid.SetRow(valueBlock, 1);
         grid.Children.Add(valueBlock);
@@ -285,13 +319,18 @@ internal static class UiComponents
             Text = initialSub,
             FontFamily = ThemeTokens.UiFont,
             FontSize = 12,
-            Foreground = ThemeTokens.TextSecondary,
+            Foreground = ThemeTokens.TextMuted,
             TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(0, 0, 0, 8),
         };
         Grid.SetRow(subBlock, 2);
         grid.Children.Add(subBlock);
 
-        return CreateCard(grid, new Thickness(12, 10, 12, 10));
+        var pBar = CreateProgressBar(progressPercent, accentBrush, 4.5);
+        Grid.SetRow(pBar, 3);
+        grid.Children.Add(pBar);
+
+        return CreateCard(grid, new Thickness(14, 12, 14, 12));
     }
 
     public static TextBox CreateTextBox(string initialText = "", string placeholder = "", bool multiline = false, double height = 34)
