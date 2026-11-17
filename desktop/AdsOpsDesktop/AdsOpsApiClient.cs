@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -13,6 +14,7 @@ namespace AdsOpsDesktop;
 public sealed class AdsOpsApiClient : IDisposable
 {
     private readonly HttpClient _http;
+    private readonly SemaphoreSlim _reauthGate = new(1, 1);
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -20,16 +22,18 @@ public sealed class AdsOpsApiClient : IDisposable
     };
     private string _baseUrl = DesktopConfig.DefaultBackendUrl;
     private string _token = "";
+    private Func<Task<string?>>? _onUnauthorizedRefresh;
 
     public AdsOpsApiClient()
     {
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
     }
 
-    public void Configure(string baseUrl, string accessToken)
+    public void Configure(string baseUrl, string accessToken, Func<Task<string?>>? onUnauthorizedRefresh = null)
     {
         _baseUrl = (baseUrl ?? DesktopConfig.DefaultBackendUrl).Trim().TrimEnd('/');
         _token = accessToken ?? "";
+        if (onUnauthorizedRefresh != null) _onUnauthorizedRefresh = onUnauthorizedRefresh;
     }
 
     public bool HasToken => !string.IsNullOrWhiteSpace(_token);
@@ -54,9 +58,51 @@ public sealed class AdsOpsApiClient : IDisposable
 
     private async Task<T> SendJsonAsync<T>(HttpMethod method, string relativePath, object? body = null, CancellationToken ct = default)
     {
+        var sentToken = _token;
         using var req = BuildRequest(method, relativePath, body);
         using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
         var raw = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+
+        if (resp.StatusCode == HttpStatusCode.Unauthorized &&
+            !relativePath.StartsWith("/api/v1/auth/login", StringComparison.OrdinalIgnoreCase) &&
+            _onUnauthorizedRefresh != null)
+        {
+            await _reauthGate.WaitAsync(ct).ConfigureAwait(false);
+            string? refreshedToken = null;
+            try
+            {
+                if (string.Equals(_token, sentToken, StringComparison.Ordinal))
+                {
+                    refreshedToken = await _onUnauthorizedRefresh().ConfigureAwait(false);
+                    if (!string.IsNullOrWhiteSpace(refreshedToken))
+                    {
+                        _token = refreshedToken.Trim();
+                    }
+                }
+                else if (!string.IsNullOrWhiteSpace(_token))
+                {
+                    refreshedToken = _token;
+                }
+            }
+            finally
+            {
+                _reauthGate.Release();
+            }
+
+            if (!string.IsNullOrWhiteSpace(refreshedToken))
+            {
+                using var retryReq = BuildRequest(method, relativePath, body);
+                using var retryResp = await _http.SendAsync(retryReq, ct).ConfigureAwait(false);
+                var retryRaw = await retryResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                if (!retryResp.IsSuccessStatusCode)
+                {
+                    throw new InvalidOperationException($"API {(int)retryResp.StatusCode} ({relativePath}): {ExtractDetail(retryRaw)}");
+                }
+                return JsonSerializer.Deserialize<T>(retryRaw, JsonOpts)
+                    ?? throw new InvalidOperationException($"Không đọc được JSON từ {relativePath}");
+            }
+        }
+
         if (!resp.IsSuccessStatusCode)
         {
             throw new InvalidOperationException($"API {(int)resp.StatusCode} ({relativePath}): {ExtractDetail(raw)}");

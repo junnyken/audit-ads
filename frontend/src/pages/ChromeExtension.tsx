@@ -302,7 +302,7 @@ export default function ChromeExtension() {
               <Badge tone="positive">Manifest V3 · Chặn &amp; Tự Xoá Passkey 1 Chạm + 2FA Tự Điền + Khóa WebRTC &amp; IP Leak</Badge>
               {bridgeProbe?.isDesktopApp && (
                 <Badge tone="positive">
-                  💻 App Windows AdsOps Desktop Pro v{bridgeProbe.version || '2.6.2'} Đang Chạy (127.0.0.1:{bridgeProbe.port || 17890} · Ext v{bridgeProbe.extVersion || '2.9.8'})
+                  💻 App Windows AdsOps Desktop Pro v{bridgeProbe.version || '2.6.3'} Đang Chạy (127.0.0.1:{bridgeProbe.port || 17890} · Ext v{bridgeProbe.extVersion || '2.9.8'})
                 </Badge>
               )}
             </div>
@@ -319,9 +319,9 @@ export default function ChromeExtension() {
               href="/downloads/AdsOps-Desktop-Pro-v2.3.zip"
               download
               className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-indigo-500/50 bg-indigo-600 px-3.5 text-xs font-extrabold text-white shadow-xs hover:bg-indigo-700"
-              title="Tải App Windows AdsOps Desktop Pro v2.6.2 (.exe chạy ngầm 24/7 ở khay hệ thống)"
+              title="Tải App Windows AdsOps Desktop Pro v2.6.3 (.exe chạy ngầm 24/7 ở khay hệ thống)"
             >
-              <span>💻 Tải App Windows AdsOps Desktop Pro v2.6.2 (.zip)</span>
+              <span>💻 Tải App Windows AdsOps Desktop Pro v2.6.3 (.zip)</span>
             </a>
             <Button
               type="button"
@@ -429,10 +429,10 @@ export default function ChromeExtension() {
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-500/35 bg-indigo-500/10 px-4 py-3 text-xs">
           <div className="space-y-0.5">
             <div className="font-extrabold text-indigo-800 dark:text-indigo-200">
-              💻 App Windows AdsOps Desktop Pro v2.6.2 — Nhận diện thông minh Chrome Profile gốc &amp; Cô lập, Broker PID Tracking, Chia Proxy 1:4 &amp; Full Backup 5 Lớp
+              💻 App Windows AdsOps Desktop Pro v2.6.3 — Tự gia hạn phiên 24/7 DPAPI, Nhận diện Chrome Profile gốc &amp; Cô lập, Sửa tràn lề &amp; Full Backup 5 Lớp
             </div>
             <p className="text-[11px] text-ink-muted">
-              Chạy ngầm System Tray 24/7, tự đóng gói &amp; cập nhật Extension v2.9.8 cho toàn bộ Dàn Via, thông minh mở đúng Chrome Profile gốc có sẵn Facebook hoặc Cô lập (<code>--user-data-dir</code>), theo dõi chính xác cửa sổ Chrome thực, Watchdog chống treo hàng đợi, khóa Tạo Page 72h khi mới thêm/đổi Proxy, phát hiện xung đột Silo Khách hàng &amp; trùng Profile, Cầu nối 2 chiều tự bắt Page ID + báo Telegram khi văng Cookie/Rò IP, kèm sao lưu trọn gói 5 lớp <code>.adsopsvault</code> AES-256-GCM sang máy khác.
+              Chạy ngầm System Tray 24/7, tự gia hạn JWT khi hết hạn qua đêm, tự đóng gói &amp; cập nhật Extension v2.9.8 cho toàn bộ Dàn Via, thông minh mở đúng Chrome Profile gốc có sẵn Facebook hoặc Cô lập (<code>--user-data-dir</code>), theo dõi chính xác cửa sổ Chrome thực, Watchdog chống treo hàng đợi, khóa Tạo Page 72h khi mới thêm/đổi Proxy, phát hiện xung đột Silo Khách hàng &amp; trùng Profile, Cầu nối 2 chiều tự bắt Page ID + báo Telegram khi văng Cookie/Rò IP, kèm sao lưu trọn gói 5 lớp <code>.adsopsvault</code> AES-256-GCM sang máy khác.
             </p>
           </div>
           <a
@@ -440,7 +440,7 @@ export default function ChromeExtension() {
             download
             className="shrink-0 rounded-lg border border-indigo-500/50 bg-indigo-600 px-3 py-1.5 font-bold text-white hover:bg-indigo-700"
           >
-            📥 Tải AdsOps Desktop Pro v2.6.2 (.zip)
+            📥 Tải AdsOps Desktop Pro v2.6.3 (.zip)
           </a>
         </div>
 

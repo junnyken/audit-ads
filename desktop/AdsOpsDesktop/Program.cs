@@ -1303,7 +1303,7 @@ internal static class Program
                 var seededIsoDir = ExtensionProvisioner.ResolveIsolatedProfileDirectory(seededViaName, "Profile 99");
                 var seededCookiesDir = Path.Combine(seededIsoDir, "Default", "Network");
                 Directory.CreateDirectory(seededCookiesDir);
-                File.WriteAllText(Path.Combine(seededCookiesDir, "Cookies"), "sqlite-mock-cookie");
+                File.WriteAllText(Path.Combine(seededCookiesDir, "Cookies"), "sqlite-mock-cookie-c_user");
                 if (!ExtensionProvisioner.ShouldUseIsolatedProfile(true, "Profile 99", "", false, seededViaName))
                     throw new InvalidOperationException("ShouldUseIsolatedProfile must reuse isolated folder when Cookies already exist");
 
@@ -1356,6 +1356,77 @@ internal static class Program
                 {
                     throw new InvalidOperationException("ApplyPreferencesFrom failed to preserve v2.6.0/v2.6.2 flags");
                 }
+            }
+
+            // 31. v2.6.3 Empty Isolated Cookies Guard, DPAPI Password Refresh, 401 Auto-Retry & Built-in Playbooks Fallback
+            {
+                var emptyCkPath = Path.Combine(tempRoot, "empty_cookies_20k.db");
+                var dummyBytes = new byte[20480];
+                Encoding.ASCII.GetBytes("SQLite format 3\0").CopyTo(dummyBytes, 0);
+                File.WriteAllBytes(emptyCkPath, dummyBytes);
+                if (ExtensionProvisioner.CookiesFileContainsFacebookSession(emptyCkPath))
+                    throw new InvalidOperationException("CookiesFileContainsFacebookSession must return false on empty 20KB SQLite schema without c_user");
+
+                var realCkPath = Path.Combine(tempRoot, "real_cookies.db");
+                File.WriteAllText(realCkPath, "SQLite format 3\0 .facebook.com c_user 1000888999");
+                if (!ExtensionProvisioner.CookiesFileContainsFacebookSession(realCkPath))
+                    throw new InvalidOperationException("CookiesFileContainsFacebookSession must return true when c_user is present");
+
+                var pwdCfg = new DesktopConfig { UserEmail = "owner@test.local" };
+                pwdCfg.SetSavedPassword("SecretPass#2026");
+                if (pwdCfg.GetSavedPassword() != "SecretPass#2026")
+                    throw new InvalidOperationException("DesktopConfig DPAPI SetSavedPassword/GetSavedPassword roundtrip failed");
+                var cleanCopy = pwdCfg.CloneWithoutSecrets();
+                if (!string.IsNullOrEmpty(cleanCopy.EncryptedPasswordBase64) || !string.IsNullOrEmpty(cleanCopy.GetSavedPassword()))
+                    throw new InvalidOperationException("CloneWithoutSecrets failed to clear EncryptedPasswordBase64");
+
+                if (AutomationPlaybookDto.GetDefaultBuiltinPlaybooks().Count < 3)
+                    throw new InvalidOperationException("GetDefaultBuiltinPlaybooks must return at least 3 built-in playbooks");
+
+                var reauthListener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+                reauthListener.Start();
+                var reauthPort = ((System.Net.IPEndPoint)reauthListener.LocalEndpoint).Port;
+                using var reauthCts = new CancellationTokenSource();
+                int reqAttempts = 0;
+                var reauthTask = Task.Run(async () =>
+                {
+                    while (!reauthCts.IsCancellationRequested)
+                    {
+                        try
+                        {
+                            using var cli = await reauthListener.AcceptTcpClientAsync(reauthCts.Token);
+                            await using var ns = cli.GetStream();
+                            var buf = new byte[4096];
+                            var n = await ns.ReadAsync(buf, reauthCts.Token);
+                            var reqTxt = Encoding.ASCII.GetString(buf, 0, n);
+                            reqAttempts++;
+                            bool hasFresh = reqTxt.Contains("Bearer fresh-jwt-263", StringComparison.Ordinal);
+                            string statusLine = hasFresh ? "HTTP/1.1 200 OK" : "HTTP/1.1 401 Unauthorized";
+                            string bodyJson = hasFresh
+                                ? "{\"id\":\"u1\",\"email\":\"owner@test.local\",\"full_name\":\"Test Owner\",\"role\":\"owner\"}"
+                                : "{\"detail\":\"The access token has expired.\"}";
+                            var bodyBytes = Encoding.UTF8.GetBytes(bodyJson);
+                            var head = Encoding.ASCII.GetBytes($"{statusLine}\r\nContent-Type: application/json\r\nContent-Length: {bodyBytes.Length}\r\nConnection: close\r\n\r\n");
+                            await ns.WriteAsync(head, reauthCts.Token);
+                            await ns.WriteAsync(bodyBytes, reauthCts.Token);
+                        }
+                        catch { break; }
+                    }
+                });
+
+                int refreshCalls = 0;
+                using var reauthClient = new AdsOpsApiClient();
+                reauthClient.Configure($"http://127.0.0.1:{reauthPort}", "expired-jwt", () =>
+                {
+                    refreshCalls++;
+                    return Task.FromResult<string?>("fresh-jwt-263");
+                });
+                var meAfterRefresh = await reauthClient.GetCurrentUserAsync();
+                reauthCts.Cancel();
+                reauthListener.Stop();
+                try { await reauthTask; } catch { }
+                if (meAfterRefresh.Email != "owner@test.local" || refreshCalls != 1 || reqAttempts != 2)
+                    throw new InvalidOperationException($"401 auto-refresh test failed: email={meAfterRefresh.Email}, refresh={refreshCalls}, attempts={reqAttempts}");
             }
 
             Console.WriteLine("ADSOPS_DESKTOP_V260_SELFTEST_100_PASS");

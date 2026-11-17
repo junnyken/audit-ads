@@ -60,6 +60,7 @@ internal sealed partial class MainWindow : Window
     private ProgressBar _headerBusyBar = null!;
     private Border _errorBanner = null!;
     private TextBlock _errorBannerText = null!;
+    private Button? _errorRetryBtn;
     private Button _sidebarBridgePill = null!;
     private TextBlock _sidebarCloudUser = null!;
     private TextBlock _sidebarCloudSub = null!;
@@ -110,6 +111,7 @@ internal sealed partial class MainWindow : Window
     private string _recommendedFastestEngine = "chrome_native";
     private WorkstationMemorySnapshot? _workstationMem;
     private bool _isOfflineSnapshotMode;
+    private bool _isAuthExpired;
     private string _offlineSnapshotAt = "";
     private UpdateManifestDto? _latestUpdateManifest;
     private string _updateStatusText = "Chưa kiểm tra cập nhật trong phiên này.";
@@ -118,7 +120,7 @@ internal sealed partial class MainWindow : Window
     private bool _hasLoadedOnce;
     private string? _lastErrorMessage;
     private DateTime? _lastSyncedAtLocal;
-    private DateTime _lastKeepAliveCheckUtc = DateTime.MinValue;
+    private DateTime _lastKeepAliveCheckUtc = DateTime.UtcNow;
     private int _watchdogTickCount;
 
     // Filter & selection states
@@ -166,7 +168,7 @@ internal sealed partial class MainWindow : Window
         _startMinimized = startMinimized;
         ProtocolRegistrar.CleanupLegacyPythonBridgeAutostart();
         _config = DesktopConfig.Load();
-        _api.Configure(_config.BackendBaseUrl, _config.GetJwt());
+        ConfigureApiClient();
 
         _queue = new AutomationQueueEngine(
             PreCheckProxyAsync,
@@ -548,14 +550,18 @@ internal sealed partial class MainWindow : Window
         grid.Children.Add(_errorBannerText);
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(12, 0, 0, 0) };
-        var retryBtn = UiComponents.CreateButton("Thử lại", ButtonVariant.Secondary, FluentIcons.Sync, compact: true, onClick: async (_, _) => await SyncCloudAsync(silent: false));
-        retryBtn.Margin = new Thickness(0, 0, 6, 0);
+        _errorRetryBtn = UiComponents.CreateButton("Thử lại", ButtonVariant.Secondary, FluentIcons.Sync, compact: true, onClick: async (_, _) =>
+        {
+            if (_isAuthExpired) OpenQuickReloginDialog();
+            else await SyncCloudAsync(silent: false);
+        });
+        _errorRetryBtn.Margin = new Thickness(0, 0, 6, 0);
         var closeBtn = UiComponents.CreateButton("Đóng", ButtonVariant.Subtle, compact: true, onClick: (_, _) =>
         {
             _lastErrorMessage = null;
             _errorBanner.Visibility = Visibility.Collapsed;
         });
-        actions.Children.Add(retryBtn);
+        actions.Children.Add(_errorRetryBtn);
         actions.Children.Add(closeBtn);
         Grid.SetColumn(actions, 2);
         grid.Children.Add(actions);
@@ -722,6 +728,9 @@ internal sealed partial class MainWindow : Window
         _pagesSummary = snap.PagesSummary;
         _healthSummary = snap.HealthSummary;
         _communityQuota = snap.CommunityQuota;
+        _playbooks = snap.Playbooks != null && snap.Playbooks.Count > 0
+            ? snap.Playbooks
+            : AutomationPlaybookDto.GetDefaultBuiltinPlaybooks();
         if (snap.PersonalAccounts != null && snap.PersonalAccounts.Count > 0)
         {
             RebuildViaWorkspaceList(snap.PersonalAccounts);
@@ -731,6 +740,42 @@ internal sealed partial class MainWindow : Window
         _offlineSnapshotAt = DateTimeOffset.TryParse(snap.SavedAtUtc, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var dt)
             ? dt.ToLocalTime().ToString("dd/MM HH:mm")
             : "";
+    }
+
+    internal void ConfigureApiClient()
+    {
+        _api.Configure(_config.BackendBaseUrl, _config.GetJwt(), TryAutoReloginAsync);
+    }
+
+    private async Task<string?> TryAutoReloginAsync()
+    {
+        var email = (_config.UserEmail ?? "").Trim();
+        var pwd = _config.GetSavedPassword();
+        if (string.IsNullOrWhiteSpace(email) || string.IsNullOrEmpty(pwd))
+        {
+            return null;
+        }
+        try
+        {
+            var res = await _api.LoginAsync(email, pwd).ConfigureAwait(false);
+            _config.SetJwt(res.AccessToken);
+            _config.Save();
+            _isAuthExpired = false;
+            _ = Dispatcher.BeginInvoke(() => AppendLog($"🔑 Đã tự động gia hạn phiên đăng nhập Cloud cho '{email}'."));
+            return res.AccessToken;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private void SetErrorRetryButtonLabel(string label)
+    {
+        if (_errorRetryBtn?.Content is StackPanel sp && sp.Children.Count >= 2 && sp.Children[1] is TextBlock tb)
+        {
+            tb.Text = label;
+        }
     }
 
     private void StartBridgeServer()
@@ -1146,7 +1191,7 @@ internal sealed partial class MainWindow : Window
                 }
             }
 
-            var userTask = _api.GetCurrentUserAsync();
+            _currentUser = await _api.GetCurrentUserAsync();
             var accountsTask = _api.ListPersonalAccountsAsync();
             var bmsTask = _api.ListBusinessManagersAsync();
             var adAccsTask = _api.ListAdAccountsAsync();
@@ -1176,14 +1221,13 @@ internal sealed partial class MainWindow : Window
             var launchAuditTask = TryFetchAsync(() => _api.GetProfileLaunchAuditAsync(50), new List<ProfileLaunchAuditDto>(), "Nhật ký Mở Profile");
 
             await Task.WhenAll(
-                userTask, accountsTask, bmsTask, adAccsTask, pagesTask, alertSumTask, alertsTask, cronTask,
+                accountsTask, bmsTask, adAccsTask, pagesTask, alertSumTask, alertsTask, cronTask,
                 metaConnTask, healthSumTask, healthRowsTask, draftsTask,
                 telegramTask, spendSumTask, sessionsTask,
                 proxyMapTask, readinessSumTask, readinessBoardTask, auditTask,
                 pixelsTask, domainSeoTask, retainersTask, teamSumTask, teamMemTask, teamInvTask, quotaTask,
                 playbooksTask, launchAuditTask);
 
-            _currentUser = userTask.Result;
             _bms = bmsTask.Result.Items ?? new();
             _adAccounts = adAccsTask.Result.Items ?? new();
             _pagesSummary = pagesTask.Result;
@@ -1208,7 +1252,7 @@ internal sealed partial class MainWindow : Window
             _teamMembers = teamMemTask.Result;
             _teamInvitations = teamInvTask.Result;
             if (quotaTask.Result != null) _communityQuota = quotaTask.Result;
-            _playbooks = playbooksTask.Result;
+            _playbooks = playbooksTask.Result.Count > 0 ? playbooksTask.Result : AutomationPlaybookDto.GetDefaultBuiltinPlaybooks();
             _launchAudits = launchAuditTask.Result;
             _workstationMem = WorkstationPerformanceOptimizer.ReadWorkstationMemory();
 
@@ -1228,11 +1272,14 @@ internal sealed partial class MainWindow : Window
                     PagesSummary = _pagesSummary,
                     HealthSummary = _healthSummary,
                     CommunityQuota = _communityQuota,
+                    Playbooks = _playbooks,
                 });
             }
             catch { }
 
             _isOfflineSnapshotMode = false;
+            _isAuthExpired = false;
+            SetErrorRetryButtonLabel("Thử lại");
             _lastErrorMessage = null;
             _errorBanner.Visibility = Visibility.Collapsed;
             _hasLoadedOnce = true;
@@ -1250,9 +1297,16 @@ internal sealed partial class MainWindow : Window
                     AppendLog($"⚡ Cloud đang bảo trì/chậm ({ex.Message}) -> Đã kích hoạt Bản lưu Offline DPAPI ({_vias.Count} Via, lúc {_offlineSnapshotAt}).");
                 }
             }
-            _lastErrorMessage = _isOfflineSnapshotMode
-                ? $"⚡ Chế độ Dự phòng Offline DPAPI ({_offlineSnapshotAt}): Cloud đang chậm ({ex.Message}). Mọi tính năng Nuôi Via, OTP 2FA, Két Cookie & Proxy vẫn chạy 100%!"
-                : $"Không thể đồng bộ Cloud: {ex.Message}";
+            bool is401 = ex.Message.Contains("API 401", StringComparison.OrdinalIgnoreCase)
+                      || ex.Message.Contains("expired", StringComparison.OrdinalIgnoreCase)
+                      || ex.Message.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase);
+            _isAuthExpired = is401;
+            SetErrorRetryButtonLabel(is401 ? "Đăng nhập lại (Nhớ 24/7)" : "Thử lại");
+            _lastErrorMessage = is401
+                ? $"🔑 Phiên đăng nhập Cloud ({_config.UserEmail}) đã hết hạn qua đêm — Đang giữ nguyên {_vias.Count} Via, {_pagesSummary?.Items.Count ?? 0} Page, {_adAccounts.Count} TKQC từ Bản lưu Offline DPAPI ({_offlineSnapshotAt}). Bấm «Đăng nhập lại (Nhớ 24/7)» để tự động duy trì phiên."
+                : _isOfflineSnapshotMode
+                    ? $"⚡ Chế độ Dự phòng Offline DPAPI ({_offlineSnapshotAt}): Cloud đang chậm ({ex.Message}). Mọi tính năng Nuôi Via, OTP 2FA, Két Cookie & Proxy vẫn chạy 100%!"
+                    : $"Không thể đồng bộ Cloud: {ex.Message}";
             _errorBannerText.Text = _lastErrorMessage;
             _errorBanner.Visibility = Visibility.Visible;
             AppendLog($"LỖI đồng bộ Cloud: {ex.Message}");
@@ -1824,7 +1878,7 @@ internal sealed partial class MainWindow : Window
         {
             var phaseVi = s.Phase switch
             {
-                QueuePhase.Running => s.CheckingProxy ? "Đang test Proxy trước khi mở..." : $"Đang chạy ({s.CurrentIndex}/{s.TotalCount})",
+                QueuePhase.Running => s.CheckingProxy ? "Đang test Proxy trước khi mở..." : $"Đang chạy ({Math.Min(s.TotalCount, s.CurrentIndex + 1)}/{s.TotalCount})",
                 QueuePhase.Paused => "Đang tạm dừng",
                 QueuePhase.NightPaused => "Tạm nghỉ khung giờ ban đêm (22:30 - 08:00)",
                 QueuePhase.Syncing => "Đang đồng bộ kết quả về Cloud...",
@@ -1953,6 +2007,7 @@ internal sealed partial class MainWindow : Window
     private async Task RunAutoKeepAliveTickAsync()
     {
         if (!_config.AutoKeepAliveScheduler || string.IsNullOrWhiteSpace(_config.GetJwt())) return;
+        if (_isOfflineSnapshotMode || _isAuthExpired) return;
         if (_queue.Current.Phase != QueuePhase.Idle && _queue.Current.Phase != QueuePhase.Completed) return;
 
         var now = DateTime.Now;

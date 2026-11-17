@@ -57,8 +57,12 @@ internal sealed partial class MainWindow
         {
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            Padding = new Thickness(20, 16, 20, 20),
-            Content = body,
+            Padding = new Thickness(0),
+            Content = new Border
+            {
+                Padding = new Thickness(18, 14, 18, 18),
+                Child = body,
+            },
         };
 
         UpdateLiveQueueWidgets();
@@ -304,8 +308,8 @@ internal sealed partial class MainWindow
             MessageBox.Show(this, $"Đã cấp mới Chrome Extension Companion cho {n} Via.", "Hoàn tất", MessageBoxButton.OK, MessageBoxImage.Information);
         }));
         AddQuickBtn(UiComponents.CreateButton("Đồng bộ Page từ Meta", ButtonVariant.Secondary, FluentIcons.Sync, onClick: async (_, _) => await RunMetaPageSyncAsync()));
-        AddQuickBtn(UiComponents.CreateButton("⏱️ Benchmark 5 Engine", ButtonVariant.Secondary, FluentIcons.Diagnostic, onClick: async (_, _) => await RunBenchmarkAllEnginesUiAsync()));
-        AddQuickBtn(UiComponents.CreateButton("🕵️ Nhật ký Mở Profile", ButtonVariant.Secondary, FluentIcons.ShieldCheck, onClick: (_, _) => OpenProfileLaunchAuditDialog()));
+        AddQuickBtn(UiComponents.CreateButton("Benchmark 5 Engine", ButtonVariant.Secondary, FluentIcons.Diagnostic, onClick: async (_, _) => await RunBenchmarkAllEnginesUiAsync()));
+        AddQuickBtn(UiComponents.CreateButton("Nhật ký Mở Profile", ButtonVariant.Secondary, FluentIcons.ShieldCheck, onClick: (_, _) => OpenProfileLaunchAuditDialog()));
         quickPanel.Children.Add(quickWrap);
 
         // v2.6.0 Workstation RAM & Recommended Concurrency Strip + 5-Step Safety Onboarding Preset
@@ -366,7 +370,7 @@ internal sealed partial class MainWindow
                 TextWrapping = TextWrapping.Wrap,
             });
         }
-        var presetBtn = UiComponents.CreateButton("⚡ Áp dụng Preset An Toàn Chuẩn (1-Click)", ButtonVariant.Primary, FluentIcons.ShieldCheck, compact: true, onClick: (_, _) =>
+        var presetBtn = UiComponents.CreateButton("Áp dụng Preset An Toàn Chuẩn (1-Click)", ButtonVariant.Primary, FluentIcons.ShieldCheck, compact: true, onClick: (_, _) =>
         {
             _config.EnableChromeAntidetectShield = true;
             _config.LowRamFarmMode = true;
@@ -1401,14 +1405,15 @@ internal sealed partial class MainWindow
         }
         pbPanel.Children.Add(pbPlatWrap);
 
-        var filteredPbs = _playbooks
+        var effectivePlaybooks = _playbooks.Count > 0 ? _playbooks : AutomationPlaybookDto.GetDefaultBuiltinPlaybooks();
+        var filteredPbs = effectivePlaybooks
             .Where(p => string.Equals(_playbookPlatformFilter, "all", StringComparison.OrdinalIgnoreCase) || string.Equals(p.Platform, _playbookPlatformFilter, StringComparison.OrdinalIgnoreCase))
             .ToList();
         if (filteredPbs.Count == 0)
         {
             pbPanel.Children.Add(new TextBlock
             {
-                Text = "Đăng nhập Cloud và đồng bộ để tải các kịch bản chuẩn của Team.",
+                Text = "Không có kịch bản nào thuộc nền tảng này.",
                 FontSize = 12,
                 Foreground = ThemeTokens.TextMuted,
             });
@@ -1446,7 +1451,7 @@ internal sealed partial class MainWindow
             });
 
             var pbActions = new WrapPanel();
-            var runPbBtn = UiComponents.CreateButton("🚀 Chạy Lô Kịch bản (Jitter)", ButtonVariant.Primary, FluentIcons.Play, compact: true, onClick: async (_, _) =>
+            var runPbBtn = UiComponents.CreateButton("Chạy Lô Kịch bản (Jitter)", ButtonVariant.Primary, FluentIcons.Play, compact: true, onClick: async (_, _) =>
             {
                 if (_queue.Current.Phase is QueuePhase.Running or QueuePhase.Paused)
                 {
@@ -2387,6 +2392,7 @@ internal sealed partial class MainWindow
                 Foreground = ThemeTokens.TextMuted,
                 HorizontalAlignment = align,
                 VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(col == 6 ? 12 : 0, 0, 0, 0),
             };
             Grid.SetColumn(tb, col);
             g.Children.Add(tb);
@@ -2484,8 +2490,9 @@ internal sealed partial class MainWindow
         // Col 6: BM & Linked Via
         var c5 = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 8, 0) };
         var viaLbl = a.FacebookIdentities.Count > 0 ? string.Join(", ", a.FacebookIdentities.Select(x => x.Label)) : "Chưa gắn Via";
+        var cardDisp = FormatPaymentCardCompact(a.BillingMeta?.PaymentCardDisplay);
         c5.Children.Add(new TextBlock { Text = string.IsNullOrWhiteSpace(a.BusinessManagerName) ? "Tài khoản Cá nhân / Chưa rõ BM" : a.BusinessManagerName!, FontSize = 12, Foreground = ThemeTokens.TextPrimary, TextTrimming = TextTrimming.CharacterEllipsis });
-        c5.Children.Add(new TextBlock { Text = $"Via: {viaLbl} • {a.BillingMeta?.PaymentCardDisplay ?? "—"}", FontSize = 12, Foreground = ThemeTokens.TextMuted, TextTrimming = TextTrimming.CharacterEllipsis });
+        c5.Children.Add(new TextBlock { Text = string.IsNullOrEmpty(cardDisp) ? $"Via: {viaLbl}" : $"Via: {viaLbl} • {cardDisp}", FontSize = 12, Foreground = ThemeTokens.TextMuted, TextTrimming = TextTrimming.CharacterEllipsis });
         Grid.SetColumn(c5, 6);
         g.Children.Add(c5);
 
@@ -2541,6 +2548,23 @@ internal sealed partial class MainWindow
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.15, GridUnitType.Star) });
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(162) });
+    }
+
+    internal static string FormatPaymentCardCompact(string? raw)
+    {
+        var s = (raw ?? "").Trim();
+        if (string.IsNullOrEmpty(s)) return "";
+        var parenIdx = s.LastIndexOf(" (", StringComparison.Ordinal);
+        if (parenIdx > 0 && s.EndsWith(")", StringComparison.Ordinal))
+        {
+            var head = s[..parenIdx].Trim();
+            var inner = s[(parenIdx + 2)..^1].Trim();
+            if (string.Equals(head, inner, StringComparison.OrdinalIgnoreCase))
+            {
+                return head;
+            }
+        }
+        return s;
     }
 
     internal static string FormatMetricOrDash(string? raw, string currency)
@@ -3117,10 +3141,12 @@ internal sealed partial class MainWindow
                 _api.Configure(_config.BackendBaseUrl, "");
                 var loginRes = await _api.LoginAsync(_config.UserEmail, pbPass.Password);
                 _config.SetJwt(loginRes.AccessToken);
+                _config.SetSavedPassword(pbPass.Password);
                 _config.Save();
-                _api.Configure(_config.BackendBaseUrl, loginRes.AccessToken);
+                ConfigureApiClient();
+                _isAuthExpired = false;
                 pbPass.Clear();
-                AppendLog($"Đăng nhập Cloud thành công với '{_config.UserEmail}' (JWT được mã hóa Windows DPAPI).");
+                AppendLog($"Đăng nhập Cloud thành công với '{_config.UserEmail}' (JWT & Tự gia hạn phiên được mã hóa Windows DPAPI).");
                 await SyncCloudAsync(silent: false);
             }
             catch (Exception ex)
@@ -3146,8 +3172,10 @@ internal sealed partial class MainWindow
                     isDanger: true);
                 if (!ok) return;
                 _config.SetJwt("");
+                _config.SetSavedPassword("");
                 _config.Save();
-                _api.Configure(_config.BackendBaseUrl, "");
+                ConfigureApiClient();
+                _isAuthExpired = false;
                 _currentUser = null;
                 _vias.Clear();
                 _telegramConfig = null;
@@ -3427,7 +3455,7 @@ internal sealed partial class MainWindow
             AppendLog(_antidetectStatusMessage);
             RenderCurrentView();
         }));
-        AddAdBtn(UiComponents.CreateButton("🔌 Kiểm tra & Quét Profile", ButtonVariant.Secondary, FluentIcons.Sync, compact: true, onClick: async (_, _) =>
+        AddAdBtn(UiComponents.CreateButton("Kiểm tra & Quét Profile", ButtonVariant.Secondary, FluentIcons.Sync, compact: true, onClick: async (_, _) =>
         {
             ApplyAdConfigInputs();
             var probe = await AntidetectBrowserConnector.ProbeEngineAsync(_config.DefaultBrowserEngine, _config.AntidetectApiBaseUrl, _config.AntidetectApiKey);
@@ -3440,7 +3468,7 @@ internal sealed partial class MainWindow
             AppendLog(_antidetectStatusMessage);
             RenderCurrentView();
         }));
-        AddAdBtn(UiComponents.CreateButton("⚡ Tự ghép Via ↔ Antidetect", ButtonVariant.Secondary, FluentIcons.Lightning, compact: true, onClick: async (_, _) =>
+        AddAdBtn(UiComponents.CreateButton("Tự ghép Via ↔ Antidetect", ButtonVariant.Secondary, FluentIcons.Lightning, compact: true, onClick: async (_, _) =>
         {
             ApplyAdConfigInputs();
             var scanned = _antidetectProfiles.Count > 0
@@ -3487,7 +3515,7 @@ internal sealed partial class MainWindow
             AppendLog(_antidetectStatusMessage);
             RenderCurrentView();
         }));
-        AddAdBtn(UiComponents.CreateButton("🧹 Dọn Cache & Ép RAM", ButtonVariant.Secondary, FluentIcons.Delete, compact: true, onClick: (_, _) =>
+        AddAdBtn(UiComponents.CreateButton("Dọn Cache & Ép RAM", ButtonVariant.Secondary, FluentIcons.Delete, compact: true, onClick: (_, _) =>
         {
             var activeSlugs = new HashSet<string>(
                 ChromeSessionTracker.Default.GetSnapshot()
@@ -3500,7 +3528,7 @@ internal sealed partial class MainWindow
             AppendLog(_antidetectStatusMessage);
             RenderCurrentView();
         }));
-        AddAdBtn(UiComponents.CreateButton("⏱️ Benchmark 5 Engine", ButtonVariant.Secondary, FluentIcons.Diagnostic, compact: true, onClick: async (_, _) =>
+        AddAdBtn(UiComponents.CreateButton("Benchmark 5 Engine", ButtonVariant.Secondary, FluentIcons.Diagnostic, compact: true, onClick: async (_, _) =>
         {
             ApplyAdConfigInputs();
             await RunBenchmarkAllEnginesUiAsync();
@@ -3685,7 +3713,7 @@ internal sealed partial class MainWindow
                     jwtRestored = true;
                 }
                 _config.Save();
-                _api.Configure(_config.BackendBaseUrl, _config.GetJwt());
+                ConfigureApiClient();
 
                 if (_vias.Count == 0 && payload.Vias != null && payload.Vias.Count > 0)
                 {

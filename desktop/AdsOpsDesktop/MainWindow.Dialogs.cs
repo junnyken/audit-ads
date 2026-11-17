@@ -2958,4 +2958,95 @@ internal sealed partial class MainWindow
         dlg.Content = root;
         dlg.ShowDialog();
     }
+
+    internal void OpenQuickReloginDialog()
+    {
+        var dlg = new Window
+        {
+            Title = "Đăng nhập lại AdsOps Cloud (Tự giữ phiên 24/7)",
+            Width = 460,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            ResizeMode = ResizeMode.NoResize,
+            Background = ThemeTokens.BgCanvas,
+            Foreground = ThemeTokens.TextPrimary,
+            ShowInTaskbar = false,
+        };
+        ThemeTokens.ApplyDarkTitleBar(dlg);
+
+        var root = new StackPanel { Margin = new Thickness(20) };
+        root.Children.Add(new TextBlock
+        {
+            Text = "Phiên JWT cũ đã hết hạn qua đêm. Nhập lại mật khẩu 1 lần để đồng bộ Cloud — App sẽ mã hóa DPAPI tại máy Windows này và tự gia hạn phiên mỗi khi hết hạn 24/7.",
+            FontSize = 12.5,
+            Foreground = ThemeTokens.TextSecondary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 12),
+        });
+
+        var tbEmail = UiComponents.CreateTextBox(_config.UserEmail, "email@domain.com");
+        var pbPass = UiComponents.CreatePasswordBox();
+        root.Children.Add(BuildLabeledBox("Email AdsOps Cloud", tbEmail));
+        var passWrap = BuildLabeledBox("Mật khẩu Cloud", pbPass);
+        passWrap.Margin = new Thickness(0, 8, 0, 0);
+        root.Children.Add(passWrap);
+
+        var errTb = new TextBlock
+        {
+            Text = "",
+            FontSize = 12,
+            Foreground = ThemeTokens.DangerText,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 8, 0, 0),
+        };
+        root.Children.Add(errTb);
+
+        var btnRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
+        var cancelBtn = UiComponents.CreateButton("Đóng", ButtonVariant.Secondary, onClick: (_, _) => dlg.Close());
+        cancelBtn.Margin = new Thickness(0, 0, 8, 0);
+        Button okBtn = null!;
+        okBtn = UiComponents.CreateButton("Đăng nhập & Tự giữ phiên 24/7", ButtonVariant.Primary, FluentIcons.CheckCircle, onClick: async (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(tbEmail.Text) || string.IsNullOrWhiteSpace(pbPass.Password))
+            {
+                errTb.Text = "Vui lòng nhập đầy đủ Email và Mật khẩu.";
+                return;
+            }
+            okBtn.IsEnabled = false;
+            errTb.Text = "";
+            try
+            {
+                _config.UserEmail = tbEmail.Text.Trim();
+                _api.Configure(_config.BackendBaseUrl, "");
+                var loginRes = await _api.LoginAsync(_config.UserEmail, pbPass.Password);
+                _config.SetJwt(loginRes.AccessToken);
+                _config.SetSavedPassword(pbPass.Password);
+                _config.Save();
+                ConfigureApiClient();
+                _isAuthExpired = false;
+                pbPass.Clear();
+                AppendLog($"🔑 Đã đăng nhập lại Cloud '{_config.UserEmail}' & bật Tự gia hạn phiên DPAPI 24/7.");
+                dlg.DialogResult = true;
+                await SyncCloudAsync(silent: false);
+            }
+            catch (Exception ex)
+            {
+                errTb.Text = $"Đăng nhập thất bại: {ex.Message}";
+                okBtn.IsEnabled = true;
+            }
+        });
+        btnRow.Children.Add(cancelBtn);
+        btnRow.Children.Add(okBtn);
+        root.Children.Add(btnRow);
+
+        dlg.Loaded += (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(tbEmail.Text)) tbEmail.Focus();
+            else pbPass.Focus();
+        };
+
+        dlg.Content = root;
+        dlg.ShowDialog();
+    }
 }

@@ -129,13 +129,14 @@ public sealed class DesktopConfig
 {
     public const string DefaultBackendUrl = "https://audit-ads-backend.vibe1.tinhgon.xyz";
     public const string DefaultWebAppUrl = "https://adsops-app.vibe.tinhgon.xyz";
-    public const int CurrentMigrationVersion = 262;
+    public const int CurrentMigrationVersion = 263;
     internal static string? AppDataRootOverride { get; set; }
 
     public string BackendBaseUrl { get; set; } = DefaultBackendUrl;
     public string WebAppUrl { get; set; } = DefaultWebAppUrl;
     public string UserEmail { get; set; } = "";
     public string EncryptedJwtBase64 { get; set; } = "";
+    public string EncryptedPasswordBase64 { get; set; } = "";
     public bool UseIsolatedProfiles { get; set; } = true;
     public bool AutoKeepAliveScheduler { get; set; } = true;
     public int BridgePort { get; set; } = 17890;
@@ -209,6 +210,23 @@ public sealed class DesktopConfig
     public void SetJwt(string? jwt)
     {
         EncryptedJwtBase64 = string.IsNullOrWhiteSpace(jwt) ? "" : WindowsDpapi.ProtectString(jwt.Trim());
+    }
+
+    public string GetSavedPassword()
+    {
+        try
+        {
+            return string.IsNullOrWhiteSpace(EncryptedPasswordBase64) ? "" : WindowsDpapi.UnprotectString(EncryptedPasswordBase64);
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    public void SetSavedPassword(string? pwd)
+    {
+        EncryptedPasswordBase64 = string.IsNullOrEmpty(pwd) ? "" : WindowsDpapi.ProtectString(pwd);
     }
 
     public string GetOrCreateBridgeToken(string? customPath = null)
@@ -298,6 +316,7 @@ public sealed class DesktopConfig
         var json = JsonSerializer.Serialize(this);
         var copy = JsonSerializer.Deserialize<DesktopConfig>(json) ?? new DesktopConfig();
         copy.EncryptedJwtBase64 = "";
+        copy.EncryptedPasswordBase64 = "";
         copy.EncryptedBridgeTokenBase64 = "";
         copy.EncryptedAntidetectApiKeyBase64 = "";
         return copy;
@@ -1143,6 +1162,64 @@ public sealed class AutomationPlaybookDto
     [JsonPropertyName("run_count")] public int RunCount { get; set; }
     [JsonPropertyName("my_rating")] public int? MyRating { get; set; }
     [JsonPropertyName("updated_at")] public string? UpdatedAt { get; set; }
+
+    public static List<AutomationPlaybookDto> GetDefaultBuiltinPlaybooks() => new()
+    {
+        new AutomationPlaybookDto
+        {
+            Id = "builtin-meta-soak-72h",
+            Slug = "meta-soak-72h-feed-watch",
+            Title = "Meta 72h Vàng — Đảo Ấm Newsfeed & Watch (Chống Checkpoint)",
+            Platform = "meta",
+            Category = "warmup",
+            Description = "Cuộn Newsfeed, xem Facebook Watch ngắn và đọc Thông báo ngẫu nhiên. Tuyệt đối KHÔNG mở Trình quản lý Quảng cáo.",
+            VersionTag = "2.6.3",
+            DefaultStaggerSec = 60,
+            JitterPct = 35,
+            IsBuiltin = true,
+            AuthorName = "AdsOps Pro Built-in",
+            Steps = new List<AutomationPlaybookStepDto>
+            {
+                new() { Action = "open_url", Target = "https://www.facebook.com/?adsops_keepalive_session=1", WaitSec = 25, Note = "Đảo Ấm Newsfeed & Notifications" },
+            },
+        },
+        new AutomationPlaybookDto
+        {
+            Id = "builtin-meta-bm-precheck",
+            Slug = "meta-bm-adsmanager-warm",
+            Title = "Meta Cầm BM & Ads Manager Thụ Động (Anti-Deep-Link)",
+            Platform = "meta",
+            Category = "bm_warmup",
+            Description = "Mở Facebook Feed 20s trước khi vào Cài đặt BM / Ads Manager để giữ độ tin cậy cho Via Hold BM.",
+            VersionTag = "2.6.3",
+            DefaultStaggerSec = 75,
+            JitterPct = 35,
+            IsBuiltin = true,
+            AuthorName = "AdsOps Pro Built-in",
+            Steps = new List<AutomationPlaybookStepDto>
+            {
+                new() { Action = "open_url", Target = "https://www.facebook.com/?adsops_keepalive_session=1&adsops_ka_mode=bm_warmup", WaitSec = 30, Note = "Feed rồi sang BM" },
+            },
+        },
+        new AutomationPlaybookDto
+        {
+            Id = "builtin-google-tiktok-warm",
+            Slug = "multi-platform-billing-check",
+            Title = "Đa Nền Tảng — Kiểm Tra Trang Chủ & Billing (Google / TikTok Ads)",
+            Platform = "multi",
+            Category = "audit",
+            Description = "Giữ phiên đăng nhập sạch trước khi mở Trình quản lý Quảng cáo Google / TikTok.",
+            VersionTag = "2.6.3",
+            DefaultStaggerSec = 65,
+            JitterPct = 30,
+            IsBuiltin = true,
+            AuthorName = "AdsOps Pro Built-in",
+            Steps = new List<AutomationPlaybookStepDto>
+            {
+                new() { Action = "open_url", Target = "https://www.facebook.com/", WaitSec = 20, Note = "Mở phiên trình duyệt sạch" },
+            },
+        },
+    };
 }
 
 public sealed class ProfileLaunchAuditDto
@@ -2270,8 +2347,8 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "2.6.2";
-    public const string DisplayVersion = "v2.6.2";
+    public const string Version = "2.6.3";
+    public const string DisplayVersion = "v2.6.3";
     public const string ExtVersion = "2.9.8";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 
@@ -2525,6 +2602,7 @@ public sealed class CloudSnapshotPayload
     [JsonPropertyName("pages_summary")] public FacebookPagesSummaryDto? PagesSummary { get; set; }
     [JsonPropertyName("health_summary")] public HealthSummaryDto? HealthSummary { get; set; }
     [JsonPropertyName("community_quota")] public CommunityQuotaDto? CommunityQuota { get; set; }
+    [JsonPropertyName("playbooks")] public List<AutomationPlaybookDto> Playbooks { get; set; } = new();
 }
 
 /// <summary>Lưu đệm bảng dữ liệu Cloud gần nhất được mã hóa Windows DPAPI để App chạy mượt ngay cả khi mất mạng hoặc Cloud bảo trì.</summary>

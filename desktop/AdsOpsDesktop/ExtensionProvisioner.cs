@@ -239,6 +239,32 @@ public static class ExtensionProvisioner
         }
     }
 
+    public static bool CookiesFileContainsFacebookSession(string? filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath)) return false;
+        try
+        {
+            using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            if (fs.Length <= 0) return false;
+            var maxRead = (int)Math.Min(fs.Length, 4 * 1024 * 1024);
+            var buf = new byte[maxRead];
+            int totalRead = 0;
+            while (totalRead < maxRead)
+            {
+                int n = fs.Read(buf, totalRead, maxRead - totalRead);
+                if (n <= 0) break;
+                totalRead += n;
+            }
+            if (totalRead <= 0) return false;
+            var ascii = Encoding.ASCII.GetString(buf, 0, totalRead);
+            return ascii.Contains("c_user", StringComparison.Ordinal);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public static bool ShouldUseIsolatedProfile(
         bool configUseIsolated,
         string? profileDir,
@@ -255,8 +281,8 @@ public static class ExtensionProvisioner
         var legacyCookies = Path.Combine(isoDir, "Default", "Cookies");
         try
         {
-            if ((File.Exists(networkCookies) && new FileInfo(networkCookies).Length > 0) ||
-                (File.Exists(legacyCookies) && new FileInfo(legacyCookies).Length > 0))
+            if (CookiesFileContainsFacebookSession(networkCookies) ||
+                CookiesFileContainsFacebookSession(legacyCookies))
             {
                 return true;
             }

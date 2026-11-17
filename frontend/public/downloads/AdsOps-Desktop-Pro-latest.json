@@ -1,13 +1,13 @@
 {
-    "version":  "2.6.2",
+    "version":  "2.6.3",
     "ext_version":  "2.9.8",
     "authenticode_signed":  true,
     "download_url":  "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
     "mirror_urls":  [
                         "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
                     ],
-    "sha256":  "f08352345b7df3a8f48250354ff6f7d21835107c4aad8767eb8903e36e2d365d",
-    "size_bytes":  66023002,
-    "published_at":  "2026-11-16T19:31:22.207517Z",
-    "release_notes":  "AdsOps Desktop Pro v2.6.2 + Extension v2.9.8: Nhan dien thong minh Chrome Profile goc \u0026 Co lap, Broker PID Tracking chong bao loi sai tab, Cap nhat Cookie/2FA tuc thi tren giao dien, Tu mo Ket 2FA 1-cham, Hermetic Self-Test \u0026 Toi uu bo cuc Danh sach Via."
+    "sha256":  "475a8c09dc5018f58d05cd9087bd626e23a9b346f9da110d59d3958b0b01a3b1",
+    "size_bytes":  66025275,
+    "published_at":  "2026-11-17T02:25:11.907356Z",
+    "release_notes":  "AdsOps Desktop Pro v2.6.3 + Extension v2.9.8: Tu dong gia han phien Cloud 24/7 bang Windows DPAPI \u0026 hop thoai Dang nhap nhanh khi 401, Sua cat le phai WPF ScrollViewer, Kiem tra Cookie c_user that truoc khi co lap Profile, Sua 1-based Queue Index \u0026 don trung icon nut."
 }
