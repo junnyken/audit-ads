@@ -689,7 +689,7 @@ internal sealed partial class MainWindow
         var viewAllBtn = UiComponents.CreateButton($"Xem {groupItems.Count} TKQC", ButtonVariant.Secondary, compact: true, onClick: (_, _) =>
         {
             _adSearch = "";
-            _adFilter = "restricted";
+            _adFilter = "disabled";
             SwitchView(AppView.AdAccounts);
         });
         viewAllBtn.Margin = new Thickness(0, 0, 6, 0);
@@ -1486,7 +1486,7 @@ internal sealed partial class MainWindow
         Grid.SetColumn(copyBtn, 1);
         otpBox.Children.Add(copyBtn);
 
-        _liveTotpBindings.Add(new LiveTotpBinding(v.ViaId, v.ProfileDir, v.Label, v.TwoFaSecret, codeTb, remainTb, remainPill));
+        _liveTotpBindings.Add(new LiveTotpBinding(v.ViaId, v.ProfileDir, v.Label ?? "", v.TwoFaSecret, codeTb, remainTb, remainPill));
         var otpBorder = UiComponents.CreateCard(otpBox, new Thickness(8, 5, 8, 5), ThemeTokens.BgSurfaceElevated, ThemeTokens.BorderSubtle);
         otpBorder.Margin = new Thickness(0, 0, 10, 0);
         otpBorder.VerticalAlignment = VerticalAlignment.Center;
@@ -2432,6 +2432,33 @@ internal sealed partial class MainWindow
                 return;
             }
 
+            // Linear Table Column Header Bar for Fanpages
+            var hdrGrid = new Grid { Margin = new Thickness(12, 2, 12, 6) };
+            hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.45, GridUnitType.Star) });
+            hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.95, GridUnitType.Star) });
+            hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.15, GridUnitType.Star) });
+            hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(250) });
+
+            TextBlock MakePgHdr(string txt, int col, HorizontalAlignment align = HorizontalAlignment.Left)
+            {
+                var tb = new TextBlock
+                {
+                    Text = txt,
+                    FontSize = 11,
+                    FontWeight = FontWeights.Bold,
+                    Foreground = ThemeTokens.TextMuted,
+                    HorizontalAlignment = align,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                Grid.SetColumn(tb, col);
+                return tb;
+            }
+            hdrGrid.Children.Add(MakePgHdr("FANPAGE & TRẠNG THÁI ADS", 0));
+            hdrGrid.Children.Add(MakePgHdr("TĂNG TRƯỞNG & TIẾN ĐỘ NUÔI", 1));
+            hdrGrid.Children.Add(MakePgHdr("VIA CẦM & BUSINESS MANAGER", 2));
+            hdrGrid.Children.Add(MakePgHdr("THAO TÁC NHANH", 3, HorizontalAlignment.Right));
+            listHost.Children.Add(hdrGrid);
+
             foreach (var p in filtered)
             {
                 listHost.Children.Add(BuildPageRowCard(p));
@@ -2504,15 +2531,58 @@ internal sealed partial class MainWindow
 
     private Border BuildPageRowCard(FanpageItemDto p)
     {
-        var grid = new Grid { MinHeight = 68 };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.4, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var grid = new Grid { MinHeight = 66 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.45, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.95, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.15, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(250) });
 
-        var left = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
-        var top = new WrapPanel { Margin = new Thickness(0, 0, 0, 4) };
+        // Col 0: Avatar Initials + Page Name + Status Pill + Monospace ID/Category
+        var col0Grid = new Grid { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
+        col0Grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        col0Grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
         var live = p.HealthStatus.Equals("LIVE", StringComparison.OrdinalIgnoreCase);
+        var pWords = (p.Name ?? "FP").Split(new[] { ' ', '-', '_' }, StringSplitOptions.RemoveEmptyEntries);
+        var pInitials = pWords.Length >= 2
+            ? $"{char.ToUpperInvariant(pWords[0][0])}{char.ToUpperInvariant(pWords[^1][0])}"
+            : (p.Name ?? "FP").Length >= 2 ? p.Name![..2].ToUpperInvariant() : "FP";
+
+        var avatarBox = new Border
+        {
+            Width = 36,
+            Height = 36,
+            CornerRadius = new CornerRadius(10),
+            Background = live ? ThemeTokens.SuccessBg : ThemeTokens.DangerBg,
+            BorderBrush = live ? ThemeTokens.SuccessBorder : ThemeTokens.DangerBorder,
+            BorderThickness = new Thickness(1),
+            Margin = new Thickness(0, 0, 10, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = pInitials,
+                FontFamily = ThemeTokens.MonoFont,
+                FontSize = 12,
+                FontWeight = FontWeights.Bold,
+                Foreground = live ? ThemeTokens.SuccessText : ThemeTokens.DangerText,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            },
+        };
+        col0Grid.Children.Add(avatarBox);
+
+        var left = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        var top = new WrapPanel { Margin = new Thickness(0, 0, 0, 3) };
+        top.Children.Add(new TextBlock
+        {
+            Text = p.Name,
+            FontSize = 14,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeTokens.TextPrimary,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0),
+        });
+
         var healthPill = UiComponents.CreateBadgePill(
             p.IsUnsyncedDraft ? "NHÁP" : p.HealthStatus,
             live ? ThemeTokens.SuccessText : ThemeTokens.DangerText,
@@ -2524,34 +2594,70 @@ internal sealed partial class MainWindow
         if (p.AdsReady)
         {
             var readyPill = UiComponents.CreateBadgePill("Sẵn sàng Ads", ThemeTokens.AccentText, ThemeTokens.InfoBg, ThemeTokens.InfoBorder);
-            readyPill.Margin = new Thickness(0, 0, 8, 0);
+            readyPill.Margin = new Thickness(0, 0, 6, 0);
             top.Children.Add(readyPill);
         }
         else if (p.SoakRemainingHours > 0)
         {
-            var soakPill = UiComponents.CreateBadgePill($"Ngâm còn {p.SoakRemainingHours:0.#}h", ThemeTokens.WarningText, ThemeTokens.WarningBg, ThemeTokens.WarningBorder);
-            soakPill.Margin = new Thickness(0, 0, 8, 0);
+            var soakPill = UiComponents.CreateBadgePill($"Ngâm {p.SoakRemainingHours:0.#}h", ThemeTokens.WarningText, ThemeTokens.WarningBg, ThemeTokens.WarningBorder);
+            soakPill.Margin = new Thickness(0, 0, 6, 0);
             top.Children.Add(soakPill);
         }
 
-        top.Children.Add(new TextBlock { Text = p.Name, FontSize = 14, FontWeight = FontWeights.Bold, Foreground = ThemeTokens.TextPrimary, VerticalAlignment = VerticalAlignment.Center });
         left.Children.Add(top);
+        left.Children.Add(new TextBlock
+        {
+            Text = $"ID: {p.ExternalPageId ?? "Chờ đồng bộ"} • {p.Category ?? "Chưa rõ ngành"}",
+            FontFamily = ThemeTokens.MonoFont,
+            FontSize = 11.5,
+            Foreground = ThemeTokens.TextMuted,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        });
+        Grid.SetColumn(left, 1);
+        col0Grid.Children.Add(left);
+        grid.Children.Add(col0Grid);
+
+        // Col 1: Followers + Warmup Progress Bar
+        var growthStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
+        var growthTop = new Grid { Margin = new Thickness(0, 0, 0, 5) };
+        growthTop.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        growthTop.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
         var fans = p.FanCount ?? p.FollowersCount;
         var fanStr = fans.HasValue ? $"{fans.Value:N0} theo dõi" : "— theo dõi";
-        left.Children.Add(new TextBlock
+        growthTop.Children.Add(new TextBlock
         {
-            Text = $"ID: {p.ExternalPageId ?? "Chờ đồng bộ"} • {p.Category ?? "Chưa rõ ngành"} • {fanStr} • {p.WarmupPostsCount} bài Warmup",
+            Text = fanStr,
+            FontFamily = ThemeTokens.MonoFont,
             FontSize = 12,
-            Foreground = ThemeTokens.TextSecondary,
-            TextTrimming = TextTrimming.CharacterEllipsis,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeTokens.SuccessText,
+            VerticalAlignment = VerticalAlignment.Center,
         });
-        grid.Children.Add(left);
 
+        var warmTb = new TextBlock
+        {
+            Text = $"{p.WarmupPostsCount} bài nuôi",
+            FontSize = 11.5,
+            Foreground = ThemeTokens.TextSecondary,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        Grid.SetColumn(warmTb, 1);
+        growthTop.Children.Add(warmTb);
+        growthStack.Children.Add(growthTop);
+
+        var warmPct = p.AdsReady ? 100.0 : Math.Clamp(p.WarmupPostsCount * 33.3, 18.0, 95.0);
+        var warmBar = UiComponents.CreateProgressBar(warmPct, p.AdsReady ? ThemeTokens.SuccessText : ThemeTokens.AccentText, 5);
+        growthStack.Children.Add(warmBar);
+        Grid.SetColumn(growthStack, 1);
+        grid.Children.Add(growthStack);
+
+        // Col 2: Holder Via + BM & Linked Ad Accounts
         var mid = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
         mid.Children.Add(new TextBlock
         {
-            Text = $"Via cầm: {(string.IsNullOrWhiteSpace(p.HolderLabel) ? "Chưa gắn" : p.HolderLabel)} ({ExtensionProvisioner.ResolveProfileDirectory(p.HolderBrowserProfile, p.HolderLabel)})",
+            Text = $"Via: {(string.IsNullOrWhiteSpace(p.HolderLabel) ? "Chưa gắn" : p.HolderLabel)} ({ExtensionProvisioner.ResolveProfileDirectory(p.HolderBrowserProfile, p.HolderLabel)})",
             FontSize = 12,
             FontWeight = FontWeights.SemiBold,
             Foreground = ThemeTokens.TextPrimary,
@@ -2560,16 +2666,23 @@ internal sealed partial class MainWindow
         });
         mid.Children.Add(new TextBlock
         {
-            Text = $"BM: {(string.IsNullOrWhiteSpace(p.OwnerBmName) ? "Chưa kéo BM" : p.OwnerBmName)} • TKQC: {p.LinkedAdAccountCount} (Hạn chế: {p.RestrictedAdAccountCount})",
-            FontSize = 12,
+            Text = $"BM: {(string.IsNullOrWhiteSpace(p.OwnerBmName) ? "Chưa kéo BM" : p.OwnerBmName)} • TKQC: {p.LinkedAdAccountCount}",
+            FontSize = 11.5,
             Foreground = string.IsNullOrWhiteSpace(p.OwnerBmName) ? ThemeTokens.WarningText : ThemeTokens.TextMuted,
             TextTrimming = TextTrimming.CharacterEllipsis,
         });
-        Grid.SetColumn(mid, 1);
+        Grid.SetColumn(mid, 2);
         grid.Children.Add(mid);
 
-        var btns = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        var openBtn = UiComponents.CreateButton("Mở Page", ButtonVariant.Secondary, FluentIcons.Globe, compact: true, onClick: (_, _) =>
+        // Col 3: Streamlined Actions ("👥 Mời Follow", "Nuôi bài", "Mở Page", "⋯")
+        var btns = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right };
+        var inviteFollowBtn = UiComponents.CreateButton("👥 Mời Follow", ButtonVariant.Primary, compact: true, onClick: (_, _) => LaunchPageAutoInviteFollowers(p, autoClose: false), tooltip: "Mở Meta Business Suite của Page và tự động bấm 'Gửi lời mời' cho người đã bày tỏ cảm xúc");
+        inviteFollowBtn.Margin = new Thickness(0, 0, 6, 0);
+
+        var warmBtn = UiComponents.CreateButton("Nuôi bài", ButtonVariant.Success, compact: true, onClick: (_, _) => OpenWarmupPostDialog(p));
+        warmBtn.Margin = new Thickness(0, 0, 6, 0);
+
+        var openBtn = UiComponents.CreateButton("Mở Page", ButtonVariant.Secondary, compact: true, onClick: (_, _) =>
         {
             var via = _vias.FirstOrDefault(v => string.Equals(v.ViaId, p.HolderIdentityId, StringComparison.OrdinalIgnoreCase)) ?? _vias.FirstOrDefault();
             var url = !string.IsNullOrWhiteSpace(p.Url) ? p.Url!
@@ -2579,7 +2692,16 @@ internal sealed partial class MainWindow
         });
         openBtn.Margin = new Thickness(0, 0, 6, 0);
 
-        var chkBtn = UiComponents.CreateButton("Check Live", ButtonVariant.Secondary, compact: true, onClick: async (_, _) =>
+        var morePgBtn = UiComponents.CreateButton("⋯", ButtonVariant.Secondary, compact: true, tooltip: "Thao tác Fanpage: Kéo BM, Kiểm tra Live (Check Live), Xóa nháp");
+        var pgMenu = new ContextMenu();
+        void AddPgMenu(string header, RoutedEventHandler handler)
+        {
+            var mi = new MenuItem { Header = header };
+            mi.Click += handler;
+            pgMenu.Items.Add(mi);
+        }
+        AddPgMenu("🏢 Kéo Fanpage vào Business Manager (Claim BM)", (_, _) => OpenClaimBmDialog(p));
+        AddPgMenu("🔄 Kiểm tra trạng thái Live trên Facebook (Check Live)", async (_, _) =>
         {
             try
             {
@@ -2589,26 +2711,10 @@ internal sealed partial class MainWindow
             }
             catch (Exception ex) { AppendLog($"Lỗi Check Live Page: {ex.Message}"); }
         });
-        chkBtn.Margin = new Thickness(0, 0, 6, 0);
-
-        var claimBtn = UiComponents.CreateButton("Kéo BM", ButtonVariant.Primary, compact: true, onClick: (_, _) => OpenClaimBmDialog(p));
-        claimBtn.Margin = new Thickness(0, 0, 6, 0);
-
-        var warmBtn = UiComponents.CreateButton("Nuôi bài", ButtonVariant.Success, compact: true, onClick: (_, _) => OpenWarmupPostDialog(p));
-        warmBtn.Margin = new Thickness(0, 0, 6, 0);
-
-        var inviteFollowBtn = UiComponents.CreateButton("Mời Follow", ButtonVariant.Secondary, FluentIcons.People, compact: true, onClick: (_, _) => LaunchPageAutoInviteFollowers(p, autoClose: false), tooltip: "Mở Meta Business Suite của Page và tự động bấm 'Gửi lời mời' cho người đã bày tỏ cảm xúc với nội dung");
-        inviteFollowBtn.Margin = new Thickness(0, 0, 6, 0);
-
-        btns.Children.Add(openBtn);
-        btns.Children.Add(chkBtn);
-        btns.Children.Add(claimBtn);
-        btns.Children.Add(warmBtn);
-        btns.Children.Add(inviteFollowBtn);
-
         if (p.IsUnsyncedDraft)
         {
-            var delBtn = UiComponents.CreateButton("", ButtonVariant.Subtle, FluentIcons.Delete, compact: true, onClick: async (_, _) =>
+            pgMenu.Items.Add(new Separator());
+            AddPgMenu("🗑️ Xóa bản nháp Fanpage này", async (_, _) =>
             {
                 var ok = UiComponents.ShowConfirmActionDialog(
                     this,
@@ -2625,15 +2731,25 @@ internal sealed partial class MainWindow
                     await SyncCloudAsync(silent: false);
                 }
                 catch (Exception ex) { AppendLog($"Lỗi xóa nháp: {ex.Message}"); }
-            }, tooltip: "Xóa nháp chưa tạo xong");
-            btns.Children.Add(delBtn);
+            });
         }
+        morePgBtn.Click += (_, _) =>
+        {
+            morePgBtn.ContextMenu = pgMenu;
+            pgMenu.PlacementTarget = morePgBtn;
+            pgMenu.IsOpen = true;
+        };
 
-        Grid.SetColumn(btns, 2);
+        btns.Children.Add(inviteFollowBtn);
+        btns.Children.Add(warmBtn);
+        btns.Children.Add(openBtn);
+        btns.Children.Add(morePgBtn);
+
+        Grid.SetColumn(btns, 3);
         grid.Children.Add(btns);
 
-        var card = UiComponents.CreateCard(grid, new Thickness(12, 10, 12, 10));
-        card.Margin = new Thickness(0, 0, 0, 8);
+        var card = UiComponents.CreateCard(grid, new Thickness(12, 9, 12, 9));
+        card.Margin = new Thickness(0, 0, 0, 7);
         return card;
     }
 
@@ -2655,7 +2771,7 @@ internal sealed partial class MainWindow
                 var matchTab = _adFilter switch
                 {
                     "active" => active,
-                    "disabled" => !active,
+                    "disabled" or "restricted" => !active,
                     _ => true,
                 };
                 if (!matchTab) return false;

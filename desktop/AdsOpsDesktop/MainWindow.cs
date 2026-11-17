@@ -712,9 +712,11 @@ internal sealed partial class MainWindow : Window
             if (cached != null)
             {
                 HydrateFromOfflineSnapshot(cached);
+                try { ProvisionAllViaExtensions(silent: true); } catch { }
                 RenderCurrentView();
             }
             await SyncCloudAsync(silent: false);
+            try { ProvisionAllViaExtensions(silent: true); } catch { }
         }
         else
         {
