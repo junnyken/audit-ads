@@ -129,7 +129,7 @@ public sealed class DesktopConfig
 {
     public const string DefaultBackendUrl = "https://audit-ads-backend.vibe1.tinhgon.xyz";
     public const string DefaultWebAppUrl = "https://adsops-app.vibe.tinhgon.xyz";
-    public const int CurrentMigrationVersion = 300;
+    public const int CurrentMigrationVersion = 301;
     internal static string? AppDataRootOverride { get; set; }
 
     public string BackendBaseUrl { get; set; } = DefaultBackendUrl;
@@ -185,6 +185,9 @@ public sealed class DesktopConfig
     public int TotalPageFollowerInvitesSent { get; set; } = 0;
     // v3.0.0 UI/UX Pro Max Theme Palette ("obsidian" | "emerald")
     public string UiThemePalette { get; set; } = "obsidian";
+    // v3.0.1 Per-Fanpage & Per-AdAccount Via / Chrome Profile Pinning
+    public Dictionary<string, string> PageHolderViaOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, string> AdAccountViaOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     [JsonIgnore]
     public string AccessToken
@@ -299,6 +302,8 @@ public sealed class DesktopConfig
                     if (cfg.SoakQuarantineHours < 12 || cfg.SoakQuarantineHours > 336) cfg.SoakQuarantineHours = 72;
                     if (cfg.AutoCooldownHours < 1 || cfg.AutoCooldownHours > 168) cfg.AutoCooldownHours = 24;
                     cfg.MaxPageFollowerInvitesPerRun = Math.Clamp(cfg.MaxPageFollowerInvitesPerRun < 5 ? 25 : cfg.MaxPageFollowerInvitesPerRun, 5, 50);
+                    cfg.PageHolderViaOverrides ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    cfg.AdAccountViaOverrides ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                     if (string.IsNullOrWhiteSpace(cfg.DefaultWarmupMode)) cfg.DefaultWarmupMode = "human_organic";
                     if (cfg.ConfigMigrationVersion < 261)
                     {
@@ -380,6 +385,28 @@ public sealed class DesktopConfig
         if (!string.IsNullOrWhiteSpace(src.UiThemePalette))
         {
             UiThemePalette = src.UiThemePalette.Trim().ToLowerInvariant();
+        }
+        if (src.PageHolderViaOverrides != null && src.PageHolderViaOverrides.Count > 0)
+        {
+            PageHolderViaOverrides ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in src.PageHolderViaOverrides)
+            {
+                if (!string.IsNullOrWhiteSpace(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value))
+                {
+                    PageHolderViaOverrides[kv.Key] = kv.Value;
+                }
+            }
+        }
+        if (src.AdAccountViaOverrides != null && src.AdAccountViaOverrides.Count > 0)
+        {
+            AdAccountViaOverrides ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in src.AdAccountViaOverrides)
+            {
+                if (!string.IsNullOrWhiteSpace(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value))
+                {
+                    AdAccountViaOverrides[kv.Key] = kv.Value;
+                }
+            }
         }
         ConfigMigrationVersion = CurrentMigrationVersion;
     }
@@ -2443,8 +2470,8 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "3.0.0";
-    public const string DisplayVersion = "v3.0.0";
+    public const string Version = "3.0.1";
+    public const string DisplayVersion = "v3.0.1";
     public const string ExtVersion = "2.10.0";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 

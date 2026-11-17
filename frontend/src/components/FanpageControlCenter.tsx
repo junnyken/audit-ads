@@ -1499,7 +1499,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                     className="inline-flex items-center gap-1 rounded border border-emerald-500/50 bg-emerald-500/15 px-2 py-1 font-extrabold text-emerald-700 dark:text-emerald-300"
                     title={`Ứng dụng Windows AdsOps Desktop Pro đang chạy ngầm trên máy (127.0.0.1:${bridgeProbe.port || 17890})`}
                   >
-                    💻 App Windows Desktop Pro Đang Chạy (v{bridgeProbe.version || '3.0.0'})
+                    💻 App Windows Desktop Pro Đang Chạy (v{bridgeProbe.version || '3.0.1'})
                   </span>
                 ) : bridgeProbe?.online ? (
                   <span className="inline-flex items-center gap-1 rounded border border-sky-500/40 bg-sky-500/10 px-2 py-1 font-bold text-sky-700 dark:text-sky-300">
@@ -1510,9 +1510,9 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                   href="/downloads/AdsOps-Desktop-Pro-v2.3.zip"
                   download
                   className="rounded border border-indigo-500/45 bg-indigo-500/15 px-2 py-1 font-bold text-indigo-700 hover:bg-indigo-500/25 dark:text-indigo-300"
-                  title="Tải App Windows AdsOps Desktop Pro v3.0.0 (.exe chạy ngầm System Tray 24/7, tự gia hạn phiên DPAPI 24/7, nhận diện thông minh Chrome Profile gốc & cô lập, Extension v2.10.0)"
+                  title="Tải App Windows AdsOps Desktop Pro v3.0.1 (.exe chạy ngầm System Tray 24/7, tự gia hạn phiên DPAPI 24/7, nhận diện thông minh Chrome Profile gốc & cô lập, Extension v2.10.0)"
                 >
-                  💻 Tải App Windows v3.0.0 (.zip)
+                  💻 Tải App Windows v3.0.1 (.zip)
                 </a>
                 <button
                   type="button"

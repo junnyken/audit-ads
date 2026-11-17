@@ -739,6 +739,7 @@ internal sealed partial class MainWindow : Window
         {
             RebuildViaWorkspaceList(snap.PersonalAccounts);
         }
+        ApplySavedPageHolderOverrides();
         _hasLoadedOnce = true;
         _isOfflineSnapshotMode = true;
         _offlineSnapshotAt = DateTimeOffset.TryParse(snap.SavedAtUtc, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var dt)
@@ -1287,6 +1288,7 @@ internal sealed partial class MainWindow : Window
             _workstationMem = WorkstationPerformanceOptimizer.ReadWorkstationMemory();
 
             RebuildViaWorkspaceList(accountsTask.Result.Items ?? new());
+            ApplySavedPageHolderOverrides();
             ProvisionAllViaExtensions(silent: true);
 
             try
@@ -2259,18 +2261,171 @@ internal sealed partial class MainWindow : Window
         return $"https://business.facebook.com/latest/home?adsops_auto_invite_followers=1&adsops_invite_limit={clamped}&adsops_page_name={pName}&adsops_auto_close={closeFlag}";
     }
 
+    internal void ApplySavedPageHolderOverrides()
+    {
+        var pages = _pagesSummary?.Items;
+        if (pages == null || pages.Count == 0) return;
+        foreach (var p in pages)
+        {
+            _ = ResolveEffectiveViaForPage(p);
+        }
+    }
+
+    internal ViaWorkspaceEntry? ResolveEffectiveViaForPage(FanpageItemDto page)
+    {
+        if (page == null) return _vias.FirstOrDefault();
+
+        _config.PageHolderViaOverrides ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        string? ovRaw = null;
+        if (!string.IsNullOrWhiteSpace(page.Id) && _config.PageHolderViaOverrides.TryGetValue(page.Id.Trim(), out var v1))
+        {
+            ovRaw = v1;
+        }
+        else if (!string.IsNullOrWhiteSpace(page.ExternalPageId) && _config.PageHolderViaOverrides.TryGetValue(page.ExternalPageId.Trim(), out var v2))
+        {
+            ovRaw = v2;
+        }
+
+        if (!string.IsNullOrWhiteSpace(ovRaw))
+        {
+            var parts = ovRaw.Split('|');
+            var viaId = parts.Length > 0 ? parts[0].Trim() : "";
+            var profDir = parts.Length > 1 ? parts[1].Trim() : "";
+            var viaLbl = parts.Length > 2 ? parts[2].Trim() : "";
+
+            var matchedVia = _vias.FirstOrDefault(v =>
+                (!string.IsNullOrEmpty(viaId) && string.Equals(v.ViaId, viaId, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(profDir) && string.Equals(v.ProfileDir, profDir, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(viaLbl) && string.Equals(v.Label, viaLbl, StringComparison.OrdinalIgnoreCase)));
+
+            if (matchedVia != null)
+            {
+                page.HolderIdentityId = matchedVia.ViaId;
+                page.HolderBrowserProfile = matchedVia.ProfileDir;
+                page.HolderLabel = matchedVia.Label;
+                return matchedVia;
+            }
+
+            if (!string.IsNullOrEmpty(profDir))
+            {
+                var dispLbl = !string.IsNullOrEmpty(viaLbl) ? viaLbl : $"Chrome ({profDir})";
+                page.HolderIdentityId = viaId;
+                page.HolderBrowserProfile = profDir;
+                page.HolderLabel = dispLbl;
+                return new ViaWorkspaceEntry
+                {
+                    ViaId = string.IsNullOrEmpty(viaId) ? $"profile-{profDir}" : viaId,
+                    Label = dispLbl,
+                    BrowserProfileLabel = profDir,
+                    ProfileDir = profDir,
+                    AntidetectEngine = "chrome_native",
+                };
+            }
+        }
+
+        var byHolder = _vias.FirstOrDefault(v => !string.IsNullOrWhiteSpace(page.HolderIdentityId) && string.Equals(v.ViaId, page.HolderIdentityId.Trim(), StringComparison.OrdinalIgnoreCase))
+                       ?? _vias.FirstOrDefault(v => !string.IsNullOrWhiteSpace(page.HolderBrowserProfile) && string.Equals(v.ProfileDir, ExtensionProvisioner.ResolveProfileDirectory(page.HolderBrowserProfile, page.HolderLabel), StringComparison.OrdinalIgnoreCase))
+                       ?? _vias.FirstOrDefault(v => !string.IsNullOrWhiteSpace(page.HolderLabel) && string.Equals(v.Label, page.HolderLabel.Trim(), StringComparison.OrdinalIgnoreCase))
+                       ?? _vias.FirstOrDefault();
+
+        if (byHolder != null)
+        {
+            page.HolderIdentityId = byHolder.ViaId;
+            page.HolderBrowserProfile = byHolder.ProfileDir;
+            page.HolderLabel = byHolder.Label;
+        }
+        return byHolder;
+    }
+
+    internal void AssignViaOrProfileToPage(FanpageItemDto page, string selectionTag)
+    {
+        if (page == null || string.IsNullOrWhiteSpace(selectionTag)) return;
+        _config.PageHolderViaOverrides ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        ViaWorkspaceEntry? targetVia = null;
+        string savedVal;
+        if (selectionTag.StartsWith("via:", StringComparison.OrdinalIgnoreCase))
+        {
+            var vid = selectionTag[4..].Trim();
+            targetVia = _vias.FirstOrDefault(v => string.Equals(v.ViaId, vid, StringComparison.OrdinalIgnoreCase));
+            if (targetVia == null) return;
+            savedVal = $"{targetVia.ViaId}|{targetVia.ProfileDir}|{targetVia.Label}";
+            page.HolderIdentityId = targetVia.ViaId;
+            page.HolderBrowserProfile = targetVia.ProfileDir;
+            page.HolderLabel = targetVia.Label;
+        }
+        else if (selectionTag.StartsWith("profile:", StringComparison.OrdinalIgnoreCase))
+        {
+            var pdir = selectionTag[8..].Trim();
+            targetVia = _vias.FirstOrDefault(v => string.Equals(v.ProfileDir, pdir, StringComparison.OrdinalIgnoreCase));
+            if (targetVia != null)
+            {
+                savedVal = $"{targetVia.ViaId}|{targetVia.ProfileDir}|{targetVia.Label}";
+                page.HolderIdentityId = targetVia.ViaId;
+                page.HolderBrowserProfile = targetVia.ProfileDir;
+                page.HolderLabel = targetVia.Label;
+            }
+            else
+            {
+                var customLabel = $"Chrome {pdir}";
+                savedVal = $"profile-{pdir}|{pdir}|{customLabel}";
+                page.HolderIdentityId = $"profile-{pdir}";
+                page.HolderBrowserProfile = pdir;
+                page.HolderLabel = customLabel;
+            }
+        }
+        else
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(page.Id))
+        {
+            _config.PageHolderViaOverrides[page.Id.Trim()] = savedVal;
+        }
+        if (!string.IsNullOrWhiteSpace(page.ExternalPageId))
+        {
+            _config.PageHolderViaOverrides[page.ExternalPageId.Trim()] = savedVal;
+        }
+        _config.Save();
+        AppendLog($"🎯 Đã gắn cố định Fanpage '{page.Name}' vào trình duyệt '{page.HolderLabel} ({page.HolderBrowserProfile})'.");
+    }
+
+    internal ViaWorkspaceEntry? ResolveEffectiveViaForAdAccount(AdAccountItemDto a)
+    {
+        if (a == null) return _vias.FirstOrDefault();
+        _config.AdAccountViaOverrides ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(a.Id) && _config.AdAccountViaOverrides.TryGetValue(a.Id.Trim(), out var ov) && !string.IsNullOrWhiteSpace(ov))
+        {
+            var parts = ov.Split('|');
+            var vid = parts.Length > 0 ? parts[0].Trim() : "";
+            var pdir = parts.Length > 1 ? parts[1].Trim() : "";
+            var matchedOv = _vias.FirstOrDefault(v =>
+                (!string.IsNullOrEmpty(vid) && string.Equals(v.ViaId, vid, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(pdir) && string.Equals(v.ProfileDir, pdir, StringComparison.OrdinalIgnoreCase)));
+            if (matchedOv != null) return matchedOv;
+        }
+
+        foreach (var ident in a.FacebookIdentities)
+        {
+            var m = _vias.FirstOrDefault(v =>
+                (!string.IsNullOrWhiteSpace(ident.Id) && string.Equals(v.ViaId, ident.Id.Trim(), StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(ident.Label) && string.Equals(v.Label, ident.Label.Trim(), StringComparison.OrdinalIgnoreCase)));
+            if (m != null) return m;
+        }
+        return _vias.FirstOrDefault();
+    }
+
     public void LaunchPageAutoInviteFollowers(FanpageItemDto page, bool autoClose = false)
     {
-        var via = _vias.FirstOrDefault(v => string.Equals(v.ViaId, page.HolderIdentityId, StringComparison.OrdinalIgnoreCase))
-                  ?? _vias.FirstOrDefault(v => !string.IsNullOrWhiteSpace(page.HolderLabel) && string.Equals(v.Label, page.HolderLabel, StringComparison.OrdinalIgnoreCase))
-                  ?? _vias.FirstOrDefault();
+        var via = ResolveEffectiveViaForPage(page);
         if (via == null)
         {
             MessageBox.Show(this, "Chưa có Via nào trong danh sách để mở Meta Business Suite cho Fanpage này.", "Thiếu Via cầm Page", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         var targetUrl = BuildPageAutoInviteUrl(page, _config.MaxPageFollowerInvitesPerRun, autoClose);
-        AppendLog($"🤝 Khởi chạy Auto-Invite Followers cho Page '{page.Name}' qua Via '{via.Label}' (tối đa {_config.MaxPageFollowerInvitesPerRun} lời mời)...");
+        AppendLog($"🤝 Khởi chạy Auto-Invite Followers cho Page '{page.Name}' qua '{via.Label}' (Chrome: {via.ProfileDir}, tối đa {_config.MaxPageFollowerInvitesPerRun} lời mời)...");
         LaunchViaChromeSafe(via, targetUrl);
     }
 
@@ -2304,12 +2459,12 @@ internal sealed partial class MainWindow : Window
             var ok = UiComponents.ShowConfirmActionDialog(
                 this,
                 "Tự động Mời người tương tác theo dõi Fanpage (Lô)",
-                "Mở Meta Business Suite từng Fanpage theo nhịp an toàn và tự động bấm 'Gửi lời mời' cho những người đã bày tỏ cảm xúc với bài viết.",
+                "Mở Meta Business Suite từng Fanpage theo đúng Chrome Profile / Via đã gắn cho Page đó và tự động bấm 'Gửi lời mời'.",
                 new (string, string)[]
                 {
                     ("Số Fanpage hợp lệ:", $"{pages.Count} Page LIVE"),
                     ("Giới hạn an toàn:", $"Tối đa {_config.MaxPageFollowerInvitesPerRun} lời mời / Page / phiên (Jitter 3.2s - 6.2s)"),
-                    ("Cơ chế bảo vệ:", "Bỏ qua Page đang Ngâm • Tự đóng tab khi gửi xong"),
+                    ("Cơ chế bảo vệ:", "Mở đúng Chrome Profile của từng Page • Tự đóng tab khi gửi xong"),
                 },
                 "Extension v2.10.0 tự động nhận diện nút 'Gửi lời mời' trong mục 'Tiếp cận những người đã bày tỏ cảm xúc với nội dung của bạn'.",
                 "Khởi chạy Auto-Invite");
@@ -2319,9 +2474,7 @@ internal sealed partial class MainWindow : Window
         var tasks = new List<QueueTaskItem>();
         foreach (var p in pages)
         {
-            var via = _vias.FirstOrDefault(v => string.Equals(v.ViaId, p.HolderIdentityId, StringComparison.OrdinalIgnoreCase))
-                      ?? _vias.FirstOrDefault(v => !string.IsNullOrWhiteSpace(p.HolderLabel) && string.Equals(v.Label, p.HolderLabel, StringComparison.OrdinalIgnoreCase))
-                      ?? _vias.FirstOrDefault();
+            var via = ResolveEffectiveViaForPage(p);
             if (via == null || via.IsInCooldown) continue;
             var url = BuildPageAutoInviteUrl(p, _config.MaxPageFollowerInvitesPerRun, autoClose: _config.AutoCloseKeepAliveTab);
             tasks.Add(new QueueTaskItem(

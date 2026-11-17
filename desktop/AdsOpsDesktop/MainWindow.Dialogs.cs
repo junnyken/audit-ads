@@ -722,12 +722,12 @@ internal sealed partial class MainWindow
             ok.IsEnabled = false;
             try
             {
-                var prof = ExtensionProvisioner.ResolveProfileDirectory(page.HolderBrowserProfile, page.HolderLabel);
-                var res = await _api.PublishWarmupPostAsync(page.Id, tbMsg.Text.Trim(), page.HolderIdentityId ?? "", page.HolderLabel ?? "", prof);
+                var holderVia = ResolveEffectiveViaForPage(page);
+                var prof = holderVia?.ProfileDir ?? ExtensionProvisioner.ResolveProfileDirectory(page.HolderBrowserProfile, page.HolderLabel);
+                var res = await _api.PublishWarmupPostAsync(page.Id, tbMsg.Text.Trim(), holderVia?.ViaId ?? page.HolderIdentityId ?? "", holderVia?.Label ?? page.HolderLabel ?? "", prof);
                 AppendLog($"Đã gửi bài Warmup cho Page '{page.Name}' ({res.DeliveryMode}).");
                 if (res.DeliveryMode != "graph_api")
                 {
-                    var holderVia = _vias.FirstOrDefault(v => string.Equals(v.ViaId, page.HolderIdentityId, StringComparison.OrdinalIgnoreCase));
                     if (holderVia != null && !string.IsNullOrWhiteSpace(page.Url))
                     {
                         LaunchViaChromeSafe(holderVia, page.Url!);

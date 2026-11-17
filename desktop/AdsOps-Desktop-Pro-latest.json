@@ -1,13 +1,13 @@
 {
-  "version": "3.0.0",
+  "version": "3.0.1",
   "ext_version": "2.10.0",
   "authenticode_signed": true,
   "download_url": "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
   "mirror_urls": [
     "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
   ],
-  "sha256": "9fee229cf690b870cd938dcf9c5b5fadc02915a092ca0c40fac7f5e3e84d4150",
-  "size_bytes": 66490448,
-  "published_at": "2026-11-17T08:23:30.171344Z",
-  "release_notes": "AdsOps Desktop Pro v3.0.0 (UI/UX Pro Max Redesign) + Extension v2.10.0: Giao dien Bento Command Center moi (Linear Obsidian & Emerald Cyber-Vault), Stepper Auto-Pilot 5 Buoc ngang, Gom nhom Canh bao thong minh, Bang Da Via & Fanpage 4 cot tinh gon voi thanh Trust/Warmup Bar, Tu dong cap moi Extension v2.10.0 khi mo app, va Auto-Invite Page Followers."
+  "sha256": "58d4ce38c9bbf9300dc6554e83c63a1bb6dee95b33607eb938cac6aaf4adbae6",
+  "size_bytes": 66493360,
+  "published_at": "2026-11-17T08:56:51.125449Z",
+  "release_notes": "AdsOps Desktop Pro v3.0.1 (UI/UX Pro Max) + Extension v2.10.0: Bo sung Dropdown chon truc tiep Via & Chrome Profile cam Page ngay tren tung dong Fanpage (luu co dinh de Moi Follow, Nuoi bai, Mo Page mo dung 100% trinh duyet cua Via do), sua cat chu nut Moi Follow, dinh dang gio kiem tra Token."
 }

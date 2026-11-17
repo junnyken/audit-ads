@@ -509,6 +509,7 @@ internal sealed partial class MainWindow
 
         foreach (var pg in livePagesForInvite)
         {
+            var resolvedPgVia = ResolveEffectiveViaForPage(pg);
             var pRow = new Grid();
             pRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             pRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -523,9 +524,10 @@ internal sealed partial class MainWindow
                 TextTrimming = TextTrimming.CharacterEllipsis,
             });
             var fans = pg.FanCount ?? pg.FollowersCount;
+            var viaDisp = resolvedPgVia != null ? $"{resolvedPgVia.Label} ({resolvedPgVia.ProfileDir})" : (string.IsNullOrWhiteSpace(pg.HolderLabel) ? "Mặc định" : pg.HolderLabel);
             pInfo.Children.Add(new TextBlock
             {
-                Text = $"{(fans.HasValue ? $"{fans.Value:N0} theo dõi" : "LIVE")} • Via: {(string.IsNullOrWhiteSpace(pg.HolderLabel) ? "Mặc định" : pg.HolderLabel)}",
+                Text = $"{(fans.HasValue ? $"{fans.Value:N0} theo dõi" : "LIVE")} • Via: {viaDisp}",
                 FontSize = 11.5,
                 Foreground = ThemeTokens.TextMuted,
                 TextTrimming = TextTrimming.CharacterEllipsis,
@@ -2434,10 +2436,10 @@ internal sealed partial class MainWindow
 
             // Linear Table Column Header Bar for Fanpages
             var hdrGrid = new Grid { Margin = new Thickness(12, 2, 12, 6) };
-            hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.45, GridUnitType.Star) });
-            hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.95, GridUnitType.Star) });
-            hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.15, GridUnitType.Star) });
-            hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(250) });
+            hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.35, GridUnitType.Star) });
+            hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.85, GridUnitType.Star) });
+            hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.35, GridUnitType.Star) });
+            hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             TextBlock MakePgHdr(string txt, int col, HorizontalAlignment align = HorizontalAlignment.Left)
             {
@@ -2455,7 +2457,7 @@ internal sealed partial class MainWindow
             }
             hdrGrid.Children.Add(MakePgHdr("FANPAGE & TRẠNG THÁI ADS", 0));
             hdrGrid.Children.Add(MakePgHdr("TĂNG TRƯỞNG & TIẾN ĐỘ NUÔI", 1));
-            hdrGrid.Children.Add(MakePgHdr("VIA CẦM & BUSINESS MANAGER", 2));
+            hdrGrid.Children.Add(MakePgHdr("CHỌN VIA & CHROME PROFILE CẦM PAGE", 2));
             hdrGrid.Children.Add(MakePgHdr("THAO TÁC NHANH", 3, HorizontalAlignment.Right));
             listHost.Children.Add(hdrGrid);
 
@@ -2531,11 +2533,12 @@ internal sealed partial class MainWindow
 
     private Border BuildPageRowCard(FanpageItemDto p)
     {
-        var grid = new Grid { MinHeight = 66 };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.45, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.95, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.15, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(250) });
+        var effectiveVia = ResolveEffectiveViaForPage(p);
+        var grid = new Grid { MinHeight = 68 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.35, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.85, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.35, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         // Col 0: Avatar Initials + Page Name + Status Pill + Monospace ID/Category
         var col0Grid = new Grid { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
@@ -2653,30 +2656,86 @@ internal sealed partial class MainWindow
         Grid.SetColumn(growthStack, 1);
         grid.Children.Add(growthStack);
 
-        // Col 2: Holder Via + BM & Linked Ad Accounts
-        var mid = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
-        mid.Children.Add(new TextBlock
+        // Col 2: Direct Via & Chrome Profile Selector + BM Info
+        var mid = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
+        var holderItems = new List<ComboBoxItem>();
+        var seenProfiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int selectedHolderIdx = 0;
+
+        foreach (var v in _vias)
         {
-            Text = $"Via: {(string.IsNullOrWhiteSpace(p.HolderLabel) ? "Chưa gắn" : p.HolderLabel)} ({ExtensionProvisioner.ResolveProfileDirectory(p.HolderBrowserProfile, p.HolderLabel)})",
-            FontSize = 12,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = ThemeTokens.TextPrimary,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            Margin = new Thickness(0, 0, 0, 2),
-        });
+            seenProfiles.Add(v.ProfileDir);
+            var tag = $"via:{v.ViaId}";
+            holderItems.Add(new ComboBoxItem
+            {
+                Content = $"👤 {v.Label} ({v.ProfileDir})",
+                Tag = tag,
+            });
+            if (effectiveVia != null && string.Equals(effectiveVia.ViaId, v.ViaId, StringComparison.OrdinalIgnoreCase))
+            {
+                selectedHolderIdx = holderItems.Count - 1;
+            }
+        }
+
+        var currentProfDir = effectiveVia?.ProfileDir ?? ExtensionProvisioner.ResolveProfileDirectory(p.HolderBrowserProfile, p.HolderLabel);
+        foreach (var cp in _chromeProfiles)
+        {
+            if (seenProfiles.Contains(cp.Folder)) continue;
+            seenProfiles.Add(cp.Folder);
+            var tag = $"profile:{cp.Folder}";
+            holderItems.Add(new ComboBoxItem
+            {
+                Content = $"🌐 Chrome: {cp.Folder}" + (string.IsNullOrWhiteSpace(cp.Name) || cp.Name == cp.Folder ? "" : $" ({cp.Name})"),
+                Tag = tag,
+            });
+            if (string.Equals(currentProfDir, cp.Folder, StringComparison.OrdinalIgnoreCase))
+            {
+                selectedHolderIdx = holderItems.Count - 1;
+            }
+        }
+
+        if (holderItems.Count > 0)
+        {
+            var cbHolder = UiComponents.CreateComboBox(holderItems);
+            cbHolder.SelectedIndex = Math.Clamp(selectedHolderIdx, 0, holderItems.Count - 1);
+            cbHolder.MinHeight = 27;
+            cbHolder.Padding = new Thickness(8, 3, 8, 3);
+            cbHolder.ToolTip = "Chọn Via & Chrome Profile cầm Fanpage này — mọi nút Mời Follow, Nuôi bài, Mở Page sẽ mở đúng trình duyệt đã chọn";
+            cbHolder.SelectionChanged += (_, _) =>
+            {
+                if (cbHolder.SelectedItem is ComboBoxItem selItem && selItem.Tag is string selTag)
+                {
+                    AssignViaOrProfileToPage(p, selTag);
+                }
+            };
+            mid.Children.Add(cbHolder);
+        }
+        else
+        {
+            mid.Children.Add(new TextBlock
+            {
+                Text = $"Via: {(string.IsNullOrWhiteSpace(p.HolderLabel) ? "Chưa gắn" : p.HolderLabel)} ({currentProfDir})",
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = ThemeTokens.TextPrimary,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+        }
+
         mid.Children.Add(new TextBlock
         {
             Text = $"BM: {(string.IsNullOrWhiteSpace(p.OwnerBmName) ? "Chưa kéo BM" : p.OwnerBmName)} • TKQC: {p.LinkedAdAccountCount}",
             FontSize = 11.5,
             Foreground = string.IsNullOrWhiteSpace(p.OwnerBmName) ? ThemeTokens.WarningText : ThemeTokens.TextMuted,
             TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(2, 3, 0, 0),
         });
         Grid.SetColumn(mid, 2);
         grid.Children.Add(mid);
 
-        // Col 3: Streamlined Actions ("👥 Mời Follow", "Nuôi bài", "Mở Page", "⋯")
+        // Col 3: Streamlined Actions ("👥 Mời Follow", "Nuôi bài", "Mở Page", "⋯") — Auto width so nothing is clipped!
         var btns = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right };
-        var inviteFollowBtn = UiComponents.CreateButton("👥 Mời Follow", ButtonVariant.Primary, compact: true, onClick: (_, _) => LaunchPageAutoInviteFollowers(p, autoClose: false), tooltip: "Mở Meta Business Suite của Page và tự động bấm 'Gửi lời mời' cho người đã bày tỏ cảm xúc");
+        var inviteFollowBtn = UiComponents.CreateButton("👥 Mời Follow", ButtonVariant.Primary, compact: true, onClick: (_, _) => LaunchPageAutoInviteFollowers(p, autoClose: false), tooltip: "Mở Meta Business Suite của Page bằng đúng Chrome Profile đã chọn ở cột bên trái và tự động bấm 'Gửi lời mời'");
         inviteFollowBtn.Margin = new Thickness(0, 0, 6, 0);
 
         var warmBtn = UiComponents.CreateButton("Nuôi bài", ButtonVariant.Success, compact: true, onClick: (_, _) => OpenWarmupPostDialog(p));
@@ -2684,12 +2743,12 @@ internal sealed partial class MainWindow
 
         var openBtn = UiComponents.CreateButton("Mở Page", ButtonVariant.Secondary, compact: true, onClick: (_, _) =>
         {
-            var via = _vias.FirstOrDefault(v => string.Equals(v.ViaId, p.HolderIdentityId, StringComparison.OrdinalIgnoreCase)) ?? _vias.FirstOrDefault();
+            var via = ResolveEffectiveViaForPage(p);
             var url = !string.IsNullOrWhiteSpace(p.Url) ? p.Url!
                 : !string.IsNullOrWhiteSpace(p.ExternalPageId) ? $"https://www.facebook.com/{p.ExternalPageId}"
                 : "https://www.facebook.com/pages";
             if (via != null) LaunchViaChromeSafe(via, url);
-        });
+        }, tooltip: "Mở Fanpage bằng đúng Chrome Profile đã chọn cho Page này");
         openBtn.Margin = new Thickness(0, 0, 6, 0);
 
         var morePgBtn = UiComponents.CreateButton("⋯", ButtonVariant.Secondary, compact: true, tooltip: "Thao tác Fanpage: Kéo BM, Kiểm tra Live (Check Live), Xóa nháp");
@@ -3020,9 +3079,7 @@ internal sealed partial class MainWindow
 
         var openAdsBtn = UiComponents.CreateButton("Ads Manager", ButtonVariant.Secondary, FluentIcons.RocketLaunch, compact: true, onClick: (_, _) =>
         {
-            var linked = a.FacebookIdentities.FirstOrDefault();
-            var via = (linked != null ? _vias.FirstOrDefault(v => string.Equals(v.ViaId, linked.Id, StringComparison.OrdinalIgnoreCase)) : null)
-                      ?? _vias.FirstOrDefault();
+            var via = ResolveEffectiveViaForAdAccount(a);
             if (via == null)
             {
                 MessageBox.Show(this, "Chưa có Via nào trong hệ thống để mở Chrome.", "Thiếu Via", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -3305,8 +3362,14 @@ internal sealed partial class MainWindow
                 left.Children.Add(new TextBlock { Text = $"Môi trường: {conn.Environment} • Nguồn: {conn.ReaderSource} • BM: {(string.IsNullOrWhiteSpace(conn.BusinessManagerReference) ? "Chưa gắn" : conn.BusinessManagerReference)}", FontSize = 11, Foreground = ThemeTokens.TextMuted, TextTrimming = TextTrimming.CharacterEllipsis });
                 row.Children.Add(left);
 
+                var rawTokStatus = (conn.Status ?? "").Trim();
+                var tokBadgeLabel = !conn.TokenConfigured
+                    ? "CHƯA CÓ TOKEN"
+                    : (string.IsNullOrEmpty(rawTokStatus) || rawTokStatus.Equals("unknown", StringComparison.OrdinalIgnoreCase)
+                        ? "TOKEN: ĐÃ LƯU KÉT"
+                        : $"TOKEN: {rawTokStatus.ToUpperInvariant()}");
                 var tokPill = UiComponents.CreateBadgePill(
-                    conn.TokenConfigured ? $"TOKEN: {conn.Status.ToUpperInvariant()}" : "CHƯA CÓ TOKEN",
+                    tokBadgeLabel,
                     conn.TokenConfigured ? ThemeTokens.SuccessText : ThemeTokens.WarningText,
                     conn.TokenConfigured ? ThemeTokens.SuccessBg : ThemeTokens.WarningBg,
                     conn.TokenConfigured ? ThemeTokens.SuccessBorder : ThemeTokens.WarningBorder);
@@ -3315,7 +3378,9 @@ internal sealed partial class MainWindow
 
                 var lastChk = new TextBlock
                 {
-                    Text = string.IsNullOrWhiteSpace(conn.LastCapabilityCheckAt) ? "Chưa kiểm tra gần đây" : $"Kiểm tra: {conn.LastCapabilityCheckAt}",
+                    Text = string.IsNullOrWhiteSpace(conn.LastCapabilityCheckAt)
+                        ? "Chưa kiểm tra gần đây"
+                        : $"Kiểm tra: {AlertItemDto.FormatIsoTimestampLocal(conn.LastCapabilityCheckAt, conn.LastCapabilityCheckAt!)}",
                     FontSize = 12,
                     Foreground = ThemeTokens.TextSecondary,
                     VerticalAlignment = VerticalAlignment.Center,
