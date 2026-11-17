@@ -166,14 +166,14 @@ export default function FacebookAccountDetail() {
                 downloadChromeExtensionZip(String(r.label || 'Via'), shortDir, cleanNet, [], validTwoFa, 'camp', String(r.id || ''))
               }}
             >
-              📦 Tải Tiện Ích v2.9.8 (.zip)
+              📦 Tải Tiện Ích v2.9.9 (.zip)
             </Button>
             <a
               href="/downloads/AdsOps-Desktop-Pro-v2.3.zip"
               download
               className="inline-flex h-8 items-center rounded-md border border-indigo-500/45 bg-indigo-500/15 px-2.5 text-xs font-bold text-indigo-700 hover:bg-indigo-500/25 dark:text-indigo-300"
             >
-              💻 App Win v2.6.3 (.zip)
+              💻 App Win v2.6.4 (.zip)
             </a>
             {canWrite && (
               <>

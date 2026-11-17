@@ -117,6 +117,7 @@ internal sealed partial class MainWindow : Window
     private string _updateStatusText = "Chưa kiểm tra cập nhật trong phiên này.";
 
     private bool _isBusy;
+    private bool _autoPipelineRunning;
     private bool _hasLoadedOnce;
     private string? _lastErrorMessage;
     private DateTime? _lastSyncedAtLocal;
@@ -1798,8 +1799,93 @@ internal sealed partial class MainWindow : Window
         return (fallbackProfile ?? "").Trim();
     }
 
+    internal static HashSet<string> BuildActiveChromeSlugSet()
+    {
+        var activeSlugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var s in ChromeSessionTracker.Default.GetSnapshot().Where(x => x.Alive))
+        {
+            var viaSlug = ExtensionProvisioner.SanitizeFolderSlug(s.ViaLabel);
+            if (!string.IsNullOrEmpty(viaSlug)) activeSlugs.Add(viaSlug);
+            var legacySlug = ExtensionProvisioner.SanitizeLegacyFolderSlug(s.ViaLabel);
+            if (!string.IsNullOrEmpty(legacySlug)) activeSlugs.Add(legacySlug);
+            var profSlug = ExtensionProvisioner.SanitizeFolderSlug(s.ProfileDir);
+            if (!string.IsNullOrEmpty(profSlug)) activeSlugs.Add(profSlug);
+        }
+        return activeSlugs;
+    }
+
+    internal (int CleanedFolders, long BytesFreed, WorkstationMemorySnapshot MemAfter) RunCacheAndRamCleanupNow(bool renderAfter = true)
+    {
+        var activeSlugs = BuildActiveChromeSlugSet();
+        var (cleaned, bytes) = WorkstationPerformanceOptimizer.CleanProfileCachesAndTrimMemory(activeSlugs: activeSlugs);
+        var mem = WorkstationPerformanceOptimizer.ReadWorkstationMemory();
+        _workstationMem = mem;
+        if (renderAfter)
+        {
+            AppendLog($"🧹 Đã dọn {cleaned} thư mục Cache Chrome ({bytes / (1024.0 * 1024.0):0.0} MB) • RAM trống hiện tại: {mem.AvailablePhysicalMb:N0}/{mem.TotalPhysicalMb:N0} MB.");
+            RenderCurrentView();
+        }
+        return (cleaned, bytes, mem);
+    }
+
+    internal void ApplyProxyHealthMapToVias(Dictionary<string, ProxyCheckResultDto>? map)
+    {
+        _proxyHealthMap = new Dictionary<string, ProxyCheckResultDto>(
+            map ?? new Dictionary<string, ProxyCheckResultDto>(),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var v in _vias)
+        {
+            if (string.IsNullOrWhiteSpace(v.NetworkLabel)) continue;
+            var normKey = DesktopAppInfo.NormalizeProxyKey(v.NetworkLabel);
+            ProxyCheckResultDto? found = null;
+            if (!string.IsNullOrWhiteSpace(normKey))
+            {
+                _proxyHealthMap.TryGetValue(normKey, out found);
+            }
+            if (found == null)
+            {
+                var hp = AutomationQueueEngine.ExtractProxyHostPort(v.NetworkLabel);
+                if (!string.IsNullOrWhiteSpace(hp))
+                {
+                    found = _proxyHealthMap
+                        .FirstOrDefault(kv =>
+                            kv.Key.Contains(hp, StringComparison.OrdinalIgnoreCase) ||
+                            (!string.IsNullOrWhiteSpace(kv.Value.NormalizedKey) && kv.Value.NormalizedKey.Contains(hp, StringComparison.OrdinalIgnoreCase)))
+                        .Value;
+                }
+            }
+            if (found != null)
+            {
+                v.ProxyLastStatus = string.Equals(found.Status, "LIVE", StringComparison.OrdinalIgnoreCase) ? "LIVE" : "DEAD";
+                v.ProxyLatencyMs = found.LatencyMs;
+                v.ProxyExitIp = found.ExitIp;
+                v.ProxyTimezone = found.Timezone ?? "";
+                var (tzMatch, tzWarn) = found.TimezoneMatch.HasValue
+                    ? (found.TimezoneMatch, found.TimezoneWarning)
+                    : ProxyTimezoneHelper.EvaluateMatch(found.Timezone, found.CountryCode, string.IsNullOrWhiteSpace(v.Timezone) ? null : v.Timezone);
+                v.HasTimezoneMismatch = tzMatch == false;
+                v.TimezoneWarning = tzWarn ?? "";
+            }
+        }
+    }
+
     private async Task LaunchViaQueueItemAsync(QueueTaskItem item)
     {
+        try
+        {
+            var memBefore = await Task.Run(() => WorkstationPerformanceOptimizer.ReadWorkstationMemory());
+            if (memBefore.AvailablePhysicalMb < 1200)
+            {
+                var activeSlugs = BuildActiveChromeSlugSet();
+                var (cleaned, bytes) = await Task.Run(() =>
+                    WorkstationPerformanceOptimizer.CleanProfileCachesAndTrimMemory(activeSlugs: activeSlugs));
+                _workstationMem = await Task.Run(() => WorkstationPerformanceOptimizer.ReadWorkstationMemory());
+                AppendLog($"🧹 RAM trống thấp ({memBefore.AvailablePhysicalMb:N0} MB) -> Đã tự dọn {cleaned} cache Chrome ({bytes / (1024.0 * 1024.0):0.0} MB) trước khi mở '{item.ViaLabel}'.");
+            }
+        }
+        catch { }
+
         ViaWorkspaceEntry? via = null;
         await Dispatcher.InvokeAsync(() =>
         {
@@ -2004,14 +2090,180 @@ internal sealed partial class MainWindow : Window
         RenderCurrentView();
     }
 
+    public async Task RunFullAutoPilotPipelineAsync(bool interactiveConfirm = true)
+    {
+        if (_autoPipelineRunning || _queue.Current.Phase is QueuePhase.Running or QueuePhase.Paused)
+        {
+            if (interactiveConfirm)
+            {
+                MessageBox.Show(this, "Hàng đợi hoặc Chu trình Auto-Pilot đang chạy. Hãy Tạm dừng hoặc đợi hoàn tất.", "Hệ thống đang bận", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_config.GetJwt()))
+        {
+            if (interactiveConfirm)
+            {
+                MessageBox.Show(this, "Hãy đăng nhập AdsOps Cloud ở tab Két khóa & Cài đặt trước khi chạy Auto-Pilot.", "Chưa đăng nhập Cloud", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            return;
+        }
+
+        if (interactiveConfirm)
+        {
+            var dueCountPreview = _vias.Count(v => v.NeedsKeepAlive && !v.IsInCooldown && !string.Equals(v.ProxyLastStatus, "DEAD", StringComparison.OrdinalIgnoreCase));
+            var ok = UiComponents.ShowConfirmActionDialog(
+                this,
+                "Chu trình Auto-Pilot Khép Kín 5 Bước",
+                "Thực thi tuần tự toàn bộ quy trình tự động hóa hằng ngày cho Dàn Via & Fanpage chỉ với 1 chạm.",
+                new (string, string)[]
+                {
+                    ("Bước 1:", "Dọn Cache Chrome không chạy & Giải phóng RAM (< 1.2 GB)"),
+                    ("Bước 2:", "Quét Proxy Live/Dead & kiểm tra khớp Múi giờ"),
+                    ("Bước 3:", "Chạy Cloud Cron + Đồng bộ Fanpage & TKQC từ Meta"),
+                    ("Bước 4:", "Tự động Nuôi bài Fanpage đến hạn (tối đa 10 Page)"),
+                    ("Bước 5:", $"Xếp hàng Đảo Ấm tự động các Via quá hạn ({dueCountPreview} Via)"),
+                },
+                "Có thể Tạm dừng hoặc Dừng hẳn Hàng đợi bất cứ lúc nào sau khi Bước 5 khởi chạy.",
+                "Chạy Auto-Pilot 5 Bước");
+            if (!ok) return;
+        }
+
+        _autoPipelineRunning = true;
+        SetBusy(true);
+        try
+        {
+            // Bước 1: Dọn Cache & Thu hồi RAM
+            var activeSlugs = BuildActiveChromeSlugSet();
+            var (cleaned, bytes) = await Task.Run(() =>
+                WorkstationPerformanceOptimizer.CleanProfileCachesAndTrimMemory(activeSlugs: activeSlugs));
+            _workstationMem = await Task.Run(() => WorkstationPerformanceOptimizer.ReadWorkstationMemory());
+            AppendLog($"🤖 [Auto-Pilot 1/5] Đã dọn {cleaned} thư mục Cache ({bytes / (1024.0 * 1024.0):0.0} MB) • RAM trống: {_workstationMem.AvailablePhysicalMb:N0}/{_workstationMem.TotalPhysicalMb:N0} MB.");
+
+            // Bước 2: Quét Proxy Live/Dead & Múi giờ
+            try
+            {
+                var pxRes = await _api.CheckProxyBatchAsync();
+                ApplyProxyHealthMapToVias(pxRes.HealthMap);
+                AppendLog($"🤖 [Auto-Pilot 2/5] Quét Proxy xong: {pxRes.LiveCount} Live / {pxRes.DeadCount} Dead (Tổng {pxRes.CheckedCount}).");
+            }
+            catch (Exception exPx)
+            {
+                AppendLog($"⚠️ [Auto-Pilot 2/5] Bỏ qua quét Proxy do lỗi mạng: {exPx.Message}");
+            }
+
+            // Bước 3: Kích hoạt Cloud Cron + Đồng bộ Fanpage từ Meta
+            try
+            {
+                await _api.RunAutomationCronNowAsync(sync: true, warmup: false);
+                var syncPg = await _api.SyncPagesFromMetaAsync();
+                AppendLog($"🤖 [Auto-Pilot 3/5] Đã chạy Cloud Cron & Đồng bộ {syncPg.SyncedCount} Fanpage từ Meta (Mới: {syncPg.NewCount}).");
+            }
+            catch (Exception exCron)
+            {
+                AppendLog($"⚠️ [Auto-Pilot 3/5] Bỏ qua đồng bộ Meta/Cron: {exCron.Message}");
+            }
+
+            // Bước 4: Tự động Nuôi bài Fanpage đến hạn
+            try
+            {
+                var warmRes = await _api.BatchWarmupPagesAsync(10);
+                AppendLog($"🤖 [Auto-Pilot 4/5] Đã nuôi lô tự động {warmRes.NurturedCount} Fanpage (Graph API: {warmRes.GraphPublishedCount}).");
+            }
+            catch (Exception exWarm)
+            {
+                AppendLog($"⚠️ [Auto-Pilot 4/5] Bỏ qua Nuôi lô Fanpage: {exWarm.Message}");
+            }
+
+            SetBusy(false);
+            await SyncCloudAsync(silent: true);
+
+            // Bước 5: Xếp hàng Đảo Ấm các Via quá hạn có Proxy sống (hoặc Direct)
+            _config.LastAutoPipelineDateLocal = DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            _config.Save();
+
+            var dueVias = _vias
+                .Where(v => v.NeedsKeepAlive && !v.IsInCooldown && !string.Equals(v.ProxyLastStatus, "DEAD", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (dueVias.Count > 0)
+            {
+                AppendLog($"🤖 [Auto-Pilot 5/5] Khởi chạy hàng đợi Đảo Ấm an toàn cho {dueVias.Count} Via quá hạn.");
+                EnqueueKeepAliveVias(dueVias, "Auto-Pilot 5 Bước • Đảo Ấm Via quá hạn", requireConfirm: false);
+            }
+            else
+            {
+                AppendLog("🤖 [Auto-Pilot 5/5] Hoàn tất Chu trình 5 Bước! Toàn bộ Via hợp lệ đã Đảo Ấm đủ.");
+            }
+        }
+        finally
+        {
+            _autoPipelineRunning = false;
+            SetBusy(false);
+            RefreshHeaderAndSidebar();
+            RenderCurrentView();
+        }
+    }
+
+    internal async Task AcknowledgeAllOpenAlertsAsync()
+    {
+        var openAlerts = _alerts.Where(a => a.Status.Equals("open", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (openAlerts.Count == 0) return;
+
+        var ok = UiComponents.ShowConfirmActionDialog(
+            this,
+            "Ghi nhận tất cả Cảnh báo đang mở",
+            $"Đánh dấu 'Đã ghi nhận' cho toàn bộ {openAlerts.Count} cảnh báo hệ thống hiện tại?",
+            new (string, string)[]
+            {
+                ("Số cảnh báo mở:", $"{openAlerts.Count} cảnh báo"),
+                ("Trạng thái mới:", "Đã ghi nhận (Acknowledged) trên Cloud"),
+            },
+            "Bạn vẫn có thể xem lại hoặc xử lý từng tài khoản sau khi ghi nhận.");
+        if (!ok) return;
+
+        SetBusy(true);
+        int done = 0;
+        try
+        {
+            foreach (var al in openAlerts)
+            {
+                try
+                {
+                    await _api.AcknowledgeAlertAsync(al.Id, "Ghi nhận hàng loạt từ AdsOps Desktop Pro");
+                    done++;
+                }
+                catch { }
+            }
+            AppendLog($"✓ Đã ghi nhận hàng loạt {done}/{openAlerts.Count} cảnh báo.");
+            await SyncCloudAsync(silent: false);
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
     private async Task RunAutoKeepAliveTickAsync()
     {
-        if (!_config.AutoKeepAliveScheduler || string.IsNullOrWhiteSpace(_config.GetJwt())) return;
-        if (_isOfflineSnapshotMode || _isAuthExpired) return;
+        if (string.IsNullOrWhiteSpace(_config.GetJwt())) return;
+        if (_isOfflineSnapshotMode || _isAuthExpired || _autoPipelineRunning) return;
         if (_queue.Current.Phase != QueuePhase.Idle && _queue.Current.Phase != QueuePhase.Completed) return;
 
         var now = DateTime.Now;
         if (now.Hour < _config.AutoKeepAliveStartHour || now.Hour >= _config.AutoKeepAliveEndHour) return;
+
+        if (_config.AutoDailyFullPipeline)
+        {
+            var todayKey = now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            if (!string.Equals(_config.LastAutoPipelineDateLocal, todayKey, StringComparison.Ordinal))
+            {
+                AppendLog($"🤖 Auto-Pilot Hằng Ngày ({todayKey}) đến lịch -> Khởi chạy Chu trình Khép Kín 5 Bước...");
+                await RunFullAutoPilotPipelineAsync(interactiveConfirm: false);
+                return;
+            }
+        }
+
+        if (!_config.AutoKeepAliveScheduler) return;
         if ((DateTime.UtcNow - _lastKeepAliveCheckUtc).TotalMinutes < Math.Max(5, _config.AutoKeepAliveMinGapMinutes)) return;
 
         _lastKeepAliveCheckUtc = DateTime.UtcNow;

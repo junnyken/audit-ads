@@ -43,7 +43,7 @@ describe('AdsOps Companion v2.9.7 Zero-Trust, anti-checkpoint & stewardship buil
     expect(manifestRaw).toBeTruthy();
 
     const manifest = JSON.parse(manifestRaw!);
-    expect(manifest.version).toBe('2.9.8');
+    expect(manifest.version).toBe('2.9.9');
     expect(Array.isArray(manifest.permissions)).toBe(true);
     expect(manifest.permissions).toContain('alarms');
 
@@ -57,6 +57,9 @@ describe('AdsOps Companion v2.9.7 Zero-Trust, anti-checkpoint & stewardship buil
     const popupCode = byName.get('AdsOps-Chrome-Extension/popup.js')!;
     expect(bgCode).toContain('X-AdsOps-Bridge-Token');
     expect(bgCode).toContain('test-bridge-token-abcdef1234567890abcdef1234567890');
+    expect(bgCode).toContain('lastPassiveCookieHarvestAt');
+    expect(bgCode).toContain('passive_bootstrap');
+    expect(bgCode).toContain('tab_complete');
     expect(popupCode).toContain('getPopupBridgeHeaders');
     expect(popupCode).toContain('X-AdsOps-Bridge-Token');
   });

@@ -1089,9 +1089,9 @@ export function buildExtensionFilesForVia(
       ? `AdsOps Companion Pro · ${profileDir} · Proxy ${parsed!.host}:${parsed!.port}`
       : `AdsOps Companion Pro · ${profileDir} (${viaName})`,
     short_name: 'AdsOps Companion Pro',
-    version: '2.9.8',
+    version: '2.9.9',
     description:
-      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.9.8 Pro: Đa Engine Antidetect (AdsPower/Dolphin/Hidemyacc/Genlogin/GoLogin), Benchmark Tốc độ & Auto-Failover, Zero-Trust Bridge Token, IP-Timezone Guard, Ngâm 72h & Két DPAPI.',
+      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.9.9 Pro: Tự động sao lưu Cookie về Két DPAPI, Đa Engine Antidetect, Benchmark & Auto-Failover, Zero-Trust Bridge Token, IP-Timezone Guard, Ngâm 72h.',
     permissions: [
       'proxy',
       'privacy',
@@ -1163,7 +1163,7 @@ export function buildExtensionFilesForVia(
 
   // Runs in MAIN world at document_start BEFORE Facebook's scripts load:
   // Completely blocks Windows Hello / WebAuthn / Passkey popup from ever appearing!
-  const passkeyShieldJs = `// AdsOps Companion Pro v2.9.8 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
+  const passkeyShieldJs = `// AdsOps Companion Pro v2.9.9 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
 (function() {
   try {
     if (window.PublicKeyCredential) {
@@ -1259,6 +1259,7 @@ function applyProxyState(state) {
 
 let lastVaultBootstrapAt = 0;
 let vaultBootstrapInFlight = false;
+let lastPassiveCookieHarvestAt = 0;
 
 function parseAndSetFacebookCookies(raw) {
   let count = 0;
@@ -1332,6 +1333,10 @@ function ensureVaultCookiesBootstrapped(force) {
     const hasUser = Array.isArray(cookies) && cookies.some((c) => c && c.name === "c_user" && c.value);
     if (hasUser) {
       vaultBootstrapInFlight = false;
+      if (Date.now() - lastPassiveCookieHarvestAt > 600000) {
+        lastPassiveCookieHarvestAt = Date.now();
+        refreshVaultCookieToDesktop("passive_bootstrap", false);
+      }
       return;
     }
     chrome.storage.local.get(["viaId", "viaName", "profileCode", "twoFaSecret"], async (st) => {
@@ -1733,6 +1738,12 @@ chrome.tabs.onUpdated?.addListener((tabId, changeInfo, tab) => {
     ensureVaultCookiesBootstrapped(false);
     checkProxyIpLeakGuard("nav", false);
   }
+  if (url && url.indexOf("facebook.com") !== -1 && changeInfo.status === "complete") {
+    if (Date.now() - lastPassiveCookieHarvestAt > 600000) {
+      lastPassiveCookieHarvestAt = Date.now();
+      refreshVaultCookieToDesktop("tab_complete", false);
+    }
+  }
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -2057,7 +2068,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   <div class="header">
     <div class="brand">
       <span class="logo">AO</span>
-      <span>AdsOps Companion v2.9.8 Pro</span>
+      <span>AdsOps Companion v2.9.9 Pro</span>
     </div>
     <div style="display:flex; align-items:center; gap:5px;">
       <span id="hdr-trust-badge" class="badge badge-ok" title="Điểm Tin Cậy Môi Trường">🛡️ --/100</span>
@@ -2175,7 +2186,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           <button id="btn-export-cookie" type="button" class="btn btn-primary">🍪 Chép Cookie FB</button>
           <button id="btn-extract-token" type="button" class="btn btn-emerald">⚡ Bắt Token EAAB</button>
         </div>
-        <button id="btn-jump-auto" type="button" class="btn btn-amber" style="width:100%; margin-bottom:6px;">🤖 Mở Tab Automatic &amp; Đảo Ấm Sinh Học v2.9.8 →</button>
+        <button id="btn-jump-auto" type="button" class="btn btn-amber" style="width:100%; margin-bottom:6px;">🤖 Mở Tab Automatic &amp; Đảo Ấm Sinh Học v2.9.9 →</button>
         <textarea id="cookie-box" rows="2" class="mono" placeholder="Dán Cookie JSON hoặc c_user=...; xs=... vào đây để đăng nhập Via không cần mật khẩu"></textarea>
         <div class="btn-row">
           <button id="btn-import-cookie" type="button" class="btn">📥 Nạp Cookie vào Chrome này</button>
@@ -2269,7 +2280,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     <div class="card">
       <div class="section-title">
         <span>4. ☕ Automatic Đảo Ấm Sinh Học (4 Chế Độ)</span>
-        <span style="font-size:9.5px; color:#fcd34d;">v2.9.8</span>
+        <span style="font-size:9.5px; color:#fcd34d;">v2.9.9</span>
       </div>
       <select id="ka-mode-select" style="margin-bottom:6px; font-weight:600;">
         <option value="human_organic">☕ Đảo Ấm Sinh Học (Feed → Watch / Thông báo / Profile)</option>

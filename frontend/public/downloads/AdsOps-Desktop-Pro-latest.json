@@ -1,13 +1,13 @@
 {
-    "version":  "2.6.3",
-    "ext_version":  "2.9.8",
+    "version":  "2.6.4",
+    "ext_version":  "2.9.9",
     "authenticode_signed":  true,
     "download_url":  "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
     "mirror_urls":  [
                         "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
                     ],
-    "sha256":  "475a8c09dc5018f58d05cd9087bd626e23a9b346f9da110d59d3958b0b01a3b1",
-    "size_bytes":  66025275,
-    "published_at":  "2026-11-17T02:25:11.907356Z",
-    "release_notes":  "AdsOps Desktop Pro v2.6.3 + Extension v2.9.8: Tu dong gia han phien Cloud 24/7 bang Windows DPAPI \u0026 hop thoai Dang nhap nhanh khi 401, Sua cat le phai WPF ScrollViewer, Kiem tra Cookie c_user that truoc khi co lap Profile, Sua 1-based Queue Index \u0026 don trung icon nut."
+    "sha256":  "1709feaa1829555450a88c38d17b27ae29a73d82becc81ec1770dc195d8488bf",
+    "size_bytes":  66475919,
+    "published_at":  "2026-11-17T04:07:48.311128Z",
+    "release_notes":  "AdsOps Desktop Pro v2.6.4 + Extension v2.9.9: Chu trinh Auto-Pilot 5 Buoc khep kin (Don Cache/RAM -\u003e Quet Proxy -\u003e Sync Meta/Cron -\u003e Nuoi Page -\u003e Dao Am), Tu dong thu thap Cookie FB vao Ket DPAPI khi mo tab, Viet hoa \u0026 hien ro ten TKQC/BM tren Canh bao + nut Ghi nhan tat ca, Sua cat chu bang Retainer \u0026 Team Seats, Format gio dia phuong Cloud Cron."
 }

@@ -129,7 +129,7 @@ public sealed class DesktopConfig
 {
     public const string DefaultBackendUrl = "https://audit-ads-backend.vibe1.tinhgon.xyz";
     public const string DefaultWebAppUrl = "https://adsops-app.vibe.tinhgon.xyz";
-    public const int CurrentMigrationVersion = 263;
+    public const int CurrentMigrationVersion = 264;
     internal static string? AppDataRootOverride { get; set; }
 
     public string BackendBaseUrl { get; set; } = DefaultBackendUrl;
@@ -176,6 +176,9 @@ public sealed class DesktopConfig
     // v2.6.0 Workstation RAM Auto-Cap & Auto-Failover
     public bool AutoScaleConcurrentByRam { get; set; } = true;
     public bool AutoFailoverToChromeNative { get; set; } = false;
+    // v2.6.4 Daily 5-Step Auto-Pilot Pipeline
+    public bool AutoDailyFullPipeline { get; set; } = false;
+    public string LastAutoPipelineDateLocal { get; set; } = "";
 
     [JsonIgnore]
     public string AccessToken
@@ -356,6 +359,11 @@ public sealed class DesktopConfig
         MaxConcurrentBrowsers = Math.Clamp(src.MaxConcurrentBrowsers < 1 ? 6 : src.MaxConcurrentBrowsers, 1, 30);
         AutoScaleConcurrentByRam = src.AutoScaleConcurrentByRam;
         AutoFailoverToChromeNative = src.AutoFailoverToChromeNative;
+        AutoDailyFullPipeline = src.AutoDailyFullPipeline;
+        if (!string.IsNullOrWhiteSpace(src.LastAutoPipelineDateLocal))
+        {
+            LastAutoPipelineDateLocal = src.LastAutoPipelineDateLocal.Trim();
+        }
         ConfigMigrationVersion = CurrentMigrationVersion;
     }
 
@@ -963,6 +971,59 @@ public sealed class AlertItemDto
     [JsonPropertyName("account_display_name")] public string? AccountDisplayName { get; set; }
     [JsonPropertyName("business_manager_name")] public string? BusinessManagerName { get; set; }
     [JsonPropertyName("last_observed_at")] public string? LastObservedAt { get; set; }
+
+    public string GetLocalizedTitle()
+    {
+        var t = (Title ?? "").Trim();
+        if (string.IsNullOrEmpty(t)) return "Cảnh báo hệ thống";
+        if (t.Equals("Meta reports the account as not operable", StringComparison.OrdinalIgnoreCase))
+            return "Meta báo TKQC ngừng hoạt động (Closed / Not Operable)";
+        if (t.Equals("Account status is disabled", StringComparison.OrdinalIgnoreCase))
+            return "Tài khoản quảng cáo đã bị vô hiệu hóa (Disabled)";
+        if (t.Equals("Account status is restricted", StringComparison.OrdinalIgnoreCase))
+            return "Tài khoản quảng cáo đang bị hạn chế (Restricted)";
+        if (t.Equals("Meta reports a pending payment or review state", StringComparison.OrdinalIgnoreCase))
+            return "TKQC đang chờ thanh toán dư nợ hoặc xét duyệt";
+        if (t.Contains("unsettled balance", StringComparison.OrdinalIgnoreCase))
+            return "Tài khoản quảng cáo còn dư nợ chưa thanh toán";
+        if (t.Contains("spend cap", StringComparison.OrdinalIgnoreCase) || t.Contains("spending limit", StringComparison.OrdinalIgnoreCase))
+            return "Tài khoản quảng cáo sắp/đã chạm giới hạn chi tiêu";
+        return t;
+    }
+
+    public string GetLocalizedSummary()
+    {
+        var s = (Summary ?? "").Trim();
+        if (string.IsNullOrEmpty(s)) return "";
+        if (s.Equals("The recorded account status is disabled.", StringComparison.OrdinalIgnoreCase))
+            return "Trạng thái TKQC ghi nhận từ Meta đang bị vô hiệu hóa (Disabled). Cần kiểm tra kháng nghị hoặc chuyển sang TKQC dự phòng.";
+        if (s.Equals("The recorded account status is restricted.", StringComparison.OrdinalIgnoreCase))
+            return "Trạng thái TKQC ghi nhận từ Meta đang bị hạn chế quảng cáo (Restricted). Hãy kiểm tra Chất lượng Tài khoản.";
+        if (s.Contains("Meta returned account_status 101", StringComparison.OrdinalIgnoreCase))
+        {
+            var reasonMatch = Regex.Match(s, @"disable reason:\s*([^.;]+)", RegexOptions.IgnoreCase);
+            var reasonTxt = reasonMatch.Success && !reasonMatch.Groups[1].Value.Trim().Equals("NONE (0)", StringComparison.OrdinalIgnoreCase)
+                ? $" Lý do khóa: {reasonMatch.Groups[1].Value.Trim()}."
+                : " Chưa có lý do khóa cụ thể (NONE).";
+            return $"Meta trả về account_status 101 (Đã đóng / Ngừng hoạt động).{reasonTxt}";
+        }
+        if (s.Contains("Meta returned account_status 3", StringComparison.OrdinalIgnoreCase))
+            return "Meta trả về account_status 3 (Dư nợ chưa thanh toán / Unsettled). Cần thanh toán thẻ trong Billing Hub.";
+        if (s.Contains("Meta returned account_status 2", StringComparison.OrdinalIgnoreCase))
+            return "Meta trả về account_status 2 (TKQC bị vô hiệu hóa). Cần kiểm tra kháng nghị hoặc thay TKQC mới.";
+        return s;
+    }
+
+    public static string FormatIsoTimestampLocal(string? isoRaw, string fallback = "Chưa chạy")
+    {
+        var clean = (isoRaw ?? "").Trim();
+        if (string.IsNullOrEmpty(clean)) return fallback;
+        if (DateTimeOffset.TryParse(clean, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
+        {
+            return parsed.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss", CultureInfo.InvariantCulture);
+        }
+        return clean;
+    }
 }
 
 public sealed class PagedAlertsDto
@@ -1173,7 +1234,7 @@ public sealed class AutomationPlaybookDto
             Platform = "meta",
             Category = "warmup",
             Description = "Cuộn Newsfeed, xem Facebook Watch ngắn và đọc Thông báo ngẫu nhiên. Tuyệt đối KHÔNG mở Trình quản lý Quảng cáo.",
-            VersionTag = "2.6.3",
+            VersionTag = "2.6.4",
             DefaultStaggerSec = 60,
             JitterPct = 35,
             IsBuiltin = true,
@@ -1191,7 +1252,7 @@ public sealed class AutomationPlaybookDto
             Platform = "meta",
             Category = "bm_warmup",
             Description = "Mở Facebook Feed 20s trước khi vào Cài đặt BM / Ads Manager để giữ độ tin cậy cho Via Hold BM.",
-            VersionTag = "2.6.3",
+            VersionTag = "2.6.4",
             DefaultStaggerSec = 75,
             JitterPct = 35,
             IsBuiltin = true,
@@ -1209,7 +1270,7 @@ public sealed class AutomationPlaybookDto
             Platform = "multi",
             Category = "audit",
             Description = "Giữ phiên đăng nhập sạch trước khi mở Trình quản lý Quảng cáo Google / TikTok.",
-            VersionTag = "2.6.3",
+            VersionTag = "2.6.4",
             DefaultStaggerSec = 65,
             JitterPct = 30,
             IsBuiltin = true,
@@ -2347,9 +2408,9 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "2.6.3";
-    public const string DisplayVersion = "v2.6.3";
-    public const string ExtVersion = "2.9.8";
+    public const string Version = "2.6.4";
+    public const string DisplayVersion = "v2.6.4";
+    public const string ExtVersion = "2.9.9";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 
     /// <summary>

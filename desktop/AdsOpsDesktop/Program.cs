@@ -143,11 +143,11 @@ internal static class Program
             }
             using (var mfDoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(extDir, "manifest.json"))))
             {
-                if (mfDoc.RootElement.GetProperty("version").GetString() != "2.9.8")
-                    throw new InvalidOperationException("Manifest version is not 2.9.8");
+                if (mfDoc.RootElement.GetProperty("version").GetString() != DesktopAppInfo.ExtVersion)
+                    throw new InvalidOperationException($"Manifest version is not {DesktopAppInfo.ExtVersion}");
                 var perms = mfDoc.RootElement.GetProperty("permissions").EnumerateArray().Select(e => e.GetString()).ToList();
                 if (!perms.Contains("alarms"))
-                    throw new InvalidOperationException("Manifest permissions missing alarms for v2.9.8 IP Leak Watchdog");
+                    throw new InvalidOperationException("Manifest permissions missing alarms for v2.9.x IP Leak Watchdog");
             }
             var bgText = File.ReadAllText(Path.Combine(extDir, "background.js"));
             if (!bgText.Contains("ADSOPS_REPORT_BROWSER_EVENT", StringComparison.Ordinal) ||
@@ -470,14 +470,15 @@ internal static class Program
                     throw new InvalidOperationException($"WCAG AA contrast failure for {pair.Name}: {pair.Ratio}:1 < 4.5:1");
             }
 
-            // 10. Extension v2.9.8 template verification (Zero-Trust Bridge Token + 2FA bridge + billing sync + cookie bootstrap + keepalive auto-close + cloud token push)
+            // 10. Extension v2.9.9 template verification (Zero-Trust Bridge Token + 2FA bridge + billing sync + cookie bootstrap/passive harvest + keepalive auto-close + cloud token push)
             var extTpl = ExtensionProvisioner.LoadTemplates();
-            if (extTpl.Version != "2.9.8" ||
+            if (extTpl.Version != DesktopAppInfo.ExtVersion ||
                 !extTpl.BackgroundJsAfterDefaultState.Contains("getBridgeHeaders", StringComparison.Ordinal) ||
                 !extTpl.BackgroundJsAfterDefaultState.Contains("X-AdsOps-Bridge-Token", StringComparison.Ordinal) ||
                 !extTpl.BackgroundJsAfterDefaultState.Contains("ADSOPS_GET_LOCAL_TOTP", StringComparison.Ordinal) ||
                 !extTpl.BackgroundJsAfterDefaultState.Contains("ADSOPS_SYNC_BILLING", StringComparison.Ordinal) ||
                 !extTpl.BackgroundJsAfterDefaultState.Contains("ensureVaultCookiesBootstrapped", StringComparison.Ordinal) ||
+                !extTpl.BackgroundJsAfterDefaultState.Contains("lastPassiveCookieHarvestAt", StringComparison.Ordinal) ||
                 !extTpl.BackgroundJsAfterDefaultState.Contains("close_sender_window", StringComparison.Ordinal) ||
                 !extTpl.ContentJs.Contains("ADSOPS_SYNC_BILLING", StringComparison.Ordinal) ||
                 !extTpl.ContentJs.Contains("handleTwoFactorAssistDom", StringComparison.Ordinal) ||
@@ -1427,6 +1428,64 @@ internal static class Program
                 try { await reauthTask; } catch { }
                 if (meAfterRefresh.Email != "owner@test.local" || refreshCalls != 1 || reqAttempts != 2)
                     throw new InvalidOperationException($"401 auto-refresh test failed: email={meAfterRefresh.Email}, refresh={refreshCalls}, attempts={reqAttempts}");
+            }
+
+            // 32. v2.6.4 Alert Localization, Timestamp Formatting, Passive Cookie Harvest Extension Template & AutoDailyFullPipeline Config
+            {
+                var alClosed = new AlertItemDto
+                {
+                    Title = "Meta reports the account as not operable",
+                    Summary = "Meta returned account_status 101 (Closed (Meta)) for this account; disable reason: NONE (0).",
+                    AccountDisplayName = "597797234825696",
+                    BusinessManagerName = "Quảng Cáo Top",
+                };
+                if (!alClosed.GetLocalizedTitle().Contains("ngừng hoạt động", StringComparison.OrdinalIgnoreCase) ||
+                    !alClosed.GetLocalizedSummary().Contains("account_status 101", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException($"Alert localization failed: title='{alClosed.GetLocalizedTitle()}', sum='{alClosed.GetLocalizedSummary()}'");
+                }
+
+                var alDisabled = new AlertItemDto
+                {
+                    Title = "Account status is disabled",
+                    Summary = "The recorded account status is disabled.",
+                };
+                if (!alDisabled.GetLocalizedTitle().Contains("vô hiệu hóa", StringComparison.OrdinalIgnoreCase) ||
+                    !alDisabled.GetLocalizedSummary().Contains("vô hiệu hóa", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException("Disabled alert localization failed");
+                }
+
+                var formattedCron = AlertItemDto.FormatIsoTimestampLocal("2026-11-17T02:27:50.140371+00:00");
+                if (!System.Text.RegularExpressions.Regex.IsMatch(formattedCron, @"^\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2}$"))
+                    throw new InvalidOperationException($"FormatIsoTimestampLocal unexpected format: '{formattedCron}'");
+                if (AlertItemDto.FormatIsoTimestampLocal(null) != "Chưa chạy")
+                    throw new InvalidOperationException("FormatIsoTimestampLocal null fallback mismatch");
+
+                var tpl299 = ExtensionProvisioner.LoadTemplates();
+                if (tpl299.Version != "2.9.9" ||
+                    !tpl299.BackgroundJsAfterDefaultState.Contains("lastPassiveCookieHarvestAt", StringComparison.Ordinal) ||
+                    !tpl299.BackgroundJsAfterDefaultState.Contains("passive_bootstrap", StringComparison.Ordinal) ||
+                    !tpl299.BackgroundJsAfterDefaultState.Contains("tab_complete", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("Extension template v2.9.9 passive cookie harvest assertions failed");
+                }
+
+                var pipeCfgPath = Path.Combine(tempRoot, "cfg_v264.json");
+                var pipeCfg = new DesktopConfig
+                {
+                    AutoDailyFullPipeline = true,
+                    LastAutoPipelineDateLocal = "2026-11-17",
+                };
+                pipeCfg.Save(pipeCfgPath);
+                var reloadedPipeCfg = DesktopConfig.Load(pipeCfgPath);
+                if (!reloadedPipeCfg.AutoDailyFullPipeline ||
+                    reloadedPipeCfg.LastAutoPipelineDateLocal != "2026-11-17" ||
+                    reloadedPipeCfg.ConfigMigrationVersion != DesktopConfig.CurrentMigrationVersion ||
+                    DesktopConfig.CurrentMigrationVersion != 264)
+                {
+                    throw new InvalidOperationException($"v2.6.4 DesktopConfig roundtrip/migration check failed: mig={reloadedPipeCfg.ConfigMigrationVersion}");
+                }
             }
 
             Console.WriteLine("ADSOPS_DESKTOP_V260_SELFTEST_100_PASS");
