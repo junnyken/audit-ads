@@ -129,7 +129,7 @@ public sealed class DesktopConfig
 {
     public const string DefaultBackendUrl = "https://audit-ads-backend.vibe1.tinhgon.xyz";
     public const string DefaultWebAppUrl = "https://adsops-app.vibe.tinhgon.xyz";
-    public const int CurrentMigrationVersion = 264;
+    public const int CurrentMigrationVersion = 265;
     internal static string? AppDataRootOverride { get; set; }
 
     public string BackendBaseUrl { get; set; } = DefaultBackendUrl;
@@ -179,6 +179,10 @@ public sealed class DesktopConfig
     // v2.6.4 Daily 5-Step Auto-Pilot Pipeline
     public bool AutoDailyFullPipeline { get; set; } = false;
     public string LastAutoPipelineDateLocal { get; set; } = "";
+    // v2.6.5 Auto-Invite Page Followers (Meta Business Suite / Post Reactors)
+    public bool AutoInvitePageFollowersOnWarmup { get; set; } = true;
+    public int MaxPageFollowerInvitesPerRun { get; set; } = 25;
+    public int TotalPageFollowerInvitesSent { get; set; } = 0;
 
     [JsonIgnore]
     public string AccessToken
@@ -292,6 +296,7 @@ public sealed class DesktopConfig
                     if (cfg.AutoKeepAliveMinGapMinutes < 5) cfg.AutoKeepAliveMinGapMinutes = 20;
                     if (cfg.SoakQuarantineHours < 12 || cfg.SoakQuarantineHours > 336) cfg.SoakQuarantineHours = 72;
                     if (cfg.AutoCooldownHours < 1 || cfg.AutoCooldownHours > 168) cfg.AutoCooldownHours = 24;
+                    cfg.MaxPageFollowerInvitesPerRun = Math.Clamp(cfg.MaxPageFollowerInvitesPerRun < 5 ? 25 : cfg.MaxPageFollowerInvitesPerRun, 5, 50);
                     if (string.IsNullOrWhiteSpace(cfg.DefaultWarmupMode)) cfg.DefaultWarmupMode = "human_organic";
                     if (cfg.ConfigMigrationVersion < 261)
                     {
@@ -363,6 +368,12 @@ public sealed class DesktopConfig
         if (!string.IsNullOrWhiteSpace(src.LastAutoPipelineDateLocal))
         {
             LastAutoPipelineDateLocal = src.LastAutoPipelineDateLocal.Trim();
+        }
+        AutoInvitePageFollowersOnWarmup = src.AutoInvitePageFollowersOnWarmup;
+        MaxPageFollowerInvitesPerRun = Math.Clamp(src.MaxPageFollowerInvitesPerRun < 5 ? 25 : src.MaxPageFollowerInvitesPerRun, 5, 50);
+        if (src.TotalPageFollowerInvitesSent > TotalPageFollowerInvitesSent)
+        {
+            TotalPageFollowerInvitesSent = src.TotalPageFollowerInvitesSent;
         }
         ConfigMigrationVersion = CurrentMigrationVersion;
     }
@@ -1234,7 +1245,7 @@ public sealed class AutomationPlaybookDto
             Platform = "meta",
             Category = "warmup",
             Description = "Cuộn Newsfeed, xem Facebook Watch ngắn và đọc Thông báo ngẫu nhiên. Tuyệt đối KHÔNG mở Trình quản lý Quảng cáo.",
-            VersionTag = "2.6.4",
+            VersionTag = "2.6.5",
             DefaultStaggerSec = 60,
             JitterPct = 35,
             IsBuiltin = true,
@@ -1246,13 +1257,31 @@ public sealed class AutomationPlaybookDto
         },
         new AutomationPlaybookDto
         {
+            Id = "builtin-meta-page-invite-followers",
+            Slug = "meta-page-auto-invite-followers",
+            Title = "Meta Business Suite — Tự Động Mời Người Thả Cảm Xúc Theo Dõi Fanpage",
+            Platform = "meta",
+            Category = "page_growth",
+            Description = "Mở Meta Business Suite mục 'Phát triển đối tượng -> Tiếp cận những người đã bày tỏ cảm xúc với nội dung của bạn' và tự động bấm Gửi lời mời theo nhịp Jitter 3-6s.",
+            VersionTag = "2.6.5",
+            DefaultStaggerSec = 65,
+            JitterPct = 35,
+            IsBuiltin = true,
+            AuthorName = "AdsOps Pro Built-in",
+            Steps = new List<AutomationPlaybookStepDto>
+            {
+                new() { Action = "open_url", Target = "https://business.facebook.com/latest/home?adsops_auto_invite_followers=1&adsops_auto_close=1", WaitSec = 35, Note = "Tự động gửi lời mời theo dõi Fanpage cho người tương tác" },
+            },
+        },
+        new AutomationPlaybookDto
+        {
             Id = "builtin-meta-bm-precheck",
             Slug = "meta-bm-adsmanager-warm",
             Title = "Meta Cầm BM & Ads Manager Thụ Động (Anti-Deep-Link)",
             Platform = "meta",
             Category = "bm_warmup",
             Description = "Mở Facebook Feed 20s trước khi vào Cài đặt BM / Ads Manager để giữ độ tin cậy cho Via Hold BM.",
-            VersionTag = "2.6.4",
+            VersionTag = "2.6.5",
             DefaultStaggerSec = 75,
             JitterPct = 35,
             IsBuiltin = true,
@@ -1270,7 +1299,7 @@ public sealed class AutomationPlaybookDto
             Platform = "multi",
             Category = "audit",
             Description = "Giữ phiên đăng nhập sạch trước khi mở Trình quản lý Quảng cáo Google / TikTok.",
-            VersionTag = "2.6.4",
+            VersionTag = "2.6.5",
             DefaultStaggerSec = 65,
             JitterPct = 30,
             IsBuiltin = true,
@@ -2408,9 +2437,9 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "2.6.4";
-    public const string DisplayVersion = "v2.6.4";
-    public const string ExtVersion = "2.9.9";
+    public const string Version = "2.6.5";
+    public const string DisplayVersion = "v2.6.5";
+    public const string ExtVersion = "2.10.0";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 
     /// <summary>

@@ -1636,11 +1636,13 @@ internal sealed partial class MainWindow
 
         var chkAutoKa = UiComponents.CreateCheckBox("Tự động chạy Đảo Ấm khi phát hiện Via >3 ngày không hoạt động", _config.AutoKeepAliveScheduler);
         var chkAutoDailyPipe = UiComponents.CreateCheckBox("Tự động chạy Chu trình Auto-Pilot 5 Bước mỗi ngày (Proxy -> Sync -> Nuôi Page -> Đảo Ấm)", _config.AutoDailyFullPipeline);
+        var chkAutoInvitePage = UiComponents.CreateCheckBox($"Tự động mời người bày tỏ cảm xúc theo dõi Fanpage (Max {_config.MaxPageFollowerInvitesPerRun} lời mời/phiên • Đã gửi: {_config.TotalPageFollowerInvitesSent})", _config.AutoInvitePageFollowersOnWarmup);
         var chkPrePx = UiComponents.CreateCheckBox("Kiểm tra Proxy Live trước khi mở Chrome (Proxy Die tự bỏ qua)", _config.PreCheckProxyBeforeLaunch);
         var chkAutoClose = UiComponents.CreateCheckBox("Tự đóng tab Đảo Ấm sau khi cuộn xong Newsfeed + Thông báo", _config.AutoCloseKeepAliveTab);
         var chkAutoCloseWin = UiComponents.CreateCheckBox("Tự đóng gọn cửa sổ Chrome của Via ngay khi nhận tín hiệu KEEPALIVE_OK", _config.AutoCloseKeepAliveWindow);
         chkAutoKa.Margin = new Thickness(0, 0, 0, 6);
         chkAutoDailyPipe.Margin = new Thickness(0, 0, 0, 6);
+        chkAutoInvitePage.Margin = new Thickness(0, 0, 0, 6);
         chkPrePx.Margin = new Thickness(0, 0, 0, 6);
         chkAutoClose.Margin = new Thickness(0, 0, 0, 6);
         chkAutoCloseWin.Margin = new Thickness(0, 0, 0, 10);
@@ -1676,6 +1678,7 @@ internal sealed partial class MainWindow
         {
             _config.AutoKeepAliveScheduler = chkAutoKa.IsChecked == true;
             _config.AutoDailyFullPipeline = chkAutoDailyPipe.IsChecked == true;
+            _config.AutoInvitePageFollowersOnWarmup = chkAutoInvitePage.IsChecked == true;
             _config.PreCheckProxyBeforeLaunch = chkPrePx.IsChecked == true;
             _config.AutoCloseKeepAliveTab = chkAutoClose.IsChecked == true;
             _config.AutoCloseKeepAliveWindow = chkAutoCloseWin.IsChecked == true;
@@ -1685,20 +1688,24 @@ internal sealed partial class MainWindow
             if (int.TryParse(tbMaxDirect.Text, out var mdp)) _config.MaxDirectIpViasInBatch = Math.Clamp(mdp, 1, 20);
             _config.Save();
             ApplyUpdatedProxyClusterLimits();
-            AppendLog($"Đã lưu cấu hình An toàn Hàng đợi & Cụm Proxy (tối đa {_config.MaxViasPerProxyInBatch} Via/Proxy, {_config.MaxDirectIpViasInBatch} Direct IP/ca, Auto-Pilot ngày: {(_config.AutoDailyFullPipeline ? "BẬT" : "Tắt")}).");
+            AppendLog($"Đã lưu cấu hình An toàn Hàng đợi & Cụm Proxy (tối đa {_config.MaxViasPerProxyInBatch} Via/Proxy, {_config.MaxDirectIpViasInBatch} Direct IP/ca, Auto-Pilot ngày: {(_config.AutoDailyFullPipeline ? "BẬT" : "Tắt")}, Auto-Invite Follow: {(_config.AutoInvitePageFollowersOnWarmup ? "BẬT" : "Tắt")}).");
             RenderCurrentView();
         });
         saveLocalBtn.Margin = new Thickness(0, 0, 8, 6);
         var runKaNow = UiComponents.CreateButton("Đảo Ấm Via quá hạn ngay", ButtonVariant.Primary, FluentIcons.CoffeeWarmup, onClick: (_, _) => StartKeepAliveDueQueue(requireConfirm: true));
         runKaNow.Margin = new Thickness(0, 0, 8, 6);
         var runFullPipeBtn = UiComponents.CreateButton("⚡ Chạy Auto-Pilot 5 Bước", ButtonVariant.Success, FluentIcons.Lightning, onClick: async (_, _) => await RunFullAutoPilotPipelineAsync(interactiveConfirm: true));
-        runFullPipeBtn.Margin = new Thickness(0, 0, 0, 6);
+        runFullPipeBtn.Margin = new Thickness(0, 0, 8, 6);
+        var runBatchInviteBtn = UiComponents.CreateButton("🤝 Mời Follow Page (Lô)", ButtonVariant.Secondary, FluentIcons.People, onClick: (_, _) => EnqueueBatchPageAutoInviteFollowers(requireConfirm: true), tooltip: "Tự động mở Meta Business Suite của các Fanpage LIVE và bấm 'Gửi lời mời' cho người đã bày tỏ cảm xúc");
+        runBatchInviteBtn.Margin = new Thickness(0, 0, 0, 6);
         localBtns.Children.Add(saveLocalBtn);
         localBtns.Children.Add(runKaNow);
         localBtns.Children.Add(runFullPipeBtn);
+        localBtns.Children.Add(runBatchInviteBtn);
 
         localGuardPanel.Children.Add(chkAutoKa);
         localGuardPanel.Children.Add(chkAutoDailyPipe);
+        localGuardPanel.Children.Add(chkAutoInvitePage);
         localGuardPanel.Children.Add(chkPrePx);
         localGuardPanel.Children.Add(chkAutoClose);
         localGuardPanel.Children.Add(chkAutoCloseWin);
@@ -2152,6 +2159,9 @@ internal sealed partial class MainWindow
         });
         rBtns.Children.Add(exportPagesBtn);
         rBtns.Children.Add(syncPagesBtn);
+        var batchInviteBtn = UiComponents.CreateButton("🤝 Mời Follow Lô", ButtonVariant.Primary, FluentIcons.People, onClick: (_, _) => EnqueueBatchPageAutoInviteFollowers(requireConfirm: true), tooltip: "Tự động mở Meta Business Suite và mời những người đã thả cảm xúc theo dõi Fanpage");
+        batchInviteBtn.Margin = new Thickness(0, 0, 8, 0);
+        rBtns.Children.Add(batchInviteBtn);
         rBtns.Children.Add(batchWarmBtn);
         Grid.SetColumn(rBtns, 1);
         topSearch.Children.Add(rBtns);
@@ -2274,10 +2284,14 @@ internal sealed partial class MainWindow
         var warmBtn = UiComponents.CreateButton("Nuôi bài", ButtonVariant.Success, compact: true, onClick: (_, _) => OpenWarmupPostDialog(p));
         warmBtn.Margin = new Thickness(0, 0, 6, 0);
 
+        var inviteFollowBtn = UiComponents.CreateButton("Mời Follow", ButtonVariant.Secondary, FluentIcons.People, compact: true, onClick: (_, _) => LaunchPageAutoInviteFollowers(p, autoClose: false), tooltip: "Mở Meta Business Suite của Page và tự động bấm 'Gửi lời mời' cho người đã bày tỏ cảm xúc với nội dung");
+        inviteFollowBtn.Margin = new Thickness(0, 0, 6, 0);
+
         btns.Children.Add(openBtn);
         btns.Children.Add(chkBtn);
         btns.Children.Add(claimBtn);
         btns.Children.Add(warmBtn);
+        btns.Children.Add(inviteFollowBtn);
 
         if (p.IsUnsyncedDraft)
         {

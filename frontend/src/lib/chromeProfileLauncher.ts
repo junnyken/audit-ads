@@ -1089,9 +1089,9 @@ export function buildExtensionFilesForVia(
       ? `AdsOps Companion Pro · ${profileDir} · Proxy ${parsed!.host}:${parsed!.port}`
       : `AdsOps Companion Pro · ${profileDir} (${viaName})`,
     short_name: 'AdsOps Companion Pro',
-    version: '2.9.9',
+    version: '2.10.0',
     description:
-      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.9.9 Pro: Tự động sao lưu Cookie về Két DPAPI, Đa Engine Antidetect, Benchmark & Auto-Failover, Zero-Trust Bridge Token, IP-Timezone Guard, Ngâm 72h.',
+      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.10.0 Pro: Tự động sao lưu Cookie về Két DPAPI, Đa Engine Antidetect, Benchmark & Auto-Failover, Zero-Trust Bridge Token, IP-Timezone Guard, Ngâm 72h.',
     permissions: [
       'proxy',
       'privacy',
@@ -1163,7 +1163,7 @@ export function buildExtensionFilesForVia(
 
   // Runs in MAIN world at document_start BEFORE Facebook's scripts load:
   // Completely blocks Windows Hello / WebAuthn / Passkey popup from ever appearing!
-  const passkeyShieldJs = `// AdsOps Companion Pro v2.9.9 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
+  const passkeyShieldJs = `// AdsOps Companion Pro v2.10.0 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
 (function() {
   try {
     if (window.PublicKeyCredential) {
@@ -2068,7 +2068,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   <div class="header">
     <div class="brand">
       <span class="logo">AO</span>
-      <span>AdsOps Companion v2.9.9 Pro</span>
+      <span>AdsOps Companion v2.10.0 Pro</span>
     </div>
     <div style="display:flex; align-items:center; gap:5px;">
       <span id="hdr-trust-badge" class="badge badge-ok" title="Điểm Tin Cậy Môi Trường">🛡️ --/100</span>
@@ -2186,7 +2186,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           <button id="btn-export-cookie" type="button" class="btn btn-primary">🍪 Chép Cookie FB</button>
           <button id="btn-extract-token" type="button" class="btn btn-emerald">⚡ Bắt Token EAAB</button>
         </div>
-        <button id="btn-jump-auto" type="button" class="btn btn-amber" style="width:100%; margin-bottom:6px;">🤖 Mở Tab Automatic &amp; Đảo Ấm Sinh Học v2.9.9 →</button>
+        <button id="btn-jump-auto" type="button" class="btn btn-amber" style="width:100%; margin-bottom:6px;">🤖 Mở Tab Automatic &amp; Đảo Ấm Sinh Học v2.10.0 →</button>
         <textarea id="cookie-box" rows="2" class="mono" placeholder="Dán Cookie JSON hoặc c_user=...; xs=... vào đây để đăng nhập Via không cần mật khẩu"></textarea>
         <div class="btn-row">
           <button id="btn-import-cookie" type="button" class="btn">📥 Nạp Cookie vào Chrome này</button>
@@ -2280,7 +2280,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     <div class="card">
       <div class="section-title">
         <span>4. ☕ Automatic Đảo Ấm Sinh Học (4 Chế Độ)</span>
-        <span style="font-size:9.5px; color:#fcd34d;">v2.9.9</span>
+        <span style="font-size:9.5px; color:#fcd34d;">v2.10.0</span>
       </div>
       <select id="ka-mode-select" style="margin-bottom:6px; font-weight:600;">
         <option value="human_organic">☕ Đảo Ấm Sinh Học (Feed → Watch / Thông báo / Profile)</option>
@@ -3454,12 +3454,24 @@ recheckGeoAlignment();`
         '<span style="font-family:monospace;">' + viaName + ' (' + profileCode + ')</span>' +
         '<span style="opacity:0.45;">|</span>' +
         '<span id="adsops-hud-passkey-status" style="color:#6ee7b7;font-size:10.5px;">🚫 Đã khóa Passkey</span>' +
-        '<a href="https://accountscenter.facebook.com/password_and_security/passkeys?adsops_auto_delete_passkey=1" style="background:rgba(244,63,94,0.28);border:1px solid #f87171;color:#fecdd3;padding:2px 7px;border-radius:999px;text-decoration:none;font-size:10px;font-weight:800;" title="Mở trang tự động quét & xóa sạch Passkey trong Account Center">🗑️ Tự Xoá Passkey</a>' +
+        '<a href="https://accountscenter.facebook.com/password_and_security/passkeys?adsops_auto_delete_passkey=1" style="background:rgba(244,63,94,0.28);border:1px solid #f87171;color:#fecdd3;padding:2px 7px;border-radius:999px;text-decoration:none;font-size:10px;font-weight:800;" title="Mở trang tự động quét & xóa sạch Passkey trong Account Center">🗑️ Tự Xoá Passkey</a> +
+        '<button id="adsops-hud-auto-invite" type="button" style="background:rgba(16,185,129,0.26);border:1px solid #34d399;color:#d1fae5;padding:2px 8px;border-radius:999px;cursor:pointer;font-size:10px;font-weight:800;" title="Tự động mời những người đã bày tỏ cảm xúc với bài viết theo dõi Fanpage (Meta Business Suite / Bài đăng)">👥 Mời Follow Tự Động</button>'' +
         '<button id="adsops-hud-close" title="Ẩn thanh nhắc nhở này" style="margin-left:2px;background:transparent;border:none;color:inherit;cursor:pointer;font-weight:900;font-size:12px;">✕</button>';
 
       document.body.appendChild(hud);
       document.getElementById("adsops-hud-close")?.addEventListener("click", () => {
         hud.remove();
+      });
+      document.getElementById("adsops-hud-auto-invite")?.addEventListener("click", () => {
+        try {
+          sessionStorage.setItem("adsops_auto_invite_active", "1");
+          sessionStorage.setItem("adsops_auto_invite_started_at", String(Date.now()));
+          sessionStorage.setItem("adsops_auto_invite_count", "0");
+          sessionStorage.setItem("adsops_auto_invite_max", "25");
+          sessionStorage.removeItem("adsops_auto_invite_opened_modal");
+        } catch (e) {}
+        setHudPageStatus("🤝 [Auto-Invite] Đang quét người bày tỏ cảm xúc để gửi lời mời theo dõi...", "#34d399");
+        handlePageReactorAutoInviteDom();
       });
     });
   }
@@ -3713,7 +3725,7 @@ recheckGeoAlignment();`
       if (!avFile || pageAutoPilotHalted) return;
       assignFileToInput(fileInputs[0], avFile);
       lastMediaAttachedAt = Date.now();
-      setHudPageStatus("🖼️ [Auto v2.9.6] Đã tự gắn Avatar độc bản (chống trùng Hash)...", "#38bdf8");
+      setHudPageStatus("🖼️ [Auto v2.10.0] Đã tự gắn Avatar độc bản (chống trùng Hash)...", "#38bdf8");
 
       if (fileInputs.length > 1) {
         setTimeout(() => {
@@ -3722,7 +3734,7 @@ recheckGeoAlignment();`
             if (!cvFile || pageAutoPilotHalted) return;
             assignFileToInput(fileInputs[1], cvFile);
             lastMediaAttachedAt = Date.now();
-            setHudPageStatus("🖼️ [Auto v2.9.6] Đã tự gắn đủ Avatar + Cover độc bản!", "#34d399");
+            setHudPageStatus("🖼️ [Auto v2.10.0] Đã tự gắn đủ Avatar + Cover độc bản!", "#34d399");
           });
         }, randDelay(950, 1550));
       }
@@ -3966,7 +3978,7 @@ recheckGeoAlignment();`
       const waitMs = randDelay(stopMeta.minMs, stopMeta.maxMs);
 
       const reader = startBiometricReadingLoop(
-        "☕ [Đảo Ấm v2.9.6 · Bước " + (idx + 1) + "/" + steps.length + "] Đang đọc " + stopMeta.label + " tự nhiên (" + Math.round(waitMs / 1000) + "s)..."
+        "☕ [Đảo Ấm v2.10.0 · Bước " + (idx + 1) + "/" + steps.length + "] Đang đọc " + stopMeta.label + " tự nhiên (" + Math.round(waitMs / 1000) + "s)..."
       );
 
       setTimeout(() => {
@@ -4008,7 +4020,7 @@ recheckGeoAlignment();`
               });
             } catch (e) {}
           }
-          setHudPageStatus("☕ [v2.9.6] Đã đảo ấm sinh học & làm mới Két Cookie (" + summary + ")!", "#34d399");
+          setHudPageStatus("☕ [v2.10.0] Đã đảo ấm sinh học & làm mới Két Cookie (" + summary + ")!", "#34d399");
           if (session.autoClose && session.kaMode !== "bm_warmup") {
             scheduleSafeTabAutoClose(randDelay(7500, 10500));
           }
@@ -4043,7 +4055,7 @@ recheckGeoAlignment();`
           return;
         }
         const waitMs = randDelay(12500, 17500);
-        const reader = startBiometricReadingLoop("🌿 [Auto v2.9.6] Đang đọc lướt Newsfeed sinh học " + Math.round(waitMs / 1000) + "s trước khi tạo Page...");
+        const reader = startBiometricReadingLoop("🌿 [Auto v2.10.0] Đang đọc lướt Newsfeed sinh học " + Math.round(waitMs / 1000) + "s trước khi tạo Page...");
         setTimeout(() => {
           reader.stop();
           if (pageAutoPilotHalted) return;
@@ -4365,7 +4377,7 @@ recheckGeoAlignment();`
       }
 
       if (autoSubmit) {
-        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9.6] Đang nhập tự nhiên theo nhịp người thật...", "#38bdf8");
+        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.10.0] Đang nhập tự nhiên theo nhịp người thật...", "#38bdf8");
       }
 
       if (pName && nameEl && !nameEl.value) {
@@ -4463,14 +4475,14 @@ recheckGeoAlignment();`
           sessionStorage.setItem("adsops_media_uploaded", "0");
         } catch (e) {}
         createBtn.click();
-        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.9.6] Đã bấm Tạo Trang — Đang hoàn tất bước phụ...", "#38bdf8");
+        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.10.0] Đã bấm Tạo Trang — Đang hoàn tất bước phụ...", "#38bdf8");
       };
 
       setTimeout(() => tryAutoClickCreate(true), tFinal);
     } catch (e) {}
   }
 
-  // v2.9.6: User-clicked 1-tap 6-digit 2FA autofill from Desktop DPAPI Vault / local secret (strictly blocked on CAPTCHA pages)
+  // v2.10.0: User-clicked 1-tap 6-digit 2FA autofill from Desktop DPAPI Vault / local secret (strictly blocked on CAPTCHA pages)
   function handleTwoFactorAssistDom() {
     try {
       const url = (window.location.href || "").toLowerCase();
@@ -4560,6 +4572,211 @@ recheckGeoAlignment();`
     } catch (e) {}
   }
 
+
+  let pageInvitePending = false;
+  let lastPageInviteClickAt = 0;
+
+  function handlePageReactorAutoInviteDom() {
+    if (pageAutoPilotHalted || pageInvitePending) return;
+    const challenge = detectSafetyChallenge();
+    if (challenge) {
+      haltAutoPilotForSafety(challenge);
+      return;
+    }
+
+    const url = window.location.href || "";
+    try {
+      const u = new URL(url);
+      if (u.searchParams.get("adsops_auto_invite_followers") === "1") {
+        if (sessionStorage.getItem("adsops_auto_invite_active") !== "1") {
+          sessionStorage.setItem("adsops_auto_invite_active", "1");
+          sessionStorage.setItem("adsops_auto_invite_started_at", String(Date.now()));
+          sessionStorage.setItem("adsops_auto_invite_count", "0");
+          const lim = parseInt(u.searchParams.get("adsops_invite_limit") || "25", 10);
+          sessionStorage.setItem("adsops_auto_invite_max", String(Math.max(5, Math.min(50, isNaN(lim) ? 25 : lim))));
+          if (u.searchParams.get("adsops_auto_close") === "1") {
+            sessionStorage.setItem("adsops_auto_invite_close", "1");
+          }
+          const pn = u.searchParams.get("adsops_page_name") || "";
+          if (pn) sessionStorage.setItem("adsops_autopilot_pname", pn);
+        }
+      }
+    } catch (e) {}
+
+    let isActive = false;
+    let startedAt = 0;
+    let count = 0;
+    let maxInvites = 25;
+    let openedModal = false;
+    let autoClose = false;
+    try {
+      isActive = sessionStorage.getItem("adsops_auto_invite_active") === "1";
+      startedAt = Number(sessionStorage.getItem("adsops_auto_invite_started_at") || "0");
+      count = Number(sessionStorage.getItem("adsops_auto_invite_count") || "0");
+      maxInvites = Number(sessionStorage.getItem("adsops_auto_invite_max") || "25") || 25;
+      openedModal = sessionStorage.getItem("adsops_auto_invite_opened_modal") === "1";
+      autoClose = sessionStorage.getItem("adsops_auto_invite_close") === "1";
+    } catch (e) {}
+
+    if (!isActive) return;
+    if (Date.now() - lastPageInviteClickAt < 3100) return;
+
+    const finishAutoInvite = (reasonMsg) => {
+      try {
+        sessionStorage.removeItem("adsops_auto_invite_active");
+        sessionStorage.removeItem("adsops_auto_invite_opened_modal");
+      } catch (e) {}
+      reportBrowserEventBg("PAGE_INVITE_FOLLOWERS_OK", {
+        invited_count: count,
+        detail: reasonMsg || ("Đã tự động gửi " + count + " lời mời theo dõi Fanpage cho người tương tác"),
+      });
+      setHudPageStatus("✅ [Auto-Invite] " + (reasonMsg || ("Đã gửi " + count + " lời mời theo dõi Fanpage!")), "#34d399");
+      if (autoClose && !pageAutoPilotHalted) {
+        scheduleSafeTabAutoClose(randDelay(6500, 9500));
+      }
+    };
+
+    if (count >= maxInvites) {
+      finishAutoInvite("Đạt ngưỡng an toàn " + count + "/" + maxInvites + " lời mời theo dõi Fanpage");
+      return;
+    }
+
+    if (startedAt && Date.now() - startedAt > 95000) {
+      finishAutoInvite("Hoàn tất phiên mời theo dõi (" + count + " lời mời đã gửi)");
+      return;
+    }
+
+    const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]')).filter((d) => {
+      const r = d.getBoundingClientRect();
+      return r.width > 200 && r.height > 120;
+    });
+
+    if (dialogs.length > 0) {
+      const topDialog = dialogs[dialogs.length - 1];
+      const checkboxes = Array.from(
+        topDialog.querySelectorAll('input[type="checkbox"]:not(:checked), div[role="checkbox"][aria-checked="false"]')
+      ).filter((cb) => {
+        const r = cb.getBoundingClientRect();
+        return r.width > 8 && r.height > 8;
+      });
+
+      const dialogBtns = Array.from(topDialog.querySelectorAll('div[role="button"], button, span[role="button"]')).filter((b) => {
+        if (b.disabled || b.getAttribute("aria-disabled") === "true") return false;
+        const r = b.getBoundingClientRect();
+        return r.width > 24 && r.height > 16;
+      });
+
+      if (checkboxes.length > 0 && count < maxInvites) {
+        pageInvitePending = true;
+        const waitMs = randDelay(900, 1900);
+        setTimeout(() => {
+          pageInvitePending = false;
+          if (pageAutoPilotHalted) return;
+          const remaining = Math.max(1, maxInvites - count);
+          const toSelect = checkboxes.slice(0, remaining);
+          toSelect.forEach((cb) => {
+            try { cb.click(); } catch (e) {}
+          });
+          lastPageInviteClickAt = Date.now();
+          const newCount = count + toSelect.length;
+          try { sessionStorage.setItem("adsops_auto_invite_count", String(newCount)); } catch (e) {}
+          setHudPageStatus("🤝 [Auto-Invite] Đã chọn " + toSelect.length + " người bày tỏ cảm xúc, chuẩn bị gửi lời mời...", "#38bdf8");
+        }, waitMs);
+        return;
+      }
+
+      const inviteBtnInDialog = dialogBtns.find((b) => {
+        const txt = ((b.getAttribute("aria-label") || "") + " " + (b.textContent || "")).trim().toLowerCase();
+        if (txt.includes("đã mời") || txt.includes("invited") || txt.includes("bạn bè") || txt.includes("friends")) return false;
+        return (
+          txt === "mời" ||
+          txt === "invite" ||
+          txt === "gửi lời mời" ||
+          txt === "send invitations" ||
+          txt === "send invite" ||
+          txt.startsWith("gửi lời mời (") ||
+          txt.startsWith("send invitations (")
+        );
+      });
+
+      if (inviteBtnInDialog) {
+        pageInvitePending = true;
+        const waitMs = randDelay(3200, 6200);
+        setTimeout(() => {
+          pageInvitePending = false;
+          if (pageAutoPilotHalted) return;
+          inviteBtnInDialog.style.outline = "2px solid #10b981";
+          inviteBtnInDialog.click();
+          lastPageInviteClickAt = Date.now();
+          const nextCount = count + 1;
+          try { sessionStorage.setItem("adsops_auto_invite_count", String(nextCount)); } catch (e) {}
+          setHudPageStatus("🤝 [Auto-Invite] Đã gửi lời mời theo dõi #" + nextCount + "/" + maxInvites + "...", "#34d399");
+        }, waitMs);
+        return;
+      }
+    }
+
+    const allVisibleBtns = findVisiblePageButtons();
+    const findReactorSectionInviteBtn = () => {
+      const candidates = Array.from(document.querySelectorAll("div, span, h2, h3, h4, p")).filter((el) => {
+        const t = (el.textContent || "").trim().toLowerCase();
+        return (
+          (t.includes("tiếp cận những người đã bày tỏ cảm xúc") ||
+            t.includes("reach people who reacted to your content") ||
+            t.includes("bày tỏ cảm xúc và bình luận về nội dung")) &&
+          t.length < 280
+        );
+      });
+      for (const node of candidates) {
+        let row = node.parentElement;
+        for (let depth = 0; depth < 5 && row; depth++) {
+          const rowBtns = Array.from(row.querySelectorAll('div[role="button"], button, a[role="button"]'));
+          const sendBtn = rowBtns.find((b) => {
+            if (b.disabled || b.getAttribute("aria-disabled") === "true") return false;
+            const bt = ((b.getAttribute("aria-label") || "") + " " + (b.textContent || "")).trim().toLowerCase();
+            return bt === "gửi lời mời" || bt === "send invitations" || bt === "send invite";
+          });
+          if (sendBtn) return sendBtn;
+          row = row.parentElement;
+        }
+      }
+      return allVisibleBtns.find((b) => {
+        if (b.disabled || b.getAttribute("aria-disabled") === "true") return false;
+        const bt = ((b.getAttribute("aria-label") || "") + " " + (b.textContent || "")).trim().toLowerCase();
+        return bt === "gửi lời mời" || bt === "send invitations" || bt === "send invite";
+      }) || null;
+    };
+
+    if (!openedModal) {
+      const mbsInviteBtn = findReactorSectionInviteBtn();
+      if (mbsInviteBtn) {
+        pageInvitePending = true;
+        const waitMs = randDelay(1500, 2900);
+        setTimeout(() => {
+          pageInvitePending = false;
+          if (pageAutoPilotHalted) return;
+          try {
+            mbsInviteBtn.scrollIntoView({ behavior: "smooth", block: "center" });
+          } catch (e) {}
+          mbsInviteBtn.style.outline = "2px solid #10b981";
+          mbsInviteBtn.click();
+          lastPageInviteClickAt = Date.now();
+          try { sessionStorage.setItem("adsops_auto_invite_opened_modal", "1"); } catch (e) {}
+          setHudPageStatus("🤝 [Auto-Invite] Đã mở bảng 'Tiếp cận người đã bày tỏ cảm xúc' — Đang quét danh sách...", "#38bdf8");
+        }, waitMs);
+        return;
+      }
+    }
+
+    if (startedAt && Date.now() - startedAt > 16000) {
+      finishAutoInvite(
+        count > 0
+          ? "Đã tự động gửi " + count + " lời mời theo dõi Fanpage hoàn tất"
+          : "Không có người tương tác mới cần gửi lời mời theo dõi"
+      );
+    }
+  }
+
   setTimeout(() => {
     injectFloatingHud();
     handlePasskeyDom();
@@ -4567,6 +4784,7 @@ recheckGeoAlignment();`
     handleSessionWarmupAndKeepAlive();
     handlePageCreationDom();
     handlePageOnboardingWizard();
+    handlePageReactorAutoInviteDom();
   }, 900);
   setInterval(() => {
     scanBillingDom();
@@ -4574,6 +4792,7 @@ recheckGeoAlignment();`
     handleSessionWarmupAndKeepAlive();
     handlePageCreationDom();
     handlePageOnboardingWizard();
+    handlePageReactorAutoInviteDom();
   }, 2200);
 })();`
 

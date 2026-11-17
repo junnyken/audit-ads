@@ -35,10 +35,10 @@ describe('v2.6.0 Multi-Engine Antidetect Hub & Team Launch RBAC', () => {
     expect(canMemberLaunchVia('admin', 'm-admin', 'm1').allowed).toBe(true)
   })
 
-  it('generates v2.9.9 manifest metadata cleanly', () => {
+  it('generates v2.10.0 manifest metadata cleanly', () => {
     const files = buildExtensionFilesForVia('AdsOps', 'Via Test', 'Profile 1', '')
     const manifest = JSON.parse(files.find((f) => f.name.endsWith('/manifest.json'))!.content) as { version: string }
-    expect(manifest.version).toBe('2.9.9')
+    expect(manifest.version).toBe('2.10.0')
   })
 
   it('auto-discovers AdsOpsDesktop on fallback port 17891 when 17890 is occupied by another app', async () => {

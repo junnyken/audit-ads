@@ -1,13 +1,13 @@
 {
-    "version":  "2.6.4",
-    "ext_version":  "2.9.9",
-    "authenticode_signed":  true,
-    "download_url":  "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
-    "mirror_urls":  [
-                        "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
-                    ],
-    "sha256":  "1709feaa1829555450a88c38d17b27ae29a73d82becc81ec1770dc195d8488bf",
-    "size_bytes":  66475919,
-    "published_at":  "2026-11-17T04:07:48.311128Z",
-    "release_notes":  "AdsOps Desktop Pro v2.6.4 + Extension v2.9.9: Chu trinh Auto-Pilot 5 Buoc khep kin (Don Cache/RAM -\u003e Quet Proxy -\u003e Sync Meta/Cron -\u003e Nuoi Page -\u003e Dao Am), Tu dong thu thap Cookie FB vao Ket DPAPI khi mo tab, Viet hoa \u0026 hien ro ten TKQC/BM tren Canh bao + nut Ghi nhan tat ca, Sua cat chu bang Retainer \u0026 Team Seats, Format gio dia phuong Cloud Cron."
+  "version": "2.6.5",
+  "ext_version": "2.10.0",
+  "authenticode_signed": true,
+  "download_url": "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
+  "mirror_urls": [
+    "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
+  ],
+  "sha256": "65d8b864dceb5e8510645b05fa5dcbdfed178cc37e0fb08228536615c7f50442",
+  "size_bytes": 66482800,
+  "published_at": "2026-11-17T07:18:37.731426Z",
+  "release_notes": "AdsOps Desktop Pro v2.6.5 + Extension v2.10.0: Tinh nang Auto-Invite Page Followers (Tu dong moi nguoi da tha cam xuc/tuong tac bai viet theo doi Fanpage tren Meta Business Suite voi Jitter 3.2s-6.2s), Tich hop vao Chu trinh Auto-Pilot 5 Buoc, Nut Moi Follow tren tung Page & Chay lo an toan."
 }

@@ -918,6 +918,7 @@ internal sealed partial class MainWindow : Window
         AppendLog($"Extension Event: {payload.EventType} | Via '{payload.ViaLabel}' | {payload.Detail}");
         var evType = (payload.EventType ?? "").Trim().ToUpperInvariant();
         var isKeepAliveOk = string.Equals(evType, "KEEPALIVE_OK", StringComparison.OrdinalIgnoreCase);
+        var isPageInviteOk = string.Equals(evType, "PAGE_INVITE_FOLLOWERS_OK", StringComparison.OrdinalIgnoreCase);
         var isSafetyFreeze = evType is "IP_LEAK_BLOCKED" or "SAFETY_CHALLENGE";
 
         ViaWorkspaceEntry? matched = null;
@@ -970,8 +971,33 @@ internal sealed partial class MainWindow : Window
                 _ = Dispatcher.BeginInvoke(() => { matched.KeepAliveSuccessCount++; });
             }
         }
+        else if (isPageInviteOk)
+        {
+            int invitedAdded = 1;
+            if (!string.IsNullOrWhiteSpace(payload.Detail))
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(payload.Detail, @"(\d+)\s*lời mời", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (m.Success && int.TryParse(m.Groups[1].Value, out var parsedCount) && parsedCount >= 0)
+                {
+                    invitedAdded = parsedCount;
+                }
+            }
+            if (invitedAdded > 0)
+            {
+                _config.TotalPageFollowerInvitesSent += invitedAdded;
+                try { _config.Save(); } catch { }
+            }
+            AppendLog($"🤝 [Auto-Invite Page] Via '{resolvedViaLabel ?? "Via"}' hoàn tất mời theo dõi Fanpage ({payload.Detail ?? "OK"}). Tổng tích lũy: {_config.TotalPageFollowerInvitesSent} lời mời.");
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                if (_activeView is AppView.PagesBm or AppView.Automation or AppView.Overview)
+                {
+                    RenderCurrentView();
+                }
+            });
+        }
 
-        var shouldCloseWindow = isKeepAliveOk && _config.AutoCloseKeepAliveWindow;
+        var shouldCloseWindow = (isKeepAliveOk || isPageInviteOk) && _config.AutoCloseKeepAliveWindow;
         if (shouldCloseWindow)
         {
             ChromeSessionTracker.Default.MarkKeepAliveClosed(payload.ViaId, payload.ViaLabel, payload.BrowserProfile);
@@ -2164,11 +2190,14 @@ internal sealed partial class MainWindow : Window
                 AppendLog($"⚠️ [Auto-Pilot 3/5] Bỏ qua đồng bộ Meta/Cron: {exCron.Message}");
             }
 
-            // Bước 4: Tự động Nuôi bài Fanpage đến hạn
+            // Bước 4: Tự động Nuôi bài Fanpage đến hạn & Mời người tương tác theo dõi Page
             try
             {
                 var warmRes = await _api.BatchWarmupPagesAsync(10);
-                AppendLog($"🤖 [Auto-Pilot 4/5] Đã nuôi lô tự động {warmRes.NurturedCount} Fanpage (Graph API: {warmRes.GraphPublishedCount}).");
+                var inviteHint = _config.AutoInvitePageFollowersOnWarmup
+                    ? $" • Auto-Invite Follow: BẬT (Max {_config.MaxPageFollowerInvitesPerRun}/phiên)"
+                    : "";
+                AppendLog($"🤖 [Auto-Pilot 4/5] Đã nuôi lô tự động {warmRes.NurturedCount} Fanpage (Graph API: {warmRes.GraphPublishedCount}){inviteHint}.");
             }
             catch (Exception exWarm)
             {
@@ -2190,6 +2219,11 @@ internal sealed partial class MainWindow : Window
                 AppendLog($"🤖 [Auto-Pilot 5/5] Khởi chạy hàng đợi Đảo Ấm an toàn cho {dueVias.Count} Via quá hạn.");
                 EnqueueKeepAliveVias(dueVias, "Auto-Pilot 5 Bước • Đảo Ấm Via quá hạn", requireConfirm: false);
             }
+            else if (_config.AutoInvitePageFollowersOnWarmup && (_pagesSummary?.Items?.Count ?? 0) > 0)
+            {
+                AppendLog("🤖 [Auto-Pilot 5/5] Toàn bộ Via đã Đảo Ấm đủ -> Chuyển sang Hàng đợi Tự động Mời người tương tác theo dõi Fanpage.");
+                EnqueueBatchPageAutoInviteFollowers(requireConfirm: false);
+            }
             else
             {
                 AppendLog("🤖 [Auto-Pilot 5/5] Hoàn tất Chu trình 5 Bước! Toàn bộ Via hợp lệ đã Đảo Ấm đủ.");
@@ -2202,6 +2236,130 @@ internal sealed partial class MainWindow : Window
             RefreshHeaderAndSidebar();
             RenderCurrentView();
         }
+    }
+
+    internal static string BuildPageAutoInviteUrl(FanpageItemDto page, int maxInvites = 25, bool autoClose = true)
+    {
+        var clamped = Math.Clamp(maxInvites < 5 ? 25 : maxInvites, 5, 50);
+        var closeFlag = autoClose ? "1" : "0";
+        var pName = Uri.EscapeDataString(page.Name ?? "Fanpage");
+        if (!string.IsNullOrWhiteSpace(page.ExternalPageId))
+        {
+            var extId = Uri.EscapeDataString(page.ExternalPageId.Trim());
+            return $"https://business.facebook.com/latest/home?asset_id={extId}&adsops_auto_invite_followers=1&adsops_invite_limit={clamped}&adsops_page_name={pName}&adsops_auto_close={closeFlag}";
+        }
+        if (!string.IsNullOrWhiteSpace(page.Url) && page.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            var sep = page.Url.Contains('?') ? "&" : "?";
+            return $"{page.Url}{sep}adsops_auto_invite_followers=1&adsops_invite_limit={clamped}&adsops_page_name={pName}&adsops_auto_close={closeFlag}";
+        }
+        return $"https://business.facebook.com/latest/home?adsops_auto_invite_followers=1&adsops_invite_limit={clamped}&adsops_page_name={pName}&adsops_auto_close={closeFlag}";
+    }
+
+    public void LaunchPageAutoInviteFollowers(FanpageItemDto page, bool autoClose = false)
+    {
+        var via = _vias.FirstOrDefault(v => string.Equals(v.ViaId, page.HolderIdentityId, StringComparison.OrdinalIgnoreCase))
+                  ?? _vias.FirstOrDefault(v => !string.IsNullOrWhiteSpace(page.HolderLabel) && string.Equals(v.Label, page.HolderLabel, StringComparison.OrdinalIgnoreCase))
+                  ?? _vias.FirstOrDefault();
+        if (via == null)
+        {
+            MessageBox.Show(this, "Chưa có Via nào trong danh sách để mở Meta Business Suite cho Fanpage này.", "Thiếu Via cầm Page", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        var targetUrl = BuildPageAutoInviteUrl(page, _config.MaxPageFollowerInvitesPerRun, autoClose);
+        AppendLog($"🤝 Khởi chạy Auto-Invite Followers cho Page '{page.Name}' qua Via '{via.Label}' (tối đa {_config.MaxPageFollowerInvitesPerRun} lời mời)...");
+        LaunchViaChromeSafe(via, targetUrl);
+    }
+
+    public void EnqueueBatchPageAutoInviteFollowers(bool requireConfirm = true)
+    {
+        if (_queue.Current.Phase is QueuePhase.Running or QueuePhase.Paused)
+        {
+            if (requireConfirm)
+            {
+                MessageBox.Show(this, "Hàng đợi đang chạy dở. Hãy Tạm dừng hoặc Dừng hẳn trước khi xếp lô Mời theo dõi Fanpage.", "Hàng đợi đang bận", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            return;
+        }
+
+        var pages = (_pagesSummary?.Items ?? new List<FanpageItemDto>())
+            .Where(p => !p.IsUnsyncedDraft && p.HealthStatus.Equals("LIVE", StringComparison.OrdinalIgnoreCase) && p.SoakRemainingHours <= 0)
+            .Take(10)
+            .ToList();
+
+        if (pages.Count == 0)
+        {
+            if (requireConfirm)
+            {
+                MessageBox.Show(this, "Chưa có Fanpage LIVE (đã qua thời gian ngâm) để chạy lô Mời người tương tác theo dõi.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            return;
+        }
+
+        if (requireConfirm)
+        {
+            var ok = UiComponents.ShowConfirmActionDialog(
+                this,
+                "Tự động Mời người tương tác theo dõi Fanpage (Lô)",
+                "Mở Meta Business Suite từng Fanpage theo nhịp an toàn và tự động bấm 'Gửi lời mời' cho những người đã bày tỏ cảm xúc với bài viết.",
+                new (string, string)[]
+                {
+                    ("Số Fanpage hợp lệ:", $"{pages.Count} Page LIVE"),
+                    ("Giới hạn an toàn:", $"Tối đa {_config.MaxPageFollowerInvitesPerRun} lời mời / Page / phiên (Jitter 3.2s - 6.2s)"),
+                    ("Cơ chế bảo vệ:", "Bỏ qua Page đang Ngâm • Tự đóng tab khi gửi xong"),
+                },
+                "Extension v2.10.0 tự động nhận diện nút 'Gửi lời mời' trong mục 'Tiếp cận những người đã bày tỏ cảm xúc với nội dung của bạn'.",
+                "Khởi chạy Auto-Invite");
+            if (!ok) return;
+        }
+
+        var tasks = new List<QueueTaskItem>();
+        foreach (var p in pages)
+        {
+            var via = _vias.FirstOrDefault(v => string.Equals(v.ViaId, p.HolderIdentityId, StringComparison.OrdinalIgnoreCase))
+                      ?? _vias.FirstOrDefault(v => !string.IsNullOrWhiteSpace(p.HolderLabel) && string.Equals(v.Label, p.HolderLabel, StringComparison.OrdinalIgnoreCase))
+                      ?? _vias.FirstOrDefault();
+            if (via == null || via.IsInCooldown) continue;
+            var url = BuildPageAutoInviteUrl(p, _config.MaxPageFollowerInvitesPerRun, autoClose: _config.AutoCloseKeepAliveTab);
+            tasks.Add(new QueueTaskItem(
+                via.ViaId,
+                via.Label,
+                GetEffectiveBatchProfileKey(via, via.ProfileDir),
+                via.NetworkLabel,
+                url,
+                $"Auto-Invite Follow: {p.Name}",
+                via.BackendTier,
+                via.ClientGroup,
+                via.IsInSoakQuarantine,
+                via.CooldownUntilUtc,
+                via.HasSiloConflict,
+                via.SiloConflictDetail));
+        }
+
+        if (tasks.Count == 0)
+        {
+            AppendLog("⚠️ Không có Via hợp lệ (không bị Cooldown) để chạy lô Auto-Invite Fanpage.");
+            return;
+        }
+
+        _queue.StartQueue(
+            QueueKind.KeepAlive,
+            tasks,
+            _config.DefaultStaggerSeconds,
+            _config.PreCheckProxyBeforeLaunch,
+            _config.MaxViasPerProxyInBatch,
+            _config.AutoKeepAliveStartHour,
+            _config.AutoKeepAliveEndHour,
+            enforceDaytimeWindow: true,
+            enforceSoakQuarantine: _config.EnforceSoakQuarantine,
+            enforceClientSilo: _config.EnforceClientSilo,
+            interleaveByProxy: true,
+            sameProxyMinStaggerSeconds: _config.SameProxyMinStaggerSeconds,
+            maxConcurrentBrowsers: GetEffectiveMaxConcurrentBrowsers(),
+            maxDirectIpVias: _config.MaxDirectIpViasInBatch);
+
+        AppendLog($"🤝 Đã xếp hàng {tasks.Count} Fanpage vào Hàng đợi Tự động Mời người tương tác theo dõi.");
+        RenderCurrentView();
     }
 
     internal async Task AcknowledgeAllOpenAlertsAsync()

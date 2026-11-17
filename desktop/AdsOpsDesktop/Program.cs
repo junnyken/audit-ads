@@ -1463,28 +1463,50 @@ internal static class Program
                     throw new InvalidOperationException("FormatIsoTimestampLocal null fallback mismatch");
 
                 var tpl299 = ExtensionProvisioner.LoadTemplates();
-                if (tpl299.Version != "2.9.9" ||
+                if (tpl299.Version != DesktopAppInfo.ExtVersion ||
                     !tpl299.BackgroundJsAfterDefaultState.Contains("lastPassiveCookieHarvestAt", StringComparison.Ordinal) ||
                     !tpl299.BackgroundJsAfterDefaultState.Contains("passive_bootstrap", StringComparison.Ordinal) ||
-                    !tpl299.BackgroundJsAfterDefaultState.Contains("tab_complete", StringComparison.Ordinal))
+                    !tpl299.BackgroundJsAfterDefaultState.Contains("tab_complete", StringComparison.Ordinal) ||
+                    !tpl299.ContentJs.Contains("handlePageReactorAutoInviteDom", StringComparison.Ordinal) ||
+                    !tpl299.ContentJs.Contains("PAGE_INVITE_FOLLOWERS_OK", StringComparison.Ordinal))
                 {
-                    throw new InvalidOperationException("Extension template v2.9.9 passive cookie harvest assertions failed");
+                    throw new InvalidOperationException("Extension template v2.10.0 passive cookie harvest & auto-invite followers assertions failed");
                 }
 
-                var pipeCfgPath = Path.Combine(tempRoot, "cfg_v264.json");
+                var samplePage = new FanpageItemDto
+                {
+                    Id = "p1",
+                    Name = "Matbao-invoice",
+                    ExternalPageId = "109674987393491",
+                };
+                var inviteUrl = MainWindow.BuildPageAutoInviteUrl(samplePage, 25, autoClose: true);
+                if (!inviteUrl.Contains("business.facebook.com/latest/home?asset_id=109674987393491", StringComparison.Ordinal) ||
+                    !inviteUrl.Contains("adsops_auto_invite_followers=1", StringComparison.Ordinal) ||
+                    !inviteUrl.Contains("adsops_invite_limit=25", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException($"BuildPageAutoInviteUrl check failed: {inviteUrl}");
+                }
+
+                var pipeCfgPath = Path.Combine(tempRoot, "cfg_v265.json");
                 var pipeCfg = new DesktopConfig
                 {
                     AutoDailyFullPipeline = true,
                     LastAutoPipelineDateLocal = "2026-11-17",
+                    AutoInvitePageFollowersOnWarmup = true,
+                    MaxPageFollowerInvitesPerRun = 30,
+                    TotalPageFollowerInvitesSent = 12,
                 };
                 pipeCfg.Save(pipeCfgPath);
                 var reloadedPipeCfg = DesktopConfig.Load(pipeCfgPath);
                 if (!reloadedPipeCfg.AutoDailyFullPipeline ||
                     reloadedPipeCfg.LastAutoPipelineDateLocal != "2026-11-17" ||
+                    !reloadedPipeCfg.AutoInvitePageFollowersOnWarmup ||
+                    reloadedPipeCfg.MaxPageFollowerInvitesPerRun != 30 ||
+                    reloadedPipeCfg.TotalPageFollowerInvitesSent != 12 ||
                     reloadedPipeCfg.ConfigMigrationVersion != DesktopConfig.CurrentMigrationVersion ||
-                    DesktopConfig.CurrentMigrationVersion != 264)
+                    DesktopConfig.CurrentMigrationVersion != 265)
                 {
-                    throw new InvalidOperationException($"v2.6.4 DesktopConfig roundtrip/migration check failed: mig={reloadedPipeCfg.ConfigMigrationVersion}");
+                    throw new InvalidOperationException($"v2.6.5 DesktopConfig roundtrip/migration check failed: mig={reloadedPipeCfg.ConfigMigrationVersion}");
                 }
             }
 

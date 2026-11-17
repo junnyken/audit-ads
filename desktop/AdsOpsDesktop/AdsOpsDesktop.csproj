@@ -8,12 +8,12 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>AdsOpsDesktop</AssemblyName>
     <RootNamespace>AdsOpsDesktop</RootNamespace>
-    <Version>2.6.4</Version>
-    <AssemblyVersion>2.6.4.0</AssemblyVersion>
-    <FileVersion>2.6.4.0</FileVersion>
+    <Version>2.6.5</Version>
+    <AssemblyVersion>2.6.5.0</AssemblyVersion>
+    <FileVersion>2.6.5.0</FileVersion>
     <Product>AdsOps Desktop Pro</Product>
     <Company>AdsOps</Company>
-    <Description>AdsOps Desktop Pro v2.6.4 — Auto-Pilot 5-Step Pipeline, Passive Cookie Vault Sync, Alert &amp; Retainer UI Polish &amp; Extension v2.9.9</Description>
+    <Description>AdsOps Desktop Pro v2.6.5 — Auto-Invite Page Followers, Auto-Pilot 5-Step Pipeline, Passive Cookie Vault Sync &amp; Extension v2.10.0</Description>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 
