@@ -8,12 +8,12 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>AdsOpsDesktop</AssemblyName>
     <RootNamespace>AdsOpsDesktop</RootNamespace>
-    <Version>3.0.3</Version>
-    <AssemblyVersion>3.0.3.0</AssemblyVersion>
-    <FileVersion>3.0.3.0</FileVersion>
+    <Version>3.0.4</Version>
+    <AssemblyVersion>3.0.4.0</AssemblyVersion>
+    <FileVersion>3.0.4.0</FileVersion>
     <Product>AdsOps Desktop Pro</Product>
     <Company>AdsOps</Company>
-    <Description>AdsOps Desktop Pro v3.0.3 — Non-Intrusive Auto-Invite, Pre-Flight Safety Check, Smart Retry, Multi-Time Scheduler &amp; Daily DPAPI Vault Auto-Backup</Description>
+    <Description>AdsOps Desktop Pro v3.0.4 — Visual Action Flow Builder, Daily Random Persona, Internal Cross-Warmup, Pre-Ads Buffer, Auto-Like Comments &amp; Custom Stagger Range</Description>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 

@@ -1796,7 +1796,12 @@ internal sealed partial class MainWindow : Window
 
     private void LaunchViaChromeSafe(ViaWorkspaceEntry via, string targetUrl)
     {
-        _ = LaunchViaBrowserAsync(via, targetUrl, interactiveAlerts: true);
+        var effectiveUrl = WrapWithPreAdsWarmupIfEnabled(targetUrl);
+        if (!string.Equals(effectiveUrl, targetUrl, StringComparison.Ordinal))
+        {
+            AppendLog($"🛡️ [Bước đệm Chống Checkpoint] Via '{via.Label}' sẽ lướt Newsfeed tự nhiên {_config.PreAdsWarmupSeconds}s trước khi vào Ads Manager / BM.");
+        }
+        _ = LaunchViaBrowserAsync(via, effectiveUrl, interactiveAlerts: true);
     }
 
     private async Task<(bool Live, string Reason)> PreCheckProxyAsync(QueueTaskItem item)
@@ -1961,6 +1966,18 @@ internal sealed partial class MainWindow : Window
                   };
         });
         await LaunchViaBrowserAsync(via!, item.TargetUrl, interactiveAlerts: false);
+        if (_config.AutoTileWindowsOnBatch)
+        {
+            var aliveCount = ChromeSessionTracker.Default.GetSnapshot().Count(s => s.Alive);
+            if (aliveCount >= 2)
+            {
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(1200).ConfigureAwait(false);
+                    try { OnBridgeTileWindows(new TileWindowsRequestDto { Grid = aliveCount > 4 ? "3x2" : "2x2" }); } catch { }
+                });
+            }
+        }
         if (item.TargetUrl.Contains("adsops_auto_invite_followers=1", StringComparison.OrdinalIgnoreCase))
         {
             var matchedPg = (_pagesSummary?.Items ?? new List<FanpageItemDto>())
@@ -2080,6 +2097,18 @@ internal sealed partial class MainWindow : Window
         EnqueueKeepAliveVias(dueVias, "Đảo Ấm toàn bộ Via quá hạn (>3 ngày)", requireConfirm);
     }
 
+    internal string WrapWithPreAdsWarmupIfEnabled(string targetUrl)
+    {
+        if (string.IsNullOrWhiteSpace(targetUrl) || !_config.EnablePreAdsManagerWarmup) return targetUrl;
+        if (targetUrl.Contains("adsops_preads_warmup=1", StringComparison.OrdinalIgnoreCase)) return targetUrl;
+        var isAdsOrBmDeepLink = targetUrl.Contains("adsmanager.facebook.com", StringComparison.OrdinalIgnoreCase) ||
+                                targetUrl.Contains("business.facebook.com/settings", StringComparison.OrdinalIgnoreCase) ||
+                                targetUrl.Contains("business.facebook.com/billing_hub", StringComparison.OrdinalIgnoreCase);
+        if (!isAdsOrBmDeepLink) return targetUrl;
+        var sec = Math.Clamp(_config.PreAdsWarmupSeconds < 8 ? 20 : _config.PreAdsWarmupSeconds, 8, 90);
+        return $"https://www.facebook.com/?adsops_preads_warmup=1&adsops_preads_sec={sec}&adsops_preads_target={Uri.EscapeDataString(targetUrl)}";
+    }
+
     private void EnqueueKeepAliveVias(IReadOnlyList<ViaWorkspaceEntry> targetVias, string title, bool requireConfirm)
     {
         if (targetVias.Count == 0) return;
@@ -2089,42 +2118,78 @@ internal sealed partial class MainWindow : Window
             return;
         }
 
+        var restMin = Math.Clamp(_config.QueueRestMinSeconds < 5 ? 15 : _config.QueueRestMinSeconds, 5, 300);
+        var restMax = Math.Clamp(_config.QueueRestMaxSeconds < restMin ? restMin + 10 : _config.QueueRestMaxSeconds, restMin, 600);
+        var isCustomFlow = string.Equals(_config.WarmupFlowMode, "custom_sequence", StringComparison.OrdinalIgnoreCase);
+        var flowModeTitle = isCustomFlow
+            ? "🧩 Chuỗi Hành Động Tự Chọn (Theo trình tự)"
+            : "🎲 Bốc thăm Ngẫu nhiên Mỗi Ngày (Mỗi Via 1 kịch bản)";
+        var sampleSeq = WarmupActionCatalog.GetEffectiveSequence(_config, targetVias[0].ViaId, DateTime.Now);
+        var sampleArrow = WarmupActionCatalog.FormatSequenceArrowText(sampleSeq);
+
         if (requireConfirm)
         {
             var directCount = targetVias.Count(v => string.IsNullOrWhiteSpace(AutomationQueueEngine.ExtractProxyHostPort(v.NetworkLabel)));
             var ok = UiComponents.ShowConfirmActionDialog(
                 this,
                 title,
-                $"Chuẩn bị mở Chrome Profile thật & Proxy riêng để Đảo Ấm thụ động (chỉ cuộn Newsfeed & /notifications, tuyệt đối không Like/Comment) cho {targetVias.Count} Via.",
+                $"Chuẩn bị mở Chrome Profile thật & Proxy riêng để chạy Kịch bản Tương tác Tự nhiên ({flowModeTitle}) cho {targetVias.Count} Via.",
                 new (string, string)[]
                 {
-                    ("Số lượng Via:", $"{targetVias.Count} Via (Direct IP: {directCount})"),
-                    ("Nghỉ giãn cách:", $"~{_config.DefaultStaggerSeconds}s + Jitter ngẫu nhiên ±35%"),
-                    ("Pre-check Proxy:", _config.PreCheckProxyBeforeLaunch ? "Bật (Proxy die tự bỏ qua)" : "Tắt"),
-                    ("IP Cluster Guard:", $"Proxy: {_config.MaxViasPerProxyInBatch}/IP · Direct IP: tối đa {_config.MaxDirectIpViasInBatch} Via / ca"),
+                    ("Số lượng & Luồng:", $"{targetVias.Count} Via • Tối đa {GetEffectiveMaxConcurrentBrowsers()} luồng song song (Direct IP: {directCount})"),
+                    ("Khoảng thời gian nhịp nghỉ:", $"Ngẫu nhiên từ {restMin}s đến {restMax}s giữa mỗi luồng mở"),
+                    ("Chế độ Kịch bản (#3):", flowModeTitle),
+                    ("Trình tự mẫu hôm nay:", sampleArrow),
+                    ("Nuôi chéo Fanpage nội bộ (#1):", _config.EnableInternalPageCrossWarmup ? "BẬT (Tự ghé thăm & thả Like/Tim Fanpage của bạn)" : "Tắt"),
                 },
                 directCount > _config.MaxDirectIpViasInBatch
-                    ? $"CẢNH BÁO: Có {directCount} Via đang chạy Direct IP (Mạng gốc). Hệ thống sẽ chỉ chạy tối đa {_config.MaxDirectIpViasInBatch} Via Direct IP mỗi ca để chống liên đới. Hãy dùng nút 'Chia Proxy 1:4' để gắn Proxy Dân cư."
-                    : "Khung giờ an toàn mặc định: 08:00 - 22:30. Có thể Tạm dừng hoặc Dừng hẳn bất cứ lúc nào.");
+                    ? $"CẢNH BÁO: Có {directCount} Via đang chạy Direct IP (Mạng gốc). Hệ thống sẽ chỉ chạy tối đa {_config.MaxDirectIpViasInBatch} Via Direct IP mỗi ca để chống liên đới."
+                    : "Khung giờ an toàn: 08:00 - 22:30. Có thể Tạm dừng hoặc Dừng hẳn bất cứ lúc nào.");
             if (!ok) return;
         }
 
+        var liveInternalPages = (_pagesSummary?.Items ?? new List<FanpageItemDto>())
+            .Where(p => !p.IsUnsyncedDraft && p.HealthStatus.Equals("LIVE", StringComparison.OrdinalIgnoreCase) && (!string.IsNullOrWhiteSpace(p.Url) || !string.IsNullOrWhiteSpace(p.ExternalPageId)))
+            .ToList();
+
+        int pageRoundRobin = 0;
         var tasks = targetVias.Select(v =>
         {
             var effectiveMode = v.IsInSoakQuarantine && _config.EnforceSoakQuarantine
                 ? "soak_72h"
                 : ViaMetadataParser.NormalizeWarmupMode(!string.IsNullOrWhiteSpace(v.DefaultWarmupMode) ? v.DefaultWarmupMode : _config.DefaultWarmupMode);
+
+            var seqKeys = effectiveMode == "soak_72h"
+                ? new List<string> { "scroll_feed", "read_notifications", "refresh_cookie_and_close" }
+                : WarmupActionCatalog.GetEffectiveSequence(_config, v.ViaId, DateTime.Now);
+
+            var routeStops = seqKeys.Where(k => !string.Equals(k, "refresh_cookie_and_close", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (routeStops.Count == 0) routeStops.Add("scroll_feed");
+
+            string crossPageUrl = "";
+            if (_config.EnableInternalPageCrossWarmup && liveInternalPages.Count > 0)
+            {
+                var pg = liveInternalPages[pageRoundRobin++ % liveInternalPages.Count];
+                crossPageUrl = !string.IsNullOrWhiteSpace(pg.Url) && pg.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                    ? pg.Url
+                    : $"https://www.facebook.com/{pg.ExternalPageId}";
+            }
+
             var launchUrl = "https://www.facebook.com/?adsops_keepalive_session=1&adsops_auto_close=" + (_config.AutoCloseKeepAliveTab ? "1" : "0") +
                             "&adsops_via_tier=" + Uri.EscapeDataString(v.RoleTier) +
                             "&adsops_via_label=" + Uri.EscapeDataString(v.Label) +
-                            "&adsops_ka_mode=" + Uri.EscapeDataString(effectiveMode);
+                            "&adsops_ka_mode=" + Uri.EscapeDataString(effectiveMode) +
+                            "&adsops_ka_route=" + Uri.EscapeDataString(string.Join(",", routeStops)) +
+                            (!string.IsNullOrEmpty(crossPageUrl) ? "&adsops_cross_page_url=" + Uri.EscapeDataString(crossPageUrl) : "");
+
+            var arrowSummary = WarmupActionCatalog.FormatSequenceArrowText(seqKeys);
             return new QueueTaskItem(
                 v.ViaId,
                 v.Label,
                 GetEffectiveBatchProfileKey(v, v.ProfileDir),
                 v.NetworkLabel,
                 launchUrl,
-                effectiveMode == "soak_72h" ? "Ngâm 72h thụ động" : "Đảo Ấm Cookie thụ động",
+                effectiveMode == "soak_72h" ? "Ngâm 72h thụ động" : arrowSummary,
                 v.BackendTier,
                 v.ClientGroup,
                 v.IsInSoakQuarantine,
@@ -2139,10 +2204,11 @@ internal sealed partial class MainWindow : Window
             AppendLog($"♻️ Khôi phục tiến độ Hàng đợi: Tự động bỏ qua {resumedSkippedCount} Via đã Đảo Ấm xong trước đó, chạy tiếp {tasks.Count} Via còn lại.");
         }
 
+        _queue.ConfigureRestRange(restMin, restMax);
         _queue.StartQueue(
             QueueKind.KeepAlive,
             tasks,
-            _config.DefaultStaggerSeconds,
+            restMin,
             _config.PreCheckProxyBeforeLaunch,
             _config.MaxViasPerProxyInBatch,
             _config.AutoKeepAliveStartHour,
@@ -2155,7 +2221,7 @@ internal sealed partial class MainWindow : Window
             maxConcurrentBrowsers: GetEffectiveMaxConcurrentBrowsers(),
             maxDirectIpVias: _config.MaxDirectIpViasInBatch);
 
-        AppendLog($"Đã xếp hàng {tasks.Count} Via vào Hàng đợi Đảo Ấm an toàn.");
+        AppendLog($"🚀 Đã xếp hàng {tasks.Count} Via ({flowModeTitle} • Nhịp nghỉ {restMin}s–{restMax}s • Tối đa {GetEffectiveMaxConcurrentBrowsers()} luồng song song).");
         RenderCurrentView();
     }
 
@@ -2353,22 +2419,23 @@ internal sealed partial class MainWindow : Window
         }
     }
 
-    internal static string BuildPageAutoInviteUrl(FanpageItemDto page, int maxInvites = 25, bool autoClose = true)
+    internal static string BuildPageAutoInviteUrl(FanpageItemDto page, int maxInvites = 25, bool autoClose = true, bool autoLikeComments = true)
     {
         var clamped = Math.Clamp(maxInvites < 5 ? 25 : maxInvites, 5, 50);
         var closeFlag = autoClose ? "1" : "0";
+        var likeFlag = autoLikeComments ? "&adsops_like_comments=1" : "";
         var pName = Uri.EscapeDataString(page.Name ?? "Fanpage");
         if (!string.IsNullOrWhiteSpace(page.ExternalPageId))
         {
             var extId = Uri.EscapeDataString(page.ExternalPageId.Trim());
-            return $"https://business.facebook.com/latest/home?asset_id={extId}&adsops_auto_invite_followers=1&adsops_invite_limit={clamped}&adsops_page_name={pName}&adsops_auto_close={closeFlag}";
+            return $"https://business.facebook.com/latest/home?asset_id={extId}&adsops_auto_invite_followers=1&adsops_invite_limit={clamped}&adsops_page_name={pName}&adsops_auto_close={closeFlag}{likeFlag}";
         }
         if (!string.IsNullOrWhiteSpace(page.Url) && page.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
             var sep = page.Url.Contains('?') ? "&" : "?";
-            return $"{page.Url}{sep}adsops_auto_invite_followers=1&adsops_invite_limit={clamped}&adsops_page_name={pName}&adsops_auto_close={closeFlag}";
+            return $"{page.Url}{sep}adsops_auto_invite_followers=1&adsops_invite_limit={clamped}&adsops_page_name={pName}&adsops_auto_close={closeFlag}{likeFlag}";
         }
-        return $"https://business.facebook.com/latest/home?adsops_auto_invite_followers=1&adsops_invite_limit={clamped}&adsops_page_name={pName}&adsops_auto_close={closeFlag}";
+        return $"https://business.facebook.com/latest/home?adsops_auto_invite_followers=1&adsops_invite_limit={clamped}&adsops_page_name={pName}&adsops_auto_close={closeFlag}{likeFlag}";
     }
 
     internal void ApplySavedPageHolderOverrides()
@@ -2857,6 +2924,22 @@ internal sealed partial class MainWindow : Window
                             }
                         }
 
+                        // Optional #4: Auto-Like customer comments on Meta Business Suite if enabled
+                        if (_config.AutoLikeCommentsOnPageInvite && attempt == 0)
+                        {
+                            var likeBtns = elements
+                                .Where(x =>
+                                    (x.Type == ControlType.Button || x.Type == ControlType.Custom || x.Type == ControlType.Text) &&
+                                    (string.Equals(x.Name, "Thích", StringComparison.OrdinalIgnoreCase) ||
+                                     string.Equals(x.Name, "Like", StringComparison.OrdinalIgnoreCase)))
+                                .Take(2)
+                                .ToList();
+                            foreach (var lb in likeBtns)
+                            {
+                                TryInvokeElementNonIntrusive(lb.El);
+                            }
+                        }
+
                         // Step 1: Locate "Tiếp cận những người đã bày tỏ cảm xúc với nội dung của bạn"
                         var anchor = elements.FirstOrDefault(x =>
                             x.Name.Contains("Tiếp cận những người đã bày tỏ cảm xúc", StringComparison.OrdinalIgnoreCase) ||
@@ -2981,8 +3064,9 @@ internal sealed partial class MainWindow : Window
             MessageBox.Show(this, "Chưa có Via nào trong danh sách để mở Meta Business Suite cho Fanpage này.", "Thiếu Via cầm Page", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
-        var targetUrl = BuildPageAutoInviteUrl(page, _config.MaxPageFollowerInvitesPerRun, autoClose);
-        AppendLog($"🤝 Khởi chạy Auto-Invite Followers cho Page '{page.Name}' qua '{via.Label}' (Chrome: {via.ProfileDir}) — Đang tự động quét số người cần mời & bấm 'Gửi lời mời'...");
+        var targetUrl = BuildPageAutoInviteUrl(page, _config.MaxPageFollowerInvitesPerRun, autoClose, _config.AutoLikeCommentsOnPageInvite);
+        var likeHint = _config.AutoLikeCommentsOnPageInvite ? " + Tự thả Like bình luận khách" : "";
+        AppendLog($"🤝 Khởi chạy Auto-Invite Followers{likeHint} cho Page '{page.Name}' qua '{via.Label}' (Chrome: {via.ProfileDir}) — Tự động chọn tất cả & gửi lời mời (0% chiếm chuột)...");
         LaunchViaChromeSafe(via, targetUrl);
         _ = RunNativeUiAutoInviteForPageAsync(page, _config.MaxPageFollowerInvitesPerRun);
     }
@@ -3034,7 +3118,7 @@ internal sealed partial class MainWindow : Window
         {
             var via = ResolveEffectiveViaForPage(p);
             if (via == null || via.IsInCooldown) continue;
-            var url = BuildPageAutoInviteUrl(p, _config.MaxPageFollowerInvitesPerRun, autoClose: _config.AutoCloseKeepAliveTab);
+            var url = BuildPageAutoInviteUrl(p, _config.MaxPageFollowerInvitesPerRun, autoClose: _config.AutoCloseKeepAliveTab, autoLikeComments: _config.AutoLikeCommentsOnPageInvite);
             tasks.Add(new QueueTaskItem(
                 via.ViaId,
                 via.Label,
@@ -3056,10 +3140,13 @@ internal sealed partial class MainWindow : Window
             return;
         }
 
+        var restMin = Math.Clamp(_config.QueueRestMinSeconds < 5 ? 15 : _config.QueueRestMinSeconds, 5, 300);
+        var restMax = Math.Clamp(_config.QueueRestMaxSeconds < restMin ? restMin + 10 : _config.QueueRestMaxSeconds, restMin, 600);
+        _queue.ConfigureRestRange(restMin, restMax);
         _queue.StartQueue(
             QueueKind.KeepAlive,
             tasks,
-            _config.DefaultStaggerSeconds,
+            restMin,
             _config.PreCheckProxyBeforeLaunch,
             _config.MaxViasPerProxyInBatch,
             _config.AutoKeepAliveStartHour,

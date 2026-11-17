@@ -129,7 +129,7 @@ public sealed class DesktopConfig
 {
     public const string DefaultBackendUrl = "https://audit-ads-backend.vibe1.tinhgon.xyz";
     public const string DefaultWebAppUrl = "https://adsops-app.vibe.tinhgon.xyz";
-    public const int CurrentMigrationVersion = 303;
+    public const int CurrentMigrationVersion = 304;
     internal static string? AppDataRootOverride { get; set; }
 
     public string BackendBaseUrl { get; set; } = DefaultBackendUrl;
@@ -195,6 +195,16 @@ public sealed class DesktopConfig
     public string LastTriggeredScheduleSlotKey { get; set; } = "";
     public bool AutoDailyVaultBackup { get; set; } = true;
     public string LastAutoVaultBackupDateLocal { get; set; } = "";
+    // v3.0.4 Organic Engagement Suite (#1-#5): Internal Cross-Warmup, Pre-Ads Buffer, Daily Random & Visual Flow Builder, Auto-Like Comments, Custom Rest Range
+    public bool EnableInternalPageCrossWarmup { get; set; } = true;
+    public bool EnablePreAdsManagerWarmup { get; set; } = true;
+    public int PreAdsWarmupSeconds { get; set; } = 20;
+    public string WarmupFlowMode { get; set; } = "daily_random"; // "daily_random" | "custom_sequence"
+    public List<string> CustomWarmupActionSequence { get; set; } = WarmupActionCatalog.GetDefaultSequence();
+    public bool AutoLikeCommentsOnPageInvite { get; set; } = true;
+    public int QueueRestMinSeconds { get; set; } = 15;
+    public int QueueRestMaxSeconds { get; set; } = 32;
+    public bool AutoTileWindowsOnBatch { get; set; } = true;
 
     [JsonIgnore]
     public string AccessToken
@@ -313,6 +323,14 @@ public sealed class DesktopConfig
                     cfg.AdAccountViaOverrides ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                     cfg.PagePendingInviteCounts ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                     if (string.IsNullOrWhiteSpace(cfg.AutoPilotScheduleTimesCsv)) cfg.AutoPilotScheduleTimesCsv = "08:30, 20:00";
+                    cfg.PreAdsWarmupSeconds = Math.Clamp(cfg.PreAdsWarmupSeconds < 8 ? 20 : cfg.PreAdsWarmupSeconds, 8, 90);
+                    if (string.IsNullOrWhiteSpace(cfg.WarmupFlowMode)) cfg.WarmupFlowMode = "daily_random";
+                    if (cfg.CustomWarmupActionSequence == null || cfg.CustomWarmupActionSequence.Count == 0)
+                    {
+                        cfg.CustomWarmupActionSequence = WarmupActionCatalog.GetDefaultSequence();
+                    }
+                    cfg.QueueRestMinSeconds = Math.Clamp(cfg.QueueRestMinSeconds < 5 ? 15 : cfg.QueueRestMinSeconds, 5, 300);
+                    cfg.QueueRestMaxSeconds = Math.Clamp(cfg.QueueRestMaxSeconds < cfg.QueueRestMinSeconds ? cfg.QueueRestMinSeconds + 10 : cfg.QueueRestMaxSeconds, cfg.QueueRestMinSeconds, 600);
                     if (cfg.ConfigMigrationVersion < 303 && customPath == null)
                     {
                         // Remove legacy hardcoded seed count on upgrade to v3.0.3 so only real scanned counts are shown
@@ -446,6 +464,18 @@ public sealed class DesktopConfig
         {
             LastAutoVaultBackupDateLocal = src.LastAutoVaultBackupDateLocal.Trim();
         }
+        EnableInternalPageCrossWarmup = src.EnableInternalPageCrossWarmup;
+        EnablePreAdsManagerWarmup = src.EnablePreAdsManagerWarmup;
+        PreAdsWarmupSeconds = Math.Clamp(src.PreAdsWarmupSeconds < 8 ? 20 : src.PreAdsWarmupSeconds, 8, 90);
+        WarmupFlowMode = string.IsNullOrWhiteSpace(src.WarmupFlowMode) ? "daily_random" : src.WarmupFlowMode.Trim();
+        if (src.CustomWarmupActionSequence != null && src.CustomWarmupActionSequence.Count > 0)
+        {
+            CustomWarmupActionSequence = src.CustomWarmupActionSequence.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).ToList();
+        }
+        AutoLikeCommentsOnPageInvite = src.AutoLikeCommentsOnPageInvite;
+        QueueRestMinSeconds = Math.Clamp(src.QueueRestMinSeconds < 5 ? 15 : src.QueueRestMinSeconds, 5, 300);
+        QueueRestMaxSeconds = Math.Clamp(src.QueueRestMaxSeconds < QueueRestMinSeconds ? QueueRestMinSeconds + 10 : src.QueueRestMaxSeconds, QueueRestMinSeconds, 600);
+        AutoTileWindowsOnBatch = src.AutoTileWindowsOnBatch;
         ConfigMigrationVersion = CurrentMigrationVersion;
     }
 
@@ -499,6 +529,120 @@ public sealed class DesktopConfig
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
         var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
         File.WriteAllText(path, json, new UTF8Encoding(false));
+    }
+}
+
+public sealed record WarmupActionItem(
+    string Key,
+    string Icon,
+    string ShortTitle,
+    string FullTitle,
+    string DurationHint,
+    string Category,
+    string Description);
+
+public static class WarmupActionCatalog
+{
+    public static readonly IReadOnlyList<WarmupActionItem> All = new[]
+    {
+        new WarmupActionItem("scroll_feed", "📰", "Cuộn Newsfeed", "Cuộn Newsfeed tự nhiên (20–35s)", "20–35s", "Cốt lõi", "Cuộn lướt bảng tin theo nhịp ngẫu nhiên có dừng đọc bài"),
+        new WarmupActionItem("watch_reels", "🎬", "Xem Reels / Watch", "Lướt xem Reels & Watch ngắn (25–40s)", "25–40s", "Video", "Mở Facebook Watch/Reels xem 1–2 video ngắn tăng thời gian phiên"),
+        new WarmupActionItem("react_feed_post", "👍", "Thả Like/Tim bài Feed", "Thả Like/Tim tự nhiên bài viết trên Feed", "5–10s", "Tương tác", "Tự động thả Like/Tim nhẹ nhàng vào 1 bài viết gợi ý trên bảng tin"),
+        new WarmupActionItem("visit_internal_fanpage", "🤝", "Nuôi chéo Fanpage nội bộ", "Ghé thăm & Thả Tim Fanpage nội bộ của bạn", "20–30s", "Nuôi chéo", "Vào Fanpage LIVE của bạn đọc bài và thả Like/Tim tăng tương tác thật"),
+        new WarmupActionItem("view_photo_post", "🖼️", "Xem ảnh / Đọc bình luận", "Bấm xem ảnh hoặc đọc bình luận bài viết", "12–18s", "Tương tác", "Dừng lại xem chi tiết ảnh và khu vực bình luận như người dùng thật"),
+        new WarmupActionItem("read_notifications", "🔔", "Đọc Thông báo", "Mở đọc Thông báo mới (/notifications)", "12–20s", "Cốt lõi", "Vào trang Thông báo kiểm tra hoạt động mới giúp giữ trạng thái Active"),
+        new WarmupActionItem("search_keyword", "🔍", "Tìm kiếm từ khóa", "Gõ tìm kiếm từ khóa ngành hàng trên FB", "15–22s", "Khám phá", "Mô phỏng tìm kiếm chủ đề/thương hiệu tự nhiên trên thanh Search"),
+        new WarmupActionItem("visit_own_profile", "👤", "Xem Trang cá nhân", "Ghé thăm Trang cá nhân & Bạn bè (/me)", "12–18s", "Cá nhân", "Mở trang tường cá nhân kiểm tra bài đăng và danh sách bạn bè"),
+        new WarmupActionItem("browse_marketplace", "🛍️", "Dạo Marketplace", "Dạo lướt Facebook Marketplace (15–25s)", "15–25s", "Khám phá", "Xem danh mục sản phẩm trên Marketplace tạo tín hiệu người mua hàng"),
+        new WarmupActionItem("browse_groups", "👥", "Lướt Nhóm (Groups)", "Đọc bài thảo luận trong Facebook Groups", "18–28s", "Khám phá", "Lướt bảng tin hội nhóm để đa dạng hóa lịch sử điều hướng"),
+        new WarmupActionItem("mbs_like_comments_and_invite", "💬", "Thả Tim Comment & Mời Follow", "Thả Tim bình luận khách & Mời Follow trên Business Suite", "20–35s", "Fanpage", "Tự thả Tim/Like bình luận khách hàng và chọn tất cả gửi lời mời Follow"),
+        new WarmupActionItem("refresh_cookie_and_close", "🔄", "Lưu Cookie DPAPI & Đóng", "Làm mới Cookie về Két DPAPI & Đóng tab an toàn", "3–5s", "Kết thúc", "Trích xuất Cookie mới nhất lưu vào Két DPAPI rồi tự đóng gọn cửa sổ"),
+    };
+
+    private static readonly string[] OptionalMiddlePool =
+    {
+        "watch_reels",
+        "react_feed_post",
+        "visit_internal_fanpage",
+        "view_photo_post",
+        "search_keyword",
+        "visit_own_profile",
+        "browse_marketplace",
+        "browse_groups",
+    };
+
+    public static List<string> GetDefaultSequence() => new()
+    {
+        "scroll_feed",
+        "watch_reels",
+        "react_feed_post",
+        "visit_internal_fanpage",
+        "read_notifications",
+        "refresh_cookie_and_close",
+    };
+
+    public static WarmupActionItem? FindByKey(string? key)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return null;
+        return All.FirstOrDefault(x => string.Equals(x.Key, key.Trim(), StringComparison.OrdinalIgnoreCase));
+    }
+
+    public static List<string> BuildDailyRandomSequence(string? viaIdOrLabel, DateTime dateLocal, bool includeInternalPageCrossWarmup = true)
+    {
+        var seedStr = $"{(viaIdOrLabel ?? "via").Trim().ToLowerInvariant()}|{dateLocal:yyyy-MM-dd}";
+        int hash = 17;
+        foreach (var ch in seedStr)
+        {
+            hash = unchecked((hash * 31) + ch);
+        }
+        var rng = new Random(hash);
+
+        var seq = new List<string> { "scroll_feed" };
+        var pool = OptionalMiddlePool
+            .Where(k => includeInternalPageCrossWarmup || k != "visit_internal_fanpage")
+            .OrderBy(_ => rng.Next())
+            .ToList();
+
+        int pickCount = rng.Next(3, 5); // 3 or 4 varied middle actions every day
+        if (includeInternalPageCrossWarmup && !pool.Take(pickCount).Contains("visit_internal_fanpage"))
+        {
+            seq.Add("visit_internal_fanpage");
+            pickCount = Math.Max(2, pickCount - 1);
+        }
+        foreach (var item in pool.Where(x => !seq.Contains(x)).Take(pickCount))
+        {
+            seq.Add(item);
+        }
+
+        seq.Add("read_notifications");
+        seq.Add("refresh_cookie_and_close");
+        return seq;
+    }
+
+    public static List<string> GetEffectiveSequence(DesktopConfig config, string? viaIdOrLabel, DateTime dateLocal)
+    {
+        if (config != null &&
+            string.Equals(config.WarmupFlowMode, "custom_sequence", StringComparison.OrdinalIgnoreCase) &&
+            config.CustomWarmupActionSequence != null &&
+            config.CustomWarmupActionSequence.Count > 0)
+        {
+            var valid = config.CustomWarmupActionSequence
+                .Where(k => FindByKey(k) != null)
+                .ToList();
+            if (valid.Count > 0) return valid;
+        }
+        return BuildDailyRandomSequence(viaIdOrLabel, dateLocal, config?.EnableInternalPageCrossWarmup ?? true);
+    }
+
+    public static string FormatSequenceArrowText(IEnumerable<string>? keys)
+    {
+        if (keys == null) return "";
+        var parts = keys
+            .Select(FindByKey)
+            .Where(x => x != null)
+            .Select(x => $"{x!.Icon} {x.ShortTitle}")
+            .ToList();
+        return parts.Count == 0 ? "📰 Cuộn Newsfeed ➔ 🔔 Đọc Thông báo" : string.Join(" ➔ ", parts);
     }
 }
 
@@ -2551,9 +2695,9 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "3.0.3";
-    public const string DisplayVersion = "v3.0.3";
-    public const string ExtVersion = "2.10.0";
+    public const string Version = "3.0.4";
+    public const string DisplayVersion = "v3.0.4";
+    public const string ExtVersion = "2.10.1";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 
     /// <summary>

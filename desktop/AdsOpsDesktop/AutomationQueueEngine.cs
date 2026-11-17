@@ -73,6 +73,8 @@ public sealed class AutomationQueueEngine : IDisposable
     private readonly Dictionary<string, string> _usedProfilesInBatch = new(StringComparer.OrdinalIgnoreCase);
 
     private int _baseStaggerSec = 48;
+    private int _customRestMinSec = 0;
+    private int _customRestMaxSec = 0;
     private int _sameProxyMinStaggerSec = 55;
     private bool _preCheckProxy = true;
     private int _maxViasPerProxy = 4;
@@ -125,6 +127,18 @@ public sealed class AutomationQueueEngine : IDisposable
         _syncWaitSeconds = Math.Clamp(syncWaitSeconds, 1, 90);
     }
 
+    public void ConfigureRestRange(int minSeconds, int maxSeconds)
+    {
+        if (minSeconds <= 0 || maxSeconds <= 0)
+        {
+            _customRestMinSec = 0;
+            _customRestMaxSec = 0;
+            return;
+        }
+        _customRestMinSec = Math.Clamp(minSeconds, 3, 600);
+        _customRestMaxSec = Math.Clamp(Math.Max(_customRestMinSec, maxSeconds), _customRestMinSec, 900);
+    }
+
     public static string ExtractProxyHostPort(string? rawProxy)
     {
         var parsed = ExtensionProvisioner.ParseProxy(rawProxy);
@@ -137,6 +151,14 @@ public sealed class AutomationQueueEngine : IDisposable
 
     public int ComputeHumanRestSeconds(int baseSeconds, out int jitterExtraSeconds)
     {
+        if (_customRestMinSec > 0 && _customRestMaxSec >= _customRestMinSec && baseSeconds > 3)
+        {
+            var picked = _customRestMinSec == _customRestMaxSec
+                ? _customRestMinSec
+                : _rng.Next(_customRestMinSec, _customRestMaxSec + 1);
+            jitterExtraSeconds = Math.Max(0, picked - _customRestMinSec);
+            return picked;
+        }
         if (baseSeconds <= 2)
         {
             jitterExtraSeconds = 0;

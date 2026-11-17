@@ -1,18 +1,18 @@
 {
-  "version": "3.0.3",
-  "display_version": "v3.0.3",
-  "ext_version": "2.10.0",
-  "published_at": "2026-11-17T10:12:08Z",
+  "version": "3.0.4",
+  "display_version": "v3.0.4",
+  "ext_version": "2.10.1",
+  "published_at": "2026-11-17T14:16:52Z",
   "download_url": "/downloads/AdsOps-Desktop-Pro-v2.3.zip",
-  "exe_size_bytes": 162931696,
-  "exe_sha256": "da9b20f8ffe66a90f9840d9916b4a38102cc65d0a55374065ae684f01f719c9c",
-  "zip_size_bytes": 66067106,
-  "zip_sha256": "3a040fbe24b02aecf0cc3c4dbc3c6a61383965834e7e407df2ba41b2fb6ff9ca",
+  "exe_size_bytes": 162964464,
+  "exe_sha256": "35c5a498f6d898bf4c951910c0268436d7916108b9bcfccbe8d5d9739c1ff25a",
+  "zip_size_bytes": 66078616,
+  "zip_sha256": "850322a42db147014fa10fd5fdfd455a7dbb42e592539c2f1b89352632910218",
   "authenticode_publisher": "CN=AdsOps Pro Community Publisher, O=AdsOps Suite, C=VN",
   "authenticode_thumbprint": "43D0E31722646B750334397C66E22AD0A1FEDE87",
   "highlights": [
-    "Khắc phục triệt để Auto-Invite Fanpage: Gỡ bỏ số đếm mẫu cứng, chỉ hiển thị số người bày tỏ cảm xúc thật từ Meta Business Suite (PAGE_PENDING_INVITES_COUNT) và kích hoạt ngầm hoàn toàn không chiếm chuột vật lý + nút Dừng Auto-Invite tức thì.",
-    "Bổ sung Pre-Flight Safety Check (#2) & Smart Step Retry (#5): Tự động kiểm tra RAM trống, phiên Chrome đang mở, Proxy DEAD trước khi chạy Auto-Pilot 5 Bước và tự động thử lại 2 lần với Exponential Backoff + Jitter.",
-    "Hẹn giờ đa khung giờ Auto-Pilot (#6 - VD: 08:30, 20:00) & Sao lưu tự động Két DPAPI hằng ngày (#7 - .adsopsvault mã hóa AES-256-GCM giữ 14 bản gần nhất)."
+    "Trình thiết kế kịch bản hành vi: bốc thăm ngẫu nhiên mỗi ngày hoặc kéo-thả/nối chuỗi từ kho 12 hành động",
+    "Nuôi chéo Fanpage nội bộ, đệm Newsfeed trước Ads Manager, tự thả Like bình luận khách",
+    "Tự chọn khoảng nhịp nghỉ giữa các luồng (Min–Max) + preset Turbo/Nhanh/Chuẩn/Ngâm kỹ, tự xếp lưới cửa sổ"
   ]
 }

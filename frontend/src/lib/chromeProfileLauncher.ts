@@ -1089,9 +1089,9 @@ export function buildExtensionFilesForVia(
       ? `AdsOps Companion Pro · ${profileDir} · Proxy ${parsed!.host}:${parsed!.port}`
       : `AdsOps Companion Pro · ${profileDir} (${viaName})`,
     short_name: 'AdsOps Companion Pro',
-    version: '2.10.0',
+    version: '2.10.1',
     description:
-      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.10.0 Pro: Tự động sao lưu Cookie về Két DPAPI, Đa Engine Antidetect, Benchmark & Auto-Failover, Zero-Trust Bridge Token, IP-Timezone Guard, Ngâm 72h.',
+      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.10.1 Pro: Tự động sao lưu Cookie về Két DPAPI, Đa Engine Antidetect, Benchmark & Auto-Failover, Zero-Trust Bridge Token, IP-Timezone Guard, Ngâm 72h.',
     permissions: [
       'proxy',
       'privacy',
@@ -1163,7 +1163,7 @@ export function buildExtensionFilesForVia(
 
   // Runs in MAIN world at document_start BEFORE Facebook's scripts load:
   // Completely blocks Windows Hello / WebAuthn / Passkey popup from ever appearing!
-  const passkeyShieldJs = `// AdsOps Companion Pro v2.10.0 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
+  const passkeyShieldJs = `// AdsOps Companion Pro v2.10.1 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
 (function() {
   try {
     if (window.PublicKeyCredential) {
@@ -2068,7 +2068,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   <div class="header">
     <div class="brand">
       <span class="logo">AO</span>
-      <span>AdsOps Companion v2.10.0 Pro</span>
+      <span>AdsOps Companion v2.10.1 Pro</span>
     </div>
     <div style="display:flex; align-items:center; gap:5px;">
       <span id="hdr-trust-badge" class="badge badge-ok" title="Điểm Tin Cậy Môi Trường">🛡️ --/100</span>
@@ -2186,7 +2186,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           <button id="btn-export-cookie" type="button" class="btn btn-primary">🍪 Chép Cookie FB</button>
           <button id="btn-extract-token" type="button" class="btn btn-emerald">⚡ Bắt Token EAAB</button>
         </div>
-        <button id="btn-jump-auto" type="button" class="btn btn-amber" style="width:100%; margin-bottom:6px;">🤖 Mở Tab Automatic &amp; Đảo Ấm Sinh Học v2.10.0 →</button>
+        <button id="btn-jump-auto" type="button" class="btn btn-amber" style="width:100%; margin-bottom:6px;">🤖 Mở Tab Automatic &amp; Đảo Ấm Sinh Học v2.10.1 →</button>
         <textarea id="cookie-box" rows="2" class="mono" placeholder="Dán Cookie JSON hoặc c_user=...; xs=... vào đây để đăng nhập Via không cần mật khẩu"></textarea>
         <div class="btn-row">
           <button id="btn-import-cookie" type="button" class="btn">📥 Nạp Cookie vào Chrome này</button>
@@ -2280,7 +2280,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     <div class="card">
       <div class="section-title">
         <span>4. ☕ Automatic Đảo Ấm Sinh Học (4 Chế Độ)</span>
-        <span style="font-size:9.5px; color:#fcd34d;">v2.10.0</span>
+        <span style="font-size:9.5px; color:#fcd34d;">v2.10.1</span>
       </div>
       <select id="ka-mode-select" style="margin-bottom:6px; font-weight:600;">
         <option value="human_organic">☕ Đảo Ấm Sinh Học (Feed → Watch / Thông báo / Profile)</option>
@@ -3725,7 +3725,7 @@ recheckGeoAlignment();`
       if (!avFile || pageAutoPilotHalted) return;
       assignFileToInput(fileInputs[0], avFile);
       lastMediaAttachedAt = Date.now();
-      setHudPageStatus("🖼️ [Auto v2.10.0] Đã tự gắn Avatar độc bản (chống trùng Hash)...", "#38bdf8");
+      setHudPageStatus("🖼️ [Auto v2.10.1] Đã tự gắn Avatar độc bản (chống trùng Hash)...", "#38bdf8");
 
       if (fileInputs.length > 1) {
         setTimeout(() => {
@@ -3734,7 +3734,7 @@ recheckGeoAlignment();`
             if (!cvFile || pageAutoPilotHalted) return;
             assignFileToInput(fileInputs[1], cvFile);
             lastMediaAttachedAt = Date.now();
-            setHudPageStatus("🖼️ [Auto v2.10.0] Đã tự gắn đủ Avatar + Cover độc bản!", "#34d399");
+            setHudPageStatus("🖼️ [Auto v2.10.1] Đã tự gắn đủ Avatar + Cover độc bản!", "#34d399");
           });
         }, randDelay(950, 1550));
       }
@@ -3931,13 +3931,45 @@ recheckGeoAlignment();`
   }
 
   const KA_STOPS = {
-    feed: { label: "Newsfeed", url: "https://www.facebook.com/", minMs: 11000, maxMs: 16000 },
-    watch: { label: "Watch Video", url: "https://www.facebook.com/watch/?adsops_ka_hop=1", minMs: 10000, maxMs: 14500 },
-    notif: { label: "Thông báo", url: "https://www.facebook.com/notifications", minMs: 7500, maxMs: 11500 },
+    feed: { label: "Cuộn Newsfeed", url: "https://www.facebook.com/", minMs: 11000, maxMs: 16000 },
+    scroll_feed: { label: "Cuộn Newsfeed", url: "https://www.facebook.com/", minMs: 11000, maxMs: 16000 },
+    watch: { label: "Xem Reels & Watch", url: "https://www.facebook.com/watch/?adsops_ka_hop=1", minMs: 10500, maxMs: 15000 },
+    watch_reels: { label: "Xem Reels & Watch", url: "https://www.facebook.com/watch/?adsops_ka_hop=1", minMs: 10500, maxMs: 15000 },
+    react_feed_post: { label: "Thả Like/Tim bài Feed", url: "https://www.facebook.com/?adsops_react_feed=1", minMs: 8500, maxMs: 12500, microAction: "like_post" },
+    visit_internal_fanpage: { label: "Nuôi chéo Fanpage nội bộ", url: "https://www.facebook.com/pages/?category=your_pages&adsops_cross_page=1", minMs: 11500, maxMs: 16000, microAction: "like_post" },
+    view_photo_post: { label: "Xem ảnh & đọc bình luận", url: "https://www.facebook.com/?adsops_view_post=1", minMs: 9500, maxMs: 13500 },
+    notif: { label: "Đọc Thông báo", url: "https://www.facebook.com/notifications", minMs: 7500, maxMs: 11500 },
+    read_notifications: { label: "Đọc Thông báo", url: "https://www.facebook.com/notifications", minMs: 7500, maxMs: 11500 },
+    search_keyword: { label: "Tìm kiếm từ khóa", url: "https://www.facebook.com/search/top/?q=xu%20huong", minMs: 9000, maxMs: 13000 },
     pages: { label: "Quản lý Trang", url: "https://www.facebook.com/pages/?category=your_pages", minMs: 7500, maxMs: 11500 },
-    profile: { label: "Trang cá nhân", url: "https://www.facebook.com/me", minMs: 7000, maxMs: 10500 },
+    profile: { label: "Xem Trang cá nhân", url: "https://www.facebook.com/me", minMs: 7500, maxMs: 11000 },
+    visit_own_profile: { label: "Xem Trang cá nhân", url: "https://www.facebook.com/me", minMs: 7500, maxMs: 11000 },
+    browse_marketplace: { label: "Dạo Marketplace", url: "https://www.facebook.com/marketplace/", minMs: 9500, maxMs: 13500 },
+    browse_groups: { label: "Lướt Nhóm (Groups)", url: "https://www.facebook.com/groups/feed/", minMs: 9500, maxMs: 13500 },
+    mbs_like_comments_and_invite: { label: "Thả Tim Comment & Mời Follow", url: "https://business.facebook.com/latest/home?adsops_auto_invite_followers=1&adsops_like_comments=1", minMs: 12000, maxMs: 16500 },
     biz: { label: "Business Suite (BM)", url: "https://business.facebook.com/latest/home", minMs: 11500, maxMs: 15500 },
   };
+
+  function performNaturalLikeMicroAction(maxLikes) {
+    try {
+      const candidates = Array.from(document.querySelectorAll('div[role="button"], span[role="button"]')).filter((el) => {
+        if (el.getAttribute("aria-pressed") === "true") return false;
+        const lbl = ((el.getAttribute("aria-label") || "") + " " + (el.textContent || "")).trim().toLowerCase();
+        if (lbl !== "thích" && lbl !== "like") return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 18 && r.height > 14 && r.top > 90 && r.bottom < window.innerHeight - 40;
+      });
+      const toClick = candidates.slice(0, Math.max(1, maxLikes || 1));
+      toClick.forEach((btn, i) => {
+        setTimeout(() => {
+          triggerReactSafeClick(btn);
+        }, i * 650);
+      });
+      return toClick.length;
+    } catch (e) {
+      return 0;
+    }
+  }
 
   function pickFallbackKeepAliveSteps(tier, mode) {
     if (mode === "soak_72h") return ["feed", "notif"];
@@ -3978,7 +4010,7 @@ recheckGeoAlignment();`
       const waitMs = randDelay(stopMeta.minMs, stopMeta.maxMs);
 
       const reader = startBiometricReadingLoop(
-        "☕ [Đảo Ấm v2.10.0 · Bước " + (idx + 1) + "/" + steps.length + "] Đang đọc " + stopMeta.label + " tự nhiên (" + Math.round(waitMs / 1000) + "s)..."
+        "☕ [Đảo Ấm v2.10.1 · Bước " + (idx + 1) + "/" + steps.length + "] Đang đọc " + stopMeta.label + " tự nhiên (" + Math.round(waitMs / 1000) + "s)..."
       );
 
       setTimeout(() => {
@@ -4020,7 +4052,7 @@ recheckGeoAlignment();`
               });
             } catch (e) {}
           }
-          setHudPageStatus("☕ [v2.10.0] Đã đảo ấm sinh học & làm mới Két Cookie (" + summary + ")!", "#34d399");
+          setHudPageStatus("☕ [v2.10.1] Đã đảo ấm sinh học & làm mới Két Cookie (" + summary + ")!", "#34d399");
           if (session.autoClose && session.kaMode !== "bm_warmup") {
             scheduleSafeTabAutoClose(randDelay(7500, 10500));
           }
@@ -4037,6 +4069,29 @@ recheckGeoAlignment();`
     } catch (e) {
       return;
     }
+    const isPreAdsWarmup = urlObj.searchParams.get("adsops_preads_warmup") === "1";
+    if (isPreAdsWarmup) {
+      warmupStarted = true;
+      const targetAdsUrl = urlObj.searchParams.get("adsops_preads_target") || "https://adsmanager.facebook.com/adsmanager/manage/campaigns";
+      const sec = Math.max(8, Math.min(90, parseInt(urlObj.searchParams.get("adsops_preads_sec") || "20", 10) || 20));
+      setTimeout(() => {
+        if (pageAutoPilotHalted) return;
+        const waitMs = randDelay((sec - 2) * 1000, (sec + 2) * 1000);
+        const reader = startBiometricReadingLoop("🛡️ [Bước đệm Chống Checkpoint] Đang lướt Newsfeed tự nhiên " + Math.round(waitMs / 1000) + "s trước khi vào Ads Manager / BM...");
+        setTimeout(() => {
+          reader.stop();
+          if (pageAutoPilotHalted) return;
+          window.location.href = targetAdsUrl;
+        }, waitMs);
+      }, 700);
+      return;
+    }
+
+    const crossPageParam = urlObj.searchParams.get("adsops_cross_page_url") || "";
+    if (crossPageParam && crossPageParam.startsWith("https://")) {
+      KA_STOPS.visit_internal_fanpage.url = crossPageParam;
+    }
+
     const isWarmupToCreate = urlObj.searchParams.get("adsops_warmup_to_create") === "1";
     const isKeepAliveStart = urlObj.searchParams.get("adsops_keepalive_session") === "1" || urlObj.searchParams.get("adsops_keepalive") === "1";
 
@@ -4055,7 +4110,7 @@ recheckGeoAlignment();`
           return;
         }
         const waitMs = randDelay(12500, 17500);
-        const reader = startBiometricReadingLoop("🌿 [Auto v2.10.0] Đang đọc lướt Newsfeed sinh học " + Math.round(waitMs / 1000) + "s trước khi tạo Page...");
+        const reader = startBiometricReadingLoop("🌿 [Auto v2.10.1] Đang đọc lướt Newsfeed sinh học " + Math.round(waitMs / 1000) + "s trước khi tạo Page...");
         setTimeout(() => {
           reader.stop();
           if (pageAutoPilotHalted) return;
@@ -4377,7 +4432,7 @@ recheckGeoAlignment();`
       }
 
       if (autoSubmit) {
-        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.10.0] Đang nhập tự nhiên theo nhịp người thật...", "#38bdf8");
+        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.10.1] Đang nhập tự nhiên theo nhịp người thật...", "#38bdf8");
       }
 
       if (pName && nameEl && !nameEl.value) {
@@ -4475,14 +4530,14 @@ recheckGeoAlignment();`
           sessionStorage.setItem("adsops_media_uploaded", "0");
         } catch (e) {}
         createBtn.click();
-        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.10.0] Đã bấm Tạo Trang — Đang hoàn tất bước phụ...", "#38bdf8");
+        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.10.1] Đã bấm Tạo Trang — Đang hoàn tất bước phụ...", "#38bdf8");
       };
 
       setTimeout(() => tryAutoClickCreate(true), tFinal);
     } catch (e) {}
   }
 
-  // v2.10.0: User-clicked 1-tap 6-digit 2FA autofill from Desktop DPAPI Vault / local secret (strictly blocked on CAPTCHA pages)
+  // v2.10.1: User-clicked 1-tap 6-digit 2FA autofill from Desktop DPAPI Vault / local secret (strictly blocked on CAPTCHA pages)
   function handleTwoFactorAssistDom() {
     try {
       const url = (window.location.href || "").toLowerCase();
@@ -4632,6 +4687,11 @@ recheckGeoAlignment();`
 
   function handlePageReactorAutoInviteDom() {
     scanAndReportPendingReactorCountDom();
+    try {
+      if ((window.location.href || "").includes("adsops_like_comments=1")) {
+        performNaturalLikeMicroAction(3);
+      }
+    } catch (e) {}
     if (pageAutoPilotHalted || pageInvitePending) return;
     const challenge = detectSafetyChallenge();
     if (challenge) {

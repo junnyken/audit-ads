@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -324,7 +324,7 @@ internal static class Program
 
             var tileResp = await http.PostAsync(
                 $"{baseUrl}/tile-windows",
-                new StringContent("{\"grid\":\"3×2\"}", Encoding.UTF8, "application/json"));
+                new StringContent("{\"grid\":\"3Ã—2\"}", Encoding.UTF8, "application/json"));
             tileResp.EnsureSuccessStatusCode();
             var tileBody = await tileResp.Content.ReadAsStringAsync();
             if (!tileBody.Contains("\"grid\":\"3x2\"", StringComparison.Ordinal))
@@ -388,9 +388,9 @@ internal static class Program
                 throw new InvalidOperationException("Invalid Base32 secret should fail TOTP");
 
             // 7. ViaMetadataParser tier, warmup round-trip, alias support & 72h/7d/trusted states
-            var built = ViaMetadataParser.BuildNotes("Via cầm BM chính", "hold", "2026-11-10T00:00:00Z");
+            var built = ViaMetadataParser.BuildNotes("Via cáº§m BM chÃ­nh", "hold", "2026-11-10T00:00:00Z");
             var parsedNotes = ViaMetadataParser.ParseNotes(built, "Via Test", 0, 0);
-            if (parsedNotes.Tier != "vault" || parsedNotes.WarmupStartIso != "2026-11-10T00:00:00Z" || parsedNotes.CleanNotes != "Via cầm BM chính")
+            if (parsedNotes.Tier != "vault" || parsedNotes.WarmupStartIso != "2026-11-10T00:00:00Z" || parsedNotes.CleanNotes != "Via cáº§m BM chÃ­nh")
                 throw new InvalidOperationException($"ViaMetadataParser round-trip mismatch: {parsedNotes}");
             var builtClearedWarmup = ViaMetadataParser.BuildNotes("Trusted", "standby", "");
             var parsedCleared = ViaMetadataParser.ParseNotes(builtClearedWarmup, "Via Test", 0, 0);
@@ -527,16 +527,16 @@ internal static class Program
 
             // 12. CsvExporter UTF-8 BOM + Excel formula injection protection
             var csvBytes = CsvExporter.BuildCsvBytes(
-                new[] { "Tên Via", "Công thức" },
+                new[] { "TÃªn Via", "CÃ´ng thá»©c" },
                 new[]
                 {
-                    new string?[] { "Via \"Alpha\", số 1", "=CMD('calc')" },
+                    new string?[] { "Via \"Alpha\", sá»‘ 1", "=CMD('calc')" },
                     new string?[] { "+123", "@SUM(A1)" },
                 });
             if (csvBytes.Length < 4 || csvBytes[0] != 0xEF || csvBytes[1] != 0xBB || csvBytes[2] != 0xBF)
                 throw new InvalidOperationException("CsvExporter missing UTF-8 BOM");
             var csvText = System.Text.Encoding.UTF8.GetString(csvBytes, 3, csvBytes.Length - 3);
-            if (!csvText.Contains("\"Via \"\"Alpha\"\", số 1\"", StringComparison.Ordinal) ||
+            if (!csvText.Contains("\"Via \"\"Alpha\"\", sá»‘ 1\"", StringComparison.Ordinal) ||
                 !csvText.Contains("'=CMD('calc')", StringComparison.Ordinal) ||
                 !csvText.Contains("'+123", StringComparison.Ordinal) ||
                 !csvText.Contains("'@SUM(A1)", StringComparison.Ordinal))
@@ -568,7 +568,7 @@ internal static class Program
             {
                 throw new InvalidOperationException("DesktopAppInfo.NormalizeProxyKey mismatch");
             }
-            var parsedGrid = WindowTilerService.ParseGridSpec("3×2");
+            var parsedGrid = WindowTilerService.ParseGridSpec("3Ã—2");
             if (parsedGrid.Cols != 3 || parsedGrid.Rows != 2 || parsedGrid.Normalized != "3x2")
                 throw new InvalidOperationException("WindowTilerService.ParseGridSpec 3x2 failed");
             if (!SelfUpdateService.IsNewerVersion("2.3.1", "2.3.0") || SelfUpdateService.IsNewerVersion("2.3.0", "2.3.0"))
@@ -590,8 +590,8 @@ internal static class Program
                 throw new InvalidOperationException("TeamInvitationCreateResponseDto field mismatch");
 
             // 15. v2.3.1 bugfix checks: ExtractDetail error.message & FormatMetricOrDash invariant culture parsing
-            var parsedErr = AdsOpsApiClient.ExtractDetail("{\"error\":{\"code\":\"bad_request\",\"message\":\"Lỗi thật từ server\"}}");
-            if (parsedErr != "Lỗi thật từ server")
+            var parsedErr = AdsOpsApiClient.ExtractDetail("{\"error\":{\"code\":\"bad_request\",\"message\":\"Lá»—i tháº­t tá»« server\"}}");
+            if (parsedErr != "Lá»—i tháº­t tá»« server")
                 throw new InvalidOperationException($"ExtractDetail AppError mismatch: {parsedErr}");
             var parsed422 = AdsOpsApiClient.ExtractDetail("{\"detail\":[{\"msg\":\"Field required\"},{\"msg\":\"Invalid ID\"}]}");
             if (parsed422 != "Field required; Invalid ID")
@@ -611,16 +611,16 @@ internal static class Program
             }
 
             // 16. v2.4.0 Anti-Checkpoint, Client Silo, 72h Soak Quarantine, Partial Vault Refresh & Extension v2.9.6
-            var builtV24 = ViaMetadataParser.BuildNotes("Ghi chú sạch", "camp", "2026-11-15T00:00:00Z", "Khach_NhaKhoa_A", "bm_warmup");
+            var builtV24 = ViaMetadataParser.BuildNotes("Ghi chÃº sáº¡ch", "camp", "2026-11-15T00:00:00Z", "Khach_NhaKhoa_A", "bm_warmup");
             var parsedV24 = ViaMetadataParser.ParseNotes(builtV24, "Via A", 0, 0);
-            if (parsedV24.ClientGroup != "Khach_NhaKhoa_A" || parsedV24.WarmupMode != "bm_warmup" || parsedV24.CleanNotes != "Ghi chú sạch")
+            if (parsedV24.ClientGroup != "Khach_NhaKhoa_A" || parsedV24.WarmupMode != "bm_warmup" || parsedV24.CleanNotes != "Ghi chÃº sáº¡ch")
                 throw new InvalidOperationException($"ViaMetadataParser v2.4 [CLIENT]/[WMODE] round-trip mismatch: {parsedV24}");
 
             var siloVias = new List<ViaWorkspaceEntry>
             {
-                new() { ViaId = "s1", Label = "Via Khách A1", ProfileDir = "Profile 1", NetworkLabel = "103.1.2.3:8080:u:p", ClientGroup = "Khách A", ProxyLastStatus = "LIVE", WarmupPhase = "trusted", QuotaStatus = "SAFE" },
-                new() { ViaId = "s2", Label = "Via Khách B1", ProfileDir = "Profile 2", NetworkLabel = "103.1.2.3:8080:u:p", ClientGroup = "Khách B", ProxyLastStatus = "LIVE", WarmupPhase = "trusted", QuotaStatus = "SAFE" },
-                new() { ViaId = "s3", Label = "Via Khách A2", ProfileDir = "Profile 3", NetworkLabel = "103.1.2.9:8080:u:p", ClientGroup = "Khách A", ProxyLastStatus = "LIVE", WarmupPhase = "trusted", QuotaStatus = "SAFE" },
+                new() { ViaId = "s1", Label = "Via KhÃ¡ch A1", ProfileDir = "Profile 1", NetworkLabel = "103.1.2.3:8080:u:p", ClientGroup = "KhÃ¡ch A", ProxyLastStatus = "LIVE", WarmupPhase = "trusted", QuotaStatus = "SAFE" },
+                new() { ViaId = "s2", Label = "Via KhÃ¡ch B1", ProfileDir = "Profile 2", NetworkLabel = "103.1.2.3:8080:u:p", ClientGroup = "KhÃ¡ch B", ProxyLastStatus = "LIVE", WarmupPhase = "trusted", QuotaStatus = "SAFE" },
+                new() { ViaId = "s3", Label = "Via KhÃ¡ch A2", ProfileDir = "Profile 3", NetworkLabel = "103.1.2.9:8080:u:p", ClientGroup = "KhÃ¡ch A", ProxyLastStatus = "LIVE", WarmupPhase = "trusted", QuotaStatus = "SAFE" },
             };
             ViaTrustEvaluator.DetectClientSiloConflicts(siloVias);
             if (!siloVias[0].HasSiloConflict || !siloVias[1].HasSiloConflict || siloVias[2].HasSiloConflict)
@@ -637,8 +637,8 @@ internal static class Program
             var st2 = testStewStore.GetOrTrackProxy("v-stew", "Via Stew", "103.10.20.99:8080:u:p");
             if (string.IsNullOrEmpty(st2.ProxyChangedUtc))
                 throw new InvalidOperationException("Proxy change must set ProxyChangedUtc for 72h soak quarantine");
-            testStewStore.TriggerCooldown("v-stew", "Via Stew", "Khách A", 24, "IP leak test", "IP_LEAK_BLOCKED");
-            testStewStore.RecordCookieRefresh("v-stew", "Via Stew", "Khách A");
+            testStewStore.TriggerCooldown("v-stew", "Via Stew", "KhÃ¡ch A", 24, "IP leak test", "IP_LEAK_BLOCKED");
+            testStewStore.RecordCookieRefresh("v-stew", "Via Stew", "KhÃ¡ch A");
             if (!testStewStore.GetRecentEvents(10).Any(e => e.EventType == "IP_LEAK_BLOCKED") ||
                 !testStewStore.GetRecentEvents(10).Any(e => e.EventType == "VAULT_COOKIE_REFRESHED"))
                 throw new InvalidOperationException("ViaStewardshipStore failed to record safety events");
@@ -666,10 +666,10 @@ internal static class Program
                 QueueKind.PageCreation,
                 new[]
                 {
-                    new QueueTaskItem("g-soak", "Via Soak", "Profile 10", "1.1.1.1:8080", "https://facebook.com", "T1", "standard_via", "Khách X", IsInSoakQuarantine: true),
-                    new QueueTaskItem("g-cd", "Via Cooldown", "Profile 11", "1.1.1.2:8080", "https://facebook.com", "T2", "standard_via", "Khách X", CooldownUntilUtc: DateTimeOffset.UtcNow.AddHours(12)),
-                    new QueueTaskItem("g-silo1", "Via Silo A", "Profile 12", "2.2.2.2:8080", "https://facebook.com", "T3", "standard_via", "Khách A"),
-                    new QueueTaskItem("g-silo2", "Via Silo B", "Profile 13", "2.2.2.2:8080", "https://facebook.com", "T4", "standard_via", "Khách B"),
+                    new QueueTaskItem("g-soak", "Via Soak", "Profile 10", "1.1.1.1:8080", "https://facebook.com", "T1", "standard_via", "KhÃ¡ch X", IsInSoakQuarantine: true),
+                    new QueueTaskItem("g-cd", "Via Cooldown", "Profile 11", "1.1.1.2:8080", "https://facebook.com", "T2", "standard_via", "KhÃ¡ch X", CooldownUntilUtc: DateTimeOffset.UtcNow.AddHours(12)),
+                    new QueueTaskItem("g-silo1", "Via Silo A", "Profile 12", "2.2.2.2:8080", "https://facebook.com", "T3", "standard_via", "KhÃ¡ch A"),
+                    new QueueTaskItem("g-silo2", "Via Silo B", "Profile 13", "2.2.2.2:8080", "https://facebook.com", "T4", "standard_via", "KhÃ¡ch B"),
                 },
                 baseStaggerSeconds: 1,
                 preCheckProxy: false,
@@ -696,7 +696,7 @@ internal static class Program
                 QueueKind.KeepAlive,
                 new[]
                 {
-                    new QueueTaskItem("ka-soak", "Via Soak KeepAlive", "Profile 14", "1.1.1.3:8080", "https://facebook.com/?adsops_ka_mode=soak_72h", "Ngâm 72h", "standard_via", "Khách X", IsInSoakQuarantine: true),
+                    new QueueTaskItem("ka-soak", "Via Soak KeepAlive", "Profile 14", "1.1.1.3:8080", "https://facebook.com/?adsops_ka_mode=soak_72h", "NgÃ¢m 72h", "standard_via", "KhÃ¡ch X", IsInSoakQuarantine: true),
                 },
                 baseStaggerSeconds: 1,
                 preCheckProxy: false,
@@ -724,10 +724,10 @@ internal static class Program
             // 17. v2.4.1 Safe 1:4 Residential Proxy Cluster, Unconditional Duplicate Profile Guard, Proxy Interleave & Config Migration
             var resCluster = new List<ViaWorkspaceEntry>
             {
-                new() { ViaId = "r1", Label = "Via DC 1", ProfileDir = "Profile 1", NetworkLabel = "103.50.60.70:8080:u:p", ClientGroup = "Khách Dân Cư", ProxyLastStatus = "LIVE", WarmupPhase = "trusted", QuotaStatus = "SAFE" },
-                new() { ViaId = "r2", Label = "Via DC 2", ProfileDir = "Profile 2", NetworkLabel = "103.50.60.70:8080:u:p", ClientGroup = "Khách Dân Cư", ProxyLastStatus = "LIVE", WarmupPhase = "trusted", QuotaStatus = "SAFE" },
-                new() { ViaId = "r3", Label = "Via DC 3", ProfileDir = "Profile 3", NetworkLabel = "103.50.60.70:8080:u:p", ClientGroup = "Khách Dân Cư", ProxyLastStatus = "LIVE", WarmupPhase = "trusted", QuotaStatus = "SAFE" },
-                new() { ViaId = "r4", Label = "Via DC 4", ProfileDir = "Profile 4", NetworkLabel = "103.50.60.70:8080:u:p", ClientGroup = "Khách Dân Cư", ProxyLastStatus = "LIVE", WarmupPhase = "trusted", QuotaStatus = "SAFE" },
+                new() { ViaId = "r1", Label = "Via DC 1", ProfileDir = "Profile 1", NetworkLabel = "103.50.60.70:8080:u:p", ClientGroup = "KhÃ¡ch DÃ¢n CÆ°", ProxyLastStatus = "LIVE", WarmupPhase = "trusted", QuotaStatus = "SAFE" },
+                new() { ViaId = "r2", Label = "Via DC 2", ProfileDir = "Profile 2", NetworkLabel = "103.50.60.70:8080:u:p", ClientGroup = "KhÃ¡ch DÃ¢n CÆ°", ProxyLastStatus = "LIVE", WarmupPhase = "trusted", QuotaStatus = "SAFE" },
+                new() { ViaId = "r3", Label = "Via DC 3", ProfileDir = "Profile 3", NetworkLabel = "103.50.60.70:8080:u:p", ClientGroup = "KhÃ¡ch DÃ¢n CÆ°", ProxyLastStatus = "LIVE", WarmupPhase = "trusted", QuotaStatus = "SAFE" },
+                new() { ViaId = "r4", Label = "Via DC 4", ProfileDir = "Profile 4", NetworkLabel = "103.50.60.70:8080:u:p", ClientGroup = "KhÃ¡ch DÃ¢n CÆ°", ProxyLastStatus = "LIVE", WarmupPhase = "trusted", QuotaStatus = "SAFE" },
             };
             ViaTrustEvaluator.DetectClientSiloConflicts(resCluster, maxSharedPerProxy: 4);
             foreach (var rv in resCluster)
@@ -742,8 +742,8 @@ internal static class Program
             // Same-client duplicate Chrome Profile must flag HasSiloConflict AND be skipped by queue
             var sameClientDupProf = new List<ViaWorkspaceEntry>
             {
-                new() { ViaId = "dp1", Label = "Dup Prof 1", ProfileDir = "Profile 1", NetworkLabel = "103.50.60.70:8080:u:p", ClientGroup = "Khách Dân Cư" },
-                new() { ViaId = "dp2", Label = "Dup Prof 2", ProfileDir = "Profile 1", NetworkLabel = "103.50.60.71:8080:u:p", ClientGroup = "Khách Dân Cư" },
+                new() { ViaId = "dp1", Label = "Dup Prof 1", ProfileDir = "Profile 1", NetworkLabel = "103.50.60.70:8080:u:p", ClientGroup = "KhÃ¡ch DÃ¢n CÆ°" },
+                new() { ViaId = "dp2", Label = "Dup Prof 2", ProfileDir = "Profile 1", NetworkLabel = "103.50.60.71:8080:u:p", ClientGroup = "KhÃ¡ch DÃ¢n CÆ°" },
             };
             ViaTrustEvaluator.DetectClientSiloConflicts(sameClientDupProf, maxSharedPerProxy: 4);
             if (!sameClientDupProf[0].HasSiloConflict || !sameClientDupProf[1].HasSiloConflict)
@@ -760,11 +760,11 @@ internal static class Program
                 QueueKind.KeepAlive,
                 new[]
                 {
-                    new QueueTaskItem("dc1", "Via DC 1", "Profile 1", "103.50.60.70:8080:u:p", "https://facebook.com", "KA1", "standard_via", "Khách Dân Cư"),
-                    new QueueTaskItem("dc2", "Via DC 2", "Profile 2", "103.50.60.70:8080:u:p", "https://facebook.com", "KA2", "standard_via", "Khách Dân Cư"),
-                    new QueueTaskItem("dc3", "Via DC 3", "Profile 3", "103.50.60.70:8080:u:p", "https://facebook.com", "KA3", "standard_via", "Khách Dân Cư"),
-                    new QueueTaskItem("dc4", "Via DC 4", "Profile 4", "103.50.60.70:8080:u:p", "https://facebook.com", "KA4", "standard_via", "Khách Dân Cư"),
-                    new QueueTaskItem("dc-dup", "Via Dup Prof", "Profile 1", "103.50.60.70:8080:u:p", "https://facebook.com", "KA5", "standard_via", "Khách Dân Cư"),
+                    new QueueTaskItem("dc1", "Via DC 1", "Profile 1", "103.50.60.70:8080:u:p", "https://facebook.com", "KA1", "standard_via", "KhÃ¡ch DÃ¢n CÆ°"),
+                    new QueueTaskItem("dc2", "Via DC 2", "Profile 2", "103.50.60.70:8080:u:p", "https://facebook.com", "KA2", "standard_via", "KhÃ¡ch DÃ¢n CÆ°"),
+                    new QueueTaskItem("dc3", "Via DC 3", "Profile 3", "103.50.60.70:8080:u:p", "https://facebook.com", "KA3", "standard_via", "KhÃ¡ch DÃ¢n CÆ°"),
+                    new QueueTaskItem("dc4", "Via DC 4", "Profile 4", "103.50.60.70:8080:u:p", "https://facebook.com", "KA4", "standard_via", "KhÃ¡ch DÃ¢n CÆ°"),
+                    new QueueTaskItem("dc-dup", "Via Dup Prof", "Profile 1", "103.50.60.70:8080:u:p", "https://facebook.com", "KA5", "standard_via", "KhÃ¡ch DÃ¢n CÆ°"),
                 },
                 baseStaggerSeconds: 1,
                 preCheckProxy: false,
@@ -806,7 +806,7 @@ internal static class Program
                 Label = $"Via Custom {i}",
                 ProfileDir = $"Profile {20 + i}",
                 NetworkLabel = "103.80.90.100:8080:u:p",
-                ClientGroup = "Khách Tùy Chỉnh",
+                ClientGroup = "KhÃ¡ch TÃ¹y Chá»‰nh",
                 ProxyLastStatus = "LIVE",
                 WarmupPhase = "trusted",
                 QuotaStatus = "SAFE",
@@ -843,8 +843,8 @@ internal static class Program
             };
             var srcStew = new ViaStewardshipStore(Path.Combine(tempRoot, "stew_src.json"));
             srcStew.GetOrTrackProxy("v-mig-1", "Via Migrated 1", "103.80.90.100:8080:u:p");
-            srcStew.RecordKeepAliveSuccess("v-mig-1", "Via Migrated 1", "Khách Tùy Chỉnh", "Keep-alive before migration");
-            srcStew.RecordKeepAliveSuccess("v-mig-1", "Via Migrated 1", "Khách Tùy Chỉnh");
+            srcStew.RecordKeepAliveSuccess("v-mig-1", "Via Migrated 1", "KhÃ¡ch TÃ¹y Chá»‰nh", "Keep-alive before migration");
+            srcStew.RecordKeepAliveSuccess("v-mig-1", "Via Migrated 1", "KhÃ¡ch TÃ¹y Chá»‰nh");
             var migPayload = new VaultBackupPayload
             {
                 AppVersion = DesktopAppInfo.Version,
@@ -1285,12 +1285,12 @@ internal static class Program
                 if (!string.Equals(DesktopConfig.AppDataRoot, tempRoot, StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException($"AppDataRootOverride failed: got '{DesktopConfig.AppDataRoot}' vs '{tempRoot}'");
 
-                var cleanSlug = ExtensionProvisioner.SanitizeFolderSlug("Thiên Triều MKMB");
-                var cleanSlug2 = ExtensionProvisioner.SanitizeFolderSlug("Via Đảo Ấm 01");
+                var cleanSlug = ExtensionProvisioner.SanitizeFolderSlug("ThiÃªn Triá»u MKMB");
+                var cleanSlug2 = ExtensionProvisioner.SanitizeFolderSlug("Via Äáº£o áº¤m 01");
                 if (cleanSlug != "thien-trieu-mkmb" || cleanSlug2 != "via-dao-am-01")
                     throw new InvalidOperationException($"SanitizeFolderSlug diacritic stripping failed: '{cleanSlug}', '{cleanSlug2}'");
 
-                var nativeArgs = ExtensionProvisioner.BuildChromeArguments("https://www.facebook.com/", "Profile 4", null, isolatedMode: false, viaSlug: "Thiên Triều MKMB");
+                var nativeArgs = ExtensionProvisioner.BuildChromeArguments("https://www.facebook.com/", "Profile 4", null, isolatedMode: false, viaSlug: "ThiÃªn Triá»u MKMB");
                 if (!nativeArgs.Contains("--profile-directory=Profile 4") || !nativeArgs.Contains("--new-window"))
                     throw new InvalidOperationException("Native Chrome args must include --profile-directory and --new-window");
 
@@ -1312,8 +1312,8 @@ internal static class Program
                 var exitedSnap = exitTracker.RecordLaunch(999997, "ex-1", "Via Exit", "Profile 81", "https://www.facebook.com/", isolatedMode: true);
                 await Task.Delay(2100);
                 var afterSnap = exitTracker.GetSnapshot().First(x => x.SessionId == exitedSnap.SessionId);
-                if (!afterSnap.ClosedAt.HasValue || afterSnap.StatusText != "Đã đóng cửa sổ")
-                    throw new InvalidOperationException($"Expected natural exit 'Đã đóng cửa sổ', got '{afterSnap.StatusText}'");
+                if (!afterSnap.ClosedAt.HasValue || afterSnap.StatusText != "ÄÃ£ Ä‘Ã³ng cá»­a sá»•")
+                    throw new InvalidOperationException($"Expected natural exit 'ÄÃ£ Ä‘Ã³ng cá»­a sá»•', got '{afterSnap.StatusText}'");
 
                 var sharedTracker = new ChromeSessionTracker();
                 var sharedSess = sharedTracker.RecordLaunch(Environment.ProcessId, "sh-1", "Via Shared", "Default", "https://www.facebook.com/", delegatedToSharedBroker: true, isolatedMode: false);
@@ -1321,12 +1321,12 @@ internal static class Program
                 if (reapedShared.Count != 0)
                     throw new InvalidOperationException("ReapHungSessions must NEVER reap a shared Chrome broker session");
                 if (!sharedTracker.TryCloseSession(sharedSess.SessionId, out var sharedMsg) ||
-                    !sharedMsg.Contains("gỡ theo dõi", StringComparison.OrdinalIgnoreCase))
+                    !sharedMsg.Contains("gá»¡ theo dÃµi", StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException($"TryCloseSession on shared broker unexpected: {sharedMsg}");
 
                 var uniqueDefaultList = new List<ViaWorkspaceEntry>
                 {
-                    new() { ViaId = "u1", Label = "Tài Khoản Chính", ProfileDir = "Default" },
+                    new() { ViaId = "u1", Label = "TÃ i Khoáº£n ChÃ­nh", ProfileDir = "Default" },
                     new() { ViaId = "u2", Label = "Via 2", ProfileDir = "Profile 4" },
                 };
                 var keepDefaultPlan = ViaBulkDistributor.AllocateDistinctChromeProfiles(uniqueDefaultList, uniqueDefaultList);
@@ -1437,9 +1437,9 @@ internal static class Program
                     Title = "Meta reports the account as not operable",
                     Summary = "Meta returned account_status 101 (Closed (Meta)) for this account; disable reason: NONE (0).",
                     AccountDisplayName = "597797234825696",
-                    BusinessManagerName = "Quảng Cáo Top",
+                    BusinessManagerName = "Quáº£ng CÃ¡o Top",
                 };
-                if (!alClosed.GetLocalizedTitle().Contains("ngừng hoạt động", StringComparison.OrdinalIgnoreCase) ||
+                if (!alClosed.GetLocalizedTitle().Contains("ngá»«ng hoáº¡t Ä‘á»™ng", StringComparison.OrdinalIgnoreCase) ||
                     !alClosed.GetLocalizedSummary().Contains("account_status 101", StringComparison.OrdinalIgnoreCase))
                 {
                     throw new InvalidOperationException($"Alert localization failed: title='{alClosed.GetLocalizedTitle()}', sum='{alClosed.GetLocalizedSummary()}'");
@@ -1450,8 +1450,8 @@ internal static class Program
                     Title = "Account status is disabled",
                     Summary = "The recorded account status is disabled.",
                 };
-                if (!alDisabled.GetLocalizedTitle().Contains("vô hiệu hóa", StringComparison.OrdinalIgnoreCase) ||
-                    !alDisabled.GetLocalizedSummary().Contains("vô hiệu hóa", StringComparison.OrdinalIgnoreCase))
+                if (!alDisabled.GetLocalizedTitle().Contains("vÃ´ hiá»‡u hÃ³a", StringComparison.OrdinalIgnoreCase) ||
+                    !alDisabled.GetLocalizedSummary().Contains("vÃ´ hiá»‡u hÃ³a", StringComparison.OrdinalIgnoreCase))
                 {
                     throw new InvalidOperationException("Disabled alert localization failed");
                 }
@@ -1459,7 +1459,7 @@ internal static class Program
                 var formattedCron = AlertItemDto.FormatIsoTimestampLocal("2026-11-17T02:27:50.140371+00:00");
                 if (!System.Text.RegularExpressions.Regex.IsMatch(formattedCron, @"^\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2}$"))
                     throw new InvalidOperationException($"FormatIsoTimestampLocal unexpected format: '{formattedCron}'");
-                if (AlertItemDto.FormatIsoTimestampLocal(null) != "Chưa chạy")
+                if (AlertItemDto.FormatIsoTimestampLocal(null) != "ChÆ°a cháº¡y")
                     throw new InvalidOperationException("FormatIsoTimestampLocal null fallback mismatch");
 
                 var tpl299 = ExtensionProvisioner.LoadTemplates();
@@ -1507,7 +1507,7 @@ internal static class Program
                     AutoPilotScheduleTimesCsv = "08:30, 20:00",
                     AutoDailyVaultBackup = true,
                 };
-                pipeCfg.PageHolderViaOverrides["109674987393491"] = "v1|Profile 4|Thiên Triều MKMB";
+                pipeCfg.PageHolderViaOverrides["109674987393491"] = "v1|Profile 4|ThiÃªn Triá»u MKMB";
                 pipeCfg.PagePendingInviteCounts["112252982140512"] = 5;
                 pipeCfg.Save(pipeCfgPath);
                 var reloadedPipeCfg = DesktopConfig.Load(pipeCfgPath);
@@ -1518,11 +1518,11 @@ internal static class Program
                     reloadedPipeCfg.TotalPageFollowerInvitesSent != 12 ||
                     reloadedPipeCfg.UiThemePalette != "emerald" ||
                     !reloadedPipeCfg.PageHolderViaOverrides.TryGetValue("109674987393491", out var savedOv) ||
-                    savedOv != "v1|Profile 4|Thiên Triều MKMB" ||
+                    savedOv != "v1|Profile 4|ThiÃªn Triá»u MKMB" ||
                     !reloadedPipeCfg.PagePendingInviteCounts.TryGetValue("112252982140512", out var savedCnt) ||
                     savedCnt != 5 ||
                     reloadedPipeCfg.ConfigMigrationVersion != DesktopConfig.CurrentMigrationVersion ||
-                    DesktopConfig.CurrentMigrationVersion != 303)
+                    DesktopConfig.CurrentMigrationVersion != 304)
                 {
                     throw new InvalidOperationException($"v3.0.3 DesktopConfig roundtrip/migration check failed: mig={reloadedPipeCfg.ConfigMigrationVersion}");
                 }
@@ -1561,3 +1561,4 @@ internal static class Program
         }
     }
 }
+

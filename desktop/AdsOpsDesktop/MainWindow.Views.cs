@@ -9,6 +9,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 
 namespace AdsOpsDesktop;
@@ -2066,6 +2067,348 @@ internal sealed partial class MainWindow
         var localCard = UiComponents.CreateCard(localGuardPanel);
         localCard.Margin = new Thickness(0, 0, 0, 14);
         rightStack.Children.Add(localCard);
+
+        // v3.0.4 Visual Action Flow Builder (#3), Internal Cross-Warmup (#1), Pre-Ads Buffer (#2), Auto-Like Comments (#4) & Custom Rest Range (#5)
+        var flowPanel = new StackPanel();
+        flowPanel.Children.Add(new TextBlock
+        {
+            Text = "🎲 Trình Thiết Kế Kịch Bản Hành Vi Tự Nhiên & Nhịp Nghỉ Đa Luồng (v3.0.4)",
+            FontSize = 15,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeTokens.AccentText,
+            Margin = new Thickness(0, 0, 0, 4),
+            TextWrapping = TextWrapping.Wrap,
+        });
+        flowPanel.Children.Add(new TextBlock
+        {
+            Text = "Chọn Bốc thăm ngẫu nhiên mỗi ngày (mỗi Via 1 kịch bản khác nhau) hoặc Kéo-Thả / Bấm nối các hành động theo đúng trình tự bạn muốn.",
+            FontSize = 12,
+            Foreground = ThemeTokens.TextSecondary,
+            Margin = new Thickness(0, 0, 0, 10),
+            TextWrapping = TextWrapping.Wrap,
+        });
+
+        var isCustomSeqMode = string.Equals(_config.WarmupFlowMode, "custom_sequence", StringComparison.OrdinalIgnoreCase);
+        var modeChipWrap = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
+        modeChipWrap.Children.Add(UiComponents.CreateFilterChip("🎲 Tự động Bốc thăm Ngẫu nhiên Mỗi Ngày", !isCustomSeqMode, (_, _) =>
+        {
+            _config.WarmupFlowMode = "daily_random";
+            _config.Save();
+            AppendLog("🎲 Đã bật chế độ 'Bốc thăm Ngẫu nhiên Mỗi Ngày' — mỗi Via sẽ tự động nhận 1 chuỗi hành động khác nhau mỗi ngày.");
+            RenderCurrentView();
+        }));
+        modeChipWrap.Children.Add(UiComponents.CreateFilterChip("🧩 Tự Kéo-Thả & Nối Chuỗi Theo Trình Tự", isCustomSeqMode, (_, _) =>
+        {
+            _config.WarmupFlowMode = "custom_sequence";
+            _config.CustomWarmupActionSequence ??= WarmupActionCatalog.GetDefaultSequence();
+            if (_config.CustomWarmupActionSequence.Count == 0) _config.CustomWarmupActionSequence = WarmupActionCatalog.GetDefaultSequence();
+            _config.Save();
+            AppendLog("🧩 Đã chuyển sang chế độ 'Tự Kéo-Thả & Nối Chuỗi Theo Trình Tự'.");
+            RenderCurrentView();
+        }));
+        var btnShuffleSeq = UiComponents.CreateButton("🔀 Bốc thăm mẫu mới", ButtonVariant.Subtle, compact: true, onClick: (_, _) =>
+        {
+            _config.CustomWarmupActionSequence = WarmupActionCatalog.BuildDailyRandomSequence(Guid.NewGuid().ToString("N"), DateTime.Now, _config.EnableInternalPageCrossWarmup);
+            _config.Save();
+            AppendLog($"🔀 Đã bốc thăm chuỗi hành động mới: {WarmupActionCatalog.FormatSequenceArrowText(_config.CustomWarmupActionSequence)}");
+            RenderCurrentView();
+        }, tooltip: "Bốc thăm ngẫu nhiên một chuỗi hành động mới từ kho 12 hành động");
+        btnShuffleSeq.Margin = new Thickness(4, 0, 6, 6);
+        var btnResetSeq = UiComponents.CreateButton("↺ Mặc định", ButtonVariant.Subtle, compact: true, onClick: (_, _) =>
+        {
+            _config.CustomWarmupActionSequence = WarmupActionCatalog.GetDefaultSequence();
+            _config.Save();
+            RenderCurrentView();
+        }, tooltip: "Khôi phục chuỗi 6 bước chuẩn");
+        btnResetSeq.Margin = new Thickness(0, 0, 0, 6);
+        modeChipWrap.Children.Add(btnShuffleSeq);
+        modeChipWrap.Children.Add(btnResetSeq);
+        flowPanel.Children.Add(modeChipWrap);
+
+        // Visual connected sequence chain (supports Drag & Drop reordering + ⬅/➡/✖ buttons)
+        _config.CustomWarmupActionSequence ??= WarmupActionCatalog.GetDefaultSequence();
+        if (_config.CustomWarmupActionSequence.Count == 0) _config.CustomWarmupActionSequence = WarmupActionCatalog.GetDefaultSequence();
+        var activeDisplaySeq = isCustomSeqMode
+            ? _config.CustomWarmupActionSequence
+            : WarmupActionCatalog.BuildDailyRandomSequence(_vias.FirstOrDefault()?.ViaId ?? "via-1", DateTime.Now, _config.EnableInternalPageCrossWarmup);
+
+        var chainBox = new Border
+        {
+            Background = ThemeTokens.BgSurfaceElevated,
+            BorderBrush = ThemeTokens.BorderSubtle,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = new Thickness(0, 0, 0, 10),
+            AllowDrop = true,
+        };
+        var chainStack = new StackPanel();
+        chainStack.Children.Add(new TextBlock
+        {
+            Text = isCustomSeqMode
+                ? $"🔗 Chuỗi trình tự đang chạy ({activeDisplaySeq.Count} bước — Kéo thả các bước để đổi vị trí hoặc bấm ⬅ / ➡ / ✖):"
+                : $"🎲 Mẫu kịch bản bốc thăm hôm nay ({activeDisplaySeq.Count} bước — Mỗi Via tự biến thiên thứ tự riêng):",
+            FontSize = 11.5,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = ThemeTokens.TextSecondary,
+            Margin = new Thickness(0, 0, 0, 6),
+        });
+
+        var chainWrap = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
+        for (int idx = 0; idx < activeDisplaySeq.Count; idx++)
+        {
+            int capturedIdx = idx;
+            var stepKey = activeDisplaySeq[idx];
+            var meta = WarmupActionCatalog.FindByKey(stepKey) ?? WarmupActionCatalog.All[0];
+
+            var stepPill = new Border
+            {
+                Background = ThemeTokens.BgSurfaceHover,
+                BorderBrush = ThemeTokens.AccentPrimary,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(8, 4, 6, 4),
+                Margin = new Thickness(0, 0, 4, 6),
+                Cursor = Cursors.SizeAll,
+                AllowDrop = true,
+                ToolTip = $"Bước {capturedIdx + 1}: {meta.FullTitle} ({meta.DurationHint}) — {meta.Description}\n💡 Giữ chuột kéo-thả sang bước khác để đổi thứ tự!",
+            };
+
+            stepPill.MouseMove += (_, e) =>
+            {
+                if (e.LeftButton == MouseButtonState.Pressed && e.OriginalSource is not Button)
+                {
+                    try { DragDrop.DoDragDrop(stepPill, $"step:{capturedIdx}", DragDropEffects.Move); } catch { }
+                }
+            };
+            stepPill.DragOver += (_, e) =>
+            {
+                e.Effects = DragDropEffects.Move | DragDropEffects.Copy;
+                e.Handled = true;
+            };
+            stepPill.Drop += (_, e) =>
+            {
+                if (e.Data.GetData(DataFormats.StringFormat) is string rawDrag)
+                {
+                    _config.WarmupFlowMode = "custom_sequence";
+                    var list = new List<string>(activeDisplaySeq);
+                    if (rawDrag.StartsWith("step:", StringComparison.Ordinal) && int.TryParse(rawDrag[5..], out var fromIdx))
+                    {
+                        if (fromIdx >= 0 && fromIdx < list.Count && fromIdx != capturedIdx)
+                        {
+                            var moved = list[fromIdx];
+                            list.RemoveAt(fromIdx);
+                            list.Insert(Math.Clamp(capturedIdx, 0, list.Count), moved);
+                            _config.CustomWarmupActionSequence = list;
+                            _config.Save();
+                            RenderCurrentView();
+                        }
+                    }
+                    else if (rawDrag.StartsWith("lib:", StringComparison.Ordinal))
+                    {
+                        var addKey = rawDrag[4..];
+                        list.Insert(Math.Clamp(capturedIdx + 1, 0, list.Count), addKey);
+                        _config.CustomWarmupActionSequence = list;
+                        _config.Save();
+                        RenderCurrentView();
+                    }
+                }
+            };
+
+            var pillRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            pillRow.Children.Add(new TextBlock
+            {
+                Text = $"{capturedIdx + 1}. {meta.Icon} {meta.ShortTitle}",
+                FontSize = 11.5,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = ThemeTokens.TextPrimary,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0),
+            });
+
+            if (capturedIdx > 0)
+            {
+                var upBtn = UiComponents.CreateButton("⬅", ButtonVariant.Subtle, compact: true, onClick: (_, _) =>
+                {
+                    _config.WarmupFlowMode = "custom_sequence";
+                    var list = new List<string>(activeDisplaySeq);
+                    (list[capturedIdx - 1], list[capturedIdx]) = (list[capturedIdx], list[capturedIdx - 1]);
+                    _config.CustomWarmupActionSequence = list;
+                    _config.Save();
+                    RenderCurrentView();
+                }, tooltip: "Đẩy bước này lên trước");
+                upBtn.Padding = new Thickness(4, 1, 4, 1);
+                upBtn.MinHeight = 20;
+                upBtn.Margin = new Thickness(0, 0, 2, 0);
+                pillRow.Children.Add(upBtn);
+            }
+            if (capturedIdx < activeDisplaySeq.Count - 1)
+            {
+                var dnBtn = UiComponents.CreateButton("➡", ButtonVariant.Subtle, compact: true, onClick: (_, _) =>
+                {
+                    _config.WarmupFlowMode = "custom_sequence";
+                    var list = new List<string>(activeDisplaySeq);
+                    (list[capturedIdx + 1], list[capturedIdx]) = (list[capturedIdx], list[capturedIdx + 1]);
+                    _config.CustomWarmupActionSequence = list;
+                    _config.Save();
+                    RenderCurrentView();
+                }, tooltip: "Đẩy bước này ra sau");
+                dnBtn.Padding = new Thickness(4, 1, 4, 1);
+                dnBtn.MinHeight = 20;
+                dnBtn.Margin = new Thickness(0, 0, 2, 0);
+                pillRow.Children.Add(dnBtn);
+            }
+            if (activeDisplaySeq.Count > 2)
+            {
+                var rmBtn = UiComponents.CreateButton("✖", ButtonVariant.Subtle, compact: true, onClick: (_, _) =>
+                {
+                    _config.WarmupFlowMode = "custom_sequence";
+                    var list = new List<string>(activeDisplaySeq);
+                    list.RemoveAt(capturedIdx);
+                    _config.CustomWarmupActionSequence = list;
+                    _config.Save();
+                    RenderCurrentView();
+                }, tooltip: "Gỡ hành động này khỏi chuỗi");
+                rmBtn.Padding = new Thickness(4, 1, 4, 1);
+                rmBtn.MinHeight = 20;
+                pillRow.Children.Add(rmBtn);
+            }
+
+            stepPill.Child = pillRow;
+            chainWrap.Children.Add(stepPill);
+
+            if (capturedIdx < activeDisplaySeq.Count - 1)
+            {
+                chainWrap.Children.Add(new TextBlock
+                {
+                    Text = "➔",
+                    FontSize = 13,
+                    FontWeight = FontWeights.Bold,
+                    Foreground = ThemeTokens.AccentText,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(2, 0, 6, 6),
+                });
+            }
+        }
+        chainStack.Children.Add(chainWrap);
+        chainBox.Child = chainStack;
+        flowPanel.Children.Add(chainBox);
+
+        // Library of 12 Suggested Actions to click or drag into the sequence
+        flowPanel.Children.Add(new TextBlock
+        {
+            Text = "➕ Kho 12 Hành Động Tương Tác Mẫu (Bấm hoặc kéo thả để nối thêm vào chuỗi trình tự):",
+            FontSize = 11.5,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = ThemeTokens.TextSecondary,
+            Margin = new Thickness(0, 0, 0, 6),
+        });
+        var libWrap = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
+        foreach (var act in WarmupActionCatalog.All)
+        {
+            var capturedAct = act;
+            var addActBtn = UiComponents.CreateButton($"{capturedAct.Icon} + {capturedAct.ShortTitle}", ButtonVariant.Secondary, compact: true, onClick: (_, _) =>
+            {
+                _config.WarmupFlowMode = "custom_sequence";
+                var list = new List<string>(activeDisplaySeq);
+                var insertPos = list.Count > 0 && list[^1] == "refresh_cookie_and_close" ? list.Count - 1 : list.Count;
+                list.Insert(insertPos, capturedAct.Key);
+                _config.CustomWarmupActionSequence = list;
+                _config.Save();
+                AppendLog($"➕ Đã nối thêm hành động '{capturedAct.FullTitle}' vào chuỗi kịch bản.");
+                RenderCurrentView();
+            }, tooltip: $"{capturedAct.FullTitle} ({capturedAct.DurationHint})\n{capturedAct.Description}\n💡 Bấm hoặc giữ chuột kéo thả vào chuỗi bên trên");
+            addActBtn.Margin = new Thickness(0, 0, 5, 5);
+            addActBtn.PreviewMouseMove += (_, e) =>
+            {
+                if (e.LeftButton == MouseButtonState.Pressed)
+                {
+                    try { DragDrop.DoDragDrop(addActBtn, $"lib:{capturedAct.Key}", DragDropEffects.Copy); } catch { }
+                }
+            };
+            libWrap.Children.Add(addActBtn);
+        }
+        flowPanel.Children.Add(libWrap);
+
+        // #1, #2, #4 Smart Organic Switches
+        var chkCrossPage = UiComponents.CreateCheckBox("🤝 [#1 Nuôi chéo nội bộ] Tự động cho Via ghé thăm & thả Like/Tim vào các Fanpage LIVE của bạn", _config.EnableInternalPageCrossWarmup);
+        var chkPreAdsBuf = UiComponents.CreateCheckBox($"🛡️ [#2 Đệm Chống Checkpoint] Lướt Newsfeed tự nhiên {_config.PreAdsWarmupSeconds}s trước khi mở Ads Manager / BM", _config.EnablePreAdsManagerWarmup);
+        var chkAutoLikeCmt = UiComponents.CreateCheckBox("💬 [#4 Tương tác Khách hàng] Tự động thả Tim/Like bình luận khách khi quét & Mời Follow trên Business Suite", _config.AutoLikeCommentsOnPageInvite);
+        var chkAutoTile = UiComponents.CreateCheckBox("🪟 [#5 Đa luồng] Tự động xếp lưới cửa sổ Chrome (2x2 / 3x2) khi chạy từ 2 luồng trở lên", _config.AutoTileWindowsOnBatch);
+        chkCrossPage.Margin = new Thickness(0, 0, 0, 5);
+        chkPreAdsBuf.Margin = new Thickness(0, 0, 0, 5);
+        chkAutoLikeCmt.Margin = new Thickness(0, 0, 0, 5);
+        chkAutoTile.Margin = new Thickness(0, 0, 0, 10);
+        flowPanel.Children.Add(chkCrossPage);
+        flowPanel.Children.Add(chkPreAdsBuf);
+        flowPanel.Children.Add(chkAutoLikeCmt);
+        flowPanel.Children.Add(chkAutoTile);
+
+        // #5 Custom Stagger Rest Range (Min - Max seconds) + 1-Click Speed Presets
+        var restRangeGrid = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+        restRangeGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        restRangeGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+        restRangeGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        restRangeGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+        restRangeGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var tbRestMin = UiComponents.CreateTextBox(_config.QueueRestMinSeconds.ToString());
+        var tbRestMax = UiComponents.CreateTextBox(_config.QueueRestMaxSeconds.ToString());
+        var tbPreAdsSec = UiComponents.CreateTextBox(_config.PreAdsWarmupSeconds.ToString());
+        var rr1 = BuildLabeledBox("Nghỉ tối thiểu (giây)", tbRestMin);
+        var rr2 = BuildLabeledBox("Nghỉ tối đa (giây)", tbRestMax);
+        var rr3 = BuildLabeledBox("Đệm trước Ads (giây)", tbPreAdsSec);
+        Grid.SetColumn(rr1, 0);
+        Grid.SetColumn(rr2, 2);
+        Grid.SetColumn(rr3, 4);
+        restRangeGrid.Children.Add(rr1);
+        restRangeGrid.Children.Add(rr2);
+        restRangeGrid.Children.Add(rr3);
+        flowPanel.Children.Add(restRangeGrid);
+
+        var presetWrap = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
+        foreach (var (pLbl, pMin, pMax) in new[]
+        {
+            ("⚡ Turbo (8–15s)", 8, 15),
+            ("🚀 Nhanh (15–30s)", 15, 30),
+            ("🛡️ Chuẩn (35–65s)", 35, 65),
+            ("🐢 Ngâm kỹ (75–120s)", 75, 120),
+        })
+        {
+            int cMin = pMin, cMax = pMax;
+            var pBtn = UiComponents.CreateButton(pLbl, (_config.QueueRestMinSeconds == cMin && _config.QueueRestMaxSeconds == cMax) ? ButtonVariant.Primary : ButtonVariant.Subtle, compact: true, onClick: (_, _) =>
+            {
+                _config.QueueRestMinSeconds = cMin;
+                _config.QueueRestMaxSeconds = cMax;
+                _config.DefaultStaggerSeconds = cMin;
+                _config.Save();
+                AppendLog($"⏱️ Đã chọn khoảng thời gian nhịp nghỉ giữa các luồng: {cMin}s – {cMax}s ({pLbl}).");
+                RenderCurrentView();
+            });
+            pBtn.Margin = new Thickness(0, 0, 6, 4);
+            presetWrap.Children.Add(pBtn);
+        }
+        flowPanel.Children.Add(presetWrap);
+
+        var saveFlowBtn = UiComponents.CreateButton("Lưu Kịch bản Tương tác & Nhịp nghỉ (#1–#5)", ButtonVariant.Success, FluentIcons.CheckCircle, onClick: (_, _) =>
+        {
+            _config.EnableInternalPageCrossWarmup = chkCrossPage.IsChecked == true;
+            _config.EnablePreAdsManagerWarmup = chkPreAdsBuf.IsChecked == true;
+            _config.AutoLikeCommentsOnPageInvite = chkAutoLikeCmt.IsChecked == true;
+            _config.AutoTileWindowsOnBatch = chkAutoTile.IsChecked == true;
+            if (int.TryParse(tbRestMin.Text, out var rmin)) _config.QueueRestMinSeconds = Math.Clamp(rmin, 5, 300);
+            if (int.TryParse(tbRestMax.Text, out var rmax)) _config.QueueRestMaxSeconds = Math.Clamp(Math.Max(_config.QueueRestMinSeconds, rmax), _config.QueueRestMinSeconds, 600);
+            if (int.TryParse(tbPreAdsSec.Text, out var pas)) _config.PreAdsWarmupSeconds = Math.Clamp(pas, 8, 90);
+            _config.DefaultStaggerSeconds = _config.QueueRestMinSeconds;
+            _config.Save();
+            AppendLog($"✅ Đã lưu Cấu hình Tương tác Tự nhiên v3.0.4: Nhịp nghỉ {_config.QueueRestMinSeconds}s–{_config.QueueRestMaxSeconds}s • Nuôi chéo Page: {(_config.EnableInternalPageCrossWarmup ? "BẬT" : "Tắt")} • Đệm Ads {_config.PreAdsWarmupSeconds}s: {(_config.EnablePreAdsManagerWarmup ? "BẬT" : "Tắt")} • Thả Tim Comment: {(_config.AutoLikeCommentsOnPageInvite ? "BẬT" : "Tắt")}.");
+            RenderCurrentView();
+        });
+        flowPanel.Children.Add(saveFlowBtn);
+
+        var flowCard = UiComponents.CreateCard(flowPanel);
+        flowCard.Margin = new Thickness(0, 0, 0, 14);
+        rightStack.Children.Add(flowCard);
 
         // Anti-Checkpoint Shield, 72h Soak & Client Silo Card
         var shieldPanel = new StackPanel();
