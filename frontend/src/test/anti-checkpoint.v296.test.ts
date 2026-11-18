@@ -43,7 +43,7 @@ describe('AdsOps Companion v2.9.7 Zero-Trust, anti-checkpoint & stewardship buil
     expect(manifestRaw).toBeTruthy();
 
     const manifest = JSON.parse(manifestRaw!);
-    expect(manifest.version).toBe('2.10.0');
+    expect(manifest.version).toBe('2.10.2');
     expect(Array.isArray(manifest.permissions)).toBe(true);
     expect(manifest.permissions).toContain('alarms');
 

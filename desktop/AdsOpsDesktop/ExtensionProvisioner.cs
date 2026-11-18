@@ -9,6 +9,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using Microsoft.Win32;
 
 namespace AdsOpsDesktop;
@@ -277,6 +278,7 @@ public static class ExtensionProvisioner
 
         var safeProfile = ResolveProfileDirectory(profileDir, viaSlug);
         var isoDir = ResolveIsolatedProfileDirectory(viaSlug, safeProfile);
+        SanitizeIsolatedProfileHealth(isoDir);
         var networkCookies = Path.Combine(isoDir, "Default", "Network", "Cookies");
         var legacyCookies = Path.Combine(isoDir, "Default", "Cookies");
         try
@@ -294,6 +296,46 @@ public static class ExtensionProvisioner
             return false;
         }
         return true;
+    }
+
+    /// <summary>
+    /// Removes 0-byte corrupted Cookie files and mismatched Native Chrome Local State keys
+    /// inside an isolated profile folder so CDP cookie persistence works reliably on Chrome 127-158+.
+    /// </summary>
+    public static void SanitizeIsolatedProfileHealth(string isoDir)
+    {
+        if (string.IsNullOrWhiteSpace(isoDir) || !Directory.Exists(isoDir)) return;
+        try
+        {
+            var netCookies = Path.Combine(isoDir, "Default", "Network", "Cookies");
+            var legacyCookies = Path.Combine(isoDir, "Default", "Cookies");
+            foreach (var ck in new[] { netCookies, legacyCookies })
+            {
+                try
+                {
+                    if (File.Exists(ck) && new FileInfo(ck).Length == 0)
+                    {
+                        File.Delete(ck);
+                    }
+                }
+                catch { }
+            }
+
+            var marker = Path.Combine(isoDir, ".adsops_clean_iso_v305");
+            var localState = Path.Combine(isoDir, "Local State");
+            if (!File.Exists(marker) &&
+                File.Exists(localState) &&
+                !CookiesFileContainsFacebookSession(netCookies) &&
+                !CookiesFileContainsFacebookSession(legacyCookies))
+            {
+                try { File.Delete(localState); } catch { }
+            }
+            if (!File.Exists(marker))
+            {
+                try { File.WriteAllText(marker, "v3.0.5"); } catch { }
+            }
+        }
+        catch { }
     }
 
     public static string ProvisionForVia(
@@ -452,7 +494,7 @@ public static class ExtensionProvisioner
         });
         var activePort = LocalBridgeServer.ActiveBoundPort > 0
             ? LocalBridgeServer.ActiveBoundPort
-            : (config?.BridgePort > 0 ? config.BridgePort : 17890);
+            : (cfg.BridgePort > 0 ? cfg.BridgePort : 17890);
         var bgBody = $"const DEFAULT_STATE = {defaultStateJson};\n{tpl.BackgroundJsAfterDefaultState}";
         var popupJsBody = !string.IsNullOrEmpty(tpl.PopupJsAfterDefaults)
             ? $"const DEFAULT_ACCOUNTS = {defaultAccountsJson};\nconst DEFAULT_VIA_META = {defaultViaMetaJson};\n{tpl.PopupJsAfterDefaults}"
@@ -556,7 +598,9 @@ public static class ExtensionProvisioner
         bool isolatedMode,
         string? viaSlug = null,
         bool antidetectShield = true,
-        bool lowRamMode = true)
+        bool lowRamMode = true,
+        int? cdpPort = null,
+        bool startBlankForCdpBootstrap = false)
     {
         if (string.IsNullOrWhiteSpace(url) || !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
@@ -569,9 +613,17 @@ public static class ExtensionProvisioner
         {
             var isoDir = ResolveIsolatedProfileDirectory(viaSlug, safeProfile);
             Directory.CreateDirectory(isoDir);
+            SanitizeIsolatedProfileHealth(isoDir);
             args.Add($"--user-data-dir={isoDir}");
             args.Add("--no-first-run");
             args.Add("--no-default-browser-check");
+            args.Add("--disable-session-crashed-bubble");
+            args.Add("--hide-crash-restore-bubble");
+            if (cdpPort is > 0)
+            {
+                args.Add($"--remote-debugging-port={cdpPort.Value}");
+                args.Add("--enable-unsafe-extension-debugging");
+            }
         }
         else
         {
@@ -614,7 +666,7 @@ public static class ExtensionProvisioner
         {
             args.Add($"--load-extension={extFolder}");
         }
-        args.Add(url);
+        args.Add(startBlankForCdpBootstrap ? "about:blank" : url);
         return args;
     }
 
@@ -703,6 +755,78 @@ public static class ExtensionProvisioner
             return (proc.Id, false, false);
         }
         return (proc?.Id, false, isolatedMode);
+    }
+
+    /// <summary>
+    /// Launches Chrome with automatic CDP extension loading + cookie injection in isolated mode,
+    /// or captures the newly opened Chrome HWND in Native Chrome mode.
+    /// </summary>
+    public static async Task<(int? Pid, bool DelegatedToSharedBroker, bool IsolatedMode, int? CdpPort, IntPtr WindowHandle, bool ExtensionLoadedViaCdp)> LaunchChromeSmartAsync(
+        string url,
+        string profileDir,
+        string? extFolder,
+        bool isolatedMode,
+        string? viaSlug = null,
+        bool antidetectShield = true,
+        bool lowRamMode = true,
+        string? vaultCookieRaw = null)
+    {
+        if (isolatedMode)
+        {
+            int cdpPort = ChromeCdpController.FindFreeLoopbackPort();
+            var args = BuildChromeArguments(
+                url,
+                profileDir,
+                extFolder,
+                isolatedMode: true,
+                viaSlug: viaSlug,
+                antidetectShield: antidetectShield,
+                lowRamMode: lowRamMode,
+                cdpPort: cdpPort,
+                startBlankForCdpBootstrap: true);
+            var chromeExe = FindChromeExecutable() ?? "chrome.exe";
+            var useDirectExec = File.Exists(chromeExe);
+            var psi = new ProcessStartInfo
+            {
+                FileName = chromeExe,
+                UseShellExecute = !useDirectExec,
+            };
+            foreach (var a in args)
+            {
+                psi.ArgumentList.Add(a);
+            }
+
+            Process? proc;
+            try
+            {
+                proc = Process.Start(psi);
+            }
+            catch when (useDirectExec)
+            {
+                psi.UseShellExecute = true;
+                proc = Process.Start(psi);
+            }
+
+            var boot = await ChromeCdpController.BootstrapIsolatedChromeAsync(
+                cdpPort,
+                extFolder,
+                vaultCookieRaw,
+                url,
+                connectTimeoutMs: 6500).ConfigureAwait(false);
+            return (proc?.Id, false, true, cdpPort, IntPtr.Zero, boot.ExtensionLoaded);
+        }
+
+        var beforeWins = NativeChromeActionRunner.SnapshotVisibleChromeWindows();
+        var nativeRes = await Task.Run(() => LaunchChromeDetailed(
+            url,
+            profileDir,
+            extFolder,
+            isolatedMode: false,
+            viaSlug: viaSlug,
+            antidetectShield: antidetectShield,
+            lowRamMode: lowRamMode)).ConfigureAwait(false);
+        var newHwnd = await NativeChromeActionRunner.WaitForNewChromeWindowAsync(beforeWins, timeoutMs: 5500).ConfigureAwait(false);
+        return (nativeRes.Pid, nativeRes.DelegatedToSharedBroker || newHwnd != IntPtr.Zero, false, null, newHwnd, false);
     }
 
     public static int? LaunchChrome(

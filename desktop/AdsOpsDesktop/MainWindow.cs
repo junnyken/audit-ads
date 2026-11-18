@@ -5,6 +5,8 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
@@ -165,6 +167,46 @@ internal sealed partial class MainWindow : Window
     private Button? _queueSkipBtn;
     private Button? _queueStopBtn;
     private Border? _queueLiveBanner;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTimeOffset> _extHeartbeatByVia = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _keepAliveFailedVias = new(StringComparer.OrdinalIgnoreCase);
+    private CancellationTokenSource? _activeRunnersCts;
+    private string _liveActionProgressDetail = "";
+    private DateTimeOffset _liveActionProgressAt = DateTimeOffset.MinValue;
+    private string _flowDesignerSelectedViaId = "__first__";
+
+    // Hybrid shadcn/ui WebView2 Full App Shell host (with WPF fallback)
+    private Border? _overviewWebViewHost;
+    private Microsoft.Web.WebView2.Wpf.WebView2? _overviewWebView;
+    private Grid? _legacyWpfShellRoot;
+    private bool _overviewWebViewReady;
+    private bool _overviewWebViewInitializing;
+    private bool _overviewWebViewInitStarted;
+    private bool _overviewWebViewFailed;
+    private int _webUiConfigRev = 1;
+    private string _copiedTotpViaId = "";
+    private string _authErrorMessage = "";
+    private string _authSuccessMessage = "";
+    private string _telegramStatusMessage = "";
+    private bool _telegramStatusOk = true;
+    private List<TelegramDetectedChatDto> _detectedTelegramChats = new();
+
+    // Live Step-by-Step Runner Monitor state (updated every 1s)
+    private bool _liveRunnerActive;
+    private bool _liveRunnerPaused;
+    private bool _liveRunnerCompleted;
+    private bool _skipCurrentRunnerStepRequested;
+    private string _liveRunnerViaId = "";
+    private string _liveRunnerViaLabel = "";
+    private string _liveRunnerProfileDir = "";
+    private string _liveRunnerEngineMode = "0% chiếm chuột • Chạy ngầm";
+    private int _liveRunnerCurrentStepIdx;
+    private int _liveRunnerTotalSteps;
+    private string _liveRunnerCurrentStepTitle = "";
+    private int _liveRunnerStepDurationSec = 12;
+    private DateTime _liveRunnerStartedAtUtc = DateTime.MinValue;
+    private DateTime _liveRunnerStepStartedAtUtc = DateTime.MinValue;
+    private int _liveRunnerFinishedTotalSec;
+    private readonly List<WebLiveRunnerStepDto> _liveRunnerSteps = new();
 
     public MainWindow(bool startMinimized = false)
     {
@@ -179,7 +221,7 @@ internal sealed partial class MainWindow : Window
             LaunchViaQueueItemAsync,
             OnQueueCompletedAsync,
             AppendLog,
-            getActiveBrowserCount: () => ChromeSessionTracker.Default.GetSnapshot().Count(s => s.Alive));
+            getActiveBrowserCount: () => ChromeSessionTracker.Default.GetActiveAutomationBrowserCount() + (_liveRunnerActive ? 1 : 0));
         _queue.SnapshotChanged += OnQueueSnapshotChanged;
 
         Title = $"AdsOps Desktop Pro v{DesktopAppInfo.Version}";
@@ -256,7 +298,8 @@ internal sealed partial class MainWindow : Window
         Grid.SetColumn(mainArea, 1);
         root.Children.Add(mainArea);
 
-        Content = root;
+        _legacyWpfShellRoot = root;
+        Content = !_overviewWebViewFailed ? EnsureOverviewWebViewHost() : root;
     }
 
     private Border BuildSidebar()
@@ -690,12 +733,21 @@ internal sealed partial class MainWindow : Window
     {
         if (_started) return;
         _started = true;
-        await OnWindowLoadedAsync();
+        try
+        {
+            await OnWindowLoadedAsync();
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"LỖI KHỞI ĐỘNG: {ex}");
+            var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AdsOpsDesktop", "runtime.log");
+            try { File.AppendAllText(logPath, $"[{DateTime.UtcNow:O}] EnsureStartedAsync EXCEPTION: {ex}\n"); } catch { }
+        }
     }
 
     private async Task OnWindowLoadedAsync()
     {
-        AppendLog($"Khởi động AdsOps Desktop Pro v{DesktopAppInfo.Version} (WPF Dark UI + DPAPI Vault + Local TOTP + Retainers/Team).");
+        AppendLog($"Khởi động AdsOps Desktop Pro v{DesktopAppInfo.Version} (Unified shadcn/ui App Shell + DPAPI Vault + Local TOTP + Retainers/Team).");
         _chromeProfiles = ExtensionProvisioner.ReadLocalChromeProfiles();
         AppendLog($"Phát hiện {_chromeProfiles.Count} Chrome Profile trên máy Windows.");
 
@@ -717,7 +769,7 @@ internal sealed partial class MainWindow : Window
                 try { ProvisionAllViaExtensions(silent: true); } catch { }
                 RenderCurrentView();
             }
-            await SyncCloudAsync(silent: false);
+            await SyncCloudAsync(silent: cached != null);
             try { ProvisionAllViaExtensions(silent: true); } catch { }
         }
         else
@@ -805,7 +857,8 @@ internal sealed partial class MainWindow : Window
                 OnBridgeTileWindows,
                 () => _config.GetOrCreateBridgeToken(),
                 () => _config.WebAppUrl,
-                OnBridgeBenchmarkEnginesAsync);
+                OnBridgeBenchmarkEnginesAsync,
+                onRestoreWindow: () => Dispatcher.BeginInvoke(RestoreFromTray));
             _bridge.Start();
             var tpl = ExtensionProvisioner.LoadTemplates();
             AppendLog($"Local Bridge v{DesktopAppInfo.Version} Zero-Trust đang lắng nghe tại http://127.0.0.1:{_bridge.BoundPort} (Ext v{tpl.Version}).");
@@ -887,29 +940,12 @@ internal sealed partial class MainWindow : Window
                     AntidetectEngine = eng,
                     AntidetectProfileId = adId,
                 };
-                if (eng != "chrome_native" && !string.IsNullOrWhiteSpace(adId))
-                {
-                    _ = LaunchViaBrowserAsync(tempVia, url, interactiveAlerts: false);
-                    tcs.TrySetResult((true, $"Đã gửi lệnh mở {AntidetectBrowserConnector.GetDisplayName(eng)} #{adId}."));
-                    return;
-                }
-
-                var extFolder = ExtensionProvisioner.ProvisionForVia(tempVia, config: _config);
-                var effectiveIso = ExtensionProvisioner.ShouldUseIsolatedProfile(_config.UseIsolatedProfiles, fallbackProfile, tempVia.NetworkLabel, hasVaultCookie: false, tempVia.Label);
-                var sw = Stopwatch.StartNew();
-                var launchInfo = ExtensionProvisioner.LaunchChromeDetailed(
-                    url,
-                    fallbackProfile,
-                    extFolder,
-                    effectiveIso,
-                    tempVia.Label,
-                    _config.EnableChromeAntidetectShield,
-                    _config.LowRamFarmMode);
-                sw.Stop();
-                AntidetectEngineBenchmarkStore.Default.RecordStartup("chrome_native", (int)sw.ElapsedMilliseconds);
-                ChromeSessionTracker.Default.RecordLaunch(launchInfo.Pid, null, tempVia.Label, fallbackProfile, url, "chrome_native", launchInfo.DelegatedToSharedBroker, launchInfo.IsolatedMode);
-                AppendLog($"Mở nhanh Chrome từ Web/Bridge ({(launchInfo.IsolatedMode ? "Cô lập" : "Profile gốc")}): Profile '{fallbackProfile}' -> {url}");
-                tcs.TrySetResult((true, $"Đã mở Chrome '{fallbackProfile}'."));
+                _ = LaunchViaBrowserAsync(tempVia, url, interactiveAlerts: false);
+                var dispTarget = eng != "chrome_native" && !string.IsNullOrWhiteSpace(adId)
+                    ? $"{AntidetectBrowserConnector.GetDisplayName(eng)} #{adId}"
+                    : $"Chrome '{fallbackProfile}'";
+                tcs.TrySetResult((true, $"Đã gửi lệnh mở {dispTarget}."));
+                return;
             }
             catch (Exception ex)
             {
@@ -937,8 +973,22 @@ internal sealed partial class MainWindow : Window
         var resolvedViaId = !string.IsNullOrWhiteSpace(payload.ViaId) ? payload.ViaId : matched?.ViaId;
         var resolvedViaLabel = !string.IsNullOrWhiteSpace(payload.ViaLabel) ? payload.ViaLabel : matched?.Label;
 
+        if (!string.Equals(payload.Source, "native_runner", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!string.IsNullOrWhiteSpace(resolvedViaId)) _extHeartbeatByVia[resolvedViaId.Trim()] = DateTimeOffset.UtcNow;
+            if (!string.IsNullOrWhiteSpace(resolvedViaLabel)) _extHeartbeatByVia[resolvedViaLabel.Trim()] = DateTimeOffset.UtcNow;
+        }
+
         if (isSafetyFreeze)
         {
+            if (!string.IsNullOrWhiteSpace(resolvedViaId))
+            {
+                lock (_keepAliveFailedVias) _keepAliveFailedVias.Add(resolvedViaId.Trim());
+            }
+            _liveRunnerActive = false;
+            _liveRunnerPaused = false;
+            _queue.MarkItemCompleted(resolvedViaId, resolvedViaLabel);
+
             var reasonText = $"{evType}: {(string.IsNullOrWhiteSpace(payload.Detail) ? "Tự động đóng băng bảo vệ tài khoản" : payload.Detail)}";
             ViaStewardshipStore.Default.TriggerCooldown(
                 resolvedViaId,
@@ -960,14 +1010,41 @@ internal sealed partial class MainWindow : Window
                 _tray?.ShowBalloon(
                     evType == "IP_LEAK_BLOCKED" ? "🚨 CHẶN RÒ RỈ IP PROXY" : "🛑 CẢNH BÁO CHECKPOINT",
                     $"Via '{resolvedViaLabel ?? "Via"}' đã được đóng băng Cooldown {_config.AutoCooldownHours}h: {payload.Detail}");
-                if (_activeView is AppView.Vias or AppView.Overview or AppView.Automation)
+                if (!_overviewWebViewFailed || _activeView is AppView.Vias or AppView.Overview or AppView.Automation)
                 {
                     RenderCurrentView();
                 }
             });
         }
+        else if (string.Equals(evType, "COOKIE_LOGGED_OUT", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!string.IsNullOrWhiteSpace(resolvedViaId))
+            {
+                lock (_keepAliveFailedVias) _keepAliveFailedVias.Add(resolvedViaId.Trim());
+            }
+            _liveRunnerActive = false;
+            _liveRunnerPaused = false;
+            _queue.MarkItemCompleted(resolvedViaId, resolvedViaLabel);
+            _liveActionProgressDetail = $"Via: {resolvedViaLabel ?? "Via"} • ⚠️ Chưa đăng nhập FB (đã giữ cửa sổ để đăng nhập)";
+            _liveActionProgressAt = DateTimeOffset.UtcNow;
+            AppendLog($"⚠️ [Chưa có phiên FB] Via '{resolvedViaLabel ?? "Via"}' đang ở màn hình đăng nhập ({payload.Detail}) — đã giữ nguyên cửa sổ để bạn đăng nhập 1 lần!");
+            _ = Dispatcher.BeginInvoke(UpdateLiveQueueWidgets);
+            return new BrowserEventResponseDto { Ok = true, EventType = payload.EventType };
+        }
         else if (isKeepAliveOk)
         {
+            _liveActionProgressDetail = "";
+            lock (_liveRunnerSteps)
+            {
+                foreach (var st in _liveRunnerSteps) st.Status = "done";
+            }
+            _liveRunnerFinishedTotalSec = _liveRunnerStartedAtUtc != DateTime.MinValue
+                ? Math.Max(1, (int)Math.Round((DateTime.UtcNow - _liveRunnerStartedAtUtc).TotalSeconds))
+                : Math.Max(1, payload.DurationSec);
+            _liveRunnerActive = false;
+            _liveRunnerPaused = false;
+            _liveRunnerCompleted = true;
+            _queue.MarkItemCompleted(resolvedViaId, resolvedViaLabel);
             ViaStewardshipStore.Default.RecordKeepAliveSuccess(
                 resolvedViaId,
                 resolvedViaLabel,
@@ -977,6 +1054,110 @@ internal sealed partial class MainWindow : Window
             {
                 _ = Dispatcher.BeginInvoke(() => { matched.KeepAliveSuccessCount++; });
             }
+            if (_config.AutoRefreshCookieAfterKeepAlive)
+            {
+                var cdpMatch = ChromeSessionTracker.Default.GetSnapshot().FirstOrDefault(s =>
+                    s.CdpPort is > 0 &&
+                    ((!string.IsNullOrWhiteSpace(resolvedViaId) && string.Equals(s.ViaId, resolvedViaId, StringComparison.OrdinalIgnoreCase)) ||
+                     (!string.IsNullOrWhiteSpace(resolvedViaLabel) && string.Equals(s.ViaLabel, resolvedViaLabel, StringComparison.OrdinalIgnoreCase))));
+                if (cdpMatch?.CdpPort is int cdpPortVal && cdpPortVal > 0)
+                {
+                    var curSecret = LocalSecretVaultStore.Default.Find(resolvedViaId, matched?.ProfileDir ?? payload.BrowserProfile, resolvedViaLabel);
+                    if (string.IsNullOrWhiteSpace(curSecret.CookieRaw))
+                    {
+                        var harvested = await ChromeCdpController.TryHarvestFacebookCookieHeaderAsync(cdpPortVal, 1800).ConfigureAwait(false);
+                        if (!string.IsNullOrWhiteSpace(harvested))
+                        {
+                            LocalSecretVaultStore.Default.Upsert(
+                                resolvedViaId ?? cdpMatch.ViaId,
+                                resolvedViaLabel ?? cdpMatch.ViaLabel,
+                                matched?.ProfileDir ?? payload.BrowserProfile ?? cdpMatch.ProfileDir,
+                                harvested,
+                                "");
+                            if (matched != null) matched.HasVaultCookie = true;
+                            AppendLog($"🔑 [Auto-Vault CDP] Đã trích xuất & lưu Cookie FB mới cho '{resolvedViaLabel ?? "Via"}' vào Két DPAPI.");
+                        }
+                    }
+                }
+            }
+            AppendLog($"🎉 [Kịch bản Hoàn tất] Via '{resolvedViaLabel ?? "Via"}' đã hoàn thành chu trình tương tác ({_liveRunnerFinishedTotalSec}s): {payload.Detail ?? "Thành công"}");
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                UpdateLiveQueueWidgets();
+                if (_queueSummaryText != null)
+                {
+                    _queueSummaryText.Text = $"Hoàn tất kịch bản ({_liveRunnerFinishedTotalSec}s) — Via: {resolvedViaLabel ?? "Via"} • ✓ Đã hoàn thành ({payload.Detail ?? "OK"})";
+                }
+            });
+        }
+        else if (string.Equals(evType, "KEEPALIVE_STEP", StringComparison.OrdinalIgnoreCase))
+        {
+            var stepDesc = !string.IsNullOrWhiteSpace(payload.Detail)
+                ? payload.Detail
+                : $"Bước {payload.StepIndex}/{payload.TotalSteps}: {payload.StepTitle}";
+            int stepIdx = Math.Max(1, payload.StepIndex);
+            int totalSt = Math.Max(stepIdx, payload.TotalSteps > 0 ? payload.TotalSteps : Math.Max(1, _liveRunnerTotalSteps));
+            int waitSec = Math.Max(1, payload.WaitSeconds > 0 ? payload.WaitSeconds : 10);
+            var cleanTitle = !string.IsNullOrWhiteSpace(payload.StepTitle) ? payload.StepTitle! : stepDesc;
+
+            if (!_liveRunnerActive && _liveRunnerStartedAtUtc == DateTime.MinValue)
+            {
+                _liveRunnerStartedAtUtc = DateTime.UtcNow;
+            }
+            _liveRunnerActive = true;
+            _liveRunnerCompleted = false;
+            if (!string.IsNullOrWhiteSpace(resolvedViaId)) _liveRunnerViaId = resolvedViaId!;
+            if (!string.IsNullOrWhiteSpace(resolvedViaLabel)) _liveRunnerViaLabel = resolvedViaLabel!;
+            if (!string.IsNullOrWhiteSpace(matched?.ProfileDir ?? payload.BrowserProfile))
+            {
+                _liveRunnerProfileDir = (matched?.ProfileDir ?? payload.BrowserProfile)!;
+            }
+            _liveRunnerCurrentStepIdx = stepIdx;
+            _liveRunnerTotalSteps = totalSt;
+            _liveRunnerCurrentStepTitle = cleanTitle;
+            _liveRunnerStepDurationSec = waitSec;
+            _liveRunnerStepStartedAtUtc = DateTime.UtcNow;
+
+            lock (_liveRunnerSteps)
+            {
+                while (_liveRunnerSteps.Count < totalSt)
+                {
+                    int nextI = _liveRunnerSteps.Count + 1;
+                    _liveRunnerSteps.Add(new WebLiveRunnerStepDto
+                    {
+                        Index = nextI,
+                        Key = $"step_{nextI}",
+                        Icon = "⚡",
+                        Title = $"Bước {nextI}",
+                        DurationSec = waitSec,
+                        Status = "pending",
+                    });
+                }
+                for (int i = 0; i < _liveRunnerSteps.Count; i++)
+                {
+                    var st = _liveRunnerSteps[i];
+                    if (st.Index < stepIdx)
+                    {
+                        st.Status = "done";
+                    }
+                    else if (st.Index == stepIdx)
+                    {
+                        st.Status = "running";
+                        st.Title = cleanTitle;
+                        st.DurationSec = waitSec;
+                    }
+                    else
+                    {
+                        st.Status = "pending";
+                    }
+                }
+            }
+
+            AppendLog($"☕ [Kịch bản] Via '{resolvedViaLabel ?? "Via"}' -> {stepDesc} ({waitSec}s)");
+            _liveActionProgressDetail = $"Via: {resolvedViaLabel ?? "Via"} • ☕ {stepDesc} ({waitSec}s)";
+            _liveActionProgressAt = DateTimeOffset.UtcNow;
+            _ = Dispatcher.BeginInvoke(UpdateLiveQueueWidgets);
+            return new BrowserEventResponseDto { Ok = true, EventType = payload.EventType };
         }
         else if (isPendingInvitesCount)
         {
@@ -997,6 +1178,7 @@ internal sealed partial class MainWindow : Window
         }
         else if (isPageInviteOk)
         {
+            _queue.MarkItemCompleted(resolvedViaId, resolvedViaLabel);
             int invitedAdded = 1;
             if (!string.IsNullOrWhiteSpace(payload.Detail))
             {
@@ -1023,7 +1205,7 @@ internal sealed partial class MainWindow : Window
             AppendLog($"🤝 [Auto-Invite Page] Via '{resolvedViaLabel ?? "Via"}' hoàn tất mời theo dõi Fanpage ({payload.Detail ?? "OK"}). Tổng tích lũy: {_config.TotalPageFollowerInvitesSent} lời mời.");
             _ = Dispatcher.BeginInvoke(() =>
             {
-                if (_activeView is AppView.PagesBm or AppView.Automation or AppView.Overview)
+                if (!_overviewWebViewFailed || _activeView is AppView.PagesBm or AppView.Automation or AppView.Overview)
                 {
                     RenderCurrentView();
                 }
@@ -1033,7 +1215,18 @@ internal sealed partial class MainWindow : Window
         var shouldCloseWindow = (isKeepAliveOk || isPageInviteOk) && _config.AutoCloseKeepAliveWindow;
         if (shouldCloseWindow)
         {
-            ChromeSessionTracker.Default.MarkKeepAliveClosed(payload.ViaId, payload.ViaLabel, payload.BrowserProfile);
+            var closeVid = resolvedViaId ?? payload.ViaId;
+            var closeVlbl = resolvedViaLabel ?? payload.ViaLabel;
+            var closeProf = payload.BrowserProfile;
+            ChromeSessionTracker.Default.MarkKeepAliveClosed(closeVid, closeVlbl, closeProf);
+            if (!string.Equals(payload.Source, "native_runner", StringComparison.OrdinalIgnoreCase))
+            {
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(1600).ConfigureAwait(false);
+                    ChromeSessionTracker.Default.CloseTrackedKeepAliveWindow(closeVid, closeVlbl, closeProf);
+                });
+            }
         }
 
         BrowserEventResponseDto resp;
@@ -1241,47 +1434,79 @@ internal sealed partial class MainWindow : Window
         SetBusy(true);
         try
         {
-            async Task<T> TryFetchAsync<T>(Func<Task<T>> call, T fallback, string label)
+            using var syncGate = new SemaphoreSlim(6, 6);
+
+            async Task<T> RunGatedAsync<T>(Func<Task<T>> call)
             {
-                try { return await call(); }
-                catch (Exception ex)
+                await syncGate.WaitAsync().ConfigureAwait(false);
+                try
                 {
-                    AppendLog($"Bỏ qua {label} (tùy chọn): {ex.Message}");
-                    return fallback;
+                    return await call().ConfigureAwait(false);
+                }
+                finally
+                {
+                    syncGate.Release();
                 }
             }
 
-            _currentUser = await _api.GetCurrentUserAsync();
-            var accountsTask = _api.ListPersonalAccountsAsync();
-            var bmsTask = _api.ListBusinessManagersAsync();
-            var adAccsTask = _api.ListAdAccountsAsync();
-            var pagesTask = _api.GetPagesSummaryAsync();
-            var alertSumTask = _api.GetAlertsSummaryAsync();
-            var alertsTask = _api.ListAlertsAsync(25);
-            var cronTask = _api.GetAutomationCronStatusAsync();
-            var metaConnTask = TryFetchAsync(() => _api.ListMetaConnectionsAsync(), new List<MetaConnectionDto>(), "Meta Connections");
-            var healthSumTask = TryFetchAsync(() => _api.GetAccountHealthSummaryAsync(), new HealthSummaryDto(), "Tóm tắt sức khỏe TKQC");
-            var healthRowsTask = TryFetchAsync(() => _api.ListAccountHealthAsync(100), new PagedAccountHealthDto(), "Sức khỏe TKQC");
-            var draftsTask = TryFetchAsync(() => _api.ListCampaignDraftsAsync(25), new PagedCampaignDraftsDto(), "Pre-flight Campaign Drafts");
-            var telegramTask = TryFetchAsync(() => _api.GetTelegramBotConfigAsync(), new TelegramBotConfigDto(), "Telegram Bot Config");
-            var spendSumTask = TryFetchAsync(() => _api.GetSpendSummaryAsync(), new SpendSummaryDto(), "Tổng hợp Chi tiêu");
-            var sessionsTask = TryFetchAsync(() => _api.ListMyDeviceSessionsAsync(), new List<DeviceSessionDto>(), "Phiên Thiết bị Cloud");
-            var proxyMapTask = TryFetchAsync(() => _api.GetProxyHealthMapAsync(), new Dictionary<string, ProxyCheckResultDto>(), "Bản đồ Live Proxy");
-            var readinessSumTask = TryFetchAsync(() => _api.GetReadinessSummaryAsync(), new ReadinessSummaryDto(), "Tóm tắt Readiness");
-            var readinessBoardTask = TryFetchAsync(() => _api.GetReadinessBoardAsync(200), new ReadinessBoardDto(), "Readiness Board");
-            var auditTask = TryFetchAsync(() => _api.ListAuditLogsAsync(1, 50), new PagedResponse<AuditLogEntryDto>(), "Live Audit Logs");
-            var pixelsTask = TryFetchAsync(() => _api.ListPixelsAsync(100), new PagedResponse<PixelDto>(), "Meta Pixels");
-            var domainSeoTask = TryFetchAsync(() => _api.GetDomainSeoConfigAsync(), new DomainSeoConfigDto(), "Domain & SEO Config");
-            var retainersTask = TryFetchAsync(() => _api.GetClientRetainersAsync(), new ClientRetainersOverviewDto(), "Client Retainers");
-            var teamSumTask = TryFetchAsync<TeamSummaryDto?>(async () => await _api.GetTeamSummaryAsync(), null, "Team Summary");
-            var teamMemTask = TryFetchAsync(() => _api.ListTeamMembersAsync(), new List<TeamMemberDto>(), "Team Members");
-            var teamInvTask = TryFetchAsync(() => _api.ListTeamInvitationsAsync(), new List<TeamInvitationDto>(), "Team Invitations");
-            var quotaTask = TryFetchAsync<CommunityQuotaDto?>(async () => await _api.GetMyCommunityQuotaAsync(), null, "Hạn mức Cộng đồng");
-            var playbooksTask = TryFetchAsync(() => _api.ListPlaybooksAsync(), new List<AutomationPlaybookDto>(), "Kịch bản Team");
-            var launchAuditTask = TryFetchAsync(() => _api.GetProfileLaunchAuditAsync(50), new List<ProfileLaunchAuditDto>(), "Nhật ký Mở Profile");
+            async Task<T> TryFetchGatedAsync<T>(Func<Task<T>> call, T fallback, string label)
+            {
+                await syncGate.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    return await call().ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (_allowExit)
+                {
+                    return fallback;
+                }
+                catch (Exception ex)
+                {
+                    if (!silent)
+                    {
+                        AppendLog($"Bỏ qua {label} (tùy chọn): {ex.Message}");
+                    }
+                    return fallback;
+                }
+                finally
+                {
+                    syncGate.Release();
+                }
+            }
+
+            _currentUser = await RunGatedAsync(() => _api.GetCurrentUserAsync());
+            var accountsTask = RunGatedAsync(() => _api.ListPersonalAccountsAsync());
+            var bmsTask = RunGatedAsync(() => _api.ListBusinessManagersAsync());
+            var adAccsTask = RunGatedAsync(() => _api.ListAdAccountsAsync());
+            var pagesTask = RunGatedAsync(() => _api.GetPagesSummaryAsync());
+            var alertSumTask = TryFetchGatedAsync(() => _api.GetAlertsSummaryAsync(), _alertSummary ?? new AlertSummaryDto(), "Tóm tắt Cảnh báo");
+            var alertsTask = TryFetchGatedAsync(() => _api.ListAlertsAsync(25), new PagedAlertsDto { Items = _alerts }, "Danh sách Cảnh báo");
+            var cronTask = TryFetchGatedAsync(() => _api.GetAutomationCronStatusAsync(), _cronStatus ?? new AutomationCronStatusDto(), "Trạng thái Cloud Cron");
+
+            await Task.WhenAll(accountsTask, bmsTask, adAccsTask, pagesTask, alertSumTask, alertsTask, cronTask);
+
+            var metaConnTask = TryFetchGatedAsync(() => _api.ListMetaConnectionsAsync(), new List<MetaConnectionDto>(), "Meta Connections");
+            var healthSumTask = TryFetchGatedAsync(() => _api.GetAccountHealthSummaryAsync(), new HealthSummaryDto(), "Tóm tắt sức khỏe TKQC");
+            var healthRowsTask = TryFetchGatedAsync(() => _api.ListAccountHealthAsync(100), new PagedAccountHealthDto(), "Sức khỏe TKQC");
+            var draftsTask = TryFetchGatedAsync(() => _api.ListCampaignDraftsAsync(25), new PagedCampaignDraftsDto(), "Pre-flight Campaign Drafts");
+            var telegramTask = TryFetchGatedAsync(() => _api.GetTelegramBotConfigAsync(), new TelegramBotConfigDto(), "Telegram Bot Config");
+            var spendSumTask = TryFetchGatedAsync(() => _api.GetSpendSummaryAsync(), new SpendSummaryDto(), "Tổng hợp Chi tiêu");
+            var sessionsTask = TryFetchGatedAsync(() => _api.ListMyDeviceSessionsAsync(), new List<DeviceSessionDto>(), "Phiên Thiết bị Cloud");
+            var proxyMapTask = TryFetchGatedAsync(() => _api.GetProxyHealthMapAsync(), new Dictionary<string, ProxyCheckResultDto>(), "Bản đồ Live Proxy");
+            var readinessSumTask = TryFetchGatedAsync(() => _api.GetReadinessSummaryAsync(), new ReadinessSummaryDto(), "Tóm tắt Readiness");
+            var readinessBoardTask = TryFetchGatedAsync(() => _api.GetReadinessBoardAsync(200), new ReadinessBoardDto(), "Readiness Board");
+            var auditTask = TryFetchGatedAsync(() => _api.ListAuditLogsAsync(1, 50), new PagedResponse<AuditLogEntryDto>(), "Live Audit Logs");
+            var pixelsTask = TryFetchGatedAsync(() => _api.ListPixelsAsync(100), new PagedResponse<PixelDto>(), "Meta Pixels");
+            var domainSeoTask = TryFetchGatedAsync(() => _api.GetDomainSeoConfigAsync(), new DomainSeoConfigDto(), "Domain & SEO Config");
+            var retainersTask = TryFetchGatedAsync(() => _api.GetClientRetainersAsync(), new ClientRetainersOverviewDto(), "Client Retainers");
+            var teamSumTask = TryFetchGatedAsync<TeamSummaryDto?>(async () => await _api.GetTeamSummaryAsync(), null, "Team Summary");
+            var teamMemTask = TryFetchGatedAsync(() => _api.ListTeamMembersAsync(), new List<TeamMemberDto>(), "Team Members");
+            var teamInvTask = TryFetchGatedAsync(() => _api.ListTeamInvitationsAsync(), new List<TeamInvitationDto>(), "Team Invitations");
+            var quotaTask = TryFetchGatedAsync<CommunityQuotaDto?>(async () => await _api.GetMyCommunityQuotaAsync(), null, "Hạn mức Cộng đồng");
+            var playbooksTask = TryFetchGatedAsync(() => _api.ListPlaybooksAsync(), new List<AutomationPlaybookDto>(), "Kịch bản Team");
+            var launchAuditTask = TryFetchGatedAsync(() => _api.GetProfileLaunchAuditAsync(50), new List<ProfileLaunchAuditDto>(), "Nhật ký Mở Profile");
 
             await Task.WhenAll(
-                accountsTask, bmsTask, adAccsTask, pagesTask, alertSumTask, alertsTask, cronTask,
                 metaConnTask, healthSumTask, healthRowsTask, draftsTask,
                 telegramTask, spendSumTask, sessionsTask,
                 proxyMapTask, readinessSumTask, readinessBoardTask, auditTask,
@@ -1361,6 +1586,11 @@ internal sealed partial class MainWindow : Window
             bool is401 = ex.Message.Contains("API 401", StringComparison.OrdinalIgnoreCase)
                       || ex.Message.Contains("expired", StringComparison.OrdinalIgnoreCase)
                       || ex.Message.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase);
+            if (!is401 && silent && _hasLoadedOnce && _vias.Count > 0)
+            {
+                AppendLog($"ℹ️ Đồng bộ ngầm tạm hoãn ({ex.Message}) — Đang giữ nguyên dữ liệu phiên hiện tại.");
+                return;
+            }
             _isAuthExpired = is401;
             SetErrorRetryButtonLabel(is401 ? "Đăng nhập lại (Nhớ 24/7)" : "Thử lại");
             _lastErrorMessage = is401
@@ -1682,6 +1912,8 @@ internal sealed partial class MainWindow : Window
             {
                 AppendLog($"⚠️ Lưu ý: Via '{via.Label}' đang trong thời gian Cooldown ({via.CooldownReason}). Mở trình duyệt để kiểm tra thủ công.");
             }
+            var vaultSecret = LocalSecretVaultStore.Default.Find(via.ViaId, via.ProfileDir, via.Label);
+            via.HasVaultCookie = vaultSecret.Found && !string.IsNullOrWhiteSpace(vaultSecret.CookieRaw);
             via.ExtensionFolder = ExtensionProvisioner.ProvisionForVia(via, config: _config);
 
             var normEng = AntidetectBrowserConnector.NormalizeEngine(via.AntidetectEngine);
@@ -1711,8 +1943,7 @@ internal sealed partial class MainWindow : Window
                     .Where(p => p.Online && p.Engine != "chrome_native" && !string.Equals(p.Engine, normEng, StringComparison.OrdinalIgnoreCase))
                     .Select(p => $"{AntidetectBrowserConnector.GetDisplayName(p.Engine)} ({p.LatencyMs}ms)")
                     .ToList();
-                var vaultCheck = LocalSecretVaultStore.Default.Find(via.ViaId, via.ProfileDir, via.Label);
-                var hasDpapiSession = vaultCheck.Found && (!string.IsNullOrWhiteSpace(vaultCheck.CookieRaw) || !string.IsNullOrWhiteSpace(vaultCheck.TwoFaSecret));
+                var hasDpapiSession = vaultSecret.Found && (!string.IsNullOrWhiteSpace(vaultSecret.CookieRaw) || !string.IsNullOrWhiteSpace(vaultSecret.TwoFaSecret));
 
                 bool shouldFailover = _config.AutoFailoverToChromeNative;
                 if (!shouldFailover && interactiveAlerts)
@@ -1741,21 +1972,35 @@ internal sealed partial class MainWindow : Window
                     via.HasVaultCookie,
                     via.Label);
                 var swFail = Stopwatch.StartNew();
-                var failInfo = await Task.Run(() => ExtensionProvisioner.LaunchChromeDetailed(
+                var failInfo = await ExtensionProvisioner.LaunchChromeSmartAsync(
                     targetUrl,
                     via.ProfileDir,
                     via.ExtensionFolder,
                     effectiveIsoFail,
                     via.Label,
                     _config.EnableChromeAntidetectShield,
-                    _config.LowRamFarmMode));
+                    _config.LowRamFarmMode,
+                    vaultSecret.CookieRaw);
                 swFail.Stop();
                 AntidetectEngineBenchmarkStore.Default.RecordStartup("chrome_native", (int)swFail.ElapsedMilliseconds);
-                ChromeSessionTracker.Default.RecordLaunch(failInfo.Pid, via.ViaId, via.Label, via.ProfileDir, targetUrl, "chrome_native", failInfo.DelegatedToSharedBroker, failInfo.IsolatedMode);
+                ChromeSessionTracker.Default.RecordLaunch(
+                    failInfo.Pid,
+                    via.ViaId,
+                    via.Label,
+                    via.ProfileDir,
+                    targetUrl,
+                    "chrome_native",
+                    failInfo.DelegatedToSharedBroker,
+                    failInfo.IsolatedMode,
+                    failInfo.CdpPort,
+                    failInfo.WindowHandle);
                 RefreshLiveSessionTelemetryOnVias();
-                var failoverMode = failInfo.IsolatedMode ? "Chrome Gốc Cô lập" : "Chrome Profile gốc";
+                var failoverMode = failInfo.IsolatedMode
+                    ? $"Chrome Gốc Cô lập CDP:{failInfo.CdpPort} (Ext {(failInfo.ExtensionLoadedViaCdp ? "OK" : "Warn")})"
+                    : $"Chrome Profile gốc (HWND 0x{failInfo.WindowHandle.ToInt64():X})";
                 var failoverDetail = $"Auto-Failover từ {AntidetectBrowserConnector.GetDisplayName(normEng)} (offline/lỗi) sang {failoverMode}";
                 AppendLog($"🛡️ {failoverDetail} cho Via '{via.Label}' ({swFail.ElapsedMilliseconds}ms).");
+                StartNativeRunnerIfNeeded(via, targetUrl, failInfo.IsolatedMode, failInfo.WindowHandle);
                 _ = SendProfileLifecycleEventNonBlockingAsync("ENGINE_FAILOVER", via, targetUrl, (int)swFail.ElapsedMilliseconds, "chrome_native", failoverFrom: normEng, detail: failoverDetail);
                 return;
             }
@@ -1767,20 +2012,34 @@ internal sealed partial class MainWindow : Window
                 via.HasVaultCookie,
                 via.Label);
             var sw = Stopwatch.StartNew();
-            var launchInfo = await Task.Run(() => ExtensionProvisioner.LaunchChromeDetailed(
+            var launchInfo = await ExtensionProvisioner.LaunchChromeSmartAsync(
                 targetUrl,
                 via.ProfileDir,
                 via.ExtensionFolder,
                 effectiveIso,
                 via.Label,
                 _config.EnableChromeAntidetectShield,
-                _config.LowRamFarmMode));
+                _config.LowRamFarmMode,
+                vaultSecret.CookieRaw);
             sw.Stop();
             AntidetectEngineBenchmarkStore.Default.RecordStartup("chrome_native", (int)sw.ElapsedMilliseconds);
-            ChromeSessionTracker.Default.RecordLaunch(launchInfo.Pid, via.ViaId, via.Label, via.ProfileDir, targetUrl, "chrome_native", launchInfo.DelegatedToSharedBroker, launchInfo.IsolatedMode);
+            ChromeSessionTracker.Default.RecordLaunch(
+                launchInfo.Pid,
+                via.ViaId,
+                via.Label,
+                via.ProfileDir,
+                targetUrl,
+                "chrome_native",
+                launchInfo.DelegatedToSharedBroker,
+                launchInfo.IsolatedMode,
+                launchInfo.CdpPort,
+                launchInfo.WindowHandle);
             RefreshLiveSessionTelemetryOnVias();
-            var launchModeTag = launchInfo.IsolatedMode ? "Cô lập --user-data-dir" : "Profile gốc Chrome";
+            var launchModeTag = launchInfo.IsolatedMode
+                ? $"Cô lập CDP:{launchInfo.CdpPort} · Ext {(launchInfo.ExtensionLoadedViaCdp ? $"v{DesktopAppInfo.ExtVersion} OK" : "Fallback")}"
+                : $"Profile gốc Chrome · HWND 0x{launchInfo.WindowHandle.ToInt64():X}";
             AppendLog($"Đã mở Chrome ({launchModeTag}) '{via.ProfileDir}' ({via.Label}, {(int)sw.ElapsedMilliseconds}ms) -> {targetUrl}");
+            StartNativeRunnerIfNeeded(via, targetUrl, launchInfo.IsolatedMode, launchInfo.WindowHandle);
             _ = SendProfileLifecycleEventNonBlockingAsync("PROFILE_LAUNCHED", via, targetUrl, (int)sw.ElapsedMilliseconds, "chrome_native");
         }
         catch (Exception ex)
@@ -1792,6 +2051,285 @@ internal sealed partial class MainWindow : Window
                     MessageBox.Show(this, ex.Message, "Không mở được Trình duyệt", MessageBoxButton.OK, MessageBoxImage.Warning));
             }
         }
+    }
+
+    private void StartNativeRunnerIfNeeded(ViaWorkspaceEntry via, string targetUrl, bool isolatedMode, IntPtr windowHandle)
+    {
+        bool isAutomationUrl = targetUrl.Contains("adsops_keepalive_session=1", StringComparison.OrdinalIgnoreCase)
+                            || targetUrl.Contains("adsops_keepalive=1", StringComparison.OrdinalIgnoreCase)
+                            || targetUrl.Contains("adsops_preads_warmup=1", StringComparison.OrdinalIgnoreCase);
+        if (!isAutomationUrl) return;
+
+        InitLiveRunnerForVia(via, targetUrl, isolatedMode, windowHandle);
+        if (isolatedMode || windowHandle == IntPtr.Zero) return;
+
+        var ct = GetOrCreateActiveRunnersToken();
+        _ = NativeChromeActionRunner.RunIfNeededAsync(
+            windowHandle,
+            via,
+            targetUrl,
+            key => _extHeartbeatByVia.TryGetValue(key, out var ts) && (DateTimeOffset.UtcNow - ts).TotalSeconds < 15,
+            ev => OnBridgeBrowserEventAsync(ev),
+            AppendLog,
+            _config.AutoCloseKeepAliveWindow,
+            ct,
+            isPaused: () => _liveRunnerPaused || _queue.Current.Phase == QueuePhase.Paused,
+            consumeSkipStep: () =>
+            {
+                if (!_skipCurrentRunnerStepRequested) return false;
+                _skipCurrentRunnerStepRequested = false;
+                return true;
+            });
+    }
+
+    private void InitLiveRunnerForVia(ViaWorkspaceEntry via, string targetUrl, bool isolatedMode, IntPtr windowHandle)
+    {
+        bool fastTest = targetUrl.Contains("adsops_fast_test=1", StringComparison.OrdinalIgnoreCase);
+        bool isPreAds = targetUrl.Contains("adsops_preads_warmup=1", StringComparison.OrdinalIgnoreCase);
+        var stepList = new List<WebLiveRunnerStepDto>();
+
+        if (isPreAds)
+        {
+            int sec = Math.Clamp(_config.PreAdsWarmupSeconds < 8 ? 20 : _config.PreAdsWarmupSeconds, 8, 90);
+            stepList.Add(new WebLiveRunnerStepDto
+            {
+                Index = 1,
+                Key = "preads_warmup",
+                Icon = "🛡️",
+                Title = "Đệm Newsfeed trước Ads Manager",
+                DurationSec = sec,
+                Status = "running",
+            });
+        }
+        else
+        {
+            var seqKeys = new List<string>();
+            try
+            {
+                if (Uri.TryCreate(targetUrl, UriKind.Absolute, out var u))
+                {
+                    var qs = System.Web.HttpUtility.ParseQueryString(u.Query);
+                    var rawRoute = qs["adsops_ka_route"] ?? "";
+                    foreach (var p in rawRoute.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    {
+                        seqKeys.Add(p);
+                    }
+                }
+            }
+            catch { }
+
+            if (seqKeys.Count == 0)
+            {
+                seqKeys = WarmupActionCatalog.GetEffectiveSequence(_config, via.ViaId, DateTime.Now)
+                    .Where(k => !string.Equals(k, "refresh_cookie_and_close", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            }
+            if (seqKeys.Count == 0) seqKeys.Add("scroll_feed");
+
+            for (int i = 0; i < seqKeys.Count; i++)
+            {
+                var key = seqKeys[i];
+                var meta = WarmupActionCatalog.FindByKey(key);
+                int estSec = fastTest ? 5 : EstimateStepSeconds(key);
+                stepList.Add(new WebLiveRunnerStepDto
+                {
+                    Index = i + 1,
+                    Key = key,
+                    Icon = meta?.Icon ?? "☕",
+                    Title = meta?.ShortTitle ?? key,
+                    DurationSec = estSec,
+                    Status = i == 0 ? "running" : "pending",
+                });
+            }
+        }
+
+        lock (_liveRunnerSteps)
+        {
+            _liveRunnerSteps.Clear();
+            _liveRunnerSteps.AddRange(stepList);
+        }
+
+        _liveRunnerViaId = via.ViaId;
+        _liveRunnerViaLabel = via.Label;
+        _liveRunnerProfileDir = via.ProfileDir;
+        _liveRunnerEngineMode = isolatedMode
+            ? "Chrome Cô lập CDP • 0% Chiếm chuột"
+            : $"Chrome Profile gốc (HWND 0x{windowHandle.ToInt64():X}) • 0% Chiếm chuột";
+        _liveRunnerCurrentStepIdx = 1;
+        _liveRunnerTotalSteps = stepList.Count;
+        _liveRunnerCurrentStepTitle = stepList[0].Title;
+        _liveRunnerStepDurationSec = stepList[0].DurationSec;
+        _liveRunnerStartedAtUtc = DateTime.UtcNow;
+        _liveRunnerStepStartedAtUtc = DateTime.UtcNow;
+        _liveRunnerFinishedTotalSec = 0;
+        _liveRunnerPaused = false;
+        _liveRunnerCompleted = false;
+        _skipCurrentRunnerStepRequested = false;
+        _liveRunnerActive = true;
+        _ = Dispatcher.BeginInvoke(UpdateLiveQueueWidgets);
+    }
+
+    private static int EstimateStepSeconds(string key) => (key ?? "").Trim().ToLowerInvariant() switch
+    {
+        "scroll_feed" or "feed" => 12,
+        "watch_reels" or "watch" => 12,
+        "react_feed_post" => 10,
+        "visit_internal_fanpage" => 13,
+        "view_photo_post" or "view_photo_comments" => 11,
+        "read_notifications" or "notif" => 9,
+        "search_keyword" => 11,
+        "visit_own_profile" or "profile" => 9,
+        "browse_marketplace" => 11,
+        "browse_groups" => 11,
+        "mbs_like_comments_and_invite" => 13,
+        "refresh_cookie_and_close" or "save_cookie_close" => 4,
+        _ => 11,
+    };
+
+    internal WebLiveRunnerStatusDto BuildLiveRunnerStatusDto()
+    {
+        List<WebLiveRunnerStepDto> stepsCopy;
+        lock (_liveRunnerSteps)
+        {
+            stepsCopy = _liveRunnerSteps.Select(s => new WebLiveRunnerStepDto
+            {
+                Index = s.Index,
+                Key = s.Key,
+                Icon = s.Icon,
+                Title = s.Title,
+                DurationSec = s.DurationSec,
+                Status = s.Status,
+            }).ToList();
+        }
+
+        int estTotal = Math.Max(5, stepsCopy.Sum(s => Math.Max(1, s.DurationSec)));
+        if (!_liveRunnerActive && !_liveRunnerCompleted)
+        {
+            return new WebLiveRunnerStatusDto
+            {
+                IsActive = false,
+                IsPaused = false,
+                IsCompleted = false,
+                Steps = stepsCopy,
+            };
+        }
+
+        int stepDur = Math.Max(1, _liveRunnerStepDurationSec);
+        int stepElapsed = _liveRunnerActive && _liveRunnerStepStartedAtUtc != DateTime.MinValue
+            ? Math.Clamp((int)(DateTime.UtcNow - _liveRunnerStepStartedAtUtc).TotalSeconds, 0, stepDur)
+            : (_liveRunnerCompleted ? stepDur : 0);
+        int stepRem = _liveRunnerActive ? Math.Max(0, stepDur - stepElapsed) : 0;
+        int stepPct = _liveRunnerCompleted ? 100 : Math.Clamp((int)Math.Round(stepElapsed * 100.0 / stepDur), 5, 100);
+
+        int totElapsed = _liveRunnerCompleted
+            ? Math.Max(1, _liveRunnerFinishedTotalSec)
+            : (_liveRunnerStartedAtUtc != DateTime.MinValue
+                ? Math.Max(0, (int)(DateTime.UtcNow - _liveRunnerStartedAtUtc).TotalSeconds)
+                : stepElapsed);
+
+        int doneStepsSec = stepsCopy.Where(s => s.Index < _liveRunnerCurrentStepIdx).Sum(s => s.DurationSec);
+        int pendingStepsSec = stepsCopy.Where(s => s.Index > _liveRunnerCurrentStepIdx).Sum(s => s.DurationSec);
+        int estRem = _liveRunnerActive ? Math.Max(0, stepRem + pendingStepsSec) : 0;
+        int effectiveEstTotal = Math.Max(estTotal, doneStepsSec + stepDur + pendingStepsSec);
+        int overallPct = _liveRunnerCompleted
+            ? 100
+            : Math.Clamp((int)Math.Round(((doneStepsSec + stepElapsed) * 100.0) / Math.Max(1, effectiveEstTotal)), 3, 99);
+
+        return new WebLiveRunnerStatusDto
+        {
+            IsActive = _liveRunnerActive,
+            IsPaused = _liveRunnerPaused || _queueSnapshot.Phase == QueuePhase.Paused,
+            IsCompleted = _liveRunnerCompleted,
+            ViaId = _liveRunnerViaId,
+            ViaLabel = _liveRunnerViaLabel,
+            ProfileDir = _liveRunnerProfileDir,
+            EngineModeLabel = _liveRunnerEngineMode,
+            CurrentStepIndex = _liveRunnerCurrentStepIdx,
+            TotalSteps = Math.Max(_liveRunnerTotalSteps, stepsCopy.Count),
+            CurrentStepTitle = _liveRunnerCurrentStepTitle,
+            StepDurationSec = stepDur,
+            StepElapsedSec = stepElapsed,
+            StepRemainingSec = stepRem,
+            StepProgressPercent = stepPct,
+            TotalElapsedSec = totElapsed,
+            EstimatedTotalSec = effectiveEstTotal,
+            EstimatedRemainingSec = estRem,
+            OverallProgressPercent = overallPct,
+            Steps = stepsCopy,
+        };
+    }
+
+    internal void ToggleQueueAndRunnerPause()
+    {
+        if (_queue.Current.Phase == QueuePhase.Paused || _liveRunnerPaused)
+        {
+            _liveRunnerPaused = false;
+            _queue.Resume();
+            AppendLog("▶️ Đã tiếp tục chạy kịch bản Tự động hóa.");
+        }
+        else if (_queue.Current.Phase is QueuePhase.Running or QueuePhase.Syncing || _liveRunnerActive)
+        {
+            _liveRunnerPaused = true;
+            _queue.Pause();
+            AppendLog("⏸️ Đã tạm dừng kịch bản Tự động hóa (bấm Tiếp tục để chạy tiếp).");
+        }
+        UpdateLiveQueueWidgets();
+    }
+
+    internal void SkipCurrentRunnerStepOrQueueWait()
+    {
+        if (_liveRunnerActive)
+        {
+            _skipCurrentRunnerStepRequested = true;
+            AppendLog($"⏭️ Đã yêu cầu bỏ qua bước hiện tại ({_liveRunnerCurrentStepTitle}) của Via '{_liveRunnerViaLabel}'.");
+        }
+        _queue.SkipCurrentWait();
+        UpdateLiveQueueWidgets();
+    }
+
+    internal void DismissCompletedQueueBanner()
+    {
+        _liveRunnerCompleted = false;
+        _liveRunnerActive = false;
+        _liveRunnerPaused = false;
+        _liveActionProgressDetail = "";
+        _queue.Stop();
+        UpdateLiveQueueWidgets();
+        RenderCurrentView();
+    }
+
+    internal void StopQueueAndActiveRunners()
+    {
+        bool wasOnlyCompletedBanner = !_liveRunnerActive &&
+                                      _queueSnapshot.Phase is QueuePhase.Completed or QueuePhase.Idle;
+        try { _activeRunnersCts?.Cancel(); } catch { }
+        _activeRunnersCts?.Dispose();
+        _activeRunnersCts = null;
+        _liveRunnerActive = false;
+        _liveRunnerPaused = false;
+        _liveRunnerCompleted = false;
+        _skipCurrentRunnerStepRequested = false;
+        _liveActionProgressDetail = "";
+        _queue.Stop();
+
+        if (!wasOnlyCompletedBanner)
+        {
+            var closedWins = ChromeSessionTracker.Default.CloseAllActiveAutomationSessions();
+            RefreshLiveSessionTelemetryOnVias();
+            AppendLog($"⏹️ Đã dừng hẳn kịch bản Tự động hóa{(closedWins > 0 ? $" và đóng {closedWins} cửa sổ Chrome Auto" : "")}.");
+        }
+        UpdateLiveQueueWidgets();
+        RenderCurrentView();
+    }
+
+    private CancellationToken GetOrCreateActiveRunnersToken()
+    {
+        if (_activeRunnersCts == null || _activeRunnersCts.IsCancellationRequested)
+        {
+            _activeRunnersCts?.Dispose();
+            _activeRunnersCts = new CancellationTokenSource();
+        }
+        return _activeRunnersCts.Token;
     }
 
     private void LaunchViaChromeSafe(ViaWorkspaceEntry via, string targetUrl)
@@ -1995,11 +2533,15 @@ internal sealed partial class MainWindow : Window
         {
             try
             {
-                var launchedById = _queue.LastLaunchedItems
-                    .Where(item => !string.IsNullOrWhiteSpace(item.ViaId))
-                    .GroupBy(item => item.ViaId, StringComparer.OrdinalIgnoreCase)
-                    .Select(g => g.First())
-                    .ToList();
+                List<QueueTaskItem> launchedById;
+                lock (_keepAliveFailedVias)
+                {
+                    launchedById = _queue.LastLaunchedItems
+                        .Where(item => !string.IsNullOrWhiteSpace(item.ViaId) && !_keepAliveFailedVias.Contains(item.ViaId.Trim()))
+                        .GroupBy(item => item.ViaId, StringComparer.OrdinalIgnoreCase)
+                        .Select(g => g.First())
+                        .ToList();
+                }
                 if (launchedById.Count > 0)
                 {
                     var payload = launchedById.Select(item =>
@@ -2036,52 +2578,99 @@ internal sealed partial class MainWindow : Window
             UpdateLiveQueueWidgets();
             _tray?.UpdateMenu(_vias, snap, _currentUser != null);
 
-            if (snap.Phase is QueuePhase.Completed or QueuePhase.Idle && _activeView is AppView.Overview or AppView.Automation)
+            if (snap.Phase is QueuePhase.Completed or QueuePhase.Idle && (!_overviewWebViewFailed || _activeView is AppView.Overview or AppView.Automation))
             {
                 RenderCurrentView();
             }
         });
     }
 
+    private (string PhaseVi, string Detail, string SummaryLine) FormatQueueSummary(QueueSnapshot s)
+    {
+        if (_liveRunnerActive)
+        {
+            var lr = BuildLiveRunnerStatusDto();
+            var pVi = lr.IsPaused
+                ? $"⏸ Tạm dừng (Bước {lr.CurrentStepIndex}/{lr.TotalSteps})"
+                : $"▶ Bước {lr.CurrentStepIndex}/{lr.TotalSteps}: {lr.CurrentStepTitle}";
+            var det = $"Via: {lr.ViaLabel} ({lr.ProfileDir}) • ⏱️ Bước này: còn {lr.StepRemainingSec}s/{lr.StepDurationSec}s • Đã chạy: {lr.TotalElapsedSec}s (Còn ~{lr.EstimatedRemainingSec}s)";
+            return (pVi, det, $"{pVi} — {det}");
+        }
+
+        var phaseVi = s.Phase switch
+        {
+            QueuePhase.Running => s.CheckingProxy ? "Đang test Proxy trước khi mở..." : $"Đang chạy ({Math.Min(s.TotalCount, s.CurrentIndex + 1)}/{s.TotalCount})",
+            QueuePhase.Paused => "Đang tạm dừng",
+            QueuePhase.NightPaused => "Tạm nghỉ khung giờ ban đêm (22:30 - 08:00)",
+            QueuePhase.Syncing => s.Kind == QueueKind.KeepAlive ? "Đang chạy kịch bản..." : "Đang đồng bộ kết quả về Cloud...",
+            QueuePhase.Completed => s.Kind == QueueKind.KeepAlive
+                ? $"Hoàn tất kịch bản ({s.LaunchedCount}/{s.TotalCount} Via{(_liveRunnerFinishedTotalSec > 0 ? $" • {_liveRunnerFinishedTotalSec}s" : "")})"
+                : $"Hoàn tất ({s.LaunchedCount}/{s.TotalCount} đã mở, bỏ qua {s.SkippedCount})",
+            _ => "Sẵn sàng nhận lệnh",
+        };
+        var detail = s.Phase == QueuePhase.Completed
+            ? (string.IsNullOrWhiteSpace(s.CurrentViaLabel)
+                ? "Đã hoàn tất toàn bộ kịch bản tương tác."
+                : $"Via: {s.CurrentViaLabel} • ✓ Đã hoàn tất chuỗi hành vi ({(_liveRunnerFinishedTotalSec > 0 ? $"{_liveRunnerFinishedTotalSec}s" : "OK")}).")
+            : (s.Phase is QueuePhase.Running or QueuePhase.Syncing &&
+               !string.IsNullOrEmpty(_liveActionProgressDetail) &&
+               (DateTimeOffset.UtcNow - _liveActionProgressAt).TotalSeconds < 25)
+                ? _liveActionProgressDetail
+                : (string.IsNullOrWhiteSpace(s.CurrentViaLabel) ? s.LastNotice : $"Via: {s.CurrentViaLabel} • {s.CurrentTaskTitle}");
+        var summaryLine = string.IsNullOrWhiteSpace(detail) ? phaseVi : $"{phaseVi} — {detail}";
+        return (phaseVi, detail, summaryLine);
+    }
+
     private void UpdateLiveQueueWidgets()
     {
         var s = _queueSnapshot;
+        var (_, _, summaryLine) = FormatQueueSummary(s);
         if (_queueSummaryText != null)
         {
-            var phaseVi = s.Phase switch
-            {
-                QueuePhase.Running => s.CheckingProxy ? "Đang test Proxy trước khi mở..." : $"Đang chạy ({Math.Min(s.TotalCount, s.CurrentIndex + 1)}/{s.TotalCount})",
-                QueuePhase.Paused => "Đang tạm dừng",
-                QueuePhase.NightPaused => "Tạm nghỉ khung giờ ban đêm (22:30 - 08:00)",
-                QueuePhase.Syncing => "Đang đồng bộ kết quả về Cloud...",
-                QueuePhase.Completed => $"Hoàn tất ({s.LaunchedCount}/{s.TotalCount} đã mở, bỏ qua {s.SkippedCount})",
-                _ => "Sẵn sàng nhận lệnh",
-            };
-            var detail = string.IsNullOrWhiteSpace(s.CurrentViaLabel) ? s.LastNotice : $"Via: {s.CurrentViaLabel} • {s.CurrentTaskTitle}";
-            _queueSummaryText.Text = string.IsNullOrWhiteSpace(detail) ? phaseVi : $"{phaseVi} — {detail}";
+            _queueSummaryText.Text = summaryLine;
         }
 
         if (_queueCountdownText != null)
         {
-            _queueCountdownText.Text = s.Phase == QueuePhase.Running && s.CountdownSeconds > 0
-                ? $"Nghỉ ngẫu nhiên: {s.CountdownSeconds}s"
-                : s.Phase == QueuePhase.Idle ? "—" : $"{s.LaunchedCount}/{s.TotalCount}";
+            if (_liveRunnerActive)
+            {
+                var lr = BuildLiveRunnerStatusDto();
+                _queueCountdownText.Text = $"Bước {lr.CurrentStepIndex}/{lr.TotalSteps} • Còn {lr.StepRemainingSec}s";
+            }
+            else
+            {
+                _queueCountdownText.Text = s.Phase is QueuePhase.Running or QueuePhase.Syncing && s.CountdownSeconds > 0
+                    ? (s.Phase == QueuePhase.Syncing ? $"Chờ: {s.CountdownSeconds}s" : $"Nghỉ: {s.CountdownSeconds}s")
+                    : s.Phase == QueuePhase.Idle ? "—" : $"{s.LaunchedCount}/{s.TotalCount}";
+            }
         }
 
         if (_queuePauseBtn != null && _queuePauseBtn.Content is StackPanel sp && sp.Children.Count >= 2)
         {
-            var isPaused = s.Phase == QueuePhase.Paused;
+            var isPaused = s.Phase == QueuePhase.Paused || _liveRunnerPaused;
             if (sp.Children[0] is TextBlock ic) ic.Text = isPaused ? FluentIcons.Play : FluentIcons.Pause;
             if (sp.Children[1] is TextBlock tb) tb.Text = isPaused ? "Tiếp tục" : "Tạm dừng";
         }
 
-        var active = s.Phase is QueuePhase.Running or QueuePhase.Paused or QueuePhase.NightPaused or QueuePhase.Syncing;
+        var active = s.Phase is QueuePhase.Running or QueuePhase.Paused or QueuePhase.NightPaused or QueuePhase.Syncing || _liveRunnerActive;
+        var completedOnly = !active && (s.Phase == QueuePhase.Completed || _liveRunnerCompleted);
         if (_queuePauseBtn != null) _queuePauseBtn.IsEnabled = active;
-        if (_queueSkipBtn != null) _queueSkipBtn.IsEnabled = s.Phase == QueuePhase.Running;
-        if (_queueStopBtn != null) _queueStopBtn.IsEnabled = active;
+        if (_queueSkipBtn != null) _queueSkipBtn.IsEnabled = s.Phase is QueuePhase.Running or QueuePhase.Syncing || _liveRunnerActive;
+        if (_queueStopBtn != null)
+        {
+            _queueStopBtn.IsEnabled = active || completedOnly;
+            if (_queueStopBtn.Content is StackPanel stopSp && stopSp.Children.Count >= 2 && stopSp.Children[1] is TextBlock stopTb)
+            {
+                stopTb.Text = completedOnly ? "Đóng thông báo" : "Dừng hẳn";
+            }
+        }
         if (_queueLiveBanner != null)
         {
-            _queueLiveBanner.Visibility = active || s.Phase == QueuePhase.Completed ? Visibility.Visible : Visibility.Collapsed;
+            _queueLiveBanner.Visibility = active || completedOnly ? Visibility.Visible : Visibility.Collapsed;
+        }
+        if (!_overviewWebViewFailed)
+        {
+            PushLiveTickToWebView();
         }
     }
 
@@ -2109,17 +2698,72 @@ internal sealed partial class MainWindow : Window
         return $"https://www.facebook.com/?adsops_preads_warmup=1&adsops_preads_sec={sec}&adsops_preads_target={Uri.EscapeDataString(targetUrl)}";
     }
 
-    private void EnqueueKeepAliveVias(IReadOnlyList<ViaWorkspaceEntry> targetVias, string title, bool requireConfirm)
+    internal (string LaunchUrl, string TaskSummary) BuildKeepAliveLaunchUrlForVia(
+        ViaWorkspaceEntry v,
+        string? crossPageUrl,
+        bool fastTest = false)
+    {
+        var effectiveMode = v.IsInSoakQuarantine && _config.EnforceSoakQuarantine
+            ? "soak_72h"
+            : ViaMetadataParser.NormalizeWarmupMode(!string.IsNullOrWhiteSpace(v.DefaultWarmupMode) ? v.DefaultWarmupMode : _config.DefaultWarmupMode);
+
+        var seqKeys = effectiveMode == "soak_72h"
+            ? new List<string> { "scroll_feed", "read_notifications", "refresh_cookie_and_close" }
+            : WarmupActionCatalog.GetEffectiveSequence(_config, v.ViaId, DateTime.Now);
+
+        var routeStops = seqKeys.Where(k => !string.Equals(k, "refresh_cookie_and_close", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (routeStops.Count == 0) routeStops.Add("scroll_feed");
+
+        var firstKey = routeStops[0];
+        var baseUrl = firstKey.ToLowerInvariant() switch
+        {
+            "visit_internal_fanpage" when !string.IsNullOrWhiteSpace(crossPageUrl) && crossPageUrl.Contains("facebook.com", StringComparison.OrdinalIgnoreCase) => crossPageUrl,
+            "watch_reels" => "https://www.facebook.com/watch/",
+            "read_notifications" => "https://www.facebook.com/notifications",
+            "search_keyword" => "https://www.facebook.com/search/top/?q=xu%20huong",
+            "visit_own_profile" => "https://www.facebook.com/me",
+            "browse_marketplace" => "https://www.facebook.com/marketplace/",
+            "browse_groups" => "https://www.facebook.com/groups/feed/",
+            "mbs_like_comments_and_invite" => "https://business.facebook.com/latest/home?adsops_auto_invite_followers=1&adsops_like_comments=1",
+            _ => "https://www.facebook.com/",
+        };
+        var sep = baseUrl.Contains('?') ? "&" : "?";
+
+        var launchUrl = baseUrl + sep + "adsops_keepalive_session=1&adsops_auto_close=" + (_config.AutoCloseKeepAliveTab ? "1" : "0") +
+                        "&adsops_via_tier=" + Uri.EscapeDataString(v.RoleTier) +
+                        "&adsops_via_label=" + Uri.EscapeDataString(v.Label) +
+                        "&adsops_ka_mode=" + Uri.EscapeDataString(effectiveMode) +
+                        "&adsops_ka_route=" + Uri.EscapeDataString(string.Join(",", routeStops)) +
+                        (!string.IsNullOrEmpty(crossPageUrl) ? "&adsops_cross_page_url=" + Uri.EscapeDataString(crossPageUrl) : "") +
+                        (fastTest ? "&adsops_fast_test=1" : "");
+
+        var arrowSummary = WarmupActionCatalog.FormatSequenceArrowText(seqKeys);
+        return (launchUrl, effectiveMode == "soak_72h" ? "Ngâm 72h thụ động" : arrowSummary);
+    }
+
+    public void StartNaturalFlowForVias(IReadOnlyList<ViaWorkspaceEntry> targetVias, bool fastTest, bool requireConfirm)
+    {
+        var title = fastTest
+            ? "🧪 Test Nhanh Kịch Bản Tương Tác (5s/bước)"
+            : $"▶ Chạy Kịch Bản Tương Tác ({targetVias.Count} Via)";
+        EnqueueKeepAliveVias(targetVias, title, requireConfirm, fastTest);
+    }
+
+    private void EnqueueKeepAliveVias(IReadOnlyList<ViaWorkspaceEntry> targetVias, string title, bool requireConfirm, bool fastTest = false)
     {
         if (targetVias.Count == 0) return;
-        if (_queue.Current.Phase is QueuePhase.Running or QueuePhase.Paused)
+        if (_queue.Current.Phase is QueuePhase.Running or QueuePhase.Paused or QueuePhase.Syncing or QueuePhase.NightPaused)
         {
             MessageBox.Show(this, "Hàng đợi đang chạy dở. Hãy Tạm dừng hoặc Dừng hẳn trước khi xếp lô mới.", "Hàng đợi đang bận", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
-        var restMin = Math.Clamp(_config.QueueRestMinSeconds < 5 ? 15 : _config.QueueRestMinSeconds, 5, 300);
-        var restMax = Math.Clamp(_config.QueueRestMaxSeconds < restMin ? restMin + 10 : _config.QueueRestMaxSeconds, restMin, 600);
+        lock (_keepAliveFailedVias) _keepAliveFailedVias.Clear();
+        _liveActionProgressDetail = "";
+        _extHeartbeatByVia.Clear();
+
+        var restMin = fastTest ? 5 : Math.Clamp(_config.QueueRestMinSeconds < 5 ? 15 : _config.QueueRestMinSeconds, 5, 300);
+        var restMax = fastTest ? 8 : Math.Clamp(_config.QueueRestMaxSeconds < restMin ? restMin + 10 : _config.QueueRestMaxSeconds, restMin, 600);
         var isCustomFlow = string.Equals(_config.WarmupFlowMode, "custom_sequence", StringComparison.OrdinalIgnoreCase);
         var flowModeTitle = isCustomFlow
             ? "🧩 Chuỗi Hành Động Tự Chọn (Theo trình tự)"
@@ -2155,17 +2799,6 @@ internal sealed partial class MainWindow : Window
         int pageRoundRobin = 0;
         var tasks = targetVias.Select(v =>
         {
-            var effectiveMode = v.IsInSoakQuarantine && _config.EnforceSoakQuarantine
-                ? "soak_72h"
-                : ViaMetadataParser.NormalizeWarmupMode(!string.IsNullOrWhiteSpace(v.DefaultWarmupMode) ? v.DefaultWarmupMode : _config.DefaultWarmupMode);
-
-            var seqKeys = effectiveMode == "soak_72h"
-                ? new List<string> { "scroll_feed", "read_notifications", "refresh_cookie_and_close" }
-                : WarmupActionCatalog.GetEffectiveSequence(_config, v.ViaId, DateTime.Now);
-
-            var routeStops = seqKeys.Where(k => !string.Equals(k, "refresh_cookie_and_close", StringComparison.OrdinalIgnoreCase)).ToList();
-            if (routeStops.Count == 0) routeStops.Add("scroll_feed");
-
             string crossPageUrl = "";
             if (_config.EnableInternalPageCrossWarmup && liveInternalPages.Count > 0)
             {
@@ -2175,21 +2808,14 @@ internal sealed partial class MainWindow : Window
                     : $"https://www.facebook.com/{pg.ExternalPageId}";
             }
 
-            var launchUrl = "https://www.facebook.com/?adsops_keepalive_session=1&adsops_auto_close=" + (_config.AutoCloseKeepAliveTab ? "1" : "0") +
-                            "&adsops_via_tier=" + Uri.EscapeDataString(v.RoleTier) +
-                            "&adsops_via_label=" + Uri.EscapeDataString(v.Label) +
-                            "&adsops_ka_mode=" + Uri.EscapeDataString(effectiveMode) +
-                            "&adsops_ka_route=" + Uri.EscapeDataString(string.Join(",", routeStops)) +
-                            (!string.IsNullOrEmpty(crossPageUrl) ? "&adsops_cross_page_url=" + Uri.EscapeDataString(crossPageUrl) : "");
-
-            var arrowSummary = WarmupActionCatalog.FormatSequenceArrowText(seqKeys);
+            var (launchUrl, taskSummary) = BuildKeepAliveLaunchUrlForVia(v, crossPageUrl, fastTest);
             return new QueueTaskItem(
                 v.ViaId,
                 v.Label,
                 GetEffectiveBatchProfileKey(v, v.ProfileDir),
                 v.NetworkLabel,
                 launchUrl,
-                effectiveMode == "soak_72h" ? "Ngâm 72h thụ động" : arrowSummary,
+                taskSummary,
                 v.BackendTier,
                 v.ClientGroup,
                 v.IsInSoakQuarantine,
@@ -2198,10 +2824,13 @@ internal sealed partial class MainWindow : Window
                 v.SiloConflictDetail);
         }).ToList();
 
-        tasks = QueueResumeStateStore.FilterRemainingItems(QueueKind.KeepAlive, tasks, out var resumedSkippedCount);
-        if (resumedSkippedCount > 0)
+        if (!fastTest)
         {
-            AppendLog($"♻️ Khôi phục tiến độ Hàng đợi: Tự động bỏ qua {resumedSkippedCount} Via đã Đảo Ấm xong trước đó, chạy tiếp {tasks.Count} Via còn lại.");
+            tasks = QueueResumeStateStore.FilterRemainingItems(QueueKind.KeepAlive, tasks, out var resumedSkippedCount);
+            if (resumedSkippedCount > 0)
+            {
+                AppendLog($"♻️ Khôi phục tiến độ Hàng đợi: Tự động bỏ qua {resumedSkippedCount} Via đã Đảo Ấm xong trước đó, chạy tiếp {tasks.Count} Via còn lại.");
+            }
         }
 
         _queue.ConfigureRestRange(restMin, restMax);
@@ -2213,7 +2842,7 @@ internal sealed partial class MainWindow : Window
             _config.MaxViasPerProxyInBatch,
             _config.AutoKeepAliveStartHour,
             _config.AutoKeepAliveEndHour,
-            enforceDaytimeWindow: true,
+            enforceDaytimeWindow: !fastTest,
             enforceSoakQuarantine: _config.EnforceSoakQuarantine,
             enforceClientSilo: _config.EnforceClientSilo,
             interleaveByProxy: true,
@@ -2221,7 +2850,7 @@ internal sealed partial class MainWindow : Window
             maxConcurrentBrowsers: GetEffectiveMaxConcurrentBrowsers(),
             maxDirectIpVias: _config.MaxDirectIpViasInBatch);
 
-        AppendLog($"🚀 Đã xếp hàng {tasks.Count} Via ({flowModeTitle} • Nhịp nghỉ {restMin}s–{restMax}s • Tối đa {GetEffectiveMaxConcurrentBrowsers()} luồng song song).");
+        AppendLog($"🚀 Đã xếp hàng {tasks.Count} Via ({flowModeTitle}{(fastTest ? " • Chế độ Test Nhanh" : "")} • Nhịp nghỉ {restMin}s–{restMax}s • Tối đa {GetEffectiveMaxConcurrentBrowsers()} luồng song song).");
         RenderCurrentView();
     }
 
@@ -2282,7 +2911,7 @@ internal sealed partial class MainWindow : Window
 
     public async Task RunFullAutoPilotPipelineAsync(bool interactiveConfirm = true)
     {
-        if (_autoPipelineRunning || _queue.Current.Phase is QueuePhase.Running or QueuePhase.Paused)
+        if (_autoPipelineRunning || _queue.Current.Phase is QueuePhase.Running or QueuePhase.Paused or QueuePhase.Syncing or QueuePhase.NightPaused)
         {
             if (interactiveConfirm)
             {
@@ -2627,7 +3256,7 @@ internal sealed partial class MainWindow : Window
         {
             _ = Dispatcher.BeginInvoke(() =>
             {
-                if (_activeView is AppView.PagesBm or AppView.Overview or AppView.Automation)
+                if (!_overviewWebViewFailed || _activeView is AppView.PagesBm or AppView.Overview or AppView.Automation)
                 {
                     RenderCurrentView();
                 }
@@ -2646,7 +3275,7 @@ internal sealed partial class MainWindow : Window
         _autoInviteCts = null;
         ActiveAutoInvitePageId = "";
         AppendLog("⏹️ Đã dừng tác vụ Auto-Invite Followers theo yêu cầu.");
-        if (_activeView is AppView.PagesBm or AppView.Automation or AppView.Overview)
+        if (!_overviewWebViewFailed || _activeView is AppView.PagesBm or AppView.Automation or AppView.Overview)
         {
             RenderCurrentView();
         }
@@ -3019,6 +3648,7 @@ internal sealed partial class MainWindow : Window
                         if (sentNow > 0)
                         {
                             _config.TotalPageFollowerInvitesSent += sentNow;
+                            try { _config.Save(); } catch { }
                             SetPagePendingInviteCount(page, 0, renderNow: true);
                             _ = Dispatcher.BeginInvoke(() =>
                                 AppendLog($"✅ [Auto-Invite Hoàn tất] Đã tự động mời {sentNow} người tương tác theo dõi Fanpage '{page.Name}'! (Còn cần mời: 0)"));
@@ -3029,6 +3659,9 @@ internal sealed partial class MainWindow : Window
                             _ = Dispatcher.BeginInvoke(() =>
                                 AppendLog($"✓ [Auto-Invite] Fanpage '{page.Name}' hiện có 0 người mới cần mời theo dõi."));
                         }
+                        var holderVia = ResolveEffectiveViaForPage(page);
+                        _queue.MarkItemCompleted(holderVia?.ViaId, holderVia?.Label);
+                        _ = Dispatcher.BeginInvoke(RenderCurrentView);
                         return;
                     }
                 }
@@ -3050,7 +3683,7 @@ internal sealed partial class MainWindow : Window
                 ActiveAutoInvitePageId = "";
                 _ = Dispatcher.BeginInvoke(() =>
                 {
-                    if (_activeView is AppView.PagesBm or AppView.Automation) RenderCurrentView();
+                    if (!_overviewWebViewFailed || _activeView is AppView.PagesBm or AppView.Automation) RenderCurrentView();
                 });
             }
         }
@@ -3073,7 +3706,7 @@ internal sealed partial class MainWindow : Window
 
     public void EnqueueBatchPageAutoInviteFollowers(bool requireConfirm = true)
     {
-        if (_queue.Current.Phase is QueuePhase.Running or QueuePhase.Paused)
+        if (_queue.Current.Phase is QueuePhase.Running or QueuePhase.Paused or QueuePhase.Syncing or QueuePhase.NightPaused)
         {
             if (requireConfirm)
             {
@@ -3254,61 +3887,91 @@ internal sealed partial class MainWindow : Window
 
     private void OnUiSecondTick()
     {
-        var now = DateTimeOffset.UtcNow;
-        var utcNow = DateTime.UtcNow;
-
-        foreach (var b in _liveTotpBindings)
+        try
         {
-            if (_copiedToastTarget == b.CodeBlock && utcNow < _copiedToastUntilUtc)
+            var now = DateTimeOffset.UtcNow;
+            var utcNow = DateTime.UtcNow;
+
+            foreach (var b in _liveTotpBindings)
             {
-                b.CodeBlock.Text = "✓ Đã chép";
-                b.CodeBlock.Foreground = ThemeTokens.SuccessText;
-                continue;
+                if (_copiedToastTarget == b.CodeBlock && utcNow < _copiedToastUntilUtc)
+                {
+                    b.CodeBlock.Text = "✓ Đã chép";
+                    b.CodeBlock.Foreground = ThemeTokens.SuccessText;
+                    continue;
+                }
+
+                var secret = !string.IsNullOrWhiteSpace(b.InlineSecret)
+                    ? b.InlineSecret
+                    : LocalSecretVaultStore.Default.Find(b.ViaId, b.ProfileDir, b.ViaLabel).TwoFaSecret;
+
+                var totp = TotpService.ComputeTotp(secret, now);
+                if (totp.Valid)
+                {
+                    b.CodeBlock.Text = totp.FormattedCode;
+                    b.CodeBlock.Foreground = ThemeTokens.AccentText;
+                    b.CountdownBlock.Text = $"{totp.SecondsRemaining}s";
+                    b.CountdownPill.Visibility = Visibility.Visible;
+                    var low = totp.SecondsRemaining <= 5;
+                    b.CountdownBlock.Foreground = low ? ThemeTokens.WarningText : ThemeTokens.TextSecondary;
+                    b.CountdownPill.Background = low ? ThemeTokens.WarningBg : ThemeTokens.NeutralBg;
+                    b.CountdownPill.BorderBrush = low ? ThemeTokens.WarningBorder : ThemeTokens.BorderSubtle;
+                }
+                else
+                {
+                    b.CodeBlock.Text = "Chưa gắn 2FA";
+                    b.CodeBlock.Foreground = ThemeTokens.TextMuted;
+                    b.CountdownBlock.Text = "—";
+                    b.CountdownPill.Visibility = Visibility.Collapsed;
+                }
             }
 
-            var secret = !string.IsNullOrWhiteSpace(b.InlineSecret)
-                ? b.InlineSecret
-                : LocalSecretVaultStore.Default.Find(b.ViaId, b.ProfileDir, b.ViaLabel).TwoFaSecret;
-
-            var totp = TotpService.ComputeTotp(secret, now);
-            if (totp.Valid)
+            if (_liveRunnerActive)
             {
-                b.CodeBlock.Text = totp.FormattedCode;
-                b.CodeBlock.Foreground = ThemeTokens.AccentText;
-                b.CountdownBlock.Text = $"{totp.SecondsRemaining}s";
-                b.CountdownPill.Visibility = Visibility.Visible;
-                var low = totp.SecondsRemaining <= 5;
-                b.CountdownBlock.Foreground = low ? ThemeTokens.WarningText : ThemeTokens.TextSecondary;
-                b.CountdownPill.Background = low ? ThemeTokens.WarningBg : ThemeTokens.NeutralBg;
-                b.CountdownPill.BorderBrush = low ? ThemeTokens.WarningBorder : ThemeTokens.BorderSubtle;
+                if (_liveRunnerPaused || _queueSnapshot.Phase == QueuePhase.Paused)
+                {
+                    if (_liveRunnerStartedAtUtc != DateTime.MinValue) _liveRunnerStartedAtUtc = _liveRunnerStartedAtUtc.AddSeconds(1);
+                    if (_liveRunnerStepStartedAtUtc != DateTime.MinValue) _liveRunnerStepStartedAtUtc = _liveRunnerStepStartedAtUtc.AddSeconds(1);
+                }
+                else if (_liveRunnerStartedAtUtc != DateTime.MinValue &&
+                         (utcNow - _liveRunnerStartedAtUtc).TotalSeconds > 6 &&
+                         ChromeSessionTracker.Default.GetActiveAutomationBrowserCount() == 0)
+                {
+                    _liveRunnerActive = false;
+                    _liveRunnerPaused = false;
+                    AppendLog("ℹ️ Phát hiện cửa sổ Chrome Auto đã đóng thủ công — Kết thúc phiên theo dõi kịch bản.");
+                }
+                UpdateLiveQueueWidgets();
             }
-            else
+
+            if (++_watchdogTickCount % 5 == 0)
             {
-                b.CodeBlock.Text = "Chưa gắn 2FA";
-                b.CodeBlock.Foreground = ThemeTokens.TextMuted;
-                b.CountdownBlock.Text = "—";
-                b.CountdownPill.Visibility = Visibility.Collapsed;
+                RefreshLiveSessionTelemetryOnVias();
+                if (_queueSnapshot.Phase is QueuePhase.Running or QueuePhase.Syncing)
+                {
+                    var reaped = ChromeSessionTracker.Default.ReapHungSessions(_config.BrowserHangTimeoutSeconds);
+                    foreach (var r in reaped)
+                    {
+                        ViaStewardshipStore.Default.AppendEvent(
+                            "BROWSER_HANG_REAPED",
+                            r.ViaId,
+                            r.ViaLabel,
+                            "",
+                            $"Tự đóng trình duyệt treo quá {_config.BrowserHangTimeoutSeconds}s ({r.ProfileDir}) để giải phóng hàng đợi");
+                        AppendLog($"⏱️ Watchdog chống treo: Đã tự thu hồi trình duyệt '{r.ViaLabel}' ({r.ProfileDir}) treo quá {_config.BrowserHangTimeoutSeconds}s.");
+                    }
+                    RefreshLiveSessionTelemetryOnVias();
+                }
+            }
+            if (!_overviewWebViewFailed && !_liveRunnerActive)
+            {
+                PushLiveTickToWebView();
             }
         }
-
-        if (++_watchdogTickCount % 5 == 0)
+        catch (Exception ex)
         {
-            RefreshLiveSessionTelemetryOnVias();
-            if (_queueSnapshot.Phase == QueuePhase.Running)
-            {
-                var reaped = ChromeSessionTracker.Default.ReapHungSessions(_config.BrowserHangTimeoutSeconds);
-                foreach (var r in reaped)
-                {
-                    ViaStewardshipStore.Default.AppendEvent(
-                        "BROWSER_HANG_REAPED",
-                        r.ViaId,
-                        r.ViaLabel,
-                        "",
-                        $"Tự đóng trình duyệt treo quá {_config.BrowserHangTimeoutSeconds}s ({r.ProfileDir}) để giải phóng hàng đợi");
-                    AppendLog($"⏱️ Watchdog chống treo: Đã tự thu hồi trình duyệt '{r.ViaLabel}' ({r.ProfileDir}) treo quá {_config.BrowserHangTimeoutSeconds}s.");
-                }
-                RefreshLiveSessionTelemetryOnVias();
-            }
+            var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AdsOpsDesktop", "runtime.log");
+            try { File.AppendAllText(logPath, $"[{DateTime.UtcNow:O}] OnUiSecondTick EXCEPTION: {ex}\n"); } catch { }
         }
     }
 
@@ -3405,21 +4068,7 @@ internal sealed partial class MainWindow : Window
         _headerActionsPanel.Children.Clear();
         var nextPalette = ThemeTokens.CurrentPalette == "emerald" ? "obsidian" : "emerald";
         var paletteLabel = ThemeTokens.CurrentPalette == "emerald" ? "🎨 Emerald Vault" : "🎨 Linear Obsidian";
-        var themeBtn = UiComponents.CreateButton(paletteLabel, ButtonVariant.Secondary, compact: true, onClick: (_, _) =>
-        {
-            _config.UiThemePalette = nextPalette;
-            _config.Save();
-            ThemeTokens.ApplyPalette(nextPalette);
-            Background = ThemeTokens.BgCanvas;
-            Foreground = ThemeTokens.TextPrimary;
-            _navButtons.Clear();
-            _navBadges.Clear();
-            BuildShellLayout();
-            UpdateNavStyles();
-            RefreshHeaderAndSidebar();
-            RenderCurrentView();
-            AppendLog($"🎨 Đã chuyển giao diện UI/UX Pro Max sang chủ đề '{(nextPalette == "emerald" ? "Emerald Cyber-Vault" : "Linear Obsidian")}'.");
-        }, tooltip: "Chuyển đổi chủ đề màu UI/UX Pro Max (Linear Obsidian <-> Emerald Cyber-Vault)");
+        var themeBtn = UiComponents.CreateButton(paletteLabel, ButtonVariant.Secondary, compact: true, onClick: (_, _) => ToggleUiThemePalette(), tooltip: "Chuyển đổi chủ đề màu UI/UX Pro Max (Linear Obsidian <-> Emerald Cyber-Vault)");
         themeBtn.Margin = new Thickness(0, 0, 8, 0);
         _headerActionsPanel.Children.Add(themeBtn);
 
@@ -3459,11 +4108,19 @@ internal sealed partial class MainWindow : Window
     {
         _isBusy = busy;
         _headerBusyBar.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        if (!_overviewWebViewFailed) PushLiveTickToWebView();
     }
 
     private void AppendLog(string message)
     {
         var line = $"[{DateTime.Now:HH:mm:ss}] {message}";
+        try
+        {
+            var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AdsOpsDesktop", "runtime.log");
+            File.AppendAllText(logPath, line + Environment.NewLine);
+        }
+        catch { }
+
         void UpdateUi()
         {
             _logLines.Add(line);
@@ -3473,6 +4130,10 @@ internal sealed partial class MainWindow : Window
             {
                 _logBox.Text = string.Join(Environment.NewLine, _logLines);
                 _logBox.ScrollToEnd();
+            }
+            if (!_overviewWebViewFailed)
+            {
+                PushLiveTickToWebView();
             }
         }
 
@@ -3488,66 +4149,89 @@ internal sealed partial class MainWindow : Window
         Activate();
     }
 
-    private void OnMainWindowPreviewKeyDown(object sender, KeyEventArgs e)
+    private void ToggleUiThemePalette()
     {
-        if (e.Key == Key.F5 && Keyboard.Modifiers == ModifierKeys.None)
+        var nextPalette = ThemeTokens.CurrentPalette == "emerald" ? "obsidian" : "emerald";
+        _config.UiThemePalette = nextPalette;
+        _config.Save();
+        ThemeTokens.ApplyPalette(nextPalette);
+        Background = ThemeTokens.BgCanvas;
+        Foreground = ThemeTokens.TextPrimary;
+        if (_overviewWebViewFailed)
         {
-            e.Handled = true;
+            _navButtons.Clear();
+            _navBadges.Clear();
+            BuildShellLayout();
+            UpdateNavStyles();
+            RefreshHeaderAndSidebar();
+        }
+        else if (_overviewWebView != null)
+        {
+            _overviewWebViewHost!.Background = ThemeTokens.BgCanvas;
+            _overviewWebView.DefaultBackgroundColor = GetWebViewBgColor();
+        }
+        RenderCurrentView();
+        AppendLog($"🎨 Đã chuyển giao diện UI/UX sang chủ đề '{(nextPalette == "emerald" ? "Emerald Cyber-Vault" : "Linear Obsidian")}'.");
+    }
+
+    private bool HandleShortcutKey(Key key, ModifierKeys modifiers)
+    {
+        if (key == Key.F5 && modifiers == ModifierKeys.None)
+        {
             _ = SyncCloudAsync(silent: false);
-            return;
+            return true;
         }
 
-        if (Keyboard.Modifiers != ModifierKeys.Control) return;
+        if (modifiers != ModifierKeys.Control) return false;
 
-        switch (e.Key)
+        switch (key)
         {
             case Key.K:
             case Key.P:
-                e.Handled = true;
                 OpenCommandPaletteDialog();
-                break;
+                return true;
             case Key.B:
-                e.Handled = true;
                 if (!string.IsNullOrWhiteSpace(_config.GetJwt())) OpenBulkImportViasDialog();
                 else SwitchView(AppView.Settings);
-                break;
+                return true;
             case Key.N:
-                e.Handled = true;
                 if (!string.IsNullOrWhiteSpace(_config.GetJwt())) OpenViaEditorDialog(null);
                 else SwitchView(AppView.Settings);
-                break;
+                return true;
             case Key.D1:
-                e.Handled = true;
                 SwitchView(AppView.Overview);
-                break;
+                return true;
             case Key.D2:
-                e.Handled = true;
                 SwitchView(AppView.Vias);
-                break;
+                return true;
             case Key.D3:
-                e.Handled = true;
                 SwitchView(AppView.Automation);
-                break;
+                return true;
             case Key.D4:
-                e.Handled = true;
                 SwitchView(AppView.PagesBm);
-                break;
+                return true;
             case Key.D5:
-                e.Handled = true;
                 SwitchView(AppView.AdAccounts);
-                break;
+                return true;
             case Key.D6:
-                e.Handled = true;
                 SwitchView(AppView.HealthTokens);
-                break;
+                return true;
             case Key.D7:
-                e.Handled = true;
                 SwitchView(AppView.WorkspaceOps);
-                break;
+                return true;
             case Key.D8:
-                e.Handled = true;
                 SwitchView(AppView.Settings);
-                break;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private void OnMainWindowPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (HandleShortcutKey(e.Key, Keyboard.Modifiers))
+        {
+            e.Handled = true;
         }
     }
 
@@ -3589,9 +4273,13 @@ internal sealed partial class MainWindow : Window
         _uiTimer.Stop();
         _keepAliveTimer.Stop();
         _cloudSyncTimer.Stop();
+        StopQueueAndActiveRunners();
         _queue.Dispose();
         _bridge?.Dispose();
         _tray?.Dispose();
+        try { _overviewWebView?.Dispose(); } catch { }
         Application.Current.Shutdown();
     }
+
+    // =====================================================================
 }

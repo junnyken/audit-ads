@@ -18,56 +18,75 @@ internal sealed partial class MainWindow
 {
     private void RenderCurrentView()
     {
-        _liveTotpBindings.Clear();
-        _copiedToastTarget = null;
-        _queueSummaryText = null;
-        _queueCountdownText = null;
-        _queuePauseBtn = null;
-        _queueSkipBtn = null;
-        _queueStopBtn = null;
-        _queueLiveBanner = null;
+        try
+        {
+            _liveTotpBindings.Clear();
+            _copiedToastTarget = null;
+            _queueSummaryText = null;
+            _queueCountdownText = null;
+            _queuePauseBtn = null;
+            _queueSkipBtn = null;
+            _queueStopBtn = null;
+            _queueLiveBanner = null;
 
-        var isLoggedIn = !string.IsNullOrWhiteSpace(_config.GetJwt());
-
-        UIElement body;
-        if (!isLoggedIn && _activeView != AppView.Settings)
-        {
-            body = BuildUnauthenticatedState();
-        }
-        else if (_isBusy && !_hasLoadedOnce && _activeView != AppView.Settings)
-        {
-            body = BuildLoadingState();
-        }
-        else
-        {
-            body = _activeView switch
+            if (!_overviewWebViewFailed)
             {
-                AppView.Overview => BuildOverviewView(),
-                AppView.Vias => BuildViasView(),
-                AppView.Automation => BuildAutomationView(),
-                AppView.PagesBm => BuildPagesBmView(),
-                AppView.AdAccounts => BuildAdAccountsView(),
-                AppView.HealthTokens => BuildHealthTokensView(),
-                AppView.WorkspaceOps => BuildWorkspaceOpsView(),
-                AppView.Settings => BuildSettingsView(),
-                _ => BuildOverviewView(),
+                if (!ReferenceEquals(Content, EnsureOverviewWebViewHost()))
+                {
+                    Content = EnsureOverviewWebViewHost();
+                }
+                PushOverviewStateToWebView();
+                return;
+            }
+
+            var isLoggedIn = !string.IsNullOrWhiteSpace(_config.GetJwt());
+
+            UIElement body;
+            if (!isLoggedIn && _activeView != AppView.Settings)
+            {
+                body = BuildUnauthenticatedState();
+            }
+            else if (_isBusy && !_hasLoadedOnce && _activeView != AppView.Settings)
+            {
+                body = BuildLoadingState();
+            }
+            else
+            {
+                body = _activeView switch
+                {
+                    AppView.Overview => BuildOverviewView(),
+                    AppView.Vias => BuildViasView(),
+                    AppView.Automation => BuildAutomationView(),
+                    AppView.PagesBm => BuildPagesBmView(),
+                    AppView.AdAccounts => BuildAdAccountsView(),
+                    AppView.HealthTokens => BuildHealthTokensView(),
+                    AppView.WorkspaceOps => BuildWorkspaceOpsView(),
+                    AppView.Settings => BuildSettingsView(),
+                    _ => BuildOverviewView(),
+                };
+            }
+
+            _viewHost.Content = new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Padding = new Thickness(0),
+                Content = new Border
+                {
+                    Padding = new Thickness(18, 14, 18, 18),
+                    Child = body,
+                },
             };
+
+            UpdateLiveQueueWidgets();
+            OnUiSecondTick();
         }
-
-        _viewHost.Content = new ScrollViewer
+        catch (Exception ex)
         {
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            Padding = new Thickness(0),
-            Content = new Border
-            {
-                Padding = new Thickness(18, 14, 18, 18),
-                Child = body,
-            },
-        };
-
-        UpdateLiveQueueWidgets();
-        OnUiSecondTick();
+            var logPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AdsOpsDesktop", "runtime.log");
+            try { System.IO.File.AppendAllText(logPath, $"[{DateTime.UtcNow:O}] RenderCurrentView EXCEPTION: {ex}\n"); } catch { }
+            AppendLog($"Lỗi render giao diện: {ex.Message}");
+        }
     }
 
     private UIElement BuildUnauthenticatedState()
@@ -127,17 +146,13 @@ internal sealed partial class MainWindow
         grid.Children.Add(_queueCountdownText);
 
         var btns = new StackPanel { Orientation = Orientation.Horizontal };
-        _queuePauseBtn = UiComponents.CreateButton("Tạm dừng", ButtonVariant.Secondary, FluentIcons.Pause, compact: true, onClick: (_, _) =>
-        {
-            if (_queue.Current.Phase == QueuePhase.Paused) _queue.Resume();
-            else _queue.Pause();
-        });
+        _queuePauseBtn = UiComponents.CreateButton("Tạm dừng", ButtonVariant.Secondary, FluentIcons.Pause, compact: true, onClick: (_, _) => ToggleQueueAndRunnerPause());
         _queuePauseBtn.Margin = new Thickness(0, 0, 6, 0);
 
-        _queueSkipBtn = UiComponents.CreateButton("Bỏ qua chờ", ButtonVariant.Secondary, FluentIcons.FastForward, compact: true, onClick: (_, _) => _queue.SkipCurrentWait());
+        _queueSkipBtn = UiComponents.CreateButton("Bỏ qua bước", ButtonVariant.Secondary, FluentIcons.FastForward, compact: true, onClick: (_, _) => SkipCurrentRunnerStepOrQueueWait());
         _queueSkipBtn.Margin = new Thickness(0, 0, 6, 0);
 
-        _queueStopBtn = UiComponents.CreateButton("Dừng hẳn", ButtonVariant.Danger, FluentIcons.Stop, compact: true, onClick: (_, _) => _queue.Stop());
+        _queueStopBtn = UiComponents.CreateButton("Dừng hẳn", ButtonVariant.Danger, FluentIcons.Stop, compact: true, onClick: (_, _) => StopQueueAndActiveRunners());
 
         btns.Children.Add(_queuePauseBtn);
         btns.Children.Add(_queueSkipBtn);
@@ -1833,7 +1848,7 @@ internal sealed partial class MainWindow
             var pbActions = new WrapPanel();
             var runPbBtn = UiComponents.CreateButton("Chạy Lô Kịch bản (Jitter)", ButtonVariant.Primary, FluentIcons.Play, compact: true, onClick: async (_, _) =>
             {
-                if (_queue.Current.Phase is QueuePhase.Running or QueuePhase.Paused)
+                if (_queue.Current.Phase is QueuePhase.Running or QueuePhase.Paused or QueuePhase.Syncing or QueuePhase.NightPaused)
                 {
                     MessageBox.Show(this, "Hàng đợi đang chạy dở. Hãy tạm dừng hoặc dừng trước.", "Đang bận", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
@@ -1848,6 +1863,11 @@ internal sealed partial class MainWindow
                 }
                 var targetUrl = activePb.Steps.FirstOrDefault(s => !string.IsNullOrWhiteSpace(s.Target) && s.Target.StartsWith("https://", StringComparison.OrdinalIgnoreCase))?.Target
                                 ?? "https://www.facebook.com/";
+                var useNaturalKeepAliveForPb =
+                    (activePb.Platform.Equals("meta", StringComparison.OrdinalIgnoreCase) ||
+                     activePb.Platform.Equals("multi", StringComparison.OrdinalIgnoreCase)) &&
+                    targetUrl.TrimEnd('/').Equals("https://www.facebook.com", StringComparison.OrdinalIgnoreCase);
+
                 var directCountPb = targets.Count(v => string.IsNullOrWhiteSpace(AutomationQueueEngine.ExtractProxyHostPort(v.NetworkLabel)));
                 var confirmPb = UiComponents.ShowConfirmActionDialog(
                     this,
@@ -1865,19 +1885,30 @@ internal sealed partial class MainWindow
                     "Bắt đầu Chạy Lô");
                 if (!confirmPb) return;
 
-                var qTasks = targets.Select(v => new QueueTaskItem(
-                    v.ViaId,
-                    v.Label,
-                    GetEffectiveBatchProfileKey(v, v.ProfileDir),
-                    v.NetworkLabel,
-                    targetUrl,
-                    $"{activePb.Platform.ToUpperInvariant()}: {activePb.Title}",
-                    v.BackendTier,
-                    v.ClientGroup,
-                    v.IsInSoakQuarantine,
-                    v.CooldownUntilUtc,
-                    v.HasSiloConflict,
-                    v.SiloConflictDetail)).ToList();
+                var qTasks = targets.Select(v =>
+                {
+                    var taskUrl = targetUrl;
+                    var taskTitle = $"{activePb.Platform.ToUpperInvariant()}: {activePb.Title}";
+                    if (useNaturalKeepAliveForPb)
+                    {
+                        var built = BuildKeepAliveLaunchUrlForVia(v, crossPageUrl: null, fastTest: false);
+                        taskUrl = built.LaunchUrl;
+                        taskTitle = $"{activePb.Platform.ToUpperInvariant()}: {built.TaskSummary}";
+                    }
+                    return new QueueTaskItem(
+                        v.ViaId,
+                        v.Label,
+                        GetEffectiveBatchProfileKey(v, v.ProfileDir),
+                        v.NetworkLabel,
+                        taskUrl,
+                        taskTitle,
+                        v.BackendTier,
+                        v.ClientGroup,
+                        v.IsInSoakQuarantine,
+                        v.CooldownUntilUtc,
+                        v.HasSiloConflict,
+                        v.SiloConflictDetail);
+                }).ToList();
 
                 qTasks = QueueResumeStateStore.FilterRemainingItems(QueueKind.KeepAlive, qTasks, out var resumedPbSkip);
                 if (resumedPbSkip > 0)
@@ -2072,7 +2103,7 @@ internal sealed partial class MainWindow
         var flowPanel = new StackPanel();
         flowPanel.Children.Add(new TextBlock
         {
-            Text = "🎲 Trình Thiết Kế Kịch Bản Hành Vi Tự Nhiên & Nhịp Nghỉ Đa Luồng (v3.0.4)",
+            Text = $"🎲 Trình Thiết Kế Kịch Bản Hành Vi Tự Nhiên & Nhịp Nghỉ Đa Luồng ({DesktopAppInfo.DisplayVersion})",
             FontSize = 15,
             FontWeight = FontWeights.Bold,
             Foreground = ThemeTokens.AccentText,
@@ -2294,6 +2325,9 @@ internal sealed partial class MainWindow
         chainBox.Child = chainStack;
         flowPanel.Children.Add(chainBox);
 
+        var runFlowTopHost = new Border { Margin = new Thickness(0, 0, 0, 10) };
+        flowPanel.Children.Add(runFlowTopHost);
+
         // Library of 12 Suggested Actions to click or drag into the sequence
         flowPanel.Children.Add(new TextBlock
         {
@@ -2390,7 +2424,7 @@ internal sealed partial class MainWindow
         }
         flowPanel.Children.Add(presetWrap);
 
-        var saveFlowBtn = UiComponents.CreateButton("Lưu Kịch bản Tương tác & Nhịp nghỉ (#1–#5)", ButtonVariant.Success, FluentIcons.CheckCircle, onClick: (_, _) =>
+        void SaveFlowControls(bool logAndRender)
         {
             _config.EnableInternalPageCrossWarmup = chkCrossPage.IsChecked == true;
             _config.EnablePreAdsManagerWarmup = chkPreAdsBuf.IsChecked == true;
@@ -2401,10 +2435,107 @@ internal sealed partial class MainWindow
             if (int.TryParse(tbPreAdsSec.Text, out var pas)) _config.PreAdsWarmupSeconds = Math.Clamp(pas, 8, 90);
             _config.DefaultStaggerSeconds = _config.QueueRestMinSeconds;
             _config.Save();
-            AppendLog($"✅ Đã lưu Cấu hình Tương tác Tự nhiên v3.0.4: Nhịp nghỉ {_config.QueueRestMinSeconds}s–{_config.QueueRestMaxSeconds}s • Nuôi chéo Page: {(_config.EnableInternalPageCrossWarmup ? "BẬT" : "Tắt")} • Đệm Ads {_config.PreAdsWarmupSeconds}s: {(_config.EnablePreAdsManagerWarmup ? "BẬT" : "Tắt")} • Thả Tim Comment: {(_config.AutoLikeCommentsOnPageInvite ? "BẬT" : "Tắt")}.");
-            RenderCurrentView();
-        });
+            if (logAndRender)
+            {
+                AppendLog($"✅ Đã lưu Cấu hình Tương tác Tự nhiên {DesktopAppInfo.DisplayVersion}: Nhịp nghỉ {_config.QueueRestMinSeconds}s–{_config.QueueRestMaxSeconds}s • Nuôi chéo Page: {(_config.EnableInternalPageCrossWarmup ? "BẬT" : "Tắt")} • Đệm Ads {_config.PreAdsWarmupSeconds}s: {(_config.EnablePreAdsManagerWarmup ? "BẬT" : "Tắt")} • Thả Tim Comment: {(_config.AutoLikeCommentsOnPageInvite ? "BẬT" : "Tắt")}.");
+                RenderCurrentView();
+            }
+        }
+
+        var saveFlowBtn = UiComponents.CreateButton("Lưu Kịch bản Tương tác & Nhịp nghỉ (#1–#5)", ButtonVariant.Success, FluentIcons.CheckCircle, onClick: (_, _) => SaveFlowControls(logAndRender: true));
         flowPanel.Children.Add(saveFlowBtn);
+
+        var validFlowVias = _vias.Where(v => !v.IsInCooldown && CanCurrentUserLaunchVia(v, out _)).ToList();
+        var flowComboItems = _vias.Select(v => new ComboBoxItem
+        {
+            Content = $"👤 {v.Label} ({v.ProfileDir})",
+            Tag = v.ViaId,
+        }).ToList();
+        flowComboItems.Add(new ComboBoxItem
+        {
+            Content = $"🎯 Tất cả Via hợp lệ ({validFlowVias.Count})",
+            Tag = "__all__",
+        });
+
+        var viaPickCombo = UiComponents.CreateComboBox(flowComboItems);
+        viaPickCombo.Width = 230;
+        viaPickCombo.Margin = new Thickness(0, 0, 8, 4);
+        var selViaIdx = flowComboItems.FindIndex(c => string.Equals(c.Tag?.ToString(), _flowDesignerSelectedViaId, StringComparison.OrdinalIgnoreCase));
+        if (selViaIdx < 0) selViaIdx = 0;
+        if (flowComboItems.Count > 0)
+        {
+            viaPickCombo.SelectedIndex = selViaIdx;
+            _flowDesignerSelectedViaId = flowComboItems[selViaIdx].Tag?.ToString() ?? "__first__";
+        }
+        viaPickCombo.SelectionChanged += (_, _) =>
+        {
+            _flowDesignerSelectedViaId = (viaPickCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "__first__";
+        };
+
+        var testFastBtn = UiComponents.CreateButton("🧪 Test Nhanh 1 Via (5s/bước)", ButtonVariant.Primary, FluentIcons.Play, compact: true, onClick: (_, _) =>
+        {
+            SaveFlowControls(logAndRender: false);
+            var tag = (viaPickCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "";
+            var picked = _vias.FirstOrDefault(v => string.Equals(v.ViaId, tag, StringComparison.OrdinalIgnoreCase))
+                      ?? validFlowVias.FirstOrDefault()
+                      ?? _vias.FirstOrDefault();
+            if (picked == null)
+            {
+                MessageBox.Show(this, "Chưa có Via nào trong Workspace để chạy test.", "Thiếu Via", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            if (!CanCurrentUserLaunchVia(picked, out var denyMsg))
+            {
+                MessageBox.Show(this, denyMsg, "Phân quyền Team", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            StartNaturalFlowForVias(new[] { picked }, fastTest: true, requireConfirm: false);
+        }, tooltip: "Chạy thử ngay chuỗi hành động trên 1 Via với nhịp nhanh 5s/bước để kiểm tra thực tế trên Chrome");
+        testFastBtn.Margin = new Thickness(0, 0, 6, 4);
+
+        var runNowFlowBtn = UiComponents.CreateButton("▶ Chạy Kịch Bản Ngay", ButtonVariant.Secondary, FluentIcons.CoffeeWarmup, compact: true, onClick: (_, _) =>
+        {
+            SaveFlowControls(logAndRender: false);
+            var tag = (viaPickCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "__all__";
+            List<ViaWorkspaceEntry> chosenList;
+            if (string.Equals(tag, "__all__", StringComparison.OrdinalIgnoreCase))
+            {
+                chosenList = validFlowVias;
+            }
+            else
+            {
+                var one = _vias.FirstOrDefault(v => string.Equals(v.ViaId, tag, StringComparison.OrdinalIgnoreCase) && CanCurrentUserLaunchVia(v, out _));
+                chosenList = one != null ? new List<ViaWorkspaceEntry> { one } : validFlowVias;
+            }
+            if (chosenList.Count == 0)
+            {
+                MessageBox.Show(this, "Không có Via hợp lệ (không Cooldown) để chạy kịch bản.", "Không thể chạy", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            StartNaturalFlowForVias(chosenList, fastTest: false, requireConfirm: chosenList.Count > 1);
+        }, tooltip: "Chạy ngay chuỗi hành động vừa thiết kế theo đúng nhịp sinh học chuẩn");
+        runNowFlowBtn.Margin = new Thickness(0, 0, 0, 4);
+
+        var runFlowBoxStack = new StackPanel();
+        var runFlowRow = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
+        runFlowRow.Children.Add(viaPickCombo);
+        runFlowRow.Children.Add(testFastBtn);
+        runFlowRow.Children.Add(runNowFlowBtn);
+        runFlowBoxStack.Children.Add(runFlowRow);
+
+        var directIpViaCount = _vias.Count(v => string.IsNullOrWhiteSpace(v.NetworkLabel));
+        if (directIpViaCount > _config.MaxDirectIpViasInBatch)
+        {
+            runFlowBoxStack.Children.Add(new TextBlock
+            {
+                Text = $"💡 Đang giới hạn tối đa {_config.MaxDirectIpViasInBatch} Via Direct IP/ca để chống liên đới IP — có thể tăng ở ô 'Max Direct IP/ca' bên trên.",
+                FontSize = 11.5,
+                Foreground = ThemeTokens.TextMuted,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 4, 0, 0),
+            });
+        }
+        runFlowTopHost.Child = UiComponents.CreateCard(runFlowBoxStack, new Thickness(10, 8, 10, 8), ThemeTokens.InfoBg, ThemeTokens.InfoBorder);
 
         var flowCard = UiComponents.CreateCard(flowPanel);
         flowCard.Margin = new Thickness(0, 0, 0, 14);

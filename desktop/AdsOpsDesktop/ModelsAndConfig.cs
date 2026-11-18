@@ -1342,6 +1342,11 @@ public sealed class BrowserEventPayloadDto
     [JsonPropertyName("startup_ms")] public int? StartupMs { get; set; }
     [JsonPropertyName("failover_from")] public string FailoverFrom { get; set; } = "";
     [JsonPropertyName("target_url")] public string TargetUrl { get; set; } = "";
+    [JsonPropertyName("step_index")] public int StepIndex { get; set; }
+    [JsonPropertyName("total_steps")] public int TotalSteps { get; set; }
+    [JsonPropertyName("step_title")] public string StepTitle { get; set; } = "";
+    [JsonPropertyName("wait_seconds")] public int WaitSeconds { get; set; }
+    [JsonPropertyName("source")] public string Source { get; set; } = "";
 }
 
 public sealed class BrowserEventResponseDto
@@ -2417,10 +2422,24 @@ public sealed class TrackedChromeSessionDto
     [JsonPropertyName("cpu_percent")] public double CpuPercent { get; set; }
     [JsonPropertyName("antidetect_engine")] public string AntidetectEngine { get; set; } = "chrome_native";
     [JsonPropertyName("status_text")] public string StatusText { get; set; } = "";
+    [JsonPropertyName("cdp_port")] public int? CdpPort { get; set; }
+    [JsonPropertyName("window_handle_raw")] public long WindowHandleRaw { get; set; }
+    [JsonIgnore] public IntPtr WindowHandle => new IntPtr(WindowHandleRaw);
 }
 
 public sealed class ChromeSessionTracker
 {
+    [DllImport("user32.dll")]
+    private static extern bool IsWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    private const uint WM_CLOSE = 0x0010;
+
     public static ChromeSessionTracker Default { get; } = new();
 
     private readonly object _gate = new();
@@ -2451,7 +2470,9 @@ public sealed class ChromeSessionTracker
         string url,
         string antidetectEngine = "chrome_native",
         bool delegatedToSharedBroker = false,
-        bool isolatedMode = true)
+        bool isolatedMode = true,
+        int? cdpPort = null,
+        IntPtr windowHandle = default)
     {
         var entry = new TrackedChromeSessionDto
         {
@@ -2464,6 +2485,8 @@ public sealed class ChromeSessionTracker
             AntidetectEngine = AntidetectBrowserConnector.NormalizeEngine(antidetectEngine),
             DelegatedToSharedBroker = delegatedToSharedBroker,
             IsolatedMode = isolatedMode,
+            CdpPort = cdpPort,
+            WindowHandleRaw = windowHandle.ToInt64(),
             StartedAt = DateTimeOffset.UtcNow,
         };
         lock (_gate)
@@ -2504,6 +2527,34 @@ public sealed class ChromeSessionTracker
         }
     }
 
+    public int GetActiveAutomationBrowserCount()
+    {
+        return GetSnapshot().Count(s =>
+            s.Alive &&
+            !s.ClosedAt.HasValue &&
+            !s.KeepAliveClosed &&
+            (!s.DelegatedToSharedBroker || s.WindowHandleRaw != 0));
+    }
+
+    public bool CloseTrackedKeepAliveWindow(string? viaId, string? viaLabel, string? profileDir)
+    {
+        TrackedChromeSessionDto? match;
+        lock (_gate)
+        {
+            match = _sessions.FirstOrDefault(s =>
+                !s.ClosedAt.HasValue &&
+                ((!string.IsNullOrWhiteSpace(viaId) && string.Equals(s.ViaId, viaId.Trim(), StringComparison.OrdinalIgnoreCase)) ||
+                 (!string.IsNullOrWhiteSpace(viaLabel) && string.Equals(s.ViaLabel, viaLabel.Trim(), StringComparison.OrdinalIgnoreCase)) ||
+                 (!string.IsNullOrWhiteSpace(profileDir) && string.Equals(s.ProfileDir, profileDir.Trim(), StringComparison.OrdinalIgnoreCase))));
+        }
+        if (match == null) return false;
+        if (match.DelegatedToSharedBroker && match.WindowHandleRaw == 0)
+        {
+            return false;
+        }
+        return TryCloseSession(match.SessionId, out _);
+    }
+
     public bool TryCloseSession(string sessionId, out string message)
     {
         TrackedChromeSessionDto? target;
@@ -2515,6 +2566,16 @@ public sealed class ChromeSessionTracker
         {
             message = "Không tìm thấy phiên Chrome trong danh sách theo dõi.";
             return false;
+        }
+        if (target.WindowHandleRaw != 0)
+        {
+            if (IsWindow(target.WindowHandle))
+            {
+                PostMessage(target.WindowHandle, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+            }
+            target.ClosedAt = DateTimeOffset.UtcNow;
+            message = $"Đã đóng riêng cửa sổ phiên {target.ProfileDir} (HWND 0x{target.WindowHandleRaw:X}) trên Chrome Gốc.";
+            return true;
         }
         if (target.DelegatedToSharedBroker)
         {
@@ -2530,11 +2591,15 @@ public sealed class ChromeSessionTracker
         }
         try
         {
+            if (target.CdpPort is > 0)
+            {
+                ChromeCdpController.TryCloseBrowserGracefully(target.CdpPort.Value, 1200);
+            }
             using var proc = System.Diagnostics.Process.GetProcessById(target.Pid.Value);
-            if (proc.HasExited)
+            if (proc.HasExited || (target.CdpPort is > 0 && proc.WaitForExit(500)))
             {
                 target.ClosedAt ??= DateTimeOffset.UtcNow;
-                message = $"Tiến trình trình duyệt PID {target.Pid.Value} đã thoát trước đó.";
+                message = $"Đã đóng sạch phiên trình duyệt PID {target.Pid.Value} ({target.ProfileDir}).";
                 return true;
             }
             if (!IsSupportedBrowserProcessName(proc.ProcessName))
@@ -2564,6 +2629,28 @@ public sealed class ChromeSessionTracker
         }
     }
 
+    public int CloseAllActiveAutomationSessions()
+    {
+        List<string> sessionIds;
+        lock (_gate)
+        {
+            sessionIds = _sessions
+                .Where(s => !s.ClosedAt.HasValue && !s.KeepAliveClosed &&
+                            (s.Url.Contains("adsops_keepalive", StringComparison.OrdinalIgnoreCase) ||
+                             s.Url.Contains("adsops_preads_warmup", StringComparison.OrdinalIgnoreCase) ||
+                             s.Url.Contains("adsops_auto_invite", StringComparison.OrdinalIgnoreCase) ||
+                             s.Url.Contains("pages/creation", StringComparison.OrdinalIgnoreCase)))
+                .Select(s => s.SessionId)
+                .ToList();
+        }
+        int closed = 0;
+        foreach (var sid in sessionIds)
+        {
+            if (TryCloseSession(sid, out _)) closed++;
+        }
+        return closed;
+    }
+
     private static TrackedChromeSessionDto CloneWithProcessProbe(
         TrackedChromeSessionDto src,
         Dictionary<int, (TimeSpan TotalCpu, DateTime SampleUtc)> cpuSamples,
@@ -2572,14 +2659,30 @@ public sealed class ChromeSessionTracker
         bool alive = false;
         double ramMb = 0;
         double cpuPct = 0;
-        if (!src.ClosedAt.HasValue && src.Pid.HasValue && src.Pid.Value > 0)
+        int? probePid = src.Pid;
+
+        if (!src.ClosedAt.HasValue && src.WindowHandleRaw != 0)
+        {
+            alive = IsWindow(src.WindowHandle);
+            if (!alive && (DateTimeOffset.UtcNow - src.StartedAt).TotalSeconds >= 2.0)
+            {
+                src.ClosedAt = DateTimeOffset.UtcNow;
+            }
+            else if (alive)
+            {
+                GetWindowThreadProcessId(src.WindowHandle, out uint hwPid);
+                if (hwPid > 0) probePid = (int)hwPid;
+            }
+        }
+
+        if (!src.ClosedAt.HasValue && probePid.HasValue && probePid.Value > 0 && (alive || src.WindowHandleRaw == 0))
         {
             try
             {
-                using var proc = System.Diagnostics.Process.GetProcessById(src.Pid.Value);
+                using var proc = System.Diagnostics.Process.GetProcessById(probePid.Value);
                 if (!proc.HasExited && IsSupportedBrowserProcessName(proc.ProcessName))
                 {
-                    alive = true;
+                    if (src.WindowHandleRaw == 0) alive = true;
                     proc.Refresh();
                     ramMb = Math.Round(proc.WorkingSet64 / (1024.0 * 1024.0), 1);
 
@@ -2606,10 +2709,10 @@ public sealed class ChromeSessionTracker
             }
             catch
             {
-                alive = false;
+                if (src.WindowHandleRaw == 0) alive = false;
             }
 
-            if (!alive && !src.ClosedAt.HasValue && src.Pid.HasValue && src.Pid.Value > 0 &&
+            if (!alive && src.WindowHandleRaw == 0 && !src.ClosedAt.HasValue && src.Pid.HasValue && src.Pid.Value > 0 &&
                 (DateTimeOffset.UtcNow - src.StartedAt).TotalSeconds >= 2.0)
             {
                 src.ClosedAt = DateTimeOffset.UtcNow;
@@ -2622,7 +2725,9 @@ public sealed class ChromeSessionTracker
                 ? "Đã tự đóng sau Keep-Alive"
                 : alive
                     ? (src.DelegatedToSharedBroker
-                        ? $"Đang mở • Chrome Gốc (PID {src.Pid} • {ramMb:0.0} MB)"
+                        ? (src.WindowHandleRaw != 0
+                            ? $"Đang mở • Chrome Gốc (HWND 0x{src.WindowHandleRaw:X})"
+                            : $"Đang mở • Chrome Gốc (PID {src.Pid} • {ramMb:0.0} MB)")
                         : $"Đang mở (PID {src.Pid} • {ramMb:0.0} MB • {cpuPct:0.0}% CPU)")
                     : src.ClosedAt.HasValue
                         ? "Đã đóng cửa sổ"
@@ -2643,6 +2748,8 @@ public sealed class ChromeSessionTracker
             HungReaped = src.HungReaped,
             DelegatedToSharedBroker = src.DelegatedToSharedBroker,
             IsolatedMode = src.IsolatedMode,
+            CdpPort = src.CdpPort,
+            WindowHandleRaw = src.WindowHandleRaw,
             ClosedAt = src.ClosedAt,
             Alive = alive,
             RamMb = ramMb,
@@ -2671,8 +2778,12 @@ public sealed class ChromeSessionTracker
             {
                 try
                 {
+                    if (c.CdpPort is > 0)
+                    {
+                        ChromeCdpController.TryCloseBrowserGracefully(c.CdpPort.Value, 1000);
+                    }
                     using var proc = System.Diagnostics.Process.GetProcessById(c.Pid!.Value);
-                    if (!proc.HasExited && IsSupportedBrowserProcessName(proc.ProcessName))
+                    if (!proc.HasExited && !(c.CdpPort is > 0 && proc.WaitForExit(350)) && IsSupportedBrowserProcessName(proc.ProcessName))
                     {
                         if (!proc.CloseMainWindow())
                         {
@@ -2695,9 +2806,9 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "3.0.4";
-    public const string DisplayVersion = "v3.0.4";
-    public const string ExtVersion = "2.10.1";
+    public const string Version = "3.2.0";
+    public const string DisplayVersion = "v3.2.0";
+    public const string ExtVersion = "2.10.2";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 
     /// <summary>
@@ -2817,7 +2928,7 @@ public static class WindowTilerService
 
     public static (int Cols, int Rows, string Normalized) ParseGridSpec(string? spec)
     {
-        var clean = (spec ?? "2x2").Trim().ToLowerInvariant().Replace("×", "x");
+        var clean = (spec ?? "2x2").Trim().ToLowerInvariant().Replace("×", "x").Replace("*", "x");
         return clean switch
         {
             "2x1" => (2, 1, "2x1"),

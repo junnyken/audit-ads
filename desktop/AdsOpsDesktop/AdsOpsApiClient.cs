@@ -26,7 +26,41 @@ public sealed class AdsOpsApiClient : IDisposable
 
     public AdsOpsApiClient()
     {
-        _http = new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
+        var handler = new SocketsHttpHandler
+        {
+            PooledConnectionLifetime = TimeSpan.FromSeconds(90),
+            PooledConnectionIdleTimeout = TimeSpan.FromSeconds(45),
+            ConnectTimeout = TimeSpan.FromSeconds(5),
+            KeepAlivePingPolicy = HttpKeepAlivePingPolicy.WithActiveRequests,
+            KeepAlivePingDelay = TimeSpan.FromSeconds(15),
+            KeepAlivePingTimeout = TimeSpan.FromSeconds(10),
+            MaxConnectionsPerServer = 8,
+            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
+        };
+        _http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(35) };
+    }
+
+    private async Task<HttpResponseMessage> SendWithTransientRetryAsync(
+        HttpMethod method,
+        string relativePath,
+        object? body,
+        CancellationToken ct)
+    {
+        for (int attempt = 0; ; attempt++)
+        {
+            try
+            {
+                using var req = BuildRequest(method, relativePath, body);
+                return await _http.SendAsync(req, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (attempt == 0 &&
+                                       method == HttpMethod.Get &&
+                                       !ct.IsCancellationRequested &&
+                                       (ex is HttpRequestException || ex is TaskCanceledException))
+            {
+                await Task.Delay(350, ct).ConfigureAwait(false);
+            }
+        }
     }
 
     public void Configure(string baseUrl, string accessToken, Func<Task<string?>>? onUnauthorizedRefresh = null)
@@ -59,8 +93,7 @@ public sealed class AdsOpsApiClient : IDisposable
     private async Task<T> SendJsonAsync<T>(HttpMethod method, string relativePath, object? body = null, CancellationToken ct = default)
     {
         var sentToken = _token;
-        using var req = BuildRequest(method, relativePath, body);
-        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        using var resp = await SendWithTransientRetryAsync(method, relativePath, body, ct).ConfigureAwait(false);
         var raw = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
 
         if (resp.StatusCode == HttpStatusCode.Unauthorized &&

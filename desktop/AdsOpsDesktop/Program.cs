@@ -1,9 +1,13 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Net.WebSockets;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -15,6 +19,14 @@ namespace AdsOpsDesktop;
 
 internal static class Program
 {
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    private const int SwRestore = 9;
+
     [STAThread]
     private static int Main(string[] args)
     {
@@ -29,6 +41,25 @@ internal static class Program
             return 0;
         }
 
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AdsOpsDesktop", "crash.log");
+            try { File.AppendAllText(logPath, $"[{DateTime.UtcNow:O}] UnhandledException: {e.ExceptionObject}\n"); } catch { }
+        };
+
+        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+        {
+            var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AdsOpsDesktop", "runtime.log");
+            try { File.AppendAllText(logPath, $"[{DateTime.UtcNow:O}] ProcessExit fired. StackTrace:\n{Environment.StackTrace}\n"); } catch { }
+        };
+
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AdsOpsDesktop", "crash.log");
+            try { File.AppendAllText(logPath, $"[{DateTime.UtcNow:O}] UnobservedTaskException: {e.Exception}\n"); } catch { }
+            e.SetObserved();
+        };
+
         var uriIdx = Array.FindIndex(args, a => string.Equals(a, "--uri", StringComparison.OrdinalIgnoreCase));
         if (uriIdx >= 0 && uriIdx + 1 < args.Length)
         {
@@ -39,7 +70,35 @@ internal static class Program
         if (!createdNew)
         {
             // Another desktop instance is already guarding port 17890
-            return 0;
+            var currentPid = Environment.ProcessId;
+            var otherProcs = Process.GetProcessesByName("AdsOpsDesktop").Where(p => p.Id != currentPid).ToList();
+            bool activated = false;
+            foreach (var p in otherProcs)
+            {
+                try
+                {
+                    if (p.MainWindowHandle != IntPtr.Zero)
+                    {
+                        ShowWindow(p.MainWindowHandle, SwRestore);
+                        SetForegroundWindow(p.MainWindowHandle);
+                        activated = true;
+                        break;
+                    }
+                }
+                catch { }
+            }
+
+            if (activated)
+            {
+                return 0;
+            }
+
+            // The previous instance was running headlessly or orphaned in background.
+            // Terminate it cleanly so user can open the real UI window!
+            foreach (var p in otherProcs)
+            {
+                try { p.Kill(entireProcessTree: true); p.WaitForExit(1500); } catch { }
+            }
         }
 
         var minimized = args.Any(a => string.Equals(a, "--minimized", StringComparison.OrdinalIgnoreCase));
@@ -47,11 +106,21 @@ internal static class Program
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown,
         };
+
+        app.DispatcherUnhandledException += (sender, e) =>
+        {
+            var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AdsOpsDesktop", "crash.log");
+            try { File.AppendAllText(logPath, $"[{DateTime.UtcNow:O}] DispatcherUnhandledException: {e.Exception}\n"); } catch { }
+            e.Handled = true; // Prevent app from terminating unexpectedly
+        };
+
         var win = new MainWindow(startMinimized: minimized);
         app.MainWindow = win;
         if (!minimized)
         {
             win.Show();
+            win.Activate();
+            win.Focus();
         }
         app.Run();
         return 0;
@@ -88,13 +157,24 @@ internal static class Program
             ProfileDir = ExtensionProvisioner.ResolveProfileDirectory(parsed.Profile, parsed.Name),
             NetworkLabel = parsed.Proxy,
         };
+        var vaultSecret = LocalSecretVaultStore.Default.Find(fallbackVia.ViaId, fallbackVia.ProfileDir, fallbackVia.Label);
+        var hasVaultCookie = vaultSecret.Found && !string.IsNullOrWhiteSpace(vaultSecret.CookieRaw);
         var extDir = ExtensionProvisioner.ProvisionForVia(fallbackVia);
-        ExtensionProvisioner.LaunchChrome(
+        var effectiveIso = ExtensionProvisioner.ShouldUseIsolatedProfile(
+            cfg.UseIsolatedProfiles,
+            fallbackVia.ProfileDir,
+            fallbackVia.NetworkLabel,
+            hasVaultCookie,
+            fallbackVia.Label);
+        await ExtensionProvisioner.LaunchChromeSmartAsync(
             parsed.Url,
             fallbackVia.ProfileDir,
             extDir,
-            cfg.UseIsolatedProfiles,
-            ExtensionProvisioner.SanitizeFolderSlug(fallbackVia.Label));
+            effectiveIso,
+            fallbackVia.Label,
+            cfg.EnableChromeAntidetectShield,
+            cfg.LowRamFarmMode,
+            vaultSecret.CookieRaw).ConfigureAwait(false);
         return 0;
     }
 
@@ -324,7 +404,7 @@ internal static class Program
 
             var tileResp = await http.PostAsync(
                 $"{baseUrl}/tile-windows",
-                new StringContent("{\"grid\":\"3Ã—2\"}", Encoding.UTF8, "application/json"));
+                new StringContent("{\"grid\":\"3x2\"}", Encoding.UTF8, "application/json"));
             tileResp.EnsureSuccessStatusCode();
             var tileBody = await tileResp.Content.ReadAsStringAsync();
             if (!tileBody.Contains("\"grid\":\"3x2\"", StringComparison.Ordinal))
@@ -568,7 +648,7 @@ internal static class Program
             {
                 throw new InvalidOperationException("DesktopAppInfo.NormalizeProxyKey mismatch");
             }
-            var parsedGrid = WindowTilerService.ParseGridSpec("3Ã—2");
+            var parsedGrid = WindowTilerService.ParseGridSpec("3x2");
             if (parsedGrid.Cols != 3 || parsedGrid.Rows != 2 || parsedGrid.Normalized != "3x2")
                 throw new InvalidOperationException("WindowTilerService.ParseGridSpec 3x2 failed");
             if (!SelfUpdateService.IsNewerVersion("2.3.1", "2.3.0") || SelfUpdateService.IsNewerVersion("2.3.0", "2.3.0"))
@@ -1285,12 +1365,12 @@ internal static class Program
                 if (!string.Equals(DesktopConfig.AppDataRoot, tempRoot, StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException($"AppDataRootOverride failed: got '{DesktopConfig.AppDataRoot}' vs '{tempRoot}'");
 
-                var cleanSlug = ExtensionProvisioner.SanitizeFolderSlug("ThiÃªn Triá»u MKMB");
-                var cleanSlug2 = ExtensionProvisioner.SanitizeFolderSlug("Via Äáº£o áº¤m 01");
+                var cleanSlug = ExtensionProvisioner.SanitizeFolderSlug("Thiên Triều MKMB");
+                var cleanSlug2 = ExtensionProvisioner.SanitizeFolderSlug("Via Đảo Ấm 01");
                 if (cleanSlug != "thien-trieu-mkmb" || cleanSlug2 != "via-dao-am-01")
                     throw new InvalidOperationException($"SanitizeFolderSlug diacritic stripping failed: '{cleanSlug}', '{cleanSlug2}'");
 
-                var nativeArgs = ExtensionProvisioner.BuildChromeArguments("https://www.facebook.com/", "Profile 4", null, isolatedMode: false, viaSlug: "ThiÃªn Triá»u MKMB");
+                var nativeArgs = ExtensionProvisioner.BuildChromeArguments("https://www.facebook.com/", "Profile 4", null, isolatedMode: false, viaSlug: "Thiên Triều MKMB");
                 if (!nativeArgs.Contains("--profile-directory=Profile 4") || !nativeArgs.Contains("--new-window"))
                     throw new InvalidOperationException("Native Chrome args must include --profile-directory and --new-window");
 
@@ -1312,8 +1392,8 @@ internal static class Program
                 var exitedSnap = exitTracker.RecordLaunch(999997, "ex-1", "Via Exit", "Profile 81", "https://www.facebook.com/", isolatedMode: true);
                 await Task.Delay(2100);
                 var afterSnap = exitTracker.GetSnapshot().First(x => x.SessionId == exitedSnap.SessionId);
-                if (!afterSnap.ClosedAt.HasValue || afterSnap.StatusText != "ÄÃ£ Ä‘Ã³ng cá»­a sá»•")
-                    throw new InvalidOperationException($"Expected natural exit 'ÄÃ£ Ä‘Ã³ng cá»­a sá»•', got '{afterSnap.StatusText}'");
+                if (!afterSnap.ClosedAt.HasValue || afterSnap.StatusText != "Đã đóng cửa sổ")
+                    throw new InvalidOperationException($"Expected natural exit 'Đã đóng cửa sổ', got '{afterSnap.StatusText}'");
 
                 var sharedTracker = new ChromeSessionTracker();
                 var sharedSess = sharedTracker.RecordLaunch(Environment.ProcessId, "sh-1", "Via Shared", "Default", "https://www.facebook.com/", delegatedToSharedBroker: true, isolatedMode: false);
@@ -1321,7 +1401,7 @@ internal static class Program
                 if (reapedShared.Count != 0)
                     throw new InvalidOperationException("ReapHungSessions must NEVER reap a shared Chrome broker session");
                 if (!sharedTracker.TryCloseSession(sharedSess.SessionId, out var sharedMsg) ||
-                    !sharedMsg.Contains("gá»¡ theo dÃµi", StringComparison.OrdinalIgnoreCase))
+                    !sharedMsg.Contains("gỡ theo dõi", StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException($"TryCloseSession on shared broker unexpected: {sharedMsg}");
 
                 var uniqueDefaultList = new List<ViaWorkspaceEntry>
@@ -1437,9 +1517,9 @@ internal static class Program
                     Title = "Meta reports the account as not operable",
                     Summary = "Meta returned account_status 101 (Closed (Meta)) for this account; disable reason: NONE (0).",
                     AccountDisplayName = "597797234825696",
-                    BusinessManagerName = "Quáº£ng CÃ¡o Top",
+                    BusinessManagerName = "Quảng Cáo Top",
                 };
-                if (!alClosed.GetLocalizedTitle().Contains("ngá»«ng hoáº¡t Ä‘á»™ng", StringComparison.OrdinalIgnoreCase) ||
+                if (!alClosed.GetLocalizedTitle().Contains("ngừng hoạt động", StringComparison.OrdinalIgnoreCase) ||
                     !alClosed.GetLocalizedSummary().Contains("account_status 101", StringComparison.OrdinalIgnoreCase))
                 {
                     throw new InvalidOperationException($"Alert localization failed: title='{alClosed.GetLocalizedTitle()}', sum='{alClosed.GetLocalizedSummary()}'");
@@ -1450,8 +1530,8 @@ internal static class Program
                     Title = "Account status is disabled",
                     Summary = "The recorded account status is disabled.",
                 };
-                if (!alDisabled.GetLocalizedTitle().Contains("vÃ´ hiá»‡u hÃ³a", StringComparison.OrdinalIgnoreCase) ||
-                    !alDisabled.GetLocalizedSummary().Contains("vÃ´ hiá»‡u hÃ³a", StringComparison.OrdinalIgnoreCase))
+                if (!alDisabled.GetLocalizedTitle().Contains("vô hiệu hóa", StringComparison.OrdinalIgnoreCase) ||
+                    !alDisabled.GetLocalizedSummary().Contains("vô hiệu hóa", StringComparison.OrdinalIgnoreCase))
                 {
                     throw new InvalidOperationException("Disabled alert localization failed");
                 }
@@ -1459,7 +1539,7 @@ internal static class Program
                 var formattedCron = AlertItemDto.FormatIsoTimestampLocal("2026-11-17T02:27:50.140371+00:00");
                 if (!System.Text.RegularExpressions.Regex.IsMatch(formattedCron, @"^\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2}$"))
                     throw new InvalidOperationException($"FormatIsoTimestampLocal unexpected format: '{formattedCron}'");
-                if (AlertItemDto.FormatIsoTimestampLocal(null) != "ChÆ°a cháº¡y")
+                if (AlertItemDto.FormatIsoTimestampLocal(null) != "Chưa chạy")
                     throw new InvalidOperationException("FormatIsoTimestampLocal null fallback mismatch");
 
                 var tpl299 = ExtensionProvisioner.LoadTemplates();
@@ -1548,6 +1628,565 @@ internal static class Program
                 if (!bkRes.Created || string.IsNullOrWhiteSpace(bkRes.FilePath) || !File.Exists(bkRes.FilePath))
                 {
                     throw new InvalidOperationException("CreateDailyAutoBackup failed to create .adsopsvault file.");
+                }
+            }
+
+            // 32. v3.0.5 SanitizeIsolatedProfileHealth + Real Chrome 158 CDP Unpacked Extension + Multi-Step Micro-Actions + Queue E2E Test
+            {
+                var brokenIsoDir = Path.Combine(tempRoot, "broken_iso_v305");
+                var brokenNetDir = Path.Combine(brokenIsoDir, "Default", "Network");
+                Directory.CreateDirectory(brokenNetDir);
+                var brokenCookiesPath = Path.Combine(brokenNetDir, "Cookies");
+                var brokenLocalStatePath = Path.Combine(brokenIsoDir, "Local State");
+                File.WriteAllBytes(brokenCookiesPath, Array.Empty<byte>());
+                File.WriteAllText(brokenLocalStatePath, "{\"os_crypt\":{\"encrypted_key\":\"bad\"}}");
+                ExtensionProvisioner.SanitizeIsolatedProfileHealth(brokenIsoDir);
+                if (File.Exists(brokenCookiesPath) || File.Exists(brokenLocalStatePath))
+                {
+                    throw new InvalidOperationException("SanitizeIsolatedProfileHealth failed to clean 0-byte Cookies / stale Local State.");
+                }
+
+                var chromePath = ExtensionProvisioner.FindChromeExecutable();
+                if (!string.IsNullOrWhiteSpace(chromePath) && File.Exists(chromePath))
+                {
+                    var e2eEvents = new ConcurrentQueue<BrowserEventPayloadDto>();
+                    var e2eCfg = new DesktopConfig
+                    {
+                        WebAppUrl = "https://adsops-app.vibe.tinhgon.xyz",
+                        BackendBaseUrl = "https://adsops-app.vibe.tinhgon.xyz",
+                        AutoRefreshCookieAfterKeepAlive = true,
+                        UseIsolatedProfiles = true,
+                    };
+                    var e2eToken = e2eCfg.GetOrCreateBridgeToken();
+                    var e2eSecretStore = new LocalSecretVaultStore(Path.Combine(tempRoot, "e2e_vault.json"));
+                    AutomationQueueEngine? e2eQueueRef = null;
+
+                    using var e2eBridge = new LocalBridgeServer(
+                        0,
+                        _ => Task.FromResult((true, "OK")),
+                        ev =>
+                        {
+                            e2eEvents.Enqueue(ev);
+                            var evUp = (ev.EventType ?? "").Trim().ToUpperInvariant();
+                            if (evUp is "KEEPALIVE_OK" or "SAFETY_CHALLENGE" or "COOKIE_LOGGED_OUT")
+                            {
+                                e2eQueueRef?.MarkItemCompleted(ev.ViaId, ev.ViaLabel);
+                            }
+                            return Task.FromResult(new BrowserEventResponseDto { Ok = true, EventType = ev.EventType });
+                        },
+                        () => Task.FromResult(1),
+                        _ => { },
+                        req =>
+                        {
+                            var saved = e2eSecretStore.Upsert(req.ViaId, req.ViaLabel, req.ProfileDir, req.CookieRaw, req.TwoFaSecret);
+                            return Task.FromResult(new LocalVaultGetResult { Ok = true, Found = saved.Found, CookieRaw = saved.CookieRaw });
+                        },
+                        (vid, prof, nm) =>
+                        {
+                            var found = e2eSecretStore.Find(vid, prof, nm);
+                            return Task.FromResult(new LocalVaultGetResult { Ok = true, Found = found.Found, CookieRaw = found.CookieRaw });
+                        },
+                        getBridgeToken: () => e2eToken,
+                        getAllowedWebAppUrl: () => "https://adsops-app.vibe.tinhgon.xyz");
+                    e2eBridge.Start();
+                    e2eCfg.BridgePort = e2eBridge.BoundPort;
+
+                    var e2eVia = new ViaWorkspaceEntry
+                    {
+                        ViaId = "via-e2e-158",
+                        Label = "Via E2E 158",
+                        BrowserProfileLabel = "Profile 77",
+                        ProfileDir = "Profile 77",
+                        ViaTier = "veteran_xmdt",
+                    };
+                    var e2eExtDir = ExtensionProvisioner.ProvisionForVia(
+                        e2eVia,
+                        Path.Combine(tempRoot, "e2e_ext"),
+                        e2eSecretStore,
+                        e2eCfg);
+
+                    var e2eIsoDir = ExtensionProvisioner.ResolveIsolatedProfileDirectory(e2eVia.Label, "Profile 77");
+                    int e2eCdpPort = ChromeCdpController.FindFreeLoopbackPort();
+                    var chromeArgs = ExtensionProvisioner.BuildChromeArguments(
+                        "https://www.facebook.com/",
+                        e2eVia.ProfileDir,
+                        e2eExtDir,
+                        isolatedMode: true,
+                        viaSlug: e2eVia.Label,
+                        antidetectShield: false,
+                        lowRamMode: false,
+                        cdpPort: e2eCdpPort,
+                        startBlankForCdpBootstrap: true);
+                    chromeArgs.Insert(0, "--headless=new");
+
+                    var psi = new ProcessStartInfo { FileName = chromePath, UseShellExecute = false };
+                    foreach (var a in chromeArgs) psi.ArgumentList.Add(a);
+
+                    using var chromeProc = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start headless Chrome for E2E verification.");
+                    ClientWebSocket? pageWs = null;
+                    CancellationTokenSource? readerCts = null;
+                    try
+                    {
+                        var boot = await ChromeCdpController.BootstrapIsolatedChromeAsync(
+                            e2eCdpPort,
+                            e2eExtDir,
+                            "c_user=1000777888999; xs=e2e_xs_secret",
+                            navigateUrl: null,
+                            connectTimeoutMs: 8000);
+                        if (!boot.ExtensionLoaded || string.IsNullOrWhiteSpace(boot.ExtensionId) || boot.InjectedCookies < 2 || string.IsNullOrWhiteSpace(boot.PageTargetWsUrl))
+                        {
+                            throw new InvalidOperationException($"Chrome 158 CDP bootstrap failed: loaded={boot.ExtensionLoaded}, extId='{boot.ExtensionId}', cookies={boot.InjectedCookies}");
+                        }
+
+                        pageWs = new ClientWebSocket();
+                        await pageWs.ConnectAsync(new Uri(boot.PageTargetWsUrl), CancellationToken.None);
+                        var sendGate = new SemaphoreSlim(1, 1);
+                        var pendingCmds = new ConcurrentDictionary<int, TaskCompletionSource<JsonElement>>();
+                        int nextCmdId = 1;
+
+                        async Task<JsonElement> SendPageCmdAsync(string method, object? @params)
+                        {
+                            int id = Interlocked.Increment(ref nextCmdId);
+                            var tcs = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+                            pendingCmds[id] = tcs;
+                            var json = @params == null
+                                ? JsonSerializer.Serialize(new { id, method })
+                                : JsonSerializer.Serialize(new { id, method, @params });
+                            var bytes = Encoding.UTF8.GetBytes(json);
+                            await sendGate.WaitAsync(CancellationToken.None);
+                            try
+                            {
+                                await pageWs.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+                            }
+                            finally
+                            {
+                                sendGate.Release();
+                            }
+                            using var timeoutCts = new CancellationTokenSource(4000);
+                            using var reg = timeoutCts.Token.Register(() => tcs.TrySetCanceled());
+                            return await tcs.Task;
+                        }
+
+                        const string mockFbHtml = """
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Facebook E2E Mock</title></head>
+<body style="margin:0;padding:0;font-family:sans-serif">
+  <div style="padding-top:140px;height:4200px">
+    <div id="post-1">
+      <div id="e2e-like-1" role="button" aria-label="Thích" aria-pressed="false" style="width:96px;height:36px;display:block" onclick="this.setAttribute('aria-pressed','true');try{localStorage.setItem('adsops_e2e_liked','1');}catch(e){}"><span>Thích</span></div>
+      <div id="e2e-cmt-1" role="button" aria-label="Xem thêm bình luận" style="margin-top:28px;width:180px;height:34px;display:block" onclick="try{localStorage.setItem('adsops_e2e_comments','1');}catch(e){}"><span>Xem thêm bình luận</span></div>
+    </div>
+    <div id="post-2" style="margin-top:260px">
+      <div id="e2e-like-2" role="button" aria-label="Thích" aria-pressed="false" style="width:96px;height:36px;display:block" onclick="this.setAttribute('aria-pressed','true');try{localStorage.setItem('adsops_e2e_liked','1');}catch(e){}"><span>Thích</span></div>
+      <div id="e2e-cmt-2" role="button" aria-label="Xem thêm bình luận" style="margin-top:28px;width:180px;height:34px;display:block" onclick="try{localStorage.setItem('adsops_e2e_comments','1');}catch(e){}"><span>Xem thêm bình luận</span></div>
+    </div>
+    <div id="post-3" style="margin-top:260px">
+      <div id="e2e-like-3" role="button" aria-label="Thích" aria-pressed="false" style="width:96px;height:36px;display:block" onclick="this.setAttribute('aria-pressed','true');try{localStorage.setItem('adsops_e2e_liked','1');}catch(e){}"><span>Thích</span></div>
+      <div id="e2e-cmt-3" role="button" aria-label="Xem thêm bình luận" style="margin-top:28px;width:180px;height:34px;display:block" onclick="try{localStorage.setItem('adsops_e2e_comments','1');}catch(e){}"><span>Xem thêm bình luận</span></div>
+    </div>
+  </div>
+  <script>
+    window.addEventListener('scroll', function() {
+      if (window.scrollY > 0) {
+        try { localStorage.setItem('adsops_e2e_scrolled', '1'); } catch (e) {}
+      }
+    }, { passive: true });
+  </script>
+</body>
+</html>
+""";
+                        var mockBodyB64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(mockFbHtml));
+                        var okHeaders = new[]
+                        {
+                            new { name = "Content-Type", value = "text/html; charset=utf-8" },
+                            new { name = "Cache-Control", value = "no-store" },
+                        };
+
+                        readerCts = new CancellationTokenSource();
+                        var readerLoopTask = Task.Run(async () =>
+                        {
+                            var buf = new byte[32768];
+                            while (pageWs.State == WebSocketState.Open && !readerCts.Token.IsCancellationRequested)
+                            {
+                                using var ms = new MemoryStream();
+                                WebSocketReceiveResult r;
+                                do
+                                {
+                                    r = await pageWs.ReceiveAsync(new ArraySegment<byte>(buf), readerCts.Token);
+                                    if (r.MessageType == WebSocketMessageType.Close) return;
+                                    if (r.Count > 0) ms.Write(buf, 0, r.Count);
+                                } while (!r.EndOfMessage);
+
+                                var raw = Encoding.UTF8.GetString(ms.ToArray());
+                                if (string.IsNullOrWhiteSpace(raw)) continue;
+                                using var doc = JsonDocument.Parse(raw);
+                                var root = doc.RootElement;
+                                if (root.TryGetProperty("id", out var idEl) && idEl.TryGetInt32(out var respId))
+                                {
+                                    if (pendingCmds.TryRemove(respId, out var tcs))
+                                    {
+                                        tcs.TrySetResult(root.Clone());
+                                    }
+                                }
+                                else if (root.TryGetProperty("method", out var mEl) &&
+                                         string.Equals(mEl.GetString(), "Fetch.requestPaused", StringComparison.Ordinal) &&
+                                         root.TryGetProperty("params", out var pEl))
+                                {
+                                    var reqId = pEl.TryGetProperty("requestId", out var ridEl) ? ridEl.GetString() : "";
+                                    var reqUrl = pEl.TryGetProperty("request", out var reqObj) && reqObj.TryGetProperty("url", out var uEl)
+                                        ? (uEl.GetString() ?? "")
+                                        : "";
+                                    if (!string.IsNullOrEmpty(reqId))
+                                    {
+                                        _ = Task.Run(async () =>
+                                        {
+                                            try
+                                            {
+                                                if (reqUrl.Contains("facebook.com", StringComparison.OrdinalIgnoreCase))
+                                                {
+                                                    await SendPageCmdAsync("Fetch.fulfillRequest", new
+                                                    {
+                                                        requestId = reqId,
+                                                        responseCode = 200,
+                                                        responseHeaders = okHeaders,
+                                                        body = mockBodyB64,
+                                                    });
+                                                }
+                                                else
+                                                {
+                                                    await SendPageCmdAsync("Fetch.continueRequest", new { requestId = reqId });
+                                                }
+                                            }
+                                            catch { }
+                                        });
+                                    }
+                                }
+                            }
+                        });
+
+                        await SendPageCmdAsync("Fetch.enable", new
+                        {
+                            patterns = new[] { new { urlPattern = "https://*.facebook.com/*", requestStage = "Request" } }
+                        });
+
+                        var targetRouteUrl = "https://www.facebook.com/?adsops_keepalive_session=1&adsops_auto_close=0&adsops_via_tier=vault&adsops_via_label=Via%20E2E%20158&adsops_ka_mode=human_organic&adsops_ka_route=scroll_feed,react_feed_post,view_photo_post,read_notifications&adsops_step_ms=1100";
+                        bool e2eBrowserActive = false;
+                        using var e2eQueue = new AutomationQueueEngine(
+                            _ => Task.FromResult((true, "Direct IP")),
+                            async item =>
+                            {
+                                e2eBrowserActive = true;
+                                await SendPageCmdAsync("Page.navigate", new { url = item.TargetUrl });
+                            },
+                            _ => Task.CompletedTask,
+                            _ => { },
+                            getActiveBrowserCount: () => e2eBrowserActive ? 1 : 0);
+                        e2eQueueRef = e2eQueue;
+                        e2eQueue.ConfigureTiming(tickIntervalMs: 250, syncWaitSeconds: 5);
+                        e2eQueue.StartQueue(
+                            QueueKind.KeepAlive,
+                            new[]
+                            {
+                                new QueueTaskItem("via-e2e-158", "Via E2E 158", "Profile 77", "", targetRouteUrl, "E2E 4-Step Action", "veteran_xmdt")
+                            },
+                            baseStaggerSeconds: 1,
+                            preCheckProxy: false,
+                            enforceDaytimeWindow: false,
+                            maxConcurrentBrowsers: 1);
+
+                        var e2eDeadline = DateTime.UtcNow.AddSeconds(20);
+                        while (e2eQueue.Current.Phase != QueuePhase.Completed && DateTime.UtcNow < e2eDeadline)
+                        {
+                            await Task.Delay(120);
+                        }
+                        if (e2eQueue.Current.Phase != QueuePhase.Completed)
+                        {
+                            var seenTypes = string.Join(",", e2eEvents.Select(x => $"{x.EventType}:{x.StepIndex}"));
+                            throw new InvalidOperationException($"Chrome 158 E2E queue did not complete in 20s (Phase={e2eQueue.Current.Phase}, Events=[{seenTypes}])");
+                        }
+
+                        var evalResp = await SendPageCmdAsync("Runtime.evaluate", new
+                        {
+                            expression = "JSON.stringify({ext:document.documentElement.getAttribute('data-adsops-ext'),scrolled:localStorage.getItem('adsops_e2e_scrolled'),liked:localStorage.getItem('adsops_e2e_liked'),comments:localStorage.getItem('adsops_e2e_comments')})",
+                            returnByValue = true,
+                        });
+                        var evalJsonStr = evalResp.GetProperty("result").GetProperty("result").GetProperty("value").GetString() ?? "{}";
+                        using var evalDoc = JsonDocument.Parse(evalJsonStr);
+                        var evRoot = evalDoc.RootElement;
+                        var extAttr = evRoot.GetProperty("ext").GetString();
+                        var didScroll = evRoot.GetProperty("scrolled").GetString();
+                        var didLike = evRoot.GetProperty("liked").GetString();
+                        var didComments = evRoot.GetProperty("comments").GetString();
+
+                        var evList = e2eEvents.ToList();
+                        var stepIndices = evList
+                            .Where(x => string.Equals(x.EventType, "KEEPALIVE_STEP", StringComparison.OrdinalIgnoreCase))
+                            .Select(x => x.StepIndex)
+                            .Distinct()
+                            .OrderBy(x => x)
+                            .ToList();
+                        bool gotKeepAliveOk = evList.Any(x => string.Equals(x.EventType, "KEEPALIVE_OK", StringComparison.OrdinalIgnoreCase));
+
+                        if (stepIndices.Count < 4 || !gotKeepAliveOk || extAttr != DesktopAppInfo.ExtVersion || didScroll != "1" || didLike != "1" || didComments != "1")
+                        {
+                            throw new InvalidOperationException(
+                                $"Chrome 158 E2E action verification failed: steps=[{string.Join(",", stepIndices)}], ok={gotKeepAliveOk}, ext='{extAttr}', scroll='{didScroll}', like='{didLike}', comments='{didComments}'");
+                        }
+
+                        var vaultCheckDeadline = DateTime.UtcNow.AddMilliseconds(600);
+                        var storedVault = e2eSecretStore.Find("via-e2e-158", "Profile 77", "Via E2E 158");
+                        while ((!storedVault.Found || !storedVault.CookieRaw.Contains("c_user=1000777888999", StringComparison.Ordinal)) &&
+                               DateTime.UtcNow < vaultCheckDeadline)
+                        {
+                            await Task.Delay(50);
+                            storedVault = e2eSecretStore.Find("via-e2e-158", "Profile 77", "Via E2E 158");
+                        }
+                        if (!storedVault.Found || !storedVault.CookieRaw.Contains("c_user=1000777888999", StringComparison.Ordinal))
+                        {
+                            throw new InvalidOperationException($"Chrome 158 E2E auto-refresh cookie into DPAPI Vault failed: found={storedVault.Found}");
+                        }
+                    }
+                    finally
+                    {
+                        try { readerCts?.Cancel(); } catch { }
+                        try { pageWs?.Dispose(); } catch { }
+                        await ChromeCdpController.CloseBrowserGracefullyAsync(e2eCdpPort, 1200);
+                        try
+                        {
+                            if (!chromeProc.HasExited)
+                            {
+                                chromeProc.WaitForExit(1000);
+                                if (!chromeProc.HasExited) chromeProc.Kill(entireProcessTree: true);
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+
+            // 33. v3.1.0 WebView2 Hybrid shadcn/ui Bundle Extraction, JSON Bridge & WebView2Loader Runtime Verification
+            {
+                var webUiDir = DesktopWebUiBridge.EnsureExtractedAssets();
+                var idxPath = Path.Combine(webUiDir, "index.html");
+                var assetsDir = Path.Combine(webUiDir, "assets");
+                if (!File.Exists(idxPath) || new FileInfo(idxPath).Length <= 200)
+                {
+                    throw new InvalidOperationException($"shadcn/ui bundle missing or invalid index.html at '{idxPath}'");
+                }
+                if (!Directory.Exists(assetsDir) ||
+                    !Directory.EnumerateFiles(assetsDir, "*.js").Any(f => new FileInfo(f).Length > 1000))
+                {
+                    throw new InvalidOperationException($"shadcn/ui bundle missing compiled JS assets in '{assetsDir}'");
+                }
+
+                var sampleState = new OverviewWebStateDto
+                {
+                    AppVersion = DesktopAppInfo.Version,
+                    ExtVersion = DesktopAppInfo.ExtVersion,
+                    Palette = "obsidian",
+                    IsLoggedIn = true,
+                    Kpi = new OverviewKpiDto { TotalVias = 9, CookieVaultCount = 7, BridgePort = 17890, BridgeOnline = true },
+                    GroupedAlerts = new List<OverviewAlertGroupDto>
+                    {
+                        new() { Key = "k1", Severity = "warning", Title = "Test Alert", Count = 1, AccountNames = new List<string> { "Acc 1" } }
+                    },
+                    Vias = new List<OverviewViaRowDto>
+                    {
+                        new() { ViaId = "v1", Label = "Via 1", ProfileDir = "Profile 1", TrustScore = 95 }
+                    },
+                    Fanpages = new List<OverviewFanpageRowDto>
+                    {
+                        new() { PageId = "p1", Name = "Page 1", AdsReady = true }
+                    },
+                };
+                var overviewJson = DesktopWebUiBridge.BuildOverviewStateJson(sampleState);
+                foreach (var reqKey in new[] { "\"kpi\"", "\"queue\"", "\"groupedAlerts\"", "\"vias\"", "\"fanpages\"", "\"palette\"" })
+                {
+                    if (!overviewJson.Contains(reqKey, StringComparison.Ordinal))
+                    {
+                        throw new InvalidOperationException($"OverviewWebStateDto serialized JSON missing key {reqKey}");
+                    }
+                }
+
+                var wv2Ver = Microsoft.Web.WebView2.Core.CoreWebView2Environment.GetAvailableBrowserVersionString();
+                if (string.IsNullOrWhiteSpace(wv2Ver))
+                {
+                    throw new InvalidOperationException("WebView2 Runtime not detected via CoreWebView2Environment.GetAvailableBrowserVersionString()");
+                }
+            }
+
+            // 34. v3.1.1 Same-Via Multi-Page Batch Guard & AdsOpsApiClient Transient Stale-Socket GET Retry
+            {
+                // Test A: Same Via running multiple Fanpages must NOT trigger cross-Via Profile guard or consume extra Direct IP slots
+                var mpLaunched = new List<string>();
+                using var mpEngine = new AutomationQueueEngine(
+                    _ => Task.FromResult((true, "Direct IP")),
+                    item => { mpLaunched.Add($"{item.ViaId}:{item.TaskTitle}"); return Task.CompletedTask; },
+                    _ => Task.CompletedTask,
+                    _ => { });
+                mpEngine.ConfigureTiming(tickIntervalMs: 12, syncWaitSeconds: 1);
+                mpEngine.StartQueue(
+                    QueueKind.KeepAlive,
+                    new[]
+                    {
+                        new QueueTaskItem("via-hold-1", "Thien Trieu", "Profile 4", "", "https://business.facebook.com/p1", "Page 1", "standard_via"),
+                        new QueueTaskItem("via-hold-1", "Thien Trieu", "Profile 4", "", "https://business.facebook.com/p2", "Page 2", "standard_via"),
+                        new QueueTaskItem("via-hold-1", "Thien Trieu", "Profile 4", "", "https://business.facebook.com/p3", "Page 3", "standard_via"),
+                        new QueueTaskItem("via-other-dup", "Via Khac", "Profile 4", "", "https://business.facebook.com/p4", "Page 4", "standard_via"),
+                    },
+                    baseStaggerSeconds: 1,
+                    preCheckProxy: false,
+                    maxViasPerProxy: 4,
+                    enforceDaytimeWindow: false,
+                    maxDirectIpVias: 2);
+                var mpDeadline = DateTime.UtcNow.AddSeconds(8);
+                while (mpEngine.Current.Phase != QueuePhase.Completed && DateTime.UtcNow < mpDeadline)
+                {
+                    await Task.Delay(20);
+                }
+                if (mpEngine.Current.Phase != QueuePhase.Completed ||
+                    mpEngine.Current.LaunchedCount != 3 ||
+                    mpEngine.Current.SkippedCount != 1 ||
+                    mpLaunched.Any(x => x.StartsWith("via-other-dup:", StringComparison.Ordinal)))
+                {
+                    throw new InvalidOperationException(
+                        $"Same-Via Multi-Page guard failed: launched={mpEngine.Current.LaunchedCount}, skipped={mpEngine.Current.SkippedCount}, items=[{string.Join(",", mpLaunched)}]");
+                }
+
+                // Test B: AdsOpsApiClient GET automatic single retry on dropped stale socket
+                using var retryListener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+                retryListener.Start();
+                var retryPort = ((System.Net.IPEndPoint)retryListener.LocalEndpoint).Port;
+                int acceptedCount = 0;
+                var serverTask = Task.Run(async () =>
+                {
+                    // Attempt #1: drop immediately to simulate half-open stale socket reset
+                    using (var c1 = await retryListener.AcceptTcpClientAsync())
+                    {
+                        Interlocked.Increment(ref acceptedCount);
+                    }
+                    // Attempt #2: read request headers and return 200 JSON
+                    using (var c2 = await retryListener.AcceptTcpClientAsync())
+                    {
+                        Interlocked.Increment(ref acceptedCount);
+                        await using var s2 = c2.GetStream();
+                        var buf = new byte[2048];
+                        await s2.ReadAsync(buf);
+                        var bodyBytes = Encoding.UTF8.GetBytes("{\"items\":[]}");
+                        var head = Encoding.ASCII.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {bodyBytes.Length}\r\nConnection: close\r\n\r\n");
+                        await s2.WriteAsync(head);
+                        await s2.WriteAsync(bodyBytes);
+                        await s2.FlushAsync();
+                    }
+                });
+
+                using var retryClient = new AdsOpsApiClient();
+                retryClient.Configure($"http://127.0.0.1:{retryPort}", "test-jwt");
+                var bmRes = await retryClient.ListBusinessManagersAsync();
+                await serverTask.WaitAsync(TimeSpan.FromSeconds(5));
+                if (bmRes.Items == null || acceptedCount != 2)
+                {
+                    throw new InvalidOperationException($"AdsOpsApiClient transient GET retry failed: acceptedCount={acceptedCount}");
+                }
+            }
+
+            // 35. v3.2.0 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
+            {
+                if (DesktopAppInfo.Version != "3.2.0" || DesktopAppInfo.ExtVersion != "2.10.2")
+                {
+                    throw new InvalidOperationException(
+                        $"DesktopAppInfo version mismatch: app={DesktopAppInfo.Version}, ext={DesktopAppInfo.ExtVersion}");
+                }
+
+                var shellWebUiDir = DesktopWebUiBridge.EnsureExtractedAssets();
+                var shellIdx = Path.Combine(shellWebUiDir, "index.html");
+                var shellAssets = Path.Combine(shellWebUiDir, "assets");
+                if (!File.Exists(shellIdx) ||
+                    !Directory.Exists(shellAssets) ||
+                    !Directory.EnumerateFiles(shellAssets, "*.js").Any() ||
+                    !Directory.EnumerateFiles(shellAssets, "*.css").Any())
+                {
+                    throw new InvalidOperationException($"Full 8-tab WebUi bundle incomplete at '{shellWebUiDir}'");
+                }
+
+                var shellState = new AppShellWebStateDto
+                {
+                    AppVersion = DesktopAppInfo.Version,
+                    ExtVersion = DesktopAppInfo.ExtVersion,
+                    ActiveView = "settings",
+                    Palette = "obsidian",
+                    IsLoggedIn = true,
+                    AdSearch = "TKQC-01",
+                    AdFilter = "disabled",
+                    TotpMap = new Dictionary<string, LiveTotpItemDto>
+                    {
+                        ["v1"] = new() { Valid = true, Code6 = "123456", FormattedCode = "123 456", SecondsRemaining = 20 }
+                    },
+                    Vias = new List<WebViaItemDto>
+                    {
+                        new() { ViaId = "v1", Label = "Via 1", ProfileDir = "Profile 1", TrustScore = 96 }
+                    },
+                    AutomationConfig = new WebAutomationConfigDto
+                    {
+                        WarmupFlowMode = "custom_sequence",
+                        BatchNicheKey = "beauty_spa",
+                    },
+                    Settings = new WebSettingsDto
+                    {
+                        BackendBaseUrl = "https://audit-ads-backend.vibe1.tinhgon.xyz",
+                        UserEmail = "ops@adsops.local",
+                        DefaultBrowserEngine = "chrome_native",
+                    },
+                };
+                var shellJson = DesktopWebUiBridge.BuildShellStateJson(shellState);
+                foreach (var reqKey in new[]
+                         {
+                             "\"type\":\"full_state\"",
+                             "\"appVersion\":\"3.2.0\"",
+                             "\"extVersion\":\"2.10.2\"",
+                             "\"activeView\":\"settings\"",
+                             "\"totpMap\"",
+                             "\"automationConfig\"",
+                             "\"settings\"",
+                             "\"liveRunner\"",
+                             "\"adSearch\":\"TKQC-01\"",
+                         })
+                {
+                    if (!shellJson.Contains(reqKey, StringComparison.Ordinal))
+                    {
+                        throw new InvalidOperationException($"AppShellWebStateDto JSON missing required token '{reqKey}'");
+                    }
+                }
+
+                var tickState = new AppShellLiveTickDto
+                {
+                    TotpMap = shellState.TotpMap,
+                    ViaRuntimeMap = new Dictionary<string, WebViaRuntimeDto>
+                    {
+                        ["v1"] = new() { IsBrowserRunning = true, ActiveRamMb = 180, ActiveCpuPercent = 2.4 }
+                    },
+                    RuntimeLogs = new List<string> { "[14:00:00] Live tick test" },
+                    LiveRunner = new WebLiveRunnerStatusDto
+                    {
+                        IsActive = true,
+                        ViaId = "v1",
+                        ViaLabel = "Via 1",
+                        CurrentStepIndex = 2,
+                        TotalSteps = 5,
+                        CurrentStepTitle = "Nuôi chéo Fanpage nội bộ",
+                        StepDurationSec = 13,
+                        StepRemainingSec = 8,
+                        OverallProgressPercent = 42,
+                    },
+                };
+                var tickJson = DesktopWebUiBridge.BuildLiveTickJson(tickState);
+                foreach (var reqKey in new[] { "\"type\":\"live_tick\"", "\"totpMap\"", "\"viaRuntimeMap\"", "\"runtimeLogs\"", "\"liveRunner\"", "\"stepRemainingSec\":8" })
+                {
+                    if (!tickJson.Contains(reqKey, StringComparison.Ordinal))
+                    {
+                        throw new InvalidOperationException($"AppShellLiveTickDto JSON missing required token '{reqKey}'");
+                    }
                 }
             }
 

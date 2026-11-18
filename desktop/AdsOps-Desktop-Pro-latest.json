@@ -1,13 +1,13 @@
 {
-  "version": "3.0.2",
-  "ext_version": "2.10.0",
-  "authenticode_signed": true,
-  "download_url": "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
-  "mirror_urls": [
-    "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
-  ],
-  "sha256": "848fb1577999df8dc1bad23990b5e9c9a2ef144266388a92b099533267fa41c1",
-  "size_bytes": 66500196,
-  "published_at": "2026-11-17T09:21:59.849046Z",
-  "release_notes": "AdsOps Desktop Pro v3.0.2 (UI/UX Pro Max) + Extension v2.10.0: Tinh nang Native Windows UIAutomation Auto-Invite (Tu dong doc so nguoi da bay to cam xuc tren Meta Business Suite hien thi thang len App Windows '🔔 X nguoi can moi' va tu dong bam nut 'Gui loi moi' + chon danh sach nguoi tuong tac tren moi phien ban Chrome 158+ khong phu thuoc --load-extension)."
+    "version":  "3.2.0",
+    "ext_version":  "2.10.2",
+    "authenticode_signed":  true,
+    "download_url":  "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
+    "mirror_urls":  [
+                        "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
+                    ],
+    "sha256":  "8aacb0896b3ba51451d7cd582dda3ccd7360c63551ce4f9180d3b139ee9030de",
+    "size_bytes":  67181107,
+    "published_at":  "2026-11-18T09:00:42.2828667Z",
+    "release_notes":  "AdsOps Desktop Pro v3.2.0 (Unified 8-Tab shadcn/ui WebView2, Live Step-by-Step RPA Monitor \u0026 Countdown Timer, Instant Stop/Skip/Pause, Native HWND Session Tracking, DPAPI 5-Layer Vault) + Companion v2.10.2."
 }

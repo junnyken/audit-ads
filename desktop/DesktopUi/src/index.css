@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root,
+  [data-palette="obsidian"] {
+    --background: 230 25% 5%;
+    --foreground: 210 40% 98%;
+    --card: 227 29% 10%;
+    --card-foreground: 210 40% 98%;
+    --popover: 226 28% 12%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 239 84% 67%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 227 28% 15%;
+    --secondary-foreground: 214 32% 91%;
+    --muted: 226 27% 13%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 227 29% 18%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 72% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 227 28% 19%;
+    --input: 227 28% 21%;
+    --ring: 239 84% 67%;
+    --radius: 0.625rem;
+  }
+
+  [data-palette="emerald"] {
+    --background: 165 22% 4%;
+    --foreground: 160 30% 98%;
+    --card: 162 24% 8%;
+    --card-foreground: 160 30% 98%;
+    --popover: 162 24% 11%;
+    --popover-foreground: 160 30% 98%;
+    --primary: 160 84% 39%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 163 22% 13%;
+    --secondary-foreground: 158 24% 90%;
+    --muted: 163 22% 11%;
+    --muted-foreground: 160 15% 63%;
+    --accent: 162 25% 16%;
+    --accent-foreground: 160 30% 98%;
+    --destructive: 0 72% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 162 26% 17%;
+    --input: 162 26% 19%;
+    --ring: 160 84% 45%;
+    --radius: 0.625rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    user-select: none;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--background));
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+}

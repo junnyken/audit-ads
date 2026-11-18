@@ -66,11 +66,14 @@ public sealed class AutomationQueueEngine : IDisposable
     private Task? _runnerTask;
     private List<QueueTaskItem> _items = new();
     private readonly List<QueueTaskItem> _launchedItems = new();
+    private readonly List<(string ViaId, string ViaLabel)> _pendingKeepAliveEntries = new();
+    private bool _anyItemMarkedCompleted;
     private QueueSnapshot _snapshot = new(QueuePhase.Idle, QueueKind.KeepAlive, 0, 0, 0, 0, 0, 0, "", "", false, "");
     private readonly Dictionary<string, int> _proxyBatchUseCounts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, HashSet<string>> _proxyBatchViaSets = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _proxyClientGroupOwners = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _profileClientGroupOwners = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, string> _usedProfilesInBatch = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (string IdentityKey, string ViaLabel)> _usedProfilesInBatch = new(StringComparer.OrdinalIgnoreCase);
 
     private int _baseStaggerSec = 48;
     private int _customRestMinSec = 0;
@@ -80,6 +83,7 @@ public sealed class AutomationQueueEngine : IDisposable
     private int _maxViasPerProxy = 4;
     private int _maxDirectIpVias = 3;
     private int _directIpBatchUseCount = 0;
+    private readonly HashSet<string> _directIpBatchVias = new(StringComparer.OrdinalIgnoreCase);
     private string? _resumeFilePath;
     private int _maxConcurrentBrowsers = 6;
     private int _startHour = 8;
@@ -236,12 +240,16 @@ public sealed class AutomationQueueEngine : IDisposable
         _enforceSoakQuarantine = enforceSoakQuarantine;
         _enforceClientSilo = enforceClientSilo;
         _proxyBatchUseCounts.Clear();
+        _proxyBatchViaSets.Clear();
         _proxyClientGroupOwners.Clear();
         _profileClientGroupOwners.Clear();
         _usedProfilesInBatch.Clear();
+        _directIpBatchVias.Clear();
         lock (_gate)
         {
             _launchedItems.Clear();
+            _pendingKeepAliveEntries.Clear();
+            _anyItemMarkedCompleted = false;
         }
         _skipRequested = false;
 
@@ -291,6 +299,33 @@ public sealed class AutomationQueueEngine : IDisposable
         _skipRequested = true;
     }
 
+    public static string NormalizeCompletionKey(string? viaId, string? viaLabel)
+    {
+        return !string.IsNullOrWhiteSpace(viaId)
+            ? $"id:{viaId.Trim()}"
+            : $"lbl:{(viaLabel ?? "").Trim()}";
+    }
+
+    /// <summary>Marks a queued Keep-Alive item as finished after receiving KEEPALIVE_OK / safety halt.</summary>
+    public void MarkItemCompleted(string? viaId, string? viaLabel)
+    {
+        var cleanId = (viaId ?? "").Trim();
+        var cleanLabel = (viaLabel ?? "").Trim();
+        if (string.IsNullOrEmpty(cleanId) && string.IsNullOrEmpty(cleanLabel)) return;
+
+        lock (_gate)
+        {
+            _anyItemMarkedCompleted = true;
+            var matchIdx = _pendingKeepAliveEntries.FindIndex(e =>
+                (!string.IsNullOrEmpty(cleanId) && string.Equals(e.ViaId, cleanId, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(cleanLabel) && string.Equals(e.ViaLabel, cleanLabel, StringComparison.OrdinalIgnoreCase)));
+            if (matchIdx >= 0)
+            {
+                _pendingKeepAliveEntries.RemoveAt(matchIdx);
+            }
+        }
+    }
+
     public void Stop()
     {
         try { _cts?.Cancel(); } catch { }
@@ -298,6 +333,11 @@ public sealed class AutomationQueueEngine : IDisposable
         _cts?.Dispose();
         _cts = null;
         _runnerTask = null;
+        lock (_gate)
+        {
+            _pendingKeepAliveEntries.Clear();
+            _anyItemMarkedCompleted = false;
+        }
         UpdateSnapshot(new QueueSnapshot(QueuePhase.Idle, _snapshot.Kind, 0, 0, 0, 0, 0, 0, "", "", false, "Đã dừng hàng đợi."));
     }
 
@@ -334,6 +374,7 @@ public sealed class AutomationQueueEngine : IDisposable
             var hostPort = ExtractProxyHostPort(item.NetworkLabel);
             var itemClientGroup = (item.ClientGroup ?? "").Trim();
             var itemProfile = (item.BrowserProfile ?? "").Trim();
+            var viaIdentityKey = NormalizeCompletionKey(item.ViaId, item.ViaLabel);
 
             // Guard A: Cooldown 24h freeze after Safety Challenge or IP Leak Kill-Switch
             if (item.CooldownUntilUtc.HasValue && item.CooldownUntilUtc.Value > DateTimeOffset.UtcNow)
@@ -375,12 +416,13 @@ public sealed class AutomationQueueEngine : IDisposable
                 continue;
             }
 
-            // Universal Duplicate Chrome Profile Guard (prevents cookie overwrite even within same ClientGroup)
+            // Universal Duplicate Chrome Profile Guard (blocks DIFFERENT Vias colliding on the same profile; allows same Via running multiple Pages)
             if (!string.IsNullOrEmpty(itemProfile) &&
-                _usedProfilesInBatch.TryGetValue(itemProfile, out var prevViaForProf))
+                _usedProfilesInBatch.TryGetValue(itemProfile, out var prevProfOwner) &&
+                !string.Equals(prevProfOwner.IdentityKey, viaIdentityKey, StringComparison.OrdinalIgnoreCase))
             {
                 skipped++;
-                var msg = $"Bỏ qua «{item.ViaLabel}»: Hồ sơ Chrome «{itemProfile}» đã mở cho «{prevViaForProf}» trong lô (chống đè Cookie).";
+                var msg = $"Bỏ qua «{item.ViaLabel}»: Hồ sơ Chrome «{itemProfile}» đã mở cho «{prevProfOwner.ViaLabel}» trong lô (chống đè Cookie).";
                 _log($"🛑 {msg}");
                 UpdateSnapshot(_snapshot with
                 {
@@ -445,9 +487,11 @@ public sealed class AutomationQueueEngine : IDisposable
 
             if (!string.IsNullOrEmpty(hostPort) &&
                 (kind == QueueKind.PageCreation || _items.Count > 1) &&
-                _proxyBatchUseCounts.TryGetValue(hostPort, out var usedCount) &&
-                usedCount >= _maxViasPerProxy)
+                _proxyBatchViaSets.TryGetValue(hostPort, out var proxyViaSet) &&
+                !proxyViaSet.Contains(viaIdentityKey) &&
+                proxyViaSet.Count >= _maxViasPerProxy)
             {
+                var usedCount = proxyViaSet.Count;
                 skipped++;
                 var msg = $"Bỏ qua «{item.ViaLabel}»: Proxy {hostPort} đã gánh {usedCount}/{_maxViasPerProxy} Via trong lô.";
                 _log($"⚠️ {msg}");
@@ -467,10 +511,11 @@ public sealed class AutomationQueueEngine : IDisposable
 
             if (string.IsNullOrEmpty(hostPort) &&
                 (kind == QueueKind.PageCreation || _items.Count > 1) &&
-                _directIpBatchUseCount >= _maxDirectIpVias)
+                !_directIpBatchVias.Contains(viaIdentityKey) &&
+                _directIpBatchVias.Count >= _maxDirectIpVias)
             {
                 skipped++;
-                var msg = $"Bỏ qua «{item.ViaLabel}»: Mạng gốc (Direct IP) đã mở tối đa {_directIpBatchUseCount}/{_maxDirectIpVias} Via trong ca này (chống liên đới IP). Hãy gắn Proxy Dân cư.";
+                var msg = $"Bỏ qua «{item.ViaLabel}»: Mạng gốc (Direct IP) đã mở tối đa {_directIpBatchVias.Count}/{_maxDirectIpVias} Via trong ca này (chống liên đới IP). Hãy gắn Proxy Dân cư.";
                 _log($"⚠️ {msg}");
                 UpdateSnapshot(_snapshot with
                 {
@@ -545,7 +590,13 @@ public sealed class AutomationQueueEngine : IDisposable
 
             if (!string.IsNullOrEmpty(hostPort))
             {
-                _proxyBatchUseCounts[hostPort] = _proxyBatchUseCounts.GetValueOrDefault(hostPort) + 1;
+                if (!_proxyBatchViaSets.TryGetValue(hostPort, out var pxSet))
+                {
+                    pxSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    _proxyBatchViaSets[hostPort] = pxSet;
+                }
+                pxSet.Add(viaIdentityKey);
+                _proxyBatchUseCounts[hostPort] = pxSet.Count;
                 if (!_proxyClientGroupOwners.ContainsKey(hostPort))
                 {
                     _proxyClientGroupOwners[hostPort] = itemClientGroup;
@@ -553,17 +604,28 @@ public sealed class AutomationQueueEngine : IDisposable
             }
             else
             {
-                _directIpBatchUseCount++;
+                _directIpBatchVias.Add(viaIdentityKey);
+                _directIpBatchUseCount = _directIpBatchVias.Count;
             }
             if (!string.IsNullOrEmpty(itemProfile))
             {
-                _usedProfilesInBatch[itemProfile] = item.ViaLabel;
+                if (!_usedProfilesInBatch.ContainsKey(itemProfile))
+                {
+                    _usedProfilesInBatch[itemProfile] = (viaIdentityKey, item.ViaLabel);
+                }
                 if (!_profileClientGroupOwners.ContainsKey(itemProfile))
                 {
                     _profileClientGroupOwners[itemProfile] = itemClientGroup;
                 }
             }
 
+            if (kind == QueueKind.KeepAlive)
+            {
+                lock (_gate)
+                {
+                    _pendingKeepAliveEntries.Add(((item.ViaId ?? "").Trim(), (item.ViaLabel ?? "").Trim()));
+                }
+            }
             await _launchChrome(item).ConfigureAwait(false);
             if (!string.IsNullOrWhiteSpace(item.ViaId))
             {
@@ -616,18 +678,65 @@ public sealed class AutomationQueueEngine : IDisposable
 
         if (launched > 0)
         {
-            for (int rem = _syncWaitSeconds; rem > 0 && !ct.IsCancellationRequested; rem--)
+            if (kind == QueueKind.KeepAlive && _getActiveBrowserCount != null)
             {
-                UpdateSnapshot(_snapshot with
+                var maxWaitSec = Math.Clamp(_items.Count * 90, 60, 300);
+                _skipRequested = false;
+                for (int rem = maxWaitSec; rem > 0 && !ct.IsCancellationRequested && !_skipRequested; rem--)
                 {
-                    Phase = QueuePhase.Syncing,
-                    LaunchedCount = launched,
-                    SkippedCount = skipped,
-                    CountdownSeconds = rem,
-                    CheckingProxy = false,
-                    LastNotice = $"Đang chờ Chrome hoàn tất thao tác & đồng bộ Cloud ({rem}s)...",
-                });
-                await Task.Delay(_tickIntervalMs, ct).ConfigureAwait(false);
+                    while (!ct.IsCancellationRequested && !_skipRequested && _snapshot.Phase == QueuePhase.Paused)
+                    {
+                        await Task.Delay(Math.Min(300, _tickIntervalMs), ct).ConfigureAwait(false);
+                    }
+                    int pendingCount;
+                    bool anyMarked;
+                    lock (_gate)
+                    {
+                        pendingCount = _pendingKeepAliveEntries.Count;
+                        anyMarked = _anyItemMarkedCompleted;
+                    }
+                    var activeCount = _getActiveBrowserCount();
+                    if (activeCount == 0 || (anyMarked && pendingCount == 0)) break;
+
+                    UpdateSnapshot(_snapshot with
+                    {
+                        Phase = QueuePhase.Syncing,
+                        LaunchedCount = launched,
+                        SkippedCount = skipped,
+                        CountdownSeconds = rem,
+                        CheckingProxy = false,
+                        LastNotice = $"Đang thực hiện kịch bản trong Chrome ({activeCount} trình duyệt đang chạy · Còn {pendingCount} Via)...",
+                    });
+                    await Task.Delay(_tickIntervalMs, ct).ConfigureAwait(false);
+                }
+                _skipRequested = false;
+            }
+            else
+            {
+                for (int rem = _syncWaitSeconds; rem > 0 && !ct.IsCancellationRequested; rem--)
+                {
+                    if (kind == QueueKind.KeepAlive)
+                    {
+                        int pendingCount;
+                        bool anyMarked;
+                        lock (_gate)
+                        {
+                            pendingCount = _pendingKeepAliveEntries.Count;
+                            anyMarked = _anyItemMarkedCompleted;
+                        }
+                        if (anyMarked && pendingCount == 0) break;
+                    }
+                    UpdateSnapshot(_snapshot with
+                    {
+                        Phase = QueuePhase.Syncing,
+                        LaunchedCount = launched,
+                        SkippedCount = skipped,
+                        CountdownSeconds = rem,
+                        CheckingProxy = false,
+                        LastNotice = $"Đang chờ Chrome hoàn tất thao tác & đồng bộ Cloud ({rem}s)...",
+                    });
+                    await Task.Delay(_tickIntervalMs, ct).ConfigureAwait(false);
+                }
             }
             if (!ct.IsCancellationRequested)
             {
@@ -643,7 +752,9 @@ public sealed class AutomationQueueEngine : IDisposable
             SkippedCount = skipped,
             CountdownSeconds = 0,
             CheckingProxy = false,
-            LastNotice = $"Hoàn tất lô: đã mở {launched}/{_items.Count} Via (bỏ qua {skipped}).",
+            LastNotice = kind == QueueKind.KeepAlive
+                ? $"✓ Hoàn tất chu trình tương tác: đã mở {launched}/{_items.Count} Via (bỏ qua {skipped})."
+                : $"Hoàn tất lô: đã mở {launched}/{_items.Count} Via (bỏ qua {skipped}).",
         });
     }
 

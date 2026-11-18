@@ -1089,9 +1089,9 @@ export function buildExtensionFilesForVia(
       ? `AdsOps Companion Pro · ${profileDir} · Proxy ${parsed!.host}:${parsed!.port}`
       : `AdsOps Companion Pro · ${profileDir} (${viaName})`,
     short_name: 'AdsOps Companion Pro',
-    version: '2.10.1',
+    version: '2.10.2',
     description:
-      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.10.1 Pro: Tự động sao lưu Cookie về Két DPAPI, Đa Engine Antidetect, Benchmark & Auto-Failover, Zero-Trust Bridge Token, IP-Timezone Guard, Ngâm 72h.',
+      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.10.2 Pro: Tự động sao lưu Cookie về Két DPAPI, Đa Engine Antidetect, Benchmark & Auto-Failover, Zero-Trust Bridge Token, IP-Timezone Guard, Ngâm 72h.',
     permissions: [
       'proxy',
       'privacy',
@@ -1163,7 +1163,7 @@ export function buildExtensionFilesForVia(
 
   // Runs in MAIN world at document_start BEFORE Facebook's scripts load:
   // Completely blocks Windows Hello / WebAuthn / Passkey popup from ever appearing!
-  const passkeyShieldJs = `// AdsOps Companion Pro v2.10.1 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
+  const passkeyShieldJs = `// AdsOps Companion Pro v2.10.2 — Anti-Passkey & Windows Hello Blocker (MAIN world @ document_start)
 (function() {
   try {
     if (window.PublicKeyCredential) {
@@ -2068,7 +2068,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   <div class="header">
     <div class="brand">
       <span class="logo">AO</span>
-      <span>AdsOps Companion v2.10.1 Pro</span>
+      <span>AdsOps Companion v2.10.2 Pro</span>
     </div>
     <div style="display:flex; align-items:center; gap:5px;">
       <span id="hdr-trust-badge" class="badge badge-ok" title="Điểm Tin Cậy Môi Trường">🛡️ --/100</span>
@@ -2186,7 +2186,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           <button id="btn-export-cookie" type="button" class="btn btn-primary">🍪 Chép Cookie FB</button>
           <button id="btn-extract-token" type="button" class="btn btn-emerald">⚡ Bắt Token EAAB</button>
         </div>
-        <button id="btn-jump-auto" type="button" class="btn btn-amber" style="width:100%; margin-bottom:6px;">🤖 Mở Tab Automatic &amp; Đảo Ấm Sinh Học v2.10.1 →</button>
+        <button id="btn-jump-auto" type="button" class="btn btn-amber" style="width:100%; margin-bottom:6px;">🤖 Mở Tab Automatic &amp; Đảo Ấm Sinh Học v2.10.2 →</button>
         <textarea id="cookie-box" rows="2" class="mono" placeholder="Dán Cookie JSON hoặc c_user=...; xs=... vào đây để đăng nhập Via không cần mật khẩu"></textarea>
         <div class="btn-row">
           <button id="btn-import-cookie" type="button" class="btn">📥 Nạp Cookie vào Chrome này</button>
@@ -2280,7 +2280,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     <div class="card">
       <div class="section-title">
         <span>4. ☕ Automatic Đảo Ấm Sinh Học (4 Chế Độ)</span>
-        <span style="font-size:9.5px; color:#fcd34d;">v2.10.1</span>
+        <span style="font-size:9.5px; color:#fcd34d;">v2.10.2</span>
       </div>
       <select id="ka-mode-select" style="margin-bottom:6px; font-weight:600;">
         <option value="human_organic">☕ Đảo Ấm Sinh Học (Feed → Watch / Thông báo / Profile)</option>
@@ -3297,7 +3297,7 @@ tickOtp();
 recheckGeoAlignment();`
 
   const readmeTxt = [
-    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.9.7 PRO - ZERO-TRUST & ANTI-CHECKPOINT)',
+    'HƯỚNG DẪN CÀI ĐẶT TIỆN ÍCH GOOGLE CHROME (ADSOPS COMPANION v2.10.2 PRO - ZERO-TRUST & ANTI-CHECKPOINT)',
     '========================================================================================================',
     'Bước 1: Giải nén file .zip này ra một thư mục cố định (ví dụ: Desktop\\AdsOps-Chrome-Extension).',
     'Bước 2: Mở trình duyệt Google Chrome của Via -> gõ vào thanh địa chỉ: chrome://extensions',
@@ -3306,7 +3306,7 @@ recheckGeoAlignment();`
     'Bước 5: Bấm biểu tượng mảnh ghép trên góc phải Chrome -> Bấm nút Ghim (Pin) cạnh "AdsOps Companion Pro".',
   ].join('\r\n')
 
-  const contentJs = `// AdsOps Companion Pro v2.9.7 — Anti-Checkpoint + 4-Mode Warmup + Auto Page Creator + Passkey Shield + HUD
+  const contentJs = `// AdsOps Companion Pro v2.10.2 — Anti-Checkpoint + 4-Mode Warmup + Auto Page Creator + Passkey Shield + HUD
 (function() {
   let lastSyncedAct = "";
   let autoDeletePasskeyTriggered = false;
@@ -3454,8 +3454,8 @@ recheckGeoAlignment();`
         '<span style="font-family:monospace;">' + viaName + ' (' + profileCode + ')</span>' +
         '<span style="opacity:0.45;">|</span>' +
         '<span id="adsops-hud-passkey-status" style="color:#6ee7b7;font-size:10.5px;">🚫 Đã khóa Passkey</span>' +
-        '<a href="https://accountscenter.facebook.com/password_and_security/passkeys?adsops_auto_delete_passkey=1" style="background:rgba(244,63,94,0.28);border:1px solid #f87171;color:#fecdd3;padding:2px 7px;border-radius:999px;text-decoration:none;font-size:10px;font-weight:800;" title="Mở trang tự động quét & xóa sạch Passkey trong Account Center">🗑️ Tự Xoá Passkey</a> +
-        '<button id="adsops-hud-auto-invite" type="button" style="background:rgba(16,185,129,0.26);border:1px solid #34d399;color:#d1fae5;padding:2px 8px;border-radius:999px;cursor:pointer;font-size:10px;font-weight:800;" title="Tự động mời những người đã bày tỏ cảm xúc với bài viết theo dõi Fanpage (Meta Business Suite / Bài đăng)">👥 Mời Follow Tự Động</button>'' +
+        '<a href="https://accountscenter.facebook.com/password_and_security/passkeys?adsops_auto_delete_passkey=1" style="background:rgba(244,63,94,0.28);border:1px solid #f87171;color:#fecdd3;padding:2px 7px;border-radius:999px;text-decoration:none;font-size:10px;font-weight:800;" title="Mở trang tự động quét & xóa sạch Passkey trong Account Center">🗑️ Tự Xoá Passkey</a>' +
+        '<button id="adsops-hud-auto-invite" type="button" style="background:rgba(16,185,129,0.26);border:1px solid #34d399;color:#d1fae5;padding:2px 8px;border-radius:999px;cursor:pointer;font-size:10px;font-weight:800;" title="Tự động mời những người đã bày tỏ cảm xúc với bài viết theo dõi Fanpage (Meta Business Suite / Bài đăng)">👥 Mời Follow Tự Động</button>' +
         '<button id="adsops-hud-close" title="Ẩn thanh nhắc nhở này" style="margin-left:2px;background:transparent;border:none;color:inherit;cursor:pointer;font-weight:900;font-size:12px;">✕</button>';
 
       document.body.appendChild(hud);
@@ -3725,7 +3725,7 @@ recheckGeoAlignment();`
       if (!avFile || pageAutoPilotHalted) return;
       assignFileToInput(fileInputs[0], avFile);
       lastMediaAttachedAt = Date.now();
-      setHudPageStatus("🖼️ [Auto v2.10.1] Đã tự gắn Avatar độc bản (chống trùng Hash)...", "#38bdf8");
+      setHudPageStatus("🖼️ [Auto v2.10.2] Đã tự gắn Avatar độc bản (chống trùng Hash)...", "#38bdf8");
 
       if (fileInputs.length > 1) {
         setTimeout(() => {
@@ -3734,7 +3734,7 @@ recheckGeoAlignment();`
             if (!cvFile || pageAutoPilotHalted) return;
             assignFileToInput(fileInputs[1], cvFile);
             lastMediaAttachedAt = Date.now();
-            setHudPageStatus("🖼️ [Auto v2.10.1] Đã tự gắn đủ Avatar + Cover độc bản!", "#34d399");
+            setHudPageStatus("🖼️ [Auto v2.10.2] Đã tự gắn đủ Avatar + Cover độc bản!", "#34d399");
           });
         }, randDelay(950, 1550));
       }
@@ -3937,7 +3937,7 @@ recheckGeoAlignment();`
     watch_reels: { label: "Xem Reels & Watch", url: "https://www.facebook.com/watch/?adsops_ka_hop=1", minMs: 10500, maxMs: 15000 },
     react_feed_post: { label: "Thả Like/Tim bài Feed", url: "https://www.facebook.com/?adsops_react_feed=1", minMs: 8500, maxMs: 12500, microAction: "like_post" },
     visit_internal_fanpage: { label: "Nuôi chéo Fanpage nội bộ", url: "https://www.facebook.com/pages/?category=your_pages&adsops_cross_page=1", minMs: 11500, maxMs: 16000, microAction: "like_post" },
-    view_photo_post: { label: "Xem ảnh & đọc bình luận", url: "https://www.facebook.com/?adsops_view_post=1", minMs: 9500, maxMs: 13500 },
+    view_photo_post: { label: "Xem ảnh & đọc bình luận", url: "https://www.facebook.com/?adsops_view_post=1", minMs: 9500, maxMs: 13500, microAction: "expand_comments" },
     notif: { label: "Đọc Thông báo", url: "https://www.facebook.com/notifications", minMs: 7500, maxMs: 11500 },
     read_notifications: { label: "Đọc Thông báo", url: "https://www.facebook.com/notifications", minMs: 7500, maxMs: 11500 },
     search_keyword: { label: "Tìm kiếm từ khóa", url: "https://www.facebook.com/search/top/?q=xu%20huong", minMs: 9000, maxMs: 13000 },
@@ -3948,24 +3948,92 @@ recheckGeoAlignment();`
     browse_groups: { label: "Lướt Nhóm (Groups)", url: "https://www.facebook.com/groups/feed/", minMs: 9500, maxMs: 13500 },
     mbs_like_comments_and_invite: { label: "Thả Tim Comment & Mời Follow", url: "https://business.facebook.com/latest/home?adsops_auto_invite_followers=1&adsops_like_comments=1", minMs: 12000, maxMs: 16500 },
     biz: { label: "Business Suite (BM)", url: "https://business.facebook.com/latest/home", minMs: 11500, maxMs: 15500 },
+    refresh_cookie_and_close: { label: "Lưu Cookie DPAPI & Đóng", url: "https://www.facebook.com/?adsops_save_close=1", minMs: 2500, maxMs: 4000, microAction: "save_close" },
+    save_cookie_close: { label: "Lưu Cookie DPAPI & Đóng", url: "https://www.facebook.com/?adsops_save_close=1", minMs: 2500, maxMs: 4000, microAction: "save_close" },
+    view_photo_comments: { label: "Xem ảnh / Đọc bình luận", url: "https://www.facebook.com/?adsops_view_post=1", minMs: 9500, maxMs: 13500, microAction: "expand_comments" },
   };
 
   function performNaturalLikeMicroAction(maxLikes) {
     try {
-      const candidates = Array.from(document.querySelectorAll('div[role="button"], span[role="button"]')).filter((el) => {
+      const allLikeBtns = Array.from(document.querySelectorAll('div[role="button"], span[role="button"]')).filter((el) => {
+        if (el.closest("#adsops-floating-hud")) return false;
         if (el.getAttribute("aria-pressed") === "true") return false;
-        const lbl = ((el.getAttribute("aria-label") || "") + " " + (el.textContent || "")).trim().toLowerCase();
-        if (lbl !== "thích" && lbl !== "like") return false;
+        const aria = (el.getAttribute("aria-label") || "").trim().toLowerCase();
+        const txt = (el.textContent || "").trim().toLowerCase();
+        const isLike = aria === "thích" || aria === "like" || (!aria && (txt === "thích" || txt === "like"));
+        if (!isLike) return false;
         const r = el.getBoundingClientRect();
-        return r.width > 18 && r.height > 14 && r.top > 90 && r.bottom < window.innerHeight - 40;
+        return r.width > 16 && r.height > 12;
       });
-      const toClick = candidates.slice(0, Math.max(1, maxLikes || 1));
+      const inView = allLikeBtns.filter((el) => {
+        const r = el.getBoundingClientRect();
+        return r.top > 40 && r.bottom < Math.max(400, window.innerHeight - 20);
+      });
+      const pool = inView.length > 0
+        ? inView
+        : allLikeBtns.filter((el) => {
+            const r = el.getBoundingClientRect();
+            return r.bottom > -700 && r.top < window.innerHeight + 1100;
+          });
+      const toClick = pool.slice(0, Math.max(1, maxLikes || 1));
       toClick.forEach((btn, i) => {
         setTimeout(() => {
-          triggerReactSafeClick(btn);
-        }, i * 650);
+          const r = btn.getBoundingClientRect();
+          if (r.top <= 40 || r.bottom >= Math.max(400, window.innerHeight - 20)) {
+            try {
+              btn.scrollIntoView({ behavior: "smooth", block: "center" });
+            } catch (e) {}
+            setTimeout(() => {
+              triggerReactSafeClick(btn);
+            }, 140);
+          } else {
+            triggerReactSafeClick(btn);
+          }
+        }, i * 350);
       });
       return toClick.length;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  function performExpandCommentsMicroAction() {
+    try {
+      const allCmtBtns = Array.from(document.querySelectorAll('div[role="button"], span[role="button"], a[role="button"]')).filter((el) => {
+        if (el.closest("#adsops-floating-hud")) return false;
+        if (el.href && el.getAttribute("role") !== "button") return false;
+        const aria = (el.getAttribute("aria-label") || "").trim().toLowerCase();
+        const txt = (el.textContent || "").trim().toLowerCase();
+        const combined = aria + " " + txt;
+        if (!combined.includes("xem thêm bình luận") && !combined.includes("view more comments") && !combined.includes("bình luận") && !combined.includes("comments")) {
+          return false;
+        }
+        const r = el.getBoundingClientRect();
+        return r.width > 16 && r.height > 12;
+      });
+      const inView = allCmtBtns.filter((el) => {
+        const r = el.getBoundingClientRect();
+        return r.top > 40 && r.bottom < Math.max(450, window.innerHeight - 15);
+      });
+      const target = inView[0] || allCmtBtns.find((el) => {
+        const r = el.getBoundingClientRect();
+        return r.bottom > -700 && r.top < window.innerHeight + 1100;
+      });
+      if (target) {
+        const r = target.getBoundingClientRect();
+        if (r.top <= 40 || r.bottom >= Math.max(450, window.innerHeight - 15)) {
+          try {
+            target.scrollIntoView({ behavior: "smooth", block: "center" });
+          } catch (e) {}
+          setTimeout(() => {
+            triggerReactSafeClick(target);
+          }, 140);
+        } else {
+          triggerReactSafeClick(target);
+        }
+        return 1;
+      }
+      return 0;
     } catch (e) {
       return 0;
     }
@@ -3990,8 +4058,12 @@ recheckGeoAlignment();`
 
   function runKeepAliveStep(session) {
     if (!session || pageAutoPilotHalted) return;
+    const setupDelay = Number(session.stepMs) >= 500 ? 350 : 950;
     setTimeout(() => {
       if (pageAutoPilotHalted) return;
+      if (session.crossPageUrl && String(session.crossPageUrl).startsWith("https://")) {
+        KA_STOPS.visit_internal_fanpage.url = session.crossPageUrl;
+      }
       const chInit = detectSafetyChallenge();
       if (chInit) {
         haltAutoPilotForSafety(chInit);
@@ -4007,11 +4079,38 @@ recheckGeoAlignment();`
       const idx = Math.max(0, Math.min(steps.length - 1, Number(session.stepIdx) || 0));
       const code = steps[idx] || "feed";
       const stopMeta = KA_STOPS[code] || KA_STOPS.feed;
-      const waitMs = randDelay(stopMeta.minMs, stopMeta.maxMs);
+      const waitMs = Number(session.stepMs) >= 500
+        ? Number(session.stepMs)
+        : (session.fastTest ? randDelay(4500, 6500) : randDelay(stopMeta.minMs, stopMeta.maxMs));
 
+      reportBrowserEventBg("KEEPALIVE_STEP", {
+        source: "extension",
+        step_index: idx + 1,
+        total_steps: steps.length,
+        step_title: stopMeta.label || code,
+        wait_seconds: Math.max(1, Math.round(waitMs / 1000)),
+        detail: "Bước " + (idx + 1) + "/" + steps.length + ": " + (stopMeta.label || code),
+        route_summary: session.routeSummary || "",
+        via_label: session.viaLabel || "",
+      });
+      if (stopMeta.microAction === "save_close") {
+        try {
+          chrome.runtime.sendMessage({ type: "ADSOPS_AUTO_REFRESH_VAULT_COOKIE", source: "step_save_close" });
+        } catch (e) {}
+      }
       const reader = startBiometricReadingLoop(
-        "☕ [Đảo Ấm v2.10.1 · Bước " + (idx + 1) + "/" + steps.length + "] Đang đọc " + stopMeta.label + " tự nhiên (" + Math.round(waitMs / 1000) + "s)..."
+        "☕ [Đảo Ấm v2.10.2 · Bước " + (idx + 1) + "/" + steps.length + "] " + stopMeta.label + " (" + Math.max(1, Math.round(waitMs / 1000)) + "s)..."
       );
+      const microDelayMs = Math.min(3800, Math.max(350, Math.round(waitMs * 0.42)));
+      if (stopMeta.microAction === "like_post" && session.kaMode !== "soak_72h") {
+        setTimeout(() => {
+          if (!pageAutoPilotHalted) performNaturalLikeMicroAction(1);
+        }, microDelayMs);
+      } else if (stopMeta.microAction === "expand_comments" && session.kaMode !== "soak_72h") {
+        setTimeout(() => {
+          if (!pageAutoPilotHalted) performExpandCommentsMicroAction();
+        }, microDelayMs);
+      }
 
       setTimeout(() => {
         reader.stop();
@@ -4030,35 +4129,50 @@ recheckGeoAlignment();`
         if (idx + 1 < steps.length) {
           const nextCode = steps[idx + 1];
           const nextMeta = KA_STOPS[nextCode] || KA_STOPS.notif;
+          const sep = nextMeta.url.includes("?") ? "&" : "?";
+          const navUrl = nextMeta.url + sep + "adsops_step=" + (idx + 2);
           if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
             chrome.runtime.sendMessage({ type: "ADSOPS_KEEPALIVE_ADVANCE" }, () => {
               void chrome.runtime.lastError;
-              window.location.href = nextMeta.url;
+              window.location.href = navUrl;
             });
           } else {
-            window.location.href = nextMeta.url;
+            window.location.href = navUrl;
           }
         } else {
           const summary = session.routeSummary || "Cookie khỏe";
+          const durSec = Math.max(5, Math.round((Date.now() - (Number(session.startedAt) || Date.now())) / 1000));
           clearKeepAliveSessionBg({ state: "OK", routeSummary: summary, at: new Date().toISOString() });
-          reportBrowserEventBg("KEEPALIVE_OK", {
-            route_summary: summary,
-            duration_sec: Math.max(15, Math.round((Date.now() - (Number(session.startedAt) || Date.now())) / 1000)),
-          });
+          let okSent = false;
+          const emitOk = () => {
+            if (okSent) return;
+            okSent = true;
+            reportBrowserEventBg("KEEPALIVE_OK", {
+              source: "extension",
+              route_summary: summary,
+              duration_sec: durSec,
+            });
+          };
           if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+            setTimeout(emitOk, 450);
             try {
               chrome.runtime.sendMessage({ type: "ADSOPS_AUTO_REFRESH_VAULT_COOKIE", source: "keepalive_ok" }, () => {
                 void chrome.runtime.lastError;
+                emitOk();
               });
-            } catch (e) {}
+            } catch (e) {
+              emitOk();
+            }
+          } else {
+            emitOk();
           }
-          setHudPageStatus("☕ [v2.10.1] Đã đảo ấm sinh học & làm mới Két Cookie (" + summary + ")!", "#34d399");
+          setHudPageStatus("☕ [v2.10.2] Đã đảo ấm sinh học & làm mới Két Cookie (" + summary + ")!", "#34d399");
           if (session.autoClose && session.kaMode !== "bm_warmup") {
             scheduleSafeTabAutoClose(randDelay(7500, 10500));
           }
         }
       }, waitMs);
-    }, 950);
+    }, setupDelay);
   }
 
   function handleSessionWarmupAndKeepAlive() {
@@ -4110,7 +4224,7 @@ recheckGeoAlignment();`
           return;
         }
         const waitMs = randDelay(12500, 17500);
-        const reader = startBiometricReadingLoop("🌿 [Auto v2.10.1] Đang đọc lướt Newsfeed sinh học " + Math.round(waitMs / 1000) + "s trước khi tạo Page...");
+        const reader = startBiometricReadingLoop("🌿 [Auto v2.10.2] Đang đọc lướt Newsfeed sinh học " + Math.round(waitMs / 1000) + "s trước khi tạo Page...");
         setTimeout(() => {
           reader.stop();
           if (pageAutoPilotHalted) return;
@@ -4432,7 +4546,7 @@ recheckGeoAlignment();`
       }
 
       if (autoSubmit) {
-        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.10.1] Đang nhập tự nhiên theo nhịp người thật...", "#38bdf8");
+        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.10.2] Đang nhập tự nhiên theo nhịp người thật...", "#38bdf8");
       }
 
       if (pName && nameEl && !nameEl.value) {
@@ -4530,14 +4644,14 @@ recheckGeoAlignment();`
           sessionStorage.setItem("adsops_media_uploaded", "0");
         } catch (e) {}
         createBtn.click();
-        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.10.1] Đã bấm Tạo Trang — Đang hoàn tất bước phụ...", "#38bdf8");
+        setHudPageStatus((batchStep ? "[Lô " + batchStep + "] " : "") + "🤖 [Auto v2.10.2] Đã bấm Tạo Trang — Đang hoàn tất bước phụ...", "#38bdf8");
       };
 
       setTimeout(() => tryAutoClickCreate(true), tFinal);
     } catch (e) {}
   }
 
-  // v2.10.1: User-clicked 1-tap 6-digit 2FA autofill from Desktop DPAPI Vault / local secret (strictly blocked on CAPTCHA pages)
+  // v2.10.2: User-clicked 1-tap 6-digit 2FA autofill from Desktop DPAPI Vault / local secret (strictly blocked on CAPTCHA pages)
   function handleTwoFactorAssistDom() {
     try {
       const url = (window.location.href || "").toLowerCase();

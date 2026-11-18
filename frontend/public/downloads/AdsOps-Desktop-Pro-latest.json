@@ -1,18 +1,13 @@
 {
-  "version": "3.0.4",
-  "display_version": "v3.0.4",
-  "ext_version": "2.10.1",
-  "published_at": "2026-11-17T14:16:52Z",
-  "download_url": "/downloads/AdsOps-Desktop-Pro-v2.3.zip",
-  "exe_size_bytes": 162964464,
-  "exe_sha256": "35c5a498f6d898bf4c951910c0268436d7916108b9bcfccbe8d5d9739c1ff25a",
-  "zip_size_bytes": 66078616,
-  "zip_sha256": "850322a42db147014fa10fd5fdfd455a7dbb42e592539c2f1b89352632910218",
-  "authenticode_publisher": "CN=AdsOps Pro Community Publisher, O=AdsOps Suite, C=VN",
-  "authenticode_thumbprint": "43D0E31722646B750334397C66E22AD0A1FEDE87",
-  "highlights": [
-    "Trình thiết kế kịch bản hành vi: bốc thăm ngẫu nhiên mỗi ngày hoặc kéo-thả/nối chuỗi từ kho 12 hành động",
-    "Nuôi chéo Fanpage nội bộ, đệm Newsfeed trước Ads Manager, tự thả Like bình luận khách",
-    "Tự chọn khoảng nhịp nghỉ giữa các luồng (Min–Max) + preset Turbo/Nhanh/Chuẩn/Ngâm kỹ, tự xếp lưới cửa sổ"
-  ]
+    "version":  "3.2.0",
+    "ext_version":  "2.10.2",
+    "authenticode_signed":  true,
+    "download_url":  "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
+    "mirror_urls":  [
+                        "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
+                    ],
+    "sha256":  "8aacb0896b3ba51451d7cd582dda3ccd7360c63551ce4f9180d3b139ee9030de",
+    "size_bytes":  67181107,
+    "published_at":  "2026-11-18T09:00:42.2828667Z",
+    "release_notes":  "AdsOps Desktop Pro v3.2.0 (Unified 8-Tab shadcn/ui WebView2, Live Step-by-Step RPA Monitor \u0026 Countdown Timer, Instant Stop/Skip/Pause, Native HWND Session Tracking, DPAPI 5-Layer Vault) + Companion v2.10.2."
 }
