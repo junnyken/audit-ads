@@ -2,13 +2,19 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   Building2,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Copy,
   FileSpreadsheet,
+  FolderOpen,
   Globe,
+  Image as ImageIcon,
   MoreHorizontal,
+  Play,
   Plus,
   RefreshCw,
   Search,
+  Share2,
   Sparkles,
   Square,
   Trash2,
@@ -17,7 +23,7 @@ import {
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,6 +32,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import {
   Select,
@@ -34,6 +41,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
 import { sendDesktopCommand } from '@/lib/bridge'
 import { cn } from '@/lib/utils'
 import type { AppShellWebStateDto, WebFanpageDto } from '@/types'
@@ -48,10 +57,26 @@ export function PagesBmTab({ state }: { state: AppShellWebStateDto }) {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [customDomain, setCustomDomain] = useState(state.domainSeo.customDomain)
+  const pn = state.pageNurture
+  const [nurtureOpen, setNurtureOpen] = useState(true)
+  const [nurtureMode, setNurtureMode] = useState(pn?.mode || 'alternate')
+  const [assetsDir, setAssetsDir] = useState(pn?.assetsDir || '')
+  const [hashJitter, setHashJitter] = useState(pn?.enableImageHashJitter ?? true)
+  const [shareUrls, setShareUrls] = useState(pn?.shareSourceUrls || '')
+  const [captionSpin, setCaptionSpin] = useState(pn?.captionSpintax || '')
 
   useEffect(() => {
     setCustomDomain(state.domainSeo.customDomain)
   }, [state.configRev, state.domainSeo.customDomain])
+
+  useEffect(() => {
+    if (!pn) return
+    setNurtureMode(pn.mode || 'alternate')
+    setAssetsDir(pn.assetsDir || '')
+    setHashJitter(pn.enableImageHashJitter ?? true)
+    setShareUrls(pn.shareSourceUrls || '')
+    setCaptionSpin(pn.captionSpintax || '')
+  }, [state.configRev, pn?.mode, pn?.assetsDir, pn?.enableImageHashJitter, pn?.shareSourceUrls, pn?.captionSpintax])
 
   const filteredPages = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -213,6 +238,142 @@ export function PagesBmTab({ state }: { state: AppShellWebStateDto }) {
         </Card>
       </div>
 
+      {/* Hybrid Page Content Nurture Center (v3.3.0: Auto-Post Media + Auto-Share 7-14 Days) */}
+      <Card className="border-emerald-500/30">
+        <CardHeader className="pb-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-sm font-bold text-emerald-300">
+                <Sparkles className="h-4 w-4" />
+                Trung tâm Tự Đăng Bài (Ảnh + Spin) &amp; Chia Sẻ Bài Nuôi Page (Chu trình 7–14 Ngày)
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Hỗ trợ nuôi cả Page mới chưa kéo BM (qua Chrome thật + RPA) lẫn Page đã có Token (Cloud Graph API).
+                Tự đổi mã băm (hash) ảnh mỗi bài để tránh bị Meta quét trùng lặp.
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary" className="font-mono text-[11px]">
+                🖼️ {pn?.imagesFoundCount ?? 0} ảnh • 🔗 {pn?.shareSourceCount ?? 0} link nguồn
+              </Badge>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => setNurtureOpen((v) => !v)}
+              >
+                {nurtureOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        {nurtureOpen && (
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Chế độ nuôi nội dung</Label>
+                <Select value={nurtureMode} onValueChange={setNurtureMode}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="alternate">Xen kẽ Đăng Ảnh + Chia sẻ bài (Khuyên dùng)</SelectItem>
+                    <SelectItem value="post">Chỉ Đăng bài (Text Spin + Ảnh đổi hash)</SelectItem>
+                    <SelectItem value="share">Chỉ Chia sẻ bài từ danh sách nguồn uy tín</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5 lg:col-span-2">
+                <Label className="text-xs">Thư mục Kho Ảnh nuôi Page (avatars / covers / posts)</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={assetsDir}
+                    onChange={(e) => setAssetsDir(e.target.value)}
+                    placeholder="Mặc định: %LOCALAPPDATA%\AdsOpsDesktop\PageAssets"
+                    className="h-8 font-mono text-xs"
+                  />
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="h-8 shrink-0 text-xs"
+                    onClick={() => sendDesktopCommand('open_page_assets_dir', { nicheKey: state.automationConfig.batchNicheKey })}
+                  >
+                    <FolderOpen className="h-3.5 w-3.5" /> Mở thư mục Ảnh
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Danh sách URL bài viết / Page nguồn chia sẻ (mỗi dòng 1 link)</Label>
+                <Textarea
+                  rows={3}
+                  value={shareUrls}
+                  onChange={(e) => setShareUrls(e.target.value)}
+                  placeholder="https://www.facebook.com/page_uy_tin/posts/123456&#10;https://www.facebook.com/reel/987654"
+                  className="font-mono text-xs"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Mẫu Caption Spintax ({'{A|B|C}'}, {'{page_name}'}, {'{niche}'})</Label>
+                <Textarea
+                  rows={3}
+                  value={captionSpin}
+                  onChange={(e) => setCaptionSpin(e.target.value)}
+                  placeholder="{Chào ngày mới|Góc chia sẻ hay} cùng {page_name}!"
+                  className="text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-background/40 px-3 py-2">
+              <div className="flex items-center gap-2">
+                <Switch id="img-hash-jitter" checked={hashJitter} onCheckedChange={setHashJitter} />
+                <Label htmlFor="img-hash-jitter" className="cursor-pointer text-xs">
+                  Tự động xóa EXIF &amp; biến đổi 1px hash ảnh chống trùng MD5/SHA-256 trước khi đăng
+                </Label>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={() =>
+                    sendDesktopCommand('save_page_nurture_config', {
+                      mode: nurtureMode,
+                      assetsDir,
+                      enableImageHashJitter: hashJitter,
+                      shareSourceUrls: shareUrls,
+                      captionSpintax: captionSpin,
+                    })
+                  }
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> Lưu cấu hình
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={() => {
+                    sendDesktopCommand('save_page_nurture_config', {
+                      mode: nurtureMode,
+                      assetsDir,
+                      enableImageHashJitter: hashJitter,
+                      shareSourceUrls: shareUrls,
+                      captionSpintax: captionSpin,
+                    })
+                    sendDesktopCommand('page_nurture_batch_run', { mode: nurtureMode, viaBrowser: true })
+                  }}
+                >
+                  <Play className="h-3.5 w-3.5" /> Chạy lô Đăng/Share nuôi Page (Chrome thật)
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        )}
+      </Card>
+
       {/* Fanpage Search, Filter & Batch Toolbar */}
       <Card>
         <CardContent className="space-y-3 p-3.5">
@@ -373,6 +534,9 @@ function FanpageRowCard({
             className="h-1.5"
             indicatorClassName={page.adsReady ? 'bg-emerald-500' : 'bg-indigo-500'}
           />
+          {page.lifecycleLabel && (
+            <div className="truncate font-mono text-[10px] text-muted-foreground">{page.lifecycleLabel}</div>
+          )}
         </div>
 
         {/* Col 3: Direct Via & Chrome Profile Holder Selector */}
@@ -454,6 +618,19 @@ function FanpageRowCard({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-72">
+              <DropdownMenuItem onClick={() => sendDesktopCommand('page_nurture_single_post', { pageId: page.id, viaBrowser: true })}>
+                <ImageIcon className="h-3.5 w-3.5 text-emerald-400" />
+                Đăng bài nuôi Page (Ảnh đổi hash + Caption Spin)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => sendDesktopCommand('page_nurture_single_share', { pageId: page.id, viaBrowser: true })}>
+                <Share2 className="h-3.5 w-3.5 text-sky-400" />
+                Chia sẻ bài từ nguồn uy tín về Page
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => sendDesktopCommand('open_page_setup_assets', { pageId: page.id })}>
+                <FolderOpen className="h-3.5 w-3.5 text-amber-400" />
+                Hoàn thiện Hồ sơ (Mở thư mục Avatar/Cover + Page)
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => sendDesktopCommand('scan_mbs_invite_now', { pageId: page.id })}>
                 <Zap className="h-3.5 w-3.5 text-amber-400" />
                 Quét số người cần mời &amp; Gửi lời mời trên Chrome đang mở

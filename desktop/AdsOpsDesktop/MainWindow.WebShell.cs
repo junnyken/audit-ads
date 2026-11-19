@@ -76,7 +76,9 @@ internal sealed partial class MainWindow
             {
                 _overviewWebView.DefaultBackgroundColor = GetWebViewBgColor();
             }
-            if (_overviewWebViewHost.Parent is System.Windows.Controls.ContentControl oldCc && !ReferenceEquals(oldCc, _viewHost))
+            if (_overviewWebViewHost.Parent is System.Windows.Controls.ContentControl oldCc
+                && !ReferenceEquals(oldCc, this)
+                && !ReferenceEquals(oldCc, _viewHost))
             {
                 oldCc.Content = null;
             }
@@ -125,7 +127,10 @@ internal sealed partial class MainWindow
                         OnOverviewWebMessageReceived(raw);
                     }
                 }
-                catch { }
+                catch (Exception ex)
+        {
+            AppendLog($"⚠️ Lỗi đẩy dữ liệu lên WebView2: {ex.Message}");
+        }
             };
 
             core.NavigationCompleted += (_, navArgs) =>
@@ -462,6 +467,9 @@ internal sealed partial class MainWindow
             var isRunningInv = IsAutoInviteRunning &&
                 ((!string.IsNullOrWhiteSpace(pg.Id) && string.Equals(ActiveAutoInvitePageId, pg.Id, StringComparison.OrdinalIgnoreCase)) ||
                  (!string.IsNullOrWhiteSpace(pg.ExternalPageId) && string.Equals(ActiveAutoInvitePageId, pg.ExternalPageId, StringComparison.OrdinalIgnoreCase)));
+            var pageKey = !string.IsNullOrWhiteSpace(pg.ExternalPageId) ? pg.ExternalPageId! : pg.Id;
+            var shareCount = _config.PageLocalShareCounts != null && _config.PageLocalShareCounts.TryGetValue(pageKey, out var sc) ? sc : 0;
+            var lifecycle = PageContentNurtureEngine.ComputeLifecycleProgress(pg.WarmupPostsCount, shareCount, pg.AdsReady);
 
             return new WebFanpageDto
             {
@@ -476,6 +484,9 @@ internal sealed partial class MainWindow
                 FollowersCount = pg.FanCount ?? pg.FollowersCount,
                 PendingInviteCount = GetPagePendingInviteCount(pg),
                 WarmupPostsCount = pg.WarmupPostsCount,
+                ShareCount = shareCount,
+                LifecycleDay = lifecycle.DayIndex,
+                LifecycleLabel = lifecycle.StageLabel,
                 OwnerBmId = pg.OwnerBmId ?? "",
                 OwnerBmName = pg.OwnerBmName ?? "",
                 LinkedAdAccountCount = pg.LinkedAdAccountCount,
@@ -712,7 +723,10 @@ internal sealed partial class MainWindow
                 BatchPrefix = _batchPrefix,
                 BatchCustomNames = _batchCustomNames,
                 BatchAutoSubmit = _batchAutoSubmit,
+                EnablePrePageCreationWarmup = _config.EnablePrePageCreationWarmup,
+                PrePageCreationWarmupSeconds = Math.Clamp(_config.PrePageCreationWarmupSeconds < 10 ? 35 : _config.PrePageCreationWarmupSeconds, 10, 90),
                 MaxSafeBatchNow = _pagesSummary?.QuotaAlertsSummary?.MaxSafeBatchNow ?? _vias.Count,
+                DirectIpViaCount = _vias.Count(v => string.IsNullOrWhiteSpace(v.NetworkLabel)),
                 AutoKeepAliveScheduler = _config.AutoKeepAliveScheduler,
                 AutoDailyFullPipeline = _config.AutoDailyFullPipeline,
                 AutoInvitePageFollowersOnWarmup = _config.AutoInvitePageFollowersOnWarmup,
@@ -770,6 +784,7 @@ internal sealed partial class MainWindow
                 EffectivePublicUrl = _domainSeoConfig?.EffectivePublicUrl ?? "https://adsops-app.vibe.tinhgon.xyz",
                 Checklist = (_domainSeoConfig?.SeoChecklist ?? new()).Select(i => new WebSeoChecklistDto { Key = i.Key, Label = i.Label, Ready = i.Ready }).ToList(),
             },
+            PageNurture = BuildPageNurtureConfigDto(),
             Fanpages = fanpageDtos,
             PageHolderOptions = pageHolderOpts,
             SpendCurrencies = spendBuckets,
@@ -968,7 +983,10 @@ internal sealed partial class MainWindow
             var json = DesktopWebUiBridge.BuildShellStateJson(BuildAppShellWebState());
             _overviewWebView.CoreWebView2.PostWebMessageAsJson(json);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            AppendLog($"⚠️ Lỗi đẩy dữ liệu lên WebView2: {ex.Message}");
+        }
     }
 
     internal void PushLiveTickToWebView()
@@ -979,7 +997,10 @@ internal sealed partial class MainWindow
             var json = DesktopWebUiBridge.BuildLiveTickJson(BuildAppShellLiveTick());
             _overviewWebView.CoreWebView2.PostWebMessageAsJson(json);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            AppendLog($"⚠️ Lỗi đẩy dữ liệu lên WebView2: {ex.Message}");
+        }
     }
 
     private void ExecuteExportFullVaultBackup()
@@ -1683,7 +1704,10 @@ internal sealed partial class MainWindow
                                 var idx = _playbooks.FindIndex(p => p.Id == updated.Id);
                                 if (idx >= 0) _playbooks[idx] = updated;
                             }
-                            catch { }
+                            catch (Exception ex)
+        {
+            AppendLog($"⚠️ Lỗi đẩy dữ liệu lên WebView2: {ex.Message}");
+        }
                             AppendLog($"📚 Đã khởi chạy kịch bản '{activePb.Title}' cho {qTasks.Count} Via.");
                             PushOverviewStateToWebView();
                             break;
@@ -1703,20 +1727,29 @@ internal sealed partial class MainWindow
                             _batchPrefix = GetStr(root, "prefix", _batchPrefix);
                             _batchCustomNames = GetStr(root, "customNames", _batchCustomNames);
                             _batchAutoSubmit = GetBool(root, "autoSubmit", _batchAutoSubmit);
+                            _config.EnablePrePageCreationWarmup = GetBool(root, "enablePrePageCreationWarmup", _config.EnablePrePageCreationWarmup);
+                            _config.PrePageCreationWarmupSeconds = Math.Clamp(GetInt(root, "prePageCreationWarmupSeconds", _config.PrePageCreationWarmupSeconds), 10, 90);
+                            _config.Save();
+                            PageContentNurtureEngine.EnsurePageAssetFolders(_config.PageAssetsDir, _batchNicheKey);
 
                             var safeVias = _pagesSummary?.QuotaAlertsSummary?.MaxSafeBatchNow ?? _vias.Count;
+                            var directIpCount = _vias.Count(v => string.IsNullOrWhiteSpace(v.NetworkLabel));
+                            var directIpNote = directIpCount > 0 && directIpCount == _vias.Count
+                                ? $"⚠️ Cảnh báo: {directIpCount}/{_vias.Count} Via đang dùng chung Direct IP (Mạng gốc). Nên tạo 1–2 Page/ca hoặc gắn Proxy riêng để tránh bị Meta chặn tạo Trang."
+                                : "Các Via hết hạn mức ngày/tuần hoặc đang ngâm 72h sẽ được tự động bỏ qua để bảo vệ Trust tài khoản.";
                             var confirm = UiComponents.ShowConfirmActionDialog(
                                 this,
-                                "Xác nhận Chạy Hàng đợi Tạo Page",
+                                "Xác nhận Chạy Hàng đợi Tạo Page An Toàn",
                                 $"Sắp gửi lệnh tạo {_batchCount} Fanpage lên Cloud và xếp lịch mở lần lượt qua Chrome Profile thật.",
                                 new (string, string)[]
                                 {
                                     ("Ngành hàng:", PageNicheTemplates.All.FirstOrDefault(x => x.Key == _batchNicheKey)?.Label ?? _batchNicheKey),
                                     ("Số lượng yêu cầu:", $"{_batchCount} Page (Max SAFE hiện tại: {safeVias})"),
-                                    ("Nghỉ giãn cách:", $"~{_batchStaggerSec}s ± 35% Jitter + IP Guard (Tạo Page: tối đa {Math.Clamp(_config.MaxPagesPerProxyInBatch, 1, 20)}/IP • Nuôi: {_config.MaxViasPerProxyInBatch}/IP)"),
-                                    ("Chế độ Extension:", _batchAutoSubmit ? "Tự điền & Tạo Page + đăng Warmup" : "Chỉ điền sẵn biểu mẫu để kiểm tra"),
+                                    ("Đệm chống chặn tạo:", _config.EnablePrePageCreationWarmup ? $"BẬT — Lướt Newsfeed {_config.PrePageCreationWarmupSeconds}s trước khi vào pages/creation" : "TẮT (Mở thẳng pages/creation)"),
+                                    ("Nghỉ giãn cách:", $"~{_batchStaggerSec}s ± 35% Jitter + IP Guard (Tạo Page: tối đa {Math.Clamp(_config.MaxPagesPerProxyInBatch, 1, 20)}/IP • Direct IP: tối đa {_config.MaxDirectIpViasInBatch}/ca)"),
+                                    ("Chế độ Extension:", _batchAutoSubmit ? "Tự điền & Tạo Page + sẵn sàng Hồ sơ/Warmup" : "Chỉ điền sẵn biểu mẫu để kiểm tra"),
                                 },
-                                "Các Via hết hạn mức ngày/tuần sẽ được Backend tự động bỏ qua để bảo vệ Trust tài khoản.");
+                                directIpNote);
                             if (!confirm) break;
 
                             try
@@ -1735,12 +1768,22 @@ internal sealed partial class MainWindow
                                 var tasks = resp.BatchItems.Select(b =>
                                 {
                                     var mv = _vias.FirstOrDefault(v => string.Equals(v.ViaId, b.ViaId, StringComparison.OrdinalIgnoreCase));
-                                    return new QueueTaskItem(
-                                        b.ViaId, b.ViaLabel, GetEffectiveBatchProfileKey(mv, b.BrowserProfile), b.NetworkLabel,
-                                        string.IsNullOrWhiteSpace(b.LaunchUrl) ? "https://www.facebook.com/pages/creation" : b.LaunchUrl,
-                                        $"Tạo Page: {b.PageName}", "standard_via", mv?.ClientGroup ?? "",
-                                        mv?.IsInSoakQuarantine ?? false, mv?.CooldownUntilUtc, mv?.HasSiloConflict ?? false, mv?.SiloConflictDetail ?? "");
-                                }).ToList();
+                                    var rawCreateUrl = string.IsNullOrWhiteSpace(b.LaunchUrl) ? "https://www.facebook.com/pages/creation" : b.LaunchUrl;
+                                    var wrappedUrl = WrapWithPrePageCreationWarmupIfEnabled(rawCreateUrl);
+                                    return (
+                                        ReadinessScore: (mv != null && !mv.IsInSoakQuarantine ? 10 : 0)
+                                                      + (mv != null && !string.IsNullOrWhiteSpace(mv.NetworkLabel) ? 5 : 0)
+                                                      + (mv != null && !string.IsNullOrWhiteSpace(mv.TwoFaSecret) ? 2 : 0),
+                                        Item: new QueueTaskItem(
+                                            b.ViaId, b.ViaLabel, GetEffectiveBatchProfileKey(mv, b.BrowserProfile), b.NetworkLabel,
+                                            wrappedUrl,
+                                            $"Tạo Page: {b.PageName}", "standard_via", mv?.ClientGroup ?? "",
+                                            mv?.IsInSoakQuarantine ?? false, mv?.CooldownUntilUtc, mv?.HasSiloConflict ?? false, mv?.SiloConflictDetail ?? "")
+                                    );
+                                })
+                                .OrderByDescending(x => x.ReadinessScore)
+                                .Select(x => x.Item)
+                                .ToList();
                                 if (tasks.Count == 0)
                                 {
                                     MessageBox.Show(this, resp.QuotaWarningMessage ?? "Không có Via nào còn Quota hợp lệ lúc này.", "Hết Quota an toàn", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -1918,6 +1961,82 @@ internal sealed partial class MainWindow
                                 await SyncCloudAsync(silent: false);
                             }
                             catch (Exception ex) { AppendLog($"Lỗi nuôi lô Page: {ex.Message}"); }
+                            break;
+                        }
+
+                    case "save_page_nurture_config":
+                        {
+                            var mode = GetStr(root, "mode", _config.PageNurtureMode).ToLowerInvariant();
+                            _config.PageNurtureMode = mode is "post" or "share" or "alternate" ? mode : "alternate";
+                            _config.PageAssetsDir = GetStr(root, "assetsDir", _config.PageAssetsDir).Trim();
+                            _config.EnableImageHashJitter = GetBool(root, "enableImageHashJitter", _config.EnableImageHashJitter);
+                            _config.PageShareSourceUrls = GetStr(root, "shareSourceUrls", _config.PageShareSourceUrls).Trim();
+                            var spin = GetStr(root, "captionSpintax", _config.PageCaptionSpintax).Trim();
+                            _config.PageCaptionSpintax = string.IsNullOrWhiteSpace(spin) ? PageContentNurtureEngine.DefaultCaptionSpintax : spin;
+                            _config.Save();
+                            PageContentNurtureEngine.EnsurePageAssetFolders(_config.PageAssetsDir, _batchNicheKey);
+                            _webUiConfigRev++;
+                            AppendLog($"✅ Đã lưu cấu hình Trung tâm Đăng bài & Chia sẻ Nuôi Page (Chế độ: {_config.PageNurtureMode}).");
+                            PushOverviewStateToWebView();
+                            break;
+                        }
+
+                    case "open_page_assets_dir":
+                        {
+                            var niche = GetStr(root, "nicheKey", _batchNicheKey);
+                            var dir = PageContentNurtureEngine.EnsurePageAssetFolders(_config.PageAssetsDir, niche);
+                            try { Process.Start(new ProcessStartInfo("explorer.exe", dir) { UseShellExecute = true }); }
+                            catch (Exception ex) { AppendLog($"Không mở được thư mục ảnh: {ex.Message}"); }
+                            break;
+                        }
+
+                    case "open_page_setup_assets":
+                        {
+                            var pg = (_pagesSummary?.Items ?? new()).FirstOrDefault(p => string.Equals(p.Id, GetStr(root, "pageId"), StringComparison.OrdinalIgnoreCase));
+                            var niche = pg != null ? PageContentNurtureEngine.SanitizeFolderSegment(pg.Category) : _batchNicheKey;
+                            var dir = PageContentNurtureEngine.EnsurePageAssetFolders(_config.PageAssetsDir, niche);
+                            try { Process.Start(new ProcessStartInfo("explorer.exe", dir) { UseShellExecute = true }); }
+                            catch (Exception ex)
+        {
+            AppendLog($"⚠️ Lỗi đẩy dữ liệu lên WebView2: {ex.Message}");
+        }
+                            if (pg != null)
+                            {
+                                var via = ResolveEffectiveViaForPage(pg);
+                                var url = !string.IsNullOrWhiteSpace(pg.Url) ? pg.Url!
+                                    : !string.IsNullOrWhiteSpace(pg.ExternalPageId) ? $"https://www.facebook.com/{pg.ExternalPageId}"
+                                    : "https://www.facebook.com/pages";
+                                if (via != null) LaunchViaChromeSafe(via, url);
+                                AppendLog($"🎨 Đã mở thư mục Avatar/Cover/Posts ({niche}) & mở Page '{pg.Name}' để hoàn thiện hồ sơ.");
+                            }
+                            break;
+                        }
+
+                    case "page_nurture_single_post":
+                        {
+                            var pg = (_pagesSummary?.Items ?? new()).FirstOrDefault(p => string.Equals(p.Id, GetStr(root, "pageId"), StringComparison.OrdinalIgnoreCase));
+                            if (pg != null)
+                            {
+                                await RunPageNurtureSingleAsync(pg, "post", GetBool(root, "viaBrowser", true));
+                            }
+                            break;
+                        }
+
+                    case "page_nurture_single_share":
+                        {
+                            var pg = (_pagesSummary?.Items ?? new()).FirstOrDefault(p => string.Equals(p.Id, GetStr(root, "pageId"), StringComparison.OrdinalIgnoreCase));
+                            if (pg != null)
+                            {
+                                await RunPageNurtureSingleAsync(pg, "share", GetBool(root, "viaBrowser", true));
+                            }
+                            break;
+                        }
+
+                    case "page_nurture_batch_run":
+                        {
+                            var mode = GetStr(root, "mode", _config.PageNurtureMode).ToLowerInvariant();
+                            var viaBrowser = GetBool(root, "viaBrowser", true);
+                            StartPageNurtureBatchQueue(mode, viaBrowser);
                             break;
                         }
 
@@ -2473,7 +2592,10 @@ internal sealed partial class MainWindow
                                                 Notes = notes,
                                             });
                                         }
-                                        catch { }
+                                        catch (Exception ex)
+        {
+            AppendLog($"⚠️ Lỗi đẩy dữ liệu lên WebView2: {ex.Message}");
+        }
                                     }
                                 }
                             }
@@ -2648,5 +2770,243 @@ internal sealed partial class MainWindow
                 AppendLog($"[WebView IPC] Lỗi xử lý lệnh: {ex.Message}");
             }
         });
+    }
+
+    private WebPageNurtureConfigDto BuildPageNurtureConfigDto()
+    {
+        var effDir = PageContentNurtureEngine.ResolveEffectiveAssetsDir(_config.PageAssetsDir);
+        var shareUrls = PageContentNurtureEngine.ParseShareUrls(_config.PageShareSourceUrls);
+        int imgCount = 0;
+        try
+        {
+            if (Directory.Exists(effDir))
+            {
+                var exts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".png", ".webp", ".bmp" };
+                imgCount = Directory.EnumerateFiles(effDir, "*.*", SearchOption.AllDirectories)
+                    .Count(f => exts.Contains(Path.GetExtension(f)));
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"⚠️ Lỗi đẩy dữ liệu lên WebView2: {ex.Message}");
+        }
+
+        return new WebPageNurtureConfigDto
+        {
+            Mode = string.IsNullOrWhiteSpace(_config.PageNurtureMode) ? "alternate" : _config.PageNurtureMode,
+            AssetsDir = effDir,
+            EnableImageHashJitter = _config.EnableImageHashJitter,
+            ShareSourceUrls = _config.PageShareSourceUrls ?? "",
+            CaptionSpintax = string.IsNullOrWhiteSpace(_config.PageCaptionSpintax)
+                ? PageContentNurtureEngine.DefaultCaptionSpintax
+                : _config.PageCaptionSpintax,
+            ShareSourceCount = shareUrls.Count,
+            ImagesFoundCount = imgCount,
+        };
+    }
+
+    private async Task RunPageNurtureSingleAsync(FanpageItemDto pg, string actionMode, bool viaBrowser)
+    {
+        var via = ResolveEffectiveViaForPage(pg);
+        var pageKey = !string.IsNullOrWhiteSpace(pg.ExternalPageId) ? pg.ExternalPageId! : pg.Id;
+        var caption = PageContentNurtureEngine.SpinText(_config.PageCaptionSpintax, pg.Name, pg.Category ?? _batchNicheKey);
+        var shareUrls = PageContentNurtureEngine.ParseShareUrls(_config.PageShareSourceUrls);
+
+        if (string.Equals(actionMode, "share", StringComparison.OrdinalIgnoreCase))
+        {
+            var nextUrl = PageContentNurtureEngine.PickNextShareUrl(pageKey, shareUrls, _config.PageSharedUrlHistory);
+            if (string.IsNullOrWhiteSpace(nextUrl))
+            {
+                MessageBox.Show(
+                    this,
+                    "Bạn chưa dán danh sách URL bài viết / Page nguồn chia sẻ ở khung 'Trung tâm Đăng bài & Chia sẻ Nuôi Page'. Hãy dán ít nhất 1 link rồi bấm Lưu cấu hình trước.",
+                    "Thiếu nguồn chia sẻ bài",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            _config.PageLocalShareCounts[pageKey] = (_config.PageLocalShareCounts.TryGetValue(pageKey, out var cur) ? cur : 0) + 1;
+            _config.Save();
+
+            if (!viaBrowser && !string.IsNullOrWhiteSpace(pg.ExternalPageId))
+            {
+                try
+                {
+                    var r = await _api.PublishWarmupPostAsync(
+                        pg.Id, caption, via?.ViaId ?? "", via?.Label ?? "Via Giữ Page",
+                        via?.ProfileDir ?? "Default", postMode: "graph_api_or_assist", contentType: "share", shareUrl: nextUrl);
+                    AppendLog($"🔗 [Cloud Share] Đã chia sẻ bài nguồn lên Page '{pg.Name}' ({r.DeliveryMode}).");
+                    await SyncCloudAsync(silent: true);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    AppendLog($"⚠️ Cloud Share chưa khả dụng ({ex.Message}) — tự động chuyển sang Chrome thật...");
+                }
+            }
+
+            try { Clipboard.SetText(caption); } catch { }
+            if (via == null)
+            {
+                AppendLog($"⚠️ Không tìm thấy Via cầm Page '{pg.Name}' để mở Chrome.");
+                return;
+            }
+            var target = $"https://www.facebook.com/?adsops_keepalive_session=1&adsops_auto_close=0&adsops_ka_route=scroll_feed,page_auto_share_curated&adsops_share_url={Uri.EscapeDataString(nextUrl)}";
+            LaunchViaChromeSafe(via, target);
+            AppendLog($"🔗 [Chrome Share] Đã mở bài nguồn ({nextUrl}) bằng Via '{via.Label}' cho Page '{pg.Name}'. Caption spin đã chép sẵn vào Clipboard.");
+            PushOverviewStateToWebView();
+            return;
+        }
+
+        // Default: actionMode == "post" (Text + Unique Hash Image)
+        var pickedImg = PageContentNurtureEngine.PickRandomImageFromDir(_config.PageAssetsDir, pg.Category ?? _batchNicheKey, "posts");
+        string? preparedImg = pickedImg;
+        if (!string.IsNullOrWhiteSpace(pickedImg) && _config.EnableImageHashJitter)
+        {
+            try
+            {
+                preparedImg = PageContentNurtureEngine.CreateUniqueImageVariant(pickedImg);
+                AppendLog($"🖼️ Đã tạo biến thể ảnh chống trùng hash: {Path.GetFileName(preparedImg)}");
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"⚠️ Không tạo được biến thể ảnh ({ex.Message}), dùng ảnh gốc.");
+            }
+        }
+
+        if (!viaBrowser && !string.IsNullOrWhiteSpace(pg.ExternalPageId))
+        {
+            try
+            {
+                var r = await _api.PublishWarmupPostAsync(
+                    pg.Id, caption, via?.ViaId ?? "", via?.Label ?? "Via Giữ Page",
+                    via?.ProfileDir ?? "Default", postMode: "graph_api_or_assist", contentType: "post");
+                AppendLog($"📝 [Cloud Post] Đã đăng bài nuôi lên Page '{pg.Name}' ({r.DeliveryMode}).");
+                await SyncCloudAsync(silent: true);
+                return;
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"⚠️ Cloud Post chưa khả dụng ({ex.Message}) — tự động chuyển sang Chrome thật...");
+            }
+        }
+
+        try { Clipboard.SetText(caption); } catch { }
+        if (via == null)
+        {
+            AppendLog($"⚠️ Không tìm thấy Via cầm Page '{pg.Name}' để mở Chrome.");
+            return;
+        }
+        var composerUrl = !string.IsNullOrWhiteSpace(pg.ExternalPageId)
+            ? $"https://business.facebook.com/latest/composer?asset_id={Uri.EscapeDataString(pg.ExternalPageId!)}"
+            : (!string.IsNullOrWhiteSpace(pg.Url) ? pg.Url! : "https://business.facebook.com/latest/composer");
+        var launchUrl = $"https://www.facebook.com/?adsops_keepalive_session=1&adsops_auto_close=0&adsops_ka_route=scroll_feed,page_auto_post_media&adsops_composer_url={Uri.EscapeDataString(composerUrl)}";
+        LaunchViaChromeSafe(via, launchUrl);
+        if (!string.IsNullOrWhiteSpace(preparedImg))
+        {
+            AppendLog($"📸 [Chrome Post] Đã mở Composer Page '{pg.Name}' (Via '{via.Label}'). Caption đã chép Clipboard • Ảnh sẵn sàng: {preparedImg}");
+        }
+        else
+        {
+            AppendLog($"📝 [Chrome Post] Đã mở Composer Page '{pg.Name}' (Via '{via.Label}'). Caption spin đã chép sẵn vào Clipboard.");
+        }
+        PushOverviewStateToWebView();
+    }
+
+    private void StartPageNurtureBatchQueue(string rawMode, bool viaBrowser)
+    {
+        if (_queue.Current.Phase is QueuePhase.Running or QueuePhase.Paused)
+        {
+            MessageBox.Show(this, "Hàng đợi khác đang chạy. Vui lòng dừng trước khi chạy lô nuôi Page.", "Đang bận", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var mode = rawMode is "post" or "share" or "alternate" ? rawMode : "alternate";
+        var livePages = (_pagesSummary?.Items ?? new())
+            .Where(p => string.Equals(p.HealthStatus, "LIVE", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(p => p.WarmupPostsCount)
+            .Take(8)
+            .ToList();
+        if (livePages.Count == 0)
+        {
+            MessageBox.Show(this, "Chưa có Fanpage LIVE nào để chạy lô nuôi bài.", "Không có Page LIVE", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var shareUrls = PageContentNurtureEngine.ParseShareUrls(_config.PageShareSourceUrls);
+        if (mode == "share" && shareUrls.Count == 0)
+        {
+            MessageBox.Show(this, "Chế độ Chia sẻ bài cần ít nhất 1 URL bài viết nguồn. Hãy dán link nguồn rồi bấm Lưu cấu hình.", "Thiếu link nguồn", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var tasks = new List<QueueTaskItem>();
+        for (int i = 0; i < livePages.Count; i++)
+        {
+            var pg = livePages[i];
+            var via = ResolveEffectiveViaForPage(pg);
+            if (via == null) continue;
+            var pageKey = !string.IsNullOrWhiteSpace(pg.ExternalPageId) ? pg.ExternalPageId! : pg.Id;
+            bool doShare = mode == "share" || (mode == "alternate" && shareUrls.Count > 0 && i % 2 == 1);
+            string launchUrl;
+            string title;
+            if (doShare)
+            {
+                var nextUrl = PageContentNurtureEngine.PickNextShareUrl(pageKey, shareUrls, _config.PageSharedUrlHistory);
+                if (string.IsNullOrWhiteSpace(nextUrl)) continue;
+                _config.PageLocalShareCounts[pageKey] = (_config.PageLocalShareCounts.TryGetValue(pageKey, out var cur) ? cur : 0) + 1;
+                launchUrl = $"https://www.facebook.com/?adsops_keepalive_session=1&adsops_auto_close=0&adsops_ka_route=scroll_feed,page_auto_share_curated&adsops_share_url={Uri.EscapeDataString(nextUrl)}";
+                title = $"Chia sẻ bài nuôi Page: {pg.Name}";
+            }
+            else
+            {
+                var composerUrl = !string.IsNullOrWhiteSpace(pg.ExternalPageId)
+                    ? $"https://business.facebook.com/latest/composer?asset_id={Uri.EscapeDataString(pg.ExternalPageId!)}"
+                    : "https://business.facebook.com/latest/composer";
+                launchUrl = $"https://www.facebook.com/?adsops_keepalive_session=1&adsops_auto_close=0&adsops_ka_route=scroll_feed,page_auto_post_media&adsops_composer_url={Uri.EscapeDataString(composerUrl)}";
+                title = $"Đăng bài nuôi Page: {pg.Name}";
+            }
+
+            tasks.Add(new QueueTaskItem(
+                via.ViaId,
+                via.Label,
+                GetEffectiveBatchProfileKey(via, via.ProfileDir),
+                via.NetworkLabel ?? "",
+                launchUrl,
+                title,
+                "standard_via",
+                via.ClientGroup ?? "",
+                false,
+                via.CooldownUntilUtc,
+                via.HasSiloConflict,
+                via.SiloConflictDetail ?? ""));
+        }
+
+        if (tasks.Count == 0)
+        {
+            AppendLog("⚠️ Không có Page nào gắn Via hợp lệ để xếp hàng đợi nuôi bài.");
+            return;
+        }
+
+        _config.Save();
+        _queue.ConfigureRestRange(_config.QueueRestMinSeconds, _config.QueueRestMaxSeconds);
+        _queue.StartQueue(
+            QueueKind.KeepAlive,
+            tasks,
+            Math.Max(25, _config.QueueRestMinSeconds),
+            _config.PreCheckProxyBeforeLaunch,
+            _config.MaxViasPerProxyInBatch,
+            _config.AutoKeepAliveStartHour,
+            _config.AutoKeepAliveEndHour,
+            enforceDaytimeWindow: false,
+            enforceSoakQuarantine: false,
+            enforceClientSilo: _config.EnforceClientSilo,
+            interleaveByProxy: true,
+            sameProxyMinStaggerSeconds: _config.SameProxyMinStaggerSeconds,
+            maxConcurrentBrowsers: Math.Min(3, GetEffectiveMaxConcurrentBrowsers()),
+            maxDirectIpVias: _config.MaxDirectIpViasInBatch);
+        AppendLog($"🚀 Đã khởi chạy lô Nuôi Page ({mode}, {tasks.Count} Page) theo nhịp Jitter + Giám sát RPA.");
+        PushOverviewStateToWebView();
     }
 }

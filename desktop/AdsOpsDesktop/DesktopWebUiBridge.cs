@@ -263,7 +263,10 @@ public sealed class WebAutomationConfigDto
     public string BatchPrefix { get; set; } = "";
     public string BatchCustomNames { get; set; } = "";
     public bool BatchAutoSubmit { get; set; } = true;
+    public bool EnablePrePageCreationWarmup { get; set; } = true;
+    public int PrePageCreationWarmupSeconds { get; set; } = 35;
     public int MaxSafeBatchNow { get; set; }
+    public int DirectIpViaCount { get; set; }
 
     // Local Guard
     public bool AutoKeepAliveScheduler { get; set; } = true;
@@ -333,6 +336,17 @@ public sealed class WebDomainSeoDto
     public List<WebSeoChecklistDto> Checklist { get; set; } = new();
 }
 
+public sealed class WebPageNurtureConfigDto
+{
+    public string Mode { get; set; } = "alternate"; // "post" | "share" | "alternate"
+    public string AssetsDir { get; set; } = "";
+    public bool EnableImageHashJitter { get; set; } = true;
+    public string ShareSourceUrls { get; set; } = "";
+    public string CaptionSpintax { get; set; } = "";
+    public int ShareSourceCount { get; set; }
+    public int ImagesFoundCount { get; set; }
+}
+
 public sealed class WebFanpageDto
 {
     public string Id { get; set; } = "";
@@ -346,6 +360,9 @@ public sealed class WebFanpageDto
     public long? FollowersCount { get; set; }
     public int? PendingInviteCount { get; set; }
     public int WarmupPostsCount { get; set; }
+    public int ShareCount { get; set; }
+    public int LifecycleDay { get; set; } = 1;
+    public string LifecycleLabel { get; set; } = "";
     public string OwnerBmId { get; set; } = "";
     public string OwnerBmName { get; set; } = "";
     public int LinkedAdAccountCount { get; set; }
@@ -662,6 +679,7 @@ public sealed class AppShellWebStateDto
     public List<WebBmDto> Bms { get; set; } = new();
     public List<WebPixelDto> Pixels { get; set; } = new();
     public WebDomainSeoDto DomainSeo { get; set; } = new();
+    public WebPageNurtureConfigDto PageNurture { get; set; } = new();
     public List<WebFanpageDto> Fanpages { get; set; } = new();
     public List<WebOptionDto> PageHolderOptions { get; set; } = new();
 

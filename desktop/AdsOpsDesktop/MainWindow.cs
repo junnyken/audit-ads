@@ -2057,7 +2057,8 @@ internal sealed partial class MainWindow : Window
     {
         bool isAutomationUrl = targetUrl.Contains("adsops_keepalive_session=1", StringComparison.OrdinalIgnoreCase)
                             || targetUrl.Contains("adsops_keepalive=1", StringComparison.OrdinalIgnoreCase)
-                            || targetUrl.Contains("adsops_preads_warmup=1", StringComparison.OrdinalIgnoreCase);
+                            || targetUrl.Contains("adsops_preads_warmup=1", StringComparison.OrdinalIgnoreCase)
+                            || targetUrl.Contains("adsops_prepage_warmup=1", StringComparison.OrdinalIgnoreCase);
         if (!isAutomationUrl) return;
 
         InitLiveRunnerForVia(via, targetUrl, isolatedMode, windowHandle);
@@ -2086,17 +2087,20 @@ internal sealed partial class MainWindow : Window
     {
         bool fastTest = targetUrl.Contains("adsops_fast_test=1", StringComparison.OrdinalIgnoreCase);
         bool isPreAds = targetUrl.Contains("adsops_preads_warmup=1", StringComparison.OrdinalIgnoreCase);
+        bool isPrePage = targetUrl.Contains("adsops_prepage_warmup=1", StringComparison.OrdinalIgnoreCase);
         var stepList = new List<WebLiveRunnerStepDto>();
 
-        if (isPreAds)
+        if (isPreAds || isPrePage)
         {
-            int sec = Math.Clamp(_config.PreAdsWarmupSeconds < 8 ? 20 : _config.PreAdsWarmupSeconds, 8, 90);
+            int sec = isPrePage
+                ? Math.Clamp(_config.PrePageCreationWarmupSeconds < 10 ? 35 : _config.PrePageCreationWarmupSeconds, 10, 90)
+                : Math.Clamp(_config.PreAdsWarmupSeconds < 8 ? 20 : _config.PreAdsWarmupSeconds, 8, 90);
             stepList.Add(new WebLiveRunnerStepDto
             {
                 Index = 1,
-                Key = "preads_warmup",
+                Key = isPrePage ? "prepage_warmup" : "preads_warmup",
                 Icon = "🛡️",
-                Title = "Đệm Newsfeed trước Ads Manager",
+                Title = isPrePage ? "Đệm Newsfeed trước Tạo Page" : "Đệm Newsfeed trước Ads Manager",
                 DurationSec = sec,
                 Status = "running",
             });
@@ -2697,6 +2701,18 @@ internal sealed partial class MainWindow : Window
         var sec = Math.Clamp(_config.PreAdsWarmupSeconds < 8 ? 20 : _config.PreAdsWarmupSeconds, 8, 90);
         return $"https://www.facebook.com/?adsops_preads_warmup=1&adsops_preads_sec={sec}&adsops_preads_target={Uri.EscapeDataString(targetUrl)}";
     }
+
+    internal static string WrapWithPrePageCreationWarmup(string targetUrl, bool enabled, int warmupSeconds)
+    {
+        if (string.IsNullOrWhiteSpace(targetUrl) || !enabled) return targetUrl;
+        if (targetUrl.Contains("adsops_prepage_warmup=1", StringComparison.OrdinalIgnoreCase)) return targetUrl;
+        if (!targetUrl.Contains("pages/creation", StringComparison.OrdinalIgnoreCase)) return targetUrl;
+        var sec = Math.Clamp(warmupSeconds < 10 ? 35 : warmupSeconds, 10, 90);
+        return $"https://www.facebook.com/?adsops_prepage_warmup=1&adsops_prepage_sec={sec}&adsops_prepage_target={Uri.EscapeDataString(targetUrl)}";
+    }
+
+    internal string WrapWithPrePageCreationWarmupIfEnabled(string targetUrl)
+        => WrapWithPrePageCreationWarmup(targetUrl, _config.EnablePrePageCreationWarmup, _config.PrePageCreationWarmupSeconds);
 
     internal (string LaunchUrl, string TaskSummary) BuildKeepAliveLaunchUrlForVia(
         ViaWorkspaceEntry v,

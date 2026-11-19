@@ -1,13 +1,13 @@
-{
-    "version":  "3.2.0",
+﻿{
+    "version":  "3.3.0",
     "ext_version":  "2.10.2",
     "authenticode_signed":  true,
     "download_url":  "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
     "mirror_urls":  [
                         "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
                     ],
-    "sha256":  "8aacb0896b3ba51451d7cd582dda3ccd7360c63551ce4f9180d3b139ee9030de",
-    "size_bytes":  67181107,
-    "published_at":  "2026-11-18T09:00:42.2828667Z",
-    "release_notes":  "AdsOps Desktop Pro v3.2.0 (Unified 8-Tab shadcn/ui WebView2, Live Step-by-Step RPA Monitor \u0026 Countdown Timer, Instant Stop/Skip/Pause, Native HWND Session Tracking, DPAPI 5-Layer Vault) + Companion v2.10.2."
+    "sha256":  "f84e88b5c5365bd870ce5487cffacb1e2d4221992a549b8b3d413eb6dfa88828",
+    "size_bytes":  67772308,
+    "published_at":  "2026-11-19T07:13:11.9876860Z",
+    "release_notes":  "AdsOps Desktop Pro v3.3.0 (Pre-Page Creation Warmup Buffer 25-45s, Hybrid Page Content Nurture Auto-Post with Anti-Duplicate Image Hash Jitter \u0026 Auto-Share 7-14 Days, WebView2 HwndHost Stability Fix, 8-Tab shadcn/ui WebView2, Live RPA Monitor) + Companion v2.10.2."
 }

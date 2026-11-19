@@ -205,6 +205,16 @@ public sealed class DesktopConfig
     public int QueueRestMinSeconds { get; set; } = 15;
     public int QueueRestMaxSeconds { get; set; } = 32;
     public bool AutoTileWindowsOnBatch { get; set; } = true;
+    // v3.3.0 Safe Page Creation Buffer & Hybrid Page Content Nurture (Auto-Post Media + Auto-Share)
+    public bool EnablePrePageCreationWarmup { get; set; } = true;
+    public int PrePageCreationWarmupSeconds { get; set; } = 35;
+    public string PageNurtureMode { get; set; } = "alternate"; // "post" | "share" | "alternate"
+    public string PageAssetsDir { get; set; } = "";
+    public bool EnableImageHashJitter { get; set; } = true;
+    public string PageShareSourceUrls { get; set; } = "";
+    public string PageCaptionSpintax { get; set; } = PageContentNurtureEngine.DefaultCaptionSpintax;
+    public Dictionary<string, List<string>> PageSharedUrlHistory { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, int> PageLocalShareCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     [JsonIgnore]
     public string AccessToken
@@ -556,6 +566,8 @@ public static class WarmupActionCatalog
         new WarmupActionItem("browse_marketplace", "🛍️", "Dạo Marketplace", "Dạo lướt Facebook Marketplace (15–25s)", "15–25s", "Khám phá", "Xem danh mục sản phẩm trên Marketplace tạo tín hiệu người mua hàng"),
         new WarmupActionItem("browse_groups", "👥", "Lướt Nhóm (Groups)", "Đọc bài thảo luận trong Facebook Groups", "18–28s", "Khám phá", "Lướt bảng tin hội nhóm để đa dạng hóa lịch sử điều hướng"),
         new WarmupActionItem("mbs_like_comments_and_invite", "💬", "Thả Tim Comment & Mời Follow", "Thả Tim bình luận khách & Mời Follow trên Business Suite", "20–35s", "Fanpage", "Tự thả Tim/Like bình luận khách hàng và chọn tất cả gửi lời mời Follow"),
+        new WarmupActionItem("page_auto_post_media", "📸", "Đăng bài nuôi Page (Ảnh + Spin)", "Đăng bài viết kèm ảnh chống trùng hash & Caption Spin lên Page", "25–40s", "Fanpage", "Tự động chuẩn bị ảnh đổi hash + caption spin và mở Composer đăng bài nuôi Page"),
+        new WarmupActionItem("page_auto_share_curated", "🔗", "Chia sẻ bài nguồn về Page", "Đọc & Chia sẻ bài viết từ nguồn uy tín về Page kèm Caption Spin", "20–35s", "Fanpage", "Mở bài viết nguồn uy tín, cuộn đọc tự nhiên, thả Like và chia sẻ về Page nuôi"),
         new WarmupActionItem("refresh_cookie_and_close", "🔄", "Lưu Cookie DPAPI & Đóng", "Làm mới Cookie về Két DPAPI & Đóng tab an toàn", "3–5s", "Kết thúc", "Trích xuất Cookie mới nhất lưu vào Két DPAPI rồi tự đóng gọn cửa sổ"),
     };
 
@@ -2806,8 +2818,8 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "3.2.0";
-    public const string DisplayVersion = "v3.2.0";
+    public const string Version = "3.3.0";
+    public const string DisplayVersion = "v3.3.0";
     public const string ExtVersion = "2.10.2";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 

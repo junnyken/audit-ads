@@ -96,6 +96,8 @@ public static class NativeChromeActionRunner
         ["browse_groups"] = new("Lướt Nhóm (Groups)", "https://www.facebook.com/groups/feed/", 9000, 13000, "", new[] { "Nhóm", "Groups" }),
         ["pages"] = new("Quản lý Trang", "https://www.facebook.com/pages/?category=your_pages", 7500, 11000, "", new[] { "Trang", "Pages" }),
         ["mbs_like_comments_and_invite"] = new("Thả Tim Comment & Mời Follow", "https://business.facebook.com/latest/home", 10000, 14500, "", Array.Empty<string>()),
+        ["page_auto_post_media"] = new("Đăng bài nuôi Page (Ảnh + Spin)", "https://business.facebook.com/latest/composer", 12000, 18000, "", Array.Empty<string>()),
+        ["page_auto_share_curated"] = new("Chia sẻ bài nguồn về Page", "https://www.facebook.com/", 11000, 16500, "like_post", Array.Empty<string>()),
         ["biz"] = new("Business Suite (BM)", "https://business.facebook.com/latest/home", 9500, 13500, "", Array.Empty<string>()),
         ["refresh_cookie_and_close"] = new("Lưu Cookie DPAPI & Đóng", "https://www.facebook.com/", 2500, 4000, "save_close", Array.Empty<string>()),
         ["save_cookie_close"] = new("Lưu Cookie DPAPI & Đóng", "https://www.facebook.com/", 2500, 4000, "save_close", Array.Empty<string>()),
@@ -499,9 +501,10 @@ public static class NativeChromeActionRunner
 
         var qs = HttpUtility.ParseQueryString(uri.Query);
         bool isPreAdsWarmup = string.Equals(qs["adsops_preads_warmup"], "1", StringComparison.Ordinal);
+        bool isPrePageWarmup = string.Equals(qs["adsops_prepage_warmup"], "1", StringComparison.Ordinal);
         bool isKeepAlive = string.Equals(qs["adsops_keepalive_session"], "1", StringComparison.Ordinal)
                         || string.Equals(qs["adsops_keepalive"], "1", StringComparison.Ordinal);
-        if (!isPreAdsWarmup && !isKeepAlive) return;
+        if (!isPreAdsWarmup && !isPrePageWarmup && !isKeepAlive) return;
 
         var safeProfile = ExtensionProvisioner.ResolveProfileDirectory(via.BrowserProfileLabel, via.Label);
         var viaKey = !string.IsNullOrWhiteSpace(via.ViaId) ? via.ViaId : via.Label;
@@ -516,10 +519,15 @@ public static class NativeChromeActionRunner
                 return;
             }
 
-            if (isPreAdsWarmup)
+            if (isPreAdsWarmup || isPrePageWarmup)
             {
-                int warmSec = int.TryParse(qs["adsops_preads_sec"], out var ps) ? Math.Clamp(ps, 6, 90) : 20;
-                var finalTarget = qs["adsops_preads_target"] ?? "";
+                int warmSec = isPrePageWarmup
+                    ? (int.TryParse(qs["adsops_prepage_sec"], out var pps) ? Math.Clamp(pps, 10, 90) : 35)
+                    : (int.TryParse(qs["adsops_preads_sec"], out var ps) ? Math.Clamp(ps, 6, 90) : 20);
+                var finalTarget = isPrePageWarmup
+                    ? (qs["adsops_prepage_target"] ?? "https://www.facebook.com/pages/creation")
+                    : (qs["adsops_preads_target"] ?? "");
+                var stepTitle = isPrePageWarmup ? "Đệm Newsfeed trước Tạo Page" : "Đệm Newsfeed trước Ads";
                 await emitEvent(new BrowserEventPayloadDto
                 {
                     EventType = "KEEPALIVE_STEP",
@@ -529,14 +537,25 @@ public static class NativeChromeActionRunner
                     BrowserProfile = safeProfile,
                     StepIndex = 1,
                     TotalSteps = 1,
-                    StepTitle = "Đệm Newsfeed trước Ads",
+                    StepTitle = stepTitle,
                     WaitSeconds = warmSec,
-                    Detail = $"Bước 1/1: Đệm Newsfeed tự nhiên ({warmSec}s)",
+                    Detail = $"Bước 1/1: {stepTitle} ({warmSec}s)",
                 }).ConfigureAwait(false);
 
                 var endAt = DateTime.UtcNow.AddSeconds(warmSec);
                 while (DateTime.UtcNow < endAt && !ct.IsCancellationRequested && IsWindow(hwnd))
                 {
+                    if (consumeSkipStep != null && consumeSkipStep())
+                    {
+                        log($"⏭️ [Native Runner] Đã bỏ qua phần đệm cho '{via.Label}' và chuyển thẳng tới đích.");
+                        break;
+                    }
+                    if (isPaused != null && isPaused())
+                    {
+                        endAt = endAt.AddMilliseconds(500);
+                        await Task.Delay(500, ct).ConfigureAwait(false);
+                        continue;
+                    }
                     PostSmoothScroll(hwnd, -Random.Shared.Next(240, 480));
                     await Task.Delay(Random.Shared.Next(1900, 2900), ct).ConfigureAwait(false);
                 }
@@ -544,13 +563,15 @@ public static class NativeChromeActionRunner
                 if (!ct.IsCancellationRequested && IsWindow(hwnd) &&
                     Uri.TryCreate(finalTarget, UriKind.Absolute, out _))
                 {
-                    NavigateNativeProfileStep(hwnd, safeProfile, "biz", finalTarget);
+                    NavigateNativeProfileStep(hwnd, safeProfile, isPrePageWarmup ? "pages" : "biz", finalTarget);
                 }
                 return;
             }
 
             var steps = ParseSteps(qs["adsops_ka_route"] ?? "");
             var crossPageUrl = qs["adsops_cross_page_url"] ?? "";
+            var composerUrl = qs["adsops_composer_url"] ?? "";
+            var shareSourceUrl = qs["adsops_share_url"] ?? "";
             bool wantAutoClose = !string.Equals(qs["adsops_auto_close"], "0", StringComparison.Ordinal);
             bool fastTest = string.Equals(qs["adsops_fast_test"], "1", StringComparison.Ordinal);
             int fixedStepMs = int.TryParse(qs["adsops_step_ms"], out var parsedMs) && parsedMs >= 500 ? parsedMs : 0;
@@ -598,7 +619,13 @@ public static class NativeChromeActionRunner
                 var stepUrl = string.Equals(code, "visit_internal_fanpage", StringComparison.OrdinalIgnoreCase) &&
                               crossPageUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
                     ? crossPageUrl
-                    : meta.Url;
+                    : string.Equals(code, "page_auto_post_media", StringComparison.OrdinalIgnoreCase) &&
+                      composerUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                        ? composerUrl
+                        : string.Equals(code, "page_auto_share_curated", StringComparison.OrdinalIgnoreCase) &&
+                          shareSourceUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                            ? shareSourceUrl
+                            : meta.Url;
 
                 if (idx > 0 || (!string.Equals(code, "scroll_feed", StringComparison.OrdinalIgnoreCase) && !string.Equals(code, "feed", StringComparison.OrdinalIgnoreCase)))
                 {

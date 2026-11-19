@@ -338,24 +338,69 @@ def publish_page_feed_post(
     page_access_token: str,
     message: str,
     *,
+    link: str | None = None,
     api_base_url: str = "https://graph.facebook.com",
     api_version: str = "v21.0",
     timeout_seconds: int = 12,
 ) -> str | None:
-    """Publishes a single warm-up post onto a synced Facebook Page feed using its page token."""
+    """Publishes a single warm-up feed post (optionally sharing a curated link) onto a synced Facebook Page."""
     clean_pid = (external_page_id or "").strip()
     clean_tok = (page_access_token or "").strip()
     clean_msg = (message or "").strip()
-    if not _DIGITS_ID_RE.match(clean_pid) or not clean_tok or not clean_msg:
+    clean_link = (link or "").strip()
+    if not _DIGITS_ID_RE.match(clean_pid) or not clean_tok or (not clean_msg and not clean_link):
         return None
     feed_url = f"{api_base_url.rstrip('/')}/{api_version}/{clean_pid}/feed"
-    form_bytes = urllib.parse.urlencode({"message": clean_msg, "access_token": clean_tok}).encode("utf-8")
+    params: dict[str, str] = {"access_token": clean_tok}
+    if clean_msg:
+        params["message"] = clean_msg
+    if clean_link and (clean_link.startswith("http://") or clean_link.startswith("https://")):
+        params["link"] = clean_link
+    form_bytes = urllib.parse.urlencode(params).encode("utf-8")
     req = urllib.request.Request(feed_url, data=form_bytes, method="POST")  # noqa: S310
     try:
         with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
             data = json.loads((resp.read() or b"{}").decode("utf-8"))
             if isinstance(data, dict) and data.get("id"):
                 return str(data["id"])
+    except Exception:
+        return None
+    return None
+
+
+def publish_page_photo_post(
+    external_page_id: str,
+    page_access_token: str,
+    message: str,
+    image_url: str,
+    *,
+    api_base_url: str = "https://graph.facebook.com",
+    api_version: str = "v21.0",
+    timeout_seconds: int = 15,
+) -> str | None:
+    """Publishes a photo post onto a synced Facebook Page using /{page_id}/photos."""
+    clean_pid = (external_page_id or "").strip()
+    clean_tok = (page_access_token or "").strip()
+    clean_msg = (message or "").strip()
+    clean_img = (image_url or "").strip()
+    if (
+        not _DIGITS_ID_RE.match(clean_pid)
+        or not clean_tok
+        or not clean_img
+        or not (clean_img.startswith("http://") or clean_img.startswith("https://"))
+    ):
+        return None
+    photo_url = f"{api_base_url.rstrip('/')}/{api_version}/{clean_pid}/photos"
+    params: dict[str, str] = {"url": clean_img, "access_token": clean_tok}
+    if clean_msg:
+        params["caption"] = clean_msg
+    form_bytes = urllib.parse.urlencode(params).encode("utf-8")
+    req = urllib.request.Request(photo_url, data=form_bytes, method="POST")  # noqa: S310
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
+            data = json.loads((resp.read() or b"{}").decode("utf-8"))
+            if isinstance(data, dict) and (data.get("post_id") or data.get("id")):
+                return str(data.get("post_id") or data.get("id"))
     except Exception:
         return None
     return None

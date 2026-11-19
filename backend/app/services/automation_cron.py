@@ -235,7 +235,8 @@ def run_workspace_automation_cycle(
             if not ext_pid:
                 continue
             posts_cnt = int(item.get("warmup_posts_count") or 0)
-            if posts_cnt >= 3:
+            # Chu trình nuôi Page 14 ngày: nâng trần tự động lên 8 bài xen kẽ (giãn cách theo warmup_min_gap_hours)
+            if posts_cnt >= 8:
                 continue
 
             if posts_cnt >= 1 and not force_warmup:

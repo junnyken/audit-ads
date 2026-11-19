@@ -31,9 +31,10 @@ internal sealed partial class MainWindow
 
             if (!_overviewWebViewFailed)
             {
-                if (!ReferenceEquals(Content, EnsureOverviewWebViewHost()))
+                var webHost = EnsureOverviewWebViewHost();
+                if (!ReferenceEquals(Content, webHost))
                 {
-                    Content = EnsureOverviewWebViewHost();
+                    Content = webHost;
                 }
                 PushOverviewStateToWebView();
                 return;

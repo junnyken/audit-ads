@@ -256,6 +256,9 @@ public sealed class AdsOpsApiClient : IDisposable
         string viaLabel,
         string browserProfile,
         string postMode = "graph_api_or_assist",
+        string contentType = "post",
+        string? imageUrl = null,
+        string? shareUrl = null,
         CancellationToken ct = default) =>
         SendJsonAsync<WarmupPostResponseDto>(
             HttpMethod.Post,
@@ -267,6 +270,9 @@ public sealed class AdsOpsApiClient : IDisposable
                 via_label = viaLabel,
                 browser_profile = browserProfile,
                 post_mode = postMode,
+                content_type = contentType,
+                image_url = imageUrl,
+                share_url = shareUrl,
             },
             ct);
 

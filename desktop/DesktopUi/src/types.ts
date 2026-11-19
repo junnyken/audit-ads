@@ -204,7 +204,10 @@ export interface WebAutomationConfigDto {
   batchPrefix: string
   batchCustomNames: string
   batchAutoSubmit: boolean
+  enablePrePageCreationWarmup?: boolean
+  prePageCreationWarmupSeconds?: number
   maxSafeBatchNow: number
+  directIpViaCount?: number
   autoKeepAliveScheduler: boolean
   autoDailyFullPipeline: boolean
   autoInvitePageFollowersOnWarmup: boolean
@@ -262,6 +265,16 @@ export interface WebDomainSeoDto {
   checklist: WebSeoChecklistDto[]
 }
 
+export interface WebPageNurtureConfigDto {
+  mode: 'post' | 'share' | 'alternate' | string
+  assetsDir: string
+  enableImageHashJitter: boolean
+  shareSourceUrls: string
+  captionSpintax: string
+  shareSourceCount: number
+  imagesFoundCount: number
+}
+
 export interface WebFanpageDto {
   id: string
   name: string
@@ -274,6 +287,9 @@ export interface WebFanpageDto {
   followersCount: number | null
   pendingInviteCount: number | null
   warmupPostsCount: number
+  shareCount?: number
+  lifecycleDay?: number
+  lifecycleLabel?: string
   ownerBmId: string
   ownerBmName: string
   linkedAdAccountCount: number
@@ -555,6 +571,7 @@ export interface AppShellWebStateDto {
   bms: WebBmDto[]
   pixels: WebPixelDto[]
   domainSeo: WebDomainSeoDto
+  pageNurture?: WebPageNurtureConfigDto
   fanpages: WebFanpageDto[]
   pageHolderOptions: WebOptionDto[]
   spendCurrencies: WebSpendBucketDto[]

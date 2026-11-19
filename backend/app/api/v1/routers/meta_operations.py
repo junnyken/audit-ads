@@ -4192,6 +4192,11 @@ def publish_or_log_page_warmup_post(
         raise ValidationError("Vui lòng nhập hoặc chọn nội dung bài mồi nuôi Fanpage.")
 
     post_mode = str(payload.get("post_mode") or "graph_api_or_assist").strip().lower()
+    content_type = str(payload.get("content_type") or "post").strip().lower()
+    if content_type not in {"post", "photo", "share"}:
+        content_type = "post"
+    image_url = str(payload.get("image_url") or "").strip()[:1500]
+    share_url = str(payload.get("share_url") or "").strip()[:1500]
     via_id_raw = str(payload.get("via_id") or "").strip()
     via_obj: PersonalAccountReference | None = None
     if via_id_raw:
@@ -4204,22 +4209,36 @@ def publish_or_log_page_warmup_post(
     external_post_id: str | None = None
 
     if pg.external_page_id and post_mode != "chrome_assist":
-        from app.services.meta_graph_transport import publish_page_feed_post
+        from app.services.meta_graph_transport import publish_page_feed_post, publish_page_photo_post
 
         settings = get_settings()
         transports = _collect_workspace_meta_transports(ctx.session, ctx.workspace_id)
         page_access_token = _resolve_page_access_token_via_transports(transports, pg.external_page_id)
         if page_access_token:
-            published_id = publish_page_feed_post(
-                pg.external_page_id,
-                page_access_token,
-                message_txt,
-                api_base_url=settings.meta_graph_api_base_url,
-                api_version=settings.meta_graph_api_version,
-            )
+            published_id: str | None = None
+            if image_url and (content_type == "photo" or not share_url):
+                published_id = publish_page_photo_post(
+                    pg.external_page_id,
+                    page_access_token,
+                    message_txt,
+                    image_url,
+                    api_base_url=settings.meta_graph_api_base_url,
+                    api_version=settings.meta_graph_api_version,
+                )
+            else:
+                published_id = publish_page_feed_post(
+                    pg.external_page_id,
+                    page_access_token,
+                    message_txt,
+                    link=share_url or None,
+                    api_base_url=settings.meta_graph_api_base_url,
+                    api_version=settings.meta_graph_api_version,
+                )
             if published_id:
                 external_post_id = published_id
-                delivery_mode = "GRAPH_API_PUBLISHED"
+                delivery_mode = "GRAPH_API_SHARED" if share_url else (
+                    "GRAPH_API_PHOTO_PUBLISHED" if image_url else "GRAPH_API_PUBLISHED"
+                )
 
     now_iso = datetime.now(UTC).isoformat()
     pg.updated_at = datetime.now(UTC)
@@ -4238,6 +4257,9 @@ def publish_or_log_page_warmup_post(
                 else str(payload.get("browser_profile") or "Chrome Profile")
             ),
             "message": message_txt,
+            "content_type": content_type,
+            "image_url": image_url or None,
+            "share_url": share_url or None,
             "delivery_mode": delivery_mode,
             "external_post_id": external_post_id,
             "last_warmup_at": now_iso,

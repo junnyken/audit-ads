@@ -80,6 +80,8 @@ export function AutomationTab({ state }: { state: AppShellWebStateDto }) {
   const [restMin, setRestMin] = useState(String(cfg.queueRestMinSeconds))
   const [restMax, setRestMax] = useState(String(cfg.queueRestMaxSeconds))
   const [preAdsSec, setPreAdsSec] = useState(String(cfg.preAdsWarmupSeconds))
+  const [prePageWarmup, setPrePageWarmup] = useState(cfg.enablePrePageCreationWarmup ?? true)
+  const [prePageSec, setPrePageSec] = useState(String(cfg.prePageCreationWarmupSeconds ?? 35))
   const [flowViaId, setFlowViaId] = useState(
     cfg.flowSelectedViaId && cfg.flowSelectedViaId !== '__first__'
       ? cfg.flowSelectedViaId
@@ -113,6 +115,8 @@ export function AutomationTab({ state }: { state: AppShellWebStateDto }) {
     setBatchPrefix(cfg.batchPrefix)
     setBatchNames(cfg.batchCustomNames)
     setBatchAutoSubmit(cfg.batchAutoSubmit)
+    setPrePageWarmup(cfg.enablePrePageCreationWarmup ?? true)
+    setPrePageSec(String(cfg.prePageCreationWarmupSeconds ?? 35))
     setAutoKa(cfg.autoKeepAliveScheduler)
     setAutoPipe(cfg.autoDailyFullPipeline)
     setAutoInvite(cfg.autoInvitePageFollowersOnWarmup)
@@ -400,6 +404,36 @@ export function AutomationTab({ state }: { state: AppShellWebStateDto }) {
               <Switch id="batch-auto-sub" checked={batchAutoSubmit} onCheckedChange={setBatchAutoSubmit} />
             </div>
 
+            <div className="space-y-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="pre-page-warmup" className="cursor-pointer text-xs font-medium leading-snug text-emerald-300">
+                  🛡️ Đệm lướt Newsfeed trước khi mở trang Tạo Page (Chống chặn tạo)
+                </Label>
+                <Switch id="pre-page-warmup" checked={prePageWarmup} onCheckedChange={setPrePageWarmup} />
+              </div>
+              {prePageWarmup && (
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <span>Thời gian đệm trước khi vào pages/creation:</span>
+                  <Input
+                    type="number"
+                    min={10}
+                    max={90}
+                    value={prePageSec}
+                    onChange={(e) => setPrePageSec(e.target.value)}
+                    className="h-7 w-16 font-mono text-xs"
+                  />
+                  <span>giây (khuyên dùng 25–45s)</span>
+                </div>
+              )}
+            </div>
+
+            {(cfg.directIpViaCount ?? 0) > 0 && (cfg.directIpViaCount ?? 0) >= state.vias.length && state.vias.length > 0 && (
+              <div className="rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-300">
+                ⚠️ Hiện {cfg.directIpViaCount}/{state.vias.length} Via đang dùng chung Direct IP (Mạng gốc). Nên tạo
+                1–2 Page/ca hoặc gắn Proxy riêng để tránh bị Meta chặn tạo Trang.
+              </div>
+            )}
+
             <Button
               className="w-full"
               onClick={() =>
@@ -411,6 +445,8 @@ export function AutomationTab({ state }: { state: AppShellWebStateDto }) {
                   prefix: batchPrefix,
                   customNames: batchNames,
                   autoSubmit: batchAutoSubmit,
+                  enablePrePageCreationWarmup: prePageWarmup,
+                  prePageCreationWarmupSeconds: Number(prePageSec) || 35,
                 })
               }
             >

@@ -2091,9 +2091,9 @@ internal static class Program
                 }
             }
 
-            // 35. v3.2.0 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
+            // 35. v3.3.0 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
             {
-                if (DesktopAppInfo.Version != "3.2.0" || DesktopAppInfo.ExtVersion != "2.10.2")
+                if (DesktopAppInfo.Version != "3.3.0" || DesktopAppInfo.ExtVersion != "2.10.2")
                 {
                     throw new InvalidOperationException(
                         $"DesktopAppInfo version mismatch: app={DesktopAppInfo.Version}, ext={DesktopAppInfo.ExtVersion}");
@@ -2143,11 +2143,12 @@ internal static class Program
                 foreach (var reqKey in new[]
                          {
                              "\"type\":\"full_state\"",
-                             "\"appVersion\":\"3.2.0\"",
+                             "\"appVersion\":\"3.3.0\"",
                              "\"extVersion\":\"2.10.2\"",
                              "\"activeView\":\"settings\"",
                              "\"totpMap\"",
                              "\"automationConfig\"",
+                             "\"pageNurture\"",
                              "\"settings\"",
                              "\"liveRunner\"",
                              "\"adSearch\":\"TKQC-01\"",
@@ -2187,6 +2188,77 @@ internal static class Program
                     {
                         throw new InvalidOperationException($"AppShellLiveTickDto JSON missing required token '{reqKey}'");
                     }
+                }
+            }
+
+            // 36. v3.3.0 Safe Page Creation Buffer & Hybrid Page Content Nurture Engine Verification
+            {
+                // 36a. Pre-Create Warmup URL Wrapper
+                var wrappedCreate = MainWindow.WrapWithPrePageCreationWarmup("https://www.facebook.com/pages/creation?ref=adsops", true, 35);
+                if (!wrappedCreate.Contains("adsops_prepage_warmup=1", StringComparison.Ordinal) ||
+                    !wrappedCreate.Contains("adsops_prepage_sec=35", StringComparison.Ordinal) ||
+                    !wrappedCreate.Contains("pages%2Fcreation", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException($"WrapWithPrePageCreationWarmup failed: {wrappedCreate}");
+                }
+                var nonCreate = MainWindow.WrapWithPrePageCreationWarmup("https://www.facebook.com/watch/", true, 35);
+                if (nonCreate != "https://www.facebook.com/watch/")
+                {
+                    throw new InvalidOperationException("WrapWithPrePageCreationWarmup should not wrap non-creation URLs.");
+                }
+
+                // 36b. Nested Spintax + Placeholders
+                var spun = PageContentNurtureEngine.SpinText(
+                    "{Chào|Hi} {cả nhà|mọi người} tại {page_name} ({niche})!",
+                    "Lumi Spa",
+                    "Làm đẹp",
+                    new Random(42));
+                if (spun.Contains('{') || spun.Contains('}') || !spun.Contains("Lumi Spa", StringComparison.Ordinal) || !spun.Contains("Làm đẹp", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException($"SpinText failed: '{spun}'");
+                }
+
+                // 36c. Anti-duplicate Image Hash Jitter (2 distinct SHA-256 outputs from same source)
+                var testAssetsRoot = Path.Combine(tempRoot, "page_assets_v330");
+                var nicheFolder = PageContentNurtureEngine.EnsurePageAssetFolders(testAssetsRoot, "beauty_spa");
+                var srcImgPath = Path.Combine(nicheFolder, "posts", "sample_seed.png");
+                var seedWb = new System.Windows.Media.Imaging.WriteableBitmap(16, 16, 96, 96, System.Windows.Media.PixelFormats.Bgra32, null);
+                var seedPixels = new byte[16 * 16 * 4];
+                for (int i = 0; i < seedPixels.Length; i += 4)
+                {
+                    seedPixels[i] = 120; seedPixels[i + 1] = 140; seedPixels[i + 2] = 160; seedPixels[i + 3] = 255;
+                }
+                seedWb.WritePixels(new System.Windows.Int32Rect(0, 0, 16, 16), seedPixels, 16 * 4, 0);
+                var pngEnc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                pngEnc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(seedWb));
+                using (var s = File.Create(srcImgPath)) pngEnc.Save(s);
+
+                var varOutDir = Path.Combine(tempRoot, "variants_v330");
+                var v1Path = PageContentNurtureEngine.CreateUniqueImageVariant(srcImgPath, varOutDir, new Random(101));
+                var v2Path = PageContentNurtureEngine.CreateUniqueImageVariant(srcImgPath, varOutDir, new Random(202));
+                var h1 = PageContentNurtureEngine.ComputeFileSha256Hex(v1Path);
+                var h2 = PageContentNurtureEngine.ComputeFileSha256Hex(v2Path);
+                if (string.Equals(h1, h2, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException($"Image hash jitter produced identical SHA-256: {h1}");
+                }
+
+                // 36d. Non-repeating Share URL Rotation
+                var shareHist = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+                var pool = new[] { "https://www.facebook.com/p/1", "https://www.facebook.com/p/2" };
+                var pick1 = PageContentNurtureEngine.PickNextShareUrl("pg_1", pool, shareHist);
+                var pick2 = PageContentNurtureEngine.PickNextShareUrl("pg_1", pool, shareHist);
+                var pick3 = PageContentNurtureEngine.PickNextShareUrl("pg_1", pool, shareHist);
+                if (pick1 != pool[0] || pick2 != pool[1] || pick3 != pool[0])
+                {
+                    throw new InvalidOperationException($"Share URL rotation mismatch: {pick1}, {pick2}, {pick3}");
+                }
+
+                // 36e. New Page Nurture Actions in WarmupActionCatalog
+                if (WarmupActionCatalog.FindByKey("page_auto_post_media") == null ||
+                    WarmupActionCatalog.FindByKey("page_auto_share_curated") == null)
+                {
+                    throw new InvalidOperationException("WarmupActionCatalog missing v3.3.0 Page Nurture actions.");
                 }
             }
 
