@@ -215,6 +215,12 @@ public sealed class DesktopConfig
     public string PageCaptionSpintax { get; set; } = PageContentNurtureEngine.DefaultCaptionSpintax;
     public Dictionary<string, List<string>> PageSharedUrlHistory { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, int> PageLocalShareCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    // v3.4.0 AdsPower-Style Multi-Site Cookie Robot & Built-in Account Care Presets
+    public string CookieRobotUrls { get; set; } = WarmupCarePresets.DefaultCookieRobotUrls;
+    // v3.5.0 Per-Via Deterministic Chrome Environment Isolation (Window Size + Proxy Geo Lang/TZ + WebRTC Leak Lock)
+    public bool EnableWebRtcLeakShield { get; set; } = true;
+    public bool EnableProxyGeoLocaleSync { get; set; } = true;
+    public Dictionary<string, ViaEnvOverrideItem> ViaEnvOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     [JsonIgnore]
     public string AccessToken
@@ -568,8 +574,15 @@ public static class WarmupActionCatalog
         new WarmupActionItem("mbs_like_comments_and_invite", "💬", "Thả Tim Comment & Mời Follow", "Thả Tim bình luận khách & Mời Follow trên Business Suite", "20–35s", "Fanpage", "Tự thả Tim/Like bình luận khách hàng và chọn tất cả gửi lời mời Follow"),
         new WarmupActionItem("page_auto_post_media", "📸", "Đăng bài nuôi Page (Ảnh + Spin)", "Đăng bài viết kèm ảnh chống trùng hash & Caption Spin lên Page", "25–40s", "Fanpage", "Tự động chuẩn bị ảnh đổi hash + caption spin và mở Composer đăng bài nuôi Page"),
         new WarmupActionItem("page_auto_share_curated", "🔗", "Chia sẻ bài nguồn về Page", "Đọc & Chia sẻ bài viết từ nguồn uy tín về Page kèm Caption Spin", "20–35s", "Fanpage", "Mở bài viết nguồn uy tín, cuộn đọc tự nhiên, thả Like và chia sẻ về Page nuôi"),
+        new WarmupActionItem("cookie_robot_google", "🔎", "Cookie Robot: Google", "Tìm kiếm từ khóa tự nhiên trên Google & cuộn kết quả", "12–18s", "Cookie Robot", "Ghé Google Search thu cookie nền & tạo lịch sử duyệt web tự nhiên trước khi vào Facebook"),
+        new WarmupActionItem("cookie_robot_news", "🗞️", "Cookie Robot: Đọc báo VN", "Đọc báo uy tín (VnExpress / Tuổi Trẻ / CafeF)", "15–22s", "Cookie Robot", "Lướt đọc tin tức Việt Nam tạo dấu vết trình duyệt thật (bỏ qua check login FB)"),
+        new WarmupActionItem("cookie_robot_youtube", "▶️", "Cookie Robot: YouTube", "Mở YouTube cuộn xem trang chủ & video đề xuất", "18–26s", "Cookie Robot", "Thu cookie nền Google/YouTube và kéo dài thời gian phiên tự nhiên"),
+        new WarmupActionItem("cookie_robot_custom", "🌐", "Cookie Robot: Web tùy chỉnh", "Ghé danh sách URL tùy chỉnh (Shopee / Tiki / Web của bạn)", "15–22s", "Cookie Robot", "Xoay vòng ghé các website trong danh sách Cookie Robot bạn cấu hình"),
         new WarmupActionItem("refresh_cookie_and_close", "🔄", "Lưu Cookie DPAPI & Đóng", "Làm mới Cookie về Két DPAPI & Đóng tab an toàn", "3–5s", "Kết thúc", "Trích xuất Cookie mới nhất lưu vào Két DPAPI rồi tự đóng gọn cửa sổ"),
     };
+
+    public static bool IsExternalCookieRobotKey(string? key)
+        => !string.IsNullOrWhiteSpace(key) && key.Trim().StartsWith("cookie_robot_", StringComparison.OrdinalIgnoreCase);
 
     private static readonly string[] OptionalMiddlePool =
     {
@@ -655,6 +668,100 @@ public static class WarmupActionCatalog
             .Select(x => $"{x!.Icon} {x.ShortTitle}")
             .ToList();
         return parts.Count == 0 ? "📰 Cuộn Newsfeed ➔ 🔔 Đọc Thông báo" : string.Join(" ➔ ", parts);
+    }
+}
+
+public sealed class ViaEnvOverrideItem
+{
+    public string ViewportKey { get; set; } = ""; // "" (auto deterministic) | "1366x768" | "1440x900" | "1536x864" | "1920x1080"
+    public string CountryCode { get; set; } = ""; // "" (auto from proxy) | "VN" | "US" | "SG" | "UK" | "JP" | "KR" | "AU" | "DE" | "TH" | "PH"
+}
+
+public sealed record WarmupCarePresetItem(
+    string Key,
+    string Icon,
+    string Title,
+    string Subtitle,
+    int RestMinSeconds,
+    int RestMaxSeconds,
+    IReadOnlyList<string> Steps);
+
+public static class WarmupCarePresets
+{
+    public const string DefaultCookieRobotUrls =
+        "https://vnexpress.net/\n" +
+        "https://cafef.vn/\n" +
+        "https://tuoitre.vn/\n" +
+        "https://www.youtube.com/\n" +
+        "https://shopee.vn/\n" +
+        "https://tiki.vn/\n" +
+        "https://vi.wikipedia.org/wiki/Trang_Ch%C3%ADnh";
+
+    public static readonly IReadOnlyList<WarmupCarePresetItem> All = new[]
+    {
+        new WarmupCarePresetItem(
+            "new_via_7d",
+            "🌱",
+            "Nuôi Via Mới (7 Ngày Đầu)",
+            "Cookie Robot 3 trang nền (Google → Báo → YouTube) rồi lướt Feed nhẹ, nghỉ 35–65s.",
+            35,
+            65,
+            new[] { "cookie_robot_google", "cookie_robot_news", "cookie_robot_youtube", "scroll_feed", "read_notifications", "refresh_cookie_and_close" }),
+        new WarmupCarePresetItem(
+            "ads_daily",
+            "🔥",
+            "Nuôi Via Chạy Ads (Hằng Ngày)",
+            "Đọc báo tạo nền + lướt Feed, Reels, thả Like, nuôi chéo Fanpage nội bộ (nghỉ 20–40s).",
+            20,
+            40,
+            new[] { "cookie_robot_news", "scroll_feed", "watch_reels", "react_feed_post", "visit_internal_fanpage", "read_notifications", "refresh_cookie_and_close" }),
+        new WarmupCarePresetItem(
+            "page_nurture_14d",
+            "📄",
+            "Nuôi Page 14 Ngày (Đăng + Share)",
+            "Chu trình chăm Fanpage: lướt Feed → Đăng ảnh đổi hash → Chia sẻ bài nguồn → Mời Follow.",
+            30,
+            55,
+            new[] { "scroll_feed", "page_auto_post_media", "page_auto_share_curated", "mbs_like_comments_and_invite", "refresh_cookie_and_close" }),
+        new WarmupCarePresetItem(
+            "recovery_checkpoint",
+            "🩺",
+            "Hồi Phục Sau Checkpoint / Đổi Proxy",
+            "Siêu nhẹ không Like/Share gắt: Cookie Robot nền + lướt Feed + đọc thông báo (nghỉ 60–95s).",
+            60,
+            95,
+            new[] { "cookie_robot_google", "cookie_robot_news", "scroll_feed", "read_notifications", "refresh_cookie_and_close" }),
+        new WarmupCarePresetItem(
+            "cookie_robot_only",
+            "🍪",
+            "Thuần Cookie Robot Đa-Site",
+            "Thu cookie lịch sử sạch trên Google, Báo VN, YouTube & danh sách Web tùy chỉnh (nghỉ 15–30s).",
+            15,
+            30,
+            new[] { "cookie_robot_google", "cookie_robot_news", "cookie_robot_youtube", "cookie_robot_custom", "refresh_cookie_and_close" }),
+    };
+
+    public static WarmupCarePresetItem? FindByKey(string? key)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return null;
+        return All.FirstOrDefault(x => string.Equals(x.Key, key.Trim(), StringComparison.OrdinalIgnoreCase));
+    }
+
+    public static List<string> ParseCookieRobotUrls(string? raw)
+    {
+        var source = string.IsNullOrWhiteSpace(raw) ? DefaultCookieRobotUrls : raw;
+        var parsed = source
+            .Split(new[] { '\r', '\n', ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(x => x.Trim())
+            .Where(x => x.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                     || x.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (parsed.Count == 0 && !string.Equals(source, DefaultCookieRobotUrls, StringComparison.Ordinal))
+        {
+            return ParseCookieRobotUrls(DefaultCookieRobotUrls);
+        }
+        return parsed;
     }
 }
 
@@ -2818,8 +2925,8 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "3.3.0";
-    public const string DisplayVersion = "v3.3.0";
+    public const string Version = "3.5.0";
+    public const string DisplayVersion = "v3.5.0";
     public const string ExtVersion = "2.10.2";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 

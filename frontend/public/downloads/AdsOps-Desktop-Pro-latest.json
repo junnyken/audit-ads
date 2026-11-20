@@ -1,13 +1,13 @@
 ﻿{
-    "version":  "3.3.0",
+    "version":  "3.5.0",
     "ext_version":  "2.10.2",
     "authenticode_signed":  true,
     "download_url":  "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
     "mirror_urls":  [
                         "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
                     ],
-    "sha256":  "f84e88b5c5365bd870ce5487cffacb1e2d4221992a549b8b3d413eb6dfa88828",
-    "size_bytes":  67772308,
-    "published_at":  "2026-11-19T07:13:11.9876860Z",
-    "release_notes":  "AdsOps Desktop Pro v3.3.0 (Pre-Page Creation Warmup Buffer 25-45s, Hybrid Page Content Nurture Auto-Post with Anti-Duplicate Image Hash Jitter \u0026 Auto-Share 7-14 Days, WebView2 HwndHost Stability Fix, 8-Tab shadcn/ui WebView2, Live RPA Monitor) + Companion v2.10.2."
+    "sha256":  "2cd68d6a7eceb1946749e7836111d0979602492bb6dce8fabd20cf07b0b97230",
+    "size_bytes":  67783518,
+    "published_at":  "2026-11-20T03:46:40.1054155Z",
+    "release_notes":  "AdsOps Desktop Pro v3.5.0 (Per-Via Chrome Environment Isolation: 4 Window Sizes + Proxy Geo Lang/TZ + WebRTC Lock, Multi-Site Cookie Robot, 5 Care Presets, MBS 2-Tab Reactions+Comments Auto-Invite Fix) + Companion v2.10.2."
 }

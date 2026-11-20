@@ -145,6 +145,11 @@ export interface WebViaItemDto {
   quotaStatus: string
   hasTimezoneMismatch: boolean
   timezoneWarning: string
+  envViewport?: string
+  envCountry?: string
+  envLang?: string
+  envTimezone?: string
+  webRtcLocked?: boolean
 }
 
 export interface WebWarmupActionDto {
@@ -206,6 +211,8 @@ export interface WebAutomationConfigDto {
   batchAutoSubmit: boolean
   enablePrePageCreationWarmup?: boolean
   prePageCreationWarmupSeconds?: number
+  cookieRobotUrls?: string
+  cookieRobotUrlCount?: number
   maxSafeBatchNow: number
   directIpViaCount?: number
   autoKeepAliveScheduler: boolean
@@ -263,6 +270,16 @@ export interface WebDomainSeoDto {
   customDomain: string
   effectivePublicUrl: string
   checklist: WebSeoChecklistDto[]
+}
+
+export interface WebCarePresetDto {
+  key: string
+  icon: string
+  title: string
+  subtitle: string
+  restMinSeconds: number
+  restMaxSeconds: number
+  steps: string[]
 }
 
 export interface WebPageNurtureConfigDto {
@@ -563,6 +580,7 @@ export interface AppShellWebStateDto {
   teamMemberOptions: WebOptionDto[]
   automationConfig: WebAutomationConfigDto
   warmupCatalog: WebWarmupActionDto[]
+  carePresets?: WebCarePresetDto[]
   nicheTemplates: WebOptionDto[]
   playbooks: WebPlaybookDto[]
   selectedPlaybookId: string

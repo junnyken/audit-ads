@@ -82,6 +82,8 @@ export function AutomationTab({ state }: { state: AppShellWebStateDto }) {
   const [preAdsSec, setPreAdsSec] = useState(String(cfg.preAdsWarmupSeconds))
   const [prePageWarmup, setPrePageWarmup] = useState(cfg.enablePrePageCreationWarmup ?? true)
   const [prePageSec, setPrePageSec] = useState(String(cfg.prePageCreationWarmupSeconds ?? 35))
+  const [cookieRobotUrls, setCookieRobotUrls] = useState(cfg.cookieRobotUrls ?? '')
+  const [cookiePanelOpen, setCookiePanelOpen] = useState(false)
   const [flowViaId, setFlowViaId] = useState(
     cfg.flowSelectedViaId && cfg.flowSelectedViaId !== '__first__'
       ? cfg.flowSelectedViaId
@@ -117,6 +119,7 @@ export function AutomationTab({ state }: { state: AppShellWebStateDto }) {
     setBatchAutoSubmit(cfg.batchAutoSubmit)
     setPrePageWarmup(cfg.enablePrePageCreationWarmup ?? true)
     setPrePageSec(String(cfg.prePageCreationWarmupSeconds ?? 35))
+    setCookieRobotUrls(cfg.cookieRobotUrls ?? '')
     setAutoKa(cfg.autoKeepAliveScheduler)
     setAutoPipe(cfg.autoDailyFullPipeline)
     setAutoInvite(cfg.autoInvitePageFollowersOnWarmup)
@@ -800,10 +803,95 @@ export function AutomationTab({ state }: { state: AppShellWebStateDto }) {
               )
             })()}
 
-            {/* 12 Action Catalog Chips (Click OR Drag into Chain!) */}
+            {/* Built-in 1-Click Account Care Presets (AdsPower-style) */}
+            {(state.carePresets?.length ?? 0) > 0 && (
+              <div className="space-y-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/5 p-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Label className="text-[11px] font-semibold text-indigo-300">
+                    ⚡ Bộ Kịch Bản Mẫu Chăm Sóc Tài Khoản (Áp dụng 1 chạm):
+                  </Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-[11px] text-amber-300 hover:text-amber-200"
+                    onClick={() => setCookiePanelOpen((v) => !v)}
+                  >
+                    🍪 Cấu hình Cookie Robot ({cfg.cookieRobotUrlCount ?? 0} web){cookiePanelOpen ? ' ▲' : ' ▼'}
+                  </Button>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {state.carePresets!.map((preset) => (
+                    <Tooltip key={preset.key}>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          className="h-7 px-2.5 text-[11px]"
+                          onClick={() => sendDesktopCommand('apply_care_preset', { presetKey: preset.key })}
+                        >
+                          <span>
+                            {preset.icon} {preset.title}
+                          </span>
+                          <span className="ml-1 rounded bg-background/60 px-1 py-0.5 font-mono text-[9.5px] text-muted-foreground">
+                            {preset.steps.length}b
+                          </span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs">
+                        <p className="font-semibold">{preset.title}</p>
+                        <p className="text-xs opacity-90">{preset.subtitle}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ))}
+                </div>
+
+                {cookiePanelOpen && (
+                  <div className="mt-2 space-y-2 rounded-md border border-border bg-background/60 p-2.5">
+                    <Label className="text-[11px] text-muted-foreground">
+                      Danh sách website Cookie Robot ghé thu lịch sử sạch (mỗi dòng 1 link — bỏ qua check login FB khi đang ở web ngoài):
+                    </Label>
+                    <Textarea
+                      rows={3}
+                      value={cookieRobotUrls}
+                      onChange={(e) => setCookieRobotUrls(e.target.value)}
+                      placeholder="https://vnexpress.net/&#10;https://cafef.vn/&#10;https://shopee.vn/"
+                      className="font-mono text-[11px]"
+                    />
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        className="h-7 text-[11px]"
+                        onClick={() => sendDesktopCommand('save_cookie_robot_urls', { cookieRobotUrls })}
+                      >
+                        💾 Lưu danh sách Web
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-7 text-[11px]"
+                        onClick={() =>
+                          sendDesktopCommand('run_cookie_robot_now', {
+                            viaId: flowViaId,
+                            cookieRobotUrls,
+                          })
+                        }
+                      >
+                        <Play className="h-3 w-3" /> Chạy Cookie Robot Ngay
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Action Catalog Chips (Click OR Drag into Chain!) */}
             <div className="space-y-1.5">
               <Label className="text-[11px] text-muted-foreground">
-                ➕ Kho 12 Hành Động Tương Tác Mẫu (Bấm hoặc kéo thả vào chuỗi phía trên):
+                ➕ Kho {state.warmupCatalog.length} Hành Động Tương Tác &amp; Cookie Robot (Bấm hoặc kéo thả vào chuỗi phía trên):
               </Label>
               <div className="flex flex-wrap gap-1.5">
                 {state.warmupCatalog.map((act) => (

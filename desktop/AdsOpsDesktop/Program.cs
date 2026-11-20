@@ -2091,9 +2091,9 @@ internal static class Program
                 }
             }
 
-            // 35. v3.3.0 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
+            // 35. v3.5.0 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
             {
-                if (DesktopAppInfo.Version != "3.3.0" || DesktopAppInfo.ExtVersion != "2.10.2")
+                if (DesktopAppInfo.Version != "3.5.0" || DesktopAppInfo.ExtVersion != "2.10.2")
                 {
                     throw new InvalidOperationException(
                         $"DesktopAppInfo version mismatch: app={DesktopAppInfo.Version}, ext={DesktopAppInfo.ExtVersion}");
@@ -2143,11 +2143,12 @@ internal static class Program
                 foreach (var reqKey in new[]
                          {
                              "\"type\":\"full_state\"",
-                             "\"appVersion\":\"3.3.0\"",
+                             "\"appVersion\":\"3.5.0\"",
                              "\"extVersion\":\"2.10.2\"",
                              "\"activeView\":\"settings\"",
                              "\"totpMap\"",
                              "\"automationConfig\"",
+                             "\"carePresets\"",
                              "\"pageNurture\"",
                              "\"settings\"",
                              "\"liveRunner\"",
@@ -2259,6 +2260,121 @@ internal static class Program
                     WarmupActionCatalog.FindByKey("page_auto_share_curated") == null)
                 {
                     throw new InvalidOperationException("WarmupActionCatalog missing v3.3.0 Page Nurture actions.");
+                }
+            }
+
+            // 37. v3.4.0 Multi-Site Cookie Robot & 5 Built-in Care Presets Verification
+            {
+                var robotKeys = new[] { "cookie_robot_google", "cookie_robot_news", "cookie_robot_youtube", "cookie_robot_custom" };
+                foreach (var rk in robotKeys)
+                {
+                    if (WarmupActionCatalog.FindByKey(rk) == null || !NativeChromeActionRunner.HasStop(rk))
+                    {
+                        throw new InvalidOperationException($"Missing Cookie Robot action/stop: {rk}");
+                    }
+                    if (!NativeChromeActionRunner.IsExternalCookieRobotStep(rk))
+                    {
+                        throw new InvalidOperationException($"Expected IsExternalCookieRobotStep({rk}) == true");
+                    }
+                }
+                if (NativeChromeActionRunner.IsExternalCookieRobotStep("scroll_feed"))
+                {
+                    throw new InvalidOperationException("scroll_feed should not be marked as external Cookie Robot step.");
+                }
+
+                var customUrlPool = WarmupCarePresets.ParseCookieRobotUrls("https://vnexpress.net/\nhttps://shopee.vn/");
+                if (customUrlPool.Count != 2)
+                {
+                    throw new InvalidOperationException($"Expected 2 parsed Cookie Robot URLs, got {customUrlPool.Count}");
+                }
+                var pickedRobotUrl = NativeChromeActionRunner.PickCookieRobotUrl("cookie_robot_custom", customUrlPool, new Random(7));
+                if (!customUrlPool.Contains(pickedRobotUrl))
+                {
+                    throw new InvalidOperationException($"PickCookieRobotUrl returned unexpected URL: {pickedRobotUrl}");
+                }
+
+                if (WarmupCarePresets.All.Count < 5)
+                {
+                    throw new InvalidOperationException($"Expected at least 5 WarmupCarePresets, got {WarmupCarePresets.All.Count}");
+                }
+                foreach (var preset in WarmupCarePresets.All)
+                {
+                    if (preset.Steps.Count < 4 || preset.RestMinSeconds <= 0 || preset.RestMaxSeconds < preset.RestMinSeconds)
+                    {
+                        throw new InvalidOperationException($"Invalid preset timing/steps: {preset.Key}");
+                    }
+                    foreach (var stepKey in preset.Steps)
+                    {
+                        if (WarmupActionCatalog.FindByKey(stepKey) == null)
+                        {
+                            throw new InvalidOperationException($"Preset '{preset.Key}' references unknown action '{stepKey}'");
+                        }
+                    }
+                }
+            }
+
+            // 38. v3.5.0 Per-Via Environment Isolation (4 Viewport Presets + Proxy Geo Lang/TZ + WebRTC Leak Lock)
+            {
+                if (ExtensionProvisioner.ViewportPresets.Length != 4)
+                {
+                    throw new InvalidOperationException($"Expected 4 standard ViewportPresets, got {ExtensionProvisioner.ViewportPresets.Length}");
+                }
+                var envA1 = ExtensionProvisioner.ResolveViaEnvironmentProfile("Via Alpha", "Profile 1", "103.1.2.3:8080:user-us-1:pass");
+                var envA2 = ExtensionProvisioner.ResolveViaEnvironmentProfile("Via Alpha", "Profile 1", "103.1.2.3:8080:user-us-1:pass");
+                if (envA1 != envA2)
+                {
+                    throw new InvalidOperationException("ResolveViaEnvironmentProfile is not deterministic for same Via.");
+                }
+                if (envA1.CountryCode != "US" || envA1.Lang != "en-US" || envA1.IanaTimezone != "America/New_York" || !envA1.WebRtcLocked)
+                {
+                    throw new InvalidOperationException($"US proxy geo locale mismatch: {envA1}");
+                }
+
+                var envSg = ExtensionProvisioner.ResolveViaEnvironmentProfile("Via SG", "Profile 2", "[SG] 1.2.3.4:8080");
+                if (envSg.CountryCode != "SG" || envSg.Lang != "en-SG" || envSg.IanaTimezone != "Asia/Singapore")
+                {
+                    throw new InvalidOperationException($"SG proxy geo locale mismatch: {envSg}");
+                }
+
+                var envOverride = ExtensionProvisioner.ResolveViaEnvironmentProfile(
+                    "Via Custom",
+                    "Profile 3",
+                    "",
+                    new ViaEnvOverrideItem { ViewportKey = "1920x1080", CountryCode = "JP" });
+                if (envOverride.Width != 1920 || envOverride.Height != 1080 || envOverride.Lang != "ja-JP" || envOverride.IanaTimezone != "Asia/Tokyo")
+                {
+                    throw new InvalidOperationException($"ViaEnvOverrideItem not honored: {envOverride}");
+                }
+
+                var envArgs = ExtensionProvisioner.BuildChromeArguments(
+                    "https://www.facebook.com/",
+                    "Profile 1",
+                    null,
+                    isolatedMode: true,
+                    viaSlug: "Via Alpha",
+                    antidetectShield: true,
+                    lowRamMode: true,
+                    envProfile: envA1);
+                foreach (var reqArg in new[]
+                         {
+                             $"--window-size={envA1.Width},{envA1.Height}",
+                             "--lang=en-US",
+                             "--accept-lang=en-US,en;q=0.9",
+                             "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+                         })
+                {
+                    if (!envArgs.Contains(reqArg))
+                    {
+                        throw new InvalidOperationException($"BuildChromeArguments missing required v3.5.0 flag '{reqArg}'");
+                    }
+                }
+
+                // 38b. MBS 2-tab Invite Count Parser (Cảm xúc + Bình luận (4) + Gửi lời mời (4))
+                if (MainWindow.TryExtractParenthesizedCount("Bình luận (4)") != 4 ||
+                    MainWindow.TryExtractParenthesizedCount("Gửi lời mời (12)") != 12 ||
+                    MainWindow.TryExtractParenthesizedCount("Cảm xúc") != 0)
+                {
+                    throw new InvalidOperationException("TryExtractParenthesizedCount failed.");
                 }
             }
 

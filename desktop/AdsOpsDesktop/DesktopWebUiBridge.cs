@@ -198,6 +198,11 @@ public sealed class WebViaItemDto
     public string QuotaStatus { get; set; } = "SAFE";
     public bool HasTimezoneMismatch { get; set; }
     public string TimezoneWarning { get; set; } = "";
+    public string EnvViewport { get; set; } = "1440×900";
+    public string EnvCountry { get; set; } = "VN";
+    public string EnvLang { get; set; } = "vi-VN";
+    public string EnvTimezone { get; set; } = "Asia/Ho_Chi_Minh";
+    public bool WebRtcLocked { get; set; } = true;
 }
 
 public sealed class WebWarmupActionDto
@@ -265,6 +270,8 @@ public sealed class WebAutomationConfigDto
     public bool BatchAutoSubmit { get; set; } = true;
     public bool EnablePrePageCreationWarmup { get; set; } = true;
     public int PrePageCreationWarmupSeconds { get; set; } = 35;
+    public string CookieRobotUrls { get; set; } = "";
+    public int CookieRobotUrlCount { get; set; }
     public int MaxSafeBatchNow { get; set; }
     public int DirectIpViaCount { get; set; }
 
@@ -334,6 +341,17 @@ public sealed class WebDomainSeoDto
     public string CustomDomain { get; set; } = "";
     public string EffectivePublicUrl { get; set; } = "https://adsops-app.vibe.tinhgon.xyz";
     public List<WebSeoChecklistDto> Checklist { get; set; } = new();
+}
+
+public sealed class WebCarePresetDto
+{
+    public string Key { get; set; } = "";
+    public string Icon { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string Subtitle { get; set; } = "";
+    public int RestMinSeconds { get; set; } = 20;
+    public int RestMaxSeconds { get; set; } = 40;
+    public List<string> Steps { get; set; } = new();
 }
 
 public sealed class WebPageNurtureConfigDto
@@ -669,6 +687,7 @@ public sealed class AppShellWebStateDto
     // Tab 3: Automation
     public WebAutomationConfigDto AutomationConfig { get; set; } = new();
     public List<WebWarmupActionDto> WarmupCatalog { get; set; } = new();
+    public List<WebCarePresetDto> CarePresets { get; set; } = new();
     public List<WebOptionDto> NicheTemplates { get; set; } = new();
     public List<WebPlaybookDto> Playbooks { get; set; } = new();
     public string SelectedPlaybookId { get; set; } = "";

@@ -12,6 +12,7 @@ import {
   Globe,
   Grid2x2,
   KeyRound,
+  Monitor,
   MoreHorizontal,
   Plus,
   Search,
@@ -538,6 +539,13 @@ function ViaRowCard({
             ● {proxyShort}
             {proxyHealth ? ` (${proxyHealth})` : ''} • {keepText}
           </div>
+          <div
+            className="truncate font-mono text-[10px] text-muted-foreground"
+            title={`Cỡ cửa sổ cố định: ${via.envViewport || '1440×900'} • Ngôn ngữ: ${via.envLang || 'vi-VN'} • Múi giờ: ${via.envTimezone || 'Asia/Ho_Chi_Minh'} • Khóa rò rỉ WebRTC: ${via.webRtcLocked !== false ? 'BẬT' : 'TẮT'}`}
+          >
+            🖥️ {via.envViewport || '1440×900'} • 🌐 {via.envCountry || 'VN'} ({via.envLang || 'vi-VN'})
+            {via.webRtcLocked !== false ? ' • 🛡️ WebRTC Lock' : ''}
+          </div>
           {via.hasTimezoneMismatch && (
             <div className="truncate text-[10px] text-amber-400" title={via.timezoneWarning}>
               ⚠ Lệch múi giờ Proxy
@@ -610,6 +618,14 @@ function ViaRowCard({
               <DropdownMenuItem onClick={() => sendDesktopCommand('open_local_vault', { viaId: via.viaId })}>
                 <KeyRound className="h-3.5 w-3.5 text-emerald-400" />
                 Két Cookie &amp; 2FA DPAPI Local
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => sendDesktopCommand('set_via_env_override', { viaId: via.viaId, cycleViewport: true })}>
+                <Monitor className="h-3.5 w-3.5 text-sky-400" />
+                Đổi cỡ màn hình ({via.envViewport || '1440×900'})
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => sendDesktopCommand('set_via_env_override', { viaId: via.viaId, cycleCountry: true })}>
+                <Globe className="h-3.5 w-3.5 text-indigo-400" />
+                Đổi Quốc gia / TZ ({via.envCountry || 'VN'} • {via.envTimezone || 'Asia/Ho_Chi_Minh'})
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => sendDesktopCommand('edit_via', { viaId: via.viaId })}>
                 <Edit3 className="h-3.5 w-3.5" />

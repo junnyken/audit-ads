@@ -49,6 +49,19 @@ public sealed class ParsedProxySpec
         : $"{Host}:{Port}:{User}:{Pass}";
 }
 
+public sealed record ViaEnvironmentProfile(
+    int Width,
+    int Height,
+    string CountryCode,
+    string Lang,
+    string AcceptLang,
+    string IanaTimezone,
+    bool WebRtcLocked)
+{
+    public string ViewportKey => $"{Width}x{Height}";
+    public string ViewportLabel => $"{Width}×{Height}";
+}
+
 public static class ExtensionProvisioner
 {
     private static readonly Regex ProfileDirRegex = new(@"\b(Default|Profile\s+\d+)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -582,14 +595,116 @@ public static class ExtensionProvisioner
         return list;
     }
 
-    private static readonly (int Width, int Height)[] ViewportPresets =
+    public static readonly (int Width, int Height)[] ViewportPresets =
     {
         (1366, 768),
         (1440, 900),
         (1536, 864),
-        (1600, 900),
         (1920, 1080),
     };
+
+    public static readonly IReadOnlyDictionary<string, (string Lang, string AcceptLang, string IanaTimezone)> CountryLocaleMap =
+        new Dictionary<string, (string, string, string)>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["VN"] = ("vi-VN", "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7", "Asia/Ho_Chi_Minh"),
+            ["US"] = ("en-US", "en-US,en;q=0.9", "America/New_York"),
+            ["UK"] = ("en-GB", "en-GB,en;q=0.9", "Europe/London"),
+            ["GB"] = ("en-GB", "en-GB,en;q=0.9", "Europe/London"),
+            ["SG"] = ("en-SG", "en-SG,en;q=0.9,zh-SG;q=0.7", "Asia/Singapore"),
+            ["JP"] = ("ja-JP", "ja-JP,ja;q=0.9,en-US;q=0.7", "Asia/Tokyo"),
+            ["KR"] = ("ko-KR", "ko-KR,ko;q=0.9,en-US;q=0.7", "Asia/Seoul"),
+            ["AU"] = ("en-AU", "en-AU,en;q=0.9", "Australia/Sydney"),
+            ["DE"] = ("de-DE", "de-DE,de;q=0.9,en-US;q=0.7", "Europe/Berlin"),
+            ["TH"] = ("th-TH", "th-TH,th;q=0.9,en-US;q=0.7", "Asia/Bangkok"),
+            ["PH"] = ("en-PH", "en-PH,en;q=0.9", "Asia/Manila"),
+        };
+
+    public static string DetectProxyCountryCode(string? proxyRaw)
+    {
+        var s = (proxyRaw ?? "").Trim().ToUpperInvariant();
+        if (string.IsNullOrWhiteSpace(s)) return "VN";
+
+        // Match explicit country tag or token like [US], _US_, -SG-, .UK., USA, SINGAPORE, etc.
+        var checks = new (string Code, string[] Tokens)[]
+        {
+            ("US", new[] { "[US]", "-US-", "_US_", ".US.", ":US:", " USA", "UNITED STATES", "AMERICA" }),
+            ("UK", new[] { "[UK]", "[GB]", "-UK-", "_UK_", "-GB-", "_GB_", ".UK.", "LONDON", "BRITAIN" }),
+            ("SG", new[] { "[SG]", "-SG-", "_SG_", ".SG.", "SINGAPORE" }),
+            ("JP", new[] { "[JP]", "-JP-", "_JP_", ".JP.", "JAPAN", "TOKYO" }),
+            ("KR", new[] { "[KR]", "-KR-", "_KR_", ".KR.", "KOREA", "SEOUL" }),
+            ("AU", new[] { "[AU]", "-AU-", "_AU_", ".AU.", "AUSTRALIA", "SYDNEY" }),
+            ("DE", new[] { "[DE]", "-DE-", "_DE_", ".DE.", "GERMANY", "BERLIN" }),
+            ("TH", new[] { "[TH]", "-TH-", "_TH_", ".TH.", "THAILAND", "BANGKOK" }),
+            ("PH", new[] { "[PH]", "-PH-", "_PH_", ".PH.", "PHILIPPINES", "MANILA" }),
+            ("VN", new[] { "[VN]", "-VN-", "_VN_", ".VN.", "VIETNAM", "HCM", "HANOI" }),
+        };
+        foreach (var (code, tokens) in checks)
+        {
+            if (tokens.Any(t => s.Contains(t, StringComparison.OrdinalIgnoreCase)))
+            {
+                return code;
+            }
+        }
+        return "VN";
+    }
+
+    public static ViaEnvironmentProfile ResolveViaEnvironmentProfile(
+        string? viaSlug,
+        string? profileDir,
+        string? proxyRaw = null,
+        ViaEnvOverrideItem? envOverride = null,
+        bool enableGeoLocaleSync = true,
+        bool enableWebRtcShield = true)
+    {
+        var safeProfile = SafeProfileDirRegex.IsMatch(profileDir ?? "") ? profileDir! : "Default";
+        int width = 1440;
+        int height = 900;
+
+        bool matchedViewportOverride = false;
+        if (!string.IsNullOrWhiteSpace(envOverride?.ViewportKey))
+        {
+            var vpParts = envOverride.ViewportKey.Trim().ToLowerInvariant().Split('x', ',');
+            if (vpParts.Length == 2 &&
+                int.TryParse(vpParts[0], out var ow) &&
+                int.TryParse(vpParts[1], out var oh) &&
+                ow >= 1024 && oh >= 600)
+            {
+                width = ow;
+                height = oh;
+                matchedViewportOverride = true;
+            }
+        }
+
+        if (!matchedViewportOverride)
+        {
+            var seed = $"{(viaSlug ?? "").Trim().ToLowerInvariant()}|{safeProfile.ToLowerInvariant()}";
+            unchecked
+            {
+                uint hash = 2166136261;
+                foreach (var ch in seed)
+                {
+                    hash ^= ch;
+                    hash *= 16777619;
+                }
+                var vp = ViewportPresets[hash % (uint)ViewportPresets.Length];
+                width = vp.Width;
+                height = vp.Height;
+            }
+        }
+
+        var country = !string.IsNullOrWhiteSpace(envOverride?.CountryCode)
+            ? envOverride.CountryCode.Trim().ToUpperInvariant()
+            : (enableGeoLocaleSync ? DetectProxyCountryCode(proxyRaw) : "VN");
+        if (country == "GB") country = "UK";
+        if (!CountryLocaleMap.TryGetValue(country, out var loc))
+        {
+            country = "VN";
+            loc = CountryLocaleMap["VN"];
+        }
+
+        bool webrtcLocked = enableWebRtcShield || !string.IsNullOrWhiteSpace(proxyRaw);
+        return new ViaEnvironmentProfile(width, height, country, loc.Lang, loc.AcceptLang, loc.IanaTimezone, webrtcLocked);
+    }
 
     public static List<string> BuildChromeArguments(
         string url,
@@ -600,13 +715,15 @@ public static class ExtensionProvisioner
         bool antidetectShield = true,
         bool lowRamMode = true,
         int? cdpPort = null,
-        bool startBlankForCdpBootstrap = false)
+        bool startBlankForCdpBootstrap = false,
+        ViaEnvironmentProfile? envProfile = null)
     {
         if (string.IsNullOrWhiteSpace(url) || !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
             throw new ArgumentException("Chỉ cho phép mở đường dẫn https:// hợp lệ.");
         }
         var safeProfile = SafeProfileDirRegex.IsMatch(profileDir ?? "") ? profileDir! : "Default";
+        var effectiveEnv = envProfile ?? ResolveViaEnvironmentProfile(viaSlug, safeProfile);
         var args = new List<string>();
 
         if (isolatedMode)
@@ -634,22 +751,26 @@ public static class ExtensionProvisioner
         if (antidetectShield)
         {
             args.Add("--disable-blink-features=AutomationControlled");
+            if (effectiveEnv.WebRtcLocked)
+            {
+                args.Add("--force-webrtc-ip-handling-policy=disable_non_proxied_udp");
+                args.Add("--enforce-webrtc-ip-permission-check");
+            }
+            args.Add("--disable-features=Translate,OptimizationHints,MediaRouter,DialMediaRouteProvider");
+            args.Add($"--window-size={effectiveEnv.Width},{effectiveEnv.Height}");
+            if (!string.IsNullOrWhiteSpace(effectiveEnv.Lang))
+            {
+                args.Add($"--lang={effectiveEnv.Lang}");
+            }
+            if (!string.IsNullOrWhiteSpace(effectiveEnv.AcceptLang))
+            {
+                args.Add($"--accept-lang={effectiveEnv.AcceptLang}");
+            }
+        }
+        else if (effectiveEnv.WebRtcLocked)
+        {
             args.Add("--force-webrtc-ip-handling-policy=disable_non_proxied_udp");
             args.Add("--enforce-webrtc-ip-permission-check");
-            args.Add("--disable-features=Translate,OptimizationHints,MediaRouter,DialMediaRouteProvider");
-
-            var seed = $"{(viaSlug ?? "").Trim().ToLowerInvariant()}|{safeProfile.ToLowerInvariant()}";
-            unchecked
-            {
-                uint hash = 2166136261;
-                foreach (var ch in seed)
-                {
-                    hash ^= ch;
-                    hash *= 16777619;
-                }
-                var vp = ViewportPresets[hash % (uint)ViewportPresets.Length];
-                args.Add($"--window-size={vp.Width},{vp.Height}");
-            }
         }
 
         if (lowRamMode)
@@ -715,9 +836,11 @@ public static class ExtensionProvisioner
         bool isolatedMode,
         string? viaSlug = null,
         bool antidetectShield = true,
-        bool lowRamMode = true)
+        bool lowRamMode = true,
+        ViaEnvironmentProfile? envProfile = null)
     {
-        var args = BuildChromeArguments(url, profileDir, extFolder, isolatedMode, viaSlug, antidetectShield, lowRamMode);
+        var effectiveEnv = envProfile ?? ResolveViaEnvironmentProfile(viaSlug, profileDir);
+        var args = BuildChromeArguments(url, profileDir, extFolder, isolatedMode, viaSlug, antidetectShield, lowRamMode, envProfile: effectiveEnv);
         var chromeExe = FindChromeExecutable() ?? "chrome.exe";
         var useDirectExec = File.Exists(chromeExe);
         var psi = new ProcessStartInfo
@@ -725,6 +848,10 @@ public static class ExtensionProvisioner
             FileName = chromeExe,
             UseShellExecute = !useDirectExec,
         };
+        if (!psi.UseShellExecute && !string.IsNullOrWhiteSpace(effectiveEnv.IanaTimezone))
+        {
+            psi.Environment["TZ"] = effectiveEnv.IanaTimezone;
+        }
         foreach (var a in args)
         {
             psi.ArgumentList.Add(a);
@@ -769,8 +896,10 @@ public static class ExtensionProvisioner
         string? viaSlug = null,
         bool antidetectShield = true,
         bool lowRamMode = true,
-        string? vaultCookieRaw = null)
+        string? vaultCookieRaw = null,
+        ViaEnvironmentProfile? envProfile = null)
     {
+        var effectiveEnv = envProfile ?? ResolveViaEnvironmentProfile(viaSlug, profileDir);
         if (isolatedMode)
         {
             int cdpPort = ChromeCdpController.FindFreeLoopbackPort();
@@ -783,7 +912,8 @@ public static class ExtensionProvisioner
                 antidetectShield: antidetectShield,
                 lowRamMode: lowRamMode,
                 cdpPort: cdpPort,
-                startBlankForCdpBootstrap: true);
+                startBlankForCdpBootstrap: true,
+                envProfile: effectiveEnv);
             var chromeExe = FindChromeExecutable() ?? "chrome.exe";
             var useDirectExec = File.Exists(chromeExe);
             var psi = new ProcessStartInfo
@@ -791,6 +921,10 @@ public static class ExtensionProvisioner
                 FileName = chromeExe,
                 UseShellExecute = !useDirectExec,
             };
+            if (!psi.UseShellExecute && !string.IsNullOrWhiteSpace(effectiveEnv.IanaTimezone))
+            {
+                psi.Environment["TZ"] = effectiveEnv.IanaTimezone;
+            }
             foreach (var a in args)
             {
                 psi.ArgumentList.Add(a);
@@ -824,7 +958,8 @@ public static class ExtensionProvisioner
             isolatedMode: false,
             viaSlug: viaSlug,
             antidetectShield: antidetectShield,
-            lowRamMode: lowRamMode)).ConfigureAwait(false);
+            lowRamMode: lowRamMode,
+            envProfile: effectiveEnv)).ConfigureAwait(false);
         var newHwnd = await NativeChromeActionRunner.WaitForNewChromeWindowAsync(beforeWins, timeoutMs: 5500).ConfigureAwait(false);
         return (nativeRes.Pid, nativeRes.DelegatedToSharedBroker || newHwnd != IntPtr.Zero, false, null, newHwnd, false);
     }

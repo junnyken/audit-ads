@@ -361,6 +361,7 @@ internal sealed partial class MainWindow
         {
             var normEng = AntidetectBrowserConnector.NormalizeEngine(v.AntidetectEngine);
             var canLaunch = CanCurrentUserLaunchVia(v, out var denyReason);
+            var envProf = ResolveViaEnvironmentProfileFor(v);
             return new WebViaItemDto
             {
                 ViaId = v.ViaId,
@@ -405,6 +406,11 @@ internal sealed partial class MainWindow
                 QuotaStatus = v.QuotaStatus,
                 HasTimezoneMismatch = v.HasTimezoneMismatch,
                 TimezoneWarning = v.TimezoneWarning,
+                EnvViewport = envProf.ViewportLabel,
+                EnvCountry = envProf.CountryCode,
+                EnvLang = envProf.Lang,
+                EnvTimezone = envProf.IanaTimezone,
+                WebRtcLocked = envProf.WebRtcLocked,
             };
         }).ToList();
 
@@ -725,6 +731,8 @@ internal sealed partial class MainWindow
                 BatchAutoSubmit = _batchAutoSubmit,
                 EnablePrePageCreationWarmup = _config.EnablePrePageCreationWarmup,
                 PrePageCreationWarmupSeconds = Math.Clamp(_config.PrePageCreationWarmupSeconds < 10 ? 35 : _config.PrePageCreationWarmupSeconds, 10, 90),
+                CookieRobotUrls = string.IsNullOrWhiteSpace(_config.CookieRobotUrls) ? WarmupCarePresets.DefaultCookieRobotUrls : _config.CookieRobotUrls,
+                CookieRobotUrlCount = WarmupCarePresets.ParseCookieRobotUrls(_config.CookieRobotUrls).Count,
                 MaxSafeBatchNow = _pagesSummary?.QuotaAlertsSummary?.MaxSafeBatchNow ?? _vias.Count,
                 DirectIpViaCount = _vias.Count(v => string.IsNullOrWhiteSpace(v.NetworkLabel)),
                 AutoKeepAliveScheduler = _config.AutoKeepAliveScheduler,
@@ -766,6 +774,16 @@ internal sealed partial class MainWindow
                 DurationHint = w.DurationHint,
                 Category = w.Category,
                 Description = w.Description,
+            }).ToList(),
+            CarePresets = WarmupCarePresets.All.Select(p => new WebCarePresetDto
+            {
+                Key = p.Key,
+                Icon = p.Icon,
+                Title = p.Title,
+                Subtitle = p.Subtitle,
+                RestMinSeconds = p.RestMinSeconds,
+                RestMaxSeconds = p.RestMaxSeconds,
+                Steps = p.Steps.ToList(),
             }).ToList(),
             NicheTemplates = PageNicheTemplates.All.Select(t => new WebOptionDto
             {
@@ -1532,6 +1550,122 @@ internal sealed partial class MainWindow
                             }
                         }
                         break;
+
+                    case "apply_care_preset":
+                        {
+                            var presetKey = GetStr(root, "presetKey");
+                            var preset = WarmupCarePresets.FindByKey(presetKey);
+                            if (preset != null)
+                            {
+                                _config.WarmupFlowMode = "custom_sequence";
+                                _config.CustomWarmupActionSequence = preset.Steps.ToList();
+                                _config.QueueRestMinSeconds = preset.RestMinSeconds;
+                                _config.QueueRestMaxSeconds = preset.RestMaxSeconds;
+                                _config.Save();
+                                _webUiConfigRev++;
+                                AppendLog($"⚡ Đã áp dụng kịch bản mẫu '{preset.Title}' ({preset.Steps.Count} bước • Nghỉ {preset.RestMinSeconds}–{preset.RestMaxSeconds}s).");
+                                PushOverviewStateToWebView();
+                            }
+                            break;
+                        }
+
+                    case "set_via_env_override":
+                        {
+                            var viaId = GetStr(root, "viaId").Trim();
+                            var via = _vias.FirstOrDefault(v => string.Equals(v.ViaId, viaId, StringComparison.OrdinalIgnoreCase));
+                            if (via != null)
+                            {
+                                _config.ViaEnvOverrides ??= new Dictionary<string, ViaEnvOverrideItem>(StringComparer.OrdinalIgnoreCase);
+                                if (!_config.ViaEnvOverrides.TryGetValue(via.ViaId, out var ov) || ov == null)
+                                {
+                                    ov = new ViaEnvOverrideItem();
+                                    _config.ViaEnvOverrides[via.ViaId] = ov;
+                                }
+
+                                var curEnv = ResolveViaEnvironmentProfileFor(via);
+                                if (GetBool(root, "cycleViewport", false))
+                                {
+                                    var keys = ExtensionProvisioner.ViewportPresets.Select(p => $"{p.Width}x{p.Height}").ToList();
+                                    var curIdx = keys.FindIndex(k => string.Equals(k, curEnv.ViewportKey, StringComparison.OrdinalIgnoreCase));
+                                    ov.ViewportKey = keys[(curIdx + 1) % keys.Count];
+                                }
+                                else if (root.TryGetProperty("viewportKey", out _))
+                                {
+                                    ov.ViewportKey = GetStr(root, "viewportKey").Trim();
+                                }
+
+                                if (GetBool(root, "cycleCountry", false))
+                                {
+                                    var countries = new[] { "VN", "US", "SG", "UK", "JP", "KR", "AU", "TH", "" };
+                                    var curIdx = Array.FindIndex(countries, c => string.Equals(c, ov.CountryCode, StringComparison.OrdinalIgnoreCase));
+                                    ov.CountryCode = countries[(curIdx + 1) % countries.Length];
+                                }
+                                else if (root.TryGetProperty("countryCode", out _))
+                                {
+                                    ov.CountryCode = GetStr(root, "countryCode").Trim().ToUpperInvariant();
+                                }
+
+                                _config.Save();
+                                _webUiConfigRev++;
+                                var nextEnv = ResolveViaEnvironmentProfileFor(via);
+                                AppendLog($"🖥️ Đã cập nhật môi trường Via '{via.Label}': {nextEnv.ViewportLabel} • {nextEnv.CountryCode} ({nextEnv.Lang} / {nextEnv.IanaTimezone}) • WebRTC Lock.");
+                                PushOverviewStateToWebView();
+                            }
+                            break;
+                        }
+
+                    case "save_cookie_robot_urls":
+                        {
+                            var rawUrls = GetStr(root, "cookieRobotUrls", _config.CookieRobotUrls).Trim();
+                            _config.CookieRobotUrls = string.IsNullOrWhiteSpace(rawUrls) ? WarmupCarePresets.DefaultCookieRobotUrls : rawUrls;
+                            _config.Save();
+                            _webUiConfigRev++;
+                            var parsedCount = WarmupCarePresets.ParseCookieRobotUrls(_config.CookieRobotUrls).Count;
+                            AppendLog($"🍪 Đã lưu danh sách {parsedCount} website cho Cookie Robot Đa-Site.");
+                            PushOverviewStateToWebView();
+                            break;
+                        }
+
+                    case "run_cookie_robot_now":
+                        {
+                            var rawUrls = GetStr(root, "cookieRobotUrls", _config.CookieRobotUrls).Trim();
+                            if (!string.IsNullOrWhiteSpace(rawUrls))
+                            {
+                                _config.CookieRobotUrls = rawUrls;
+                            }
+                            var robotPreset = WarmupCarePresets.FindByKey("cookie_robot_only");
+                            if (robotPreset != null)
+                            {
+                                _config.WarmupFlowMode = "custom_sequence";
+                                _config.CustomWarmupActionSequence = robotPreset.Steps.ToList();
+                                _config.QueueRestMinSeconds = robotPreset.RestMinSeconds;
+                                _config.QueueRestMaxSeconds = robotPreset.RestMaxSeconds;
+                                _config.Save();
+                                _webUiConfigRev++;
+                            }
+                            var viaId = GetStr(root, "viaId", "__first__").Trim();
+                            var validRobotVias = _vias.Where(v => !v.IsInCooldown && CanCurrentUserLaunchVia(v, out _)).ToList();
+                            List<ViaWorkspaceEntry> targets;
+                            if (string.Equals(viaId, "__all__", StringComparison.OrdinalIgnoreCase))
+                            {
+                                targets = validRobotVias;
+                            }
+                            else
+                            {
+                                var picked = validRobotVias.FirstOrDefault(v => string.Equals(v.ViaId, viaId, StringComparison.OrdinalIgnoreCase))
+                                    ?? validRobotVias.FirstOrDefault();
+                                targets = picked != null ? new List<ViaWorkspaceEntry> { picked } : new List<ViaWorkspaceEntry>();
+                            }
+                            if (targets.Count == 0)
+                            {
+                                MessageBox.Show(this, "Không có Via hợp lệ để chạy Cookie Robot lúc này.", "Không có Via", MessageBoxButton.OK, MessageBoxImage.Information);
+                                break;
+                            }
+                            AppendLog($"🍪 Đang khởi chạy Cookie Robot Đa-Site cho {targets.Count} Via...");
+                            StartNaturalFlowForVias(targets, fastTest: false, requireConfirm: targets.Count > 1);
+                            PushOverviewStateToWebView();
+                            break;
+                        }
 
                     case "save_flow_controls":
                         _config.EnableInternalPageCrossWarmup = GetBool(root, "enableInternalPageCrossWarmup", _config.EnableInternalPageCrossWarmup);

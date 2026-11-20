@@ -1971,6 +1971,7 @@ internal sealed partial class MainWindow : Window
                     via.NetworkLabel,
                     via.HasVaultCookie,
                     via.Label);
+                var envProfFail = ResolveViaEnvironmentProfileFor(via);
                 var swFail = Stopwatch.StartNew();
                 var failInfo = await ExtensionProvisioner.LaunchChromeSmartAsync(
                     targetUrl,
@@ -1980,7 +1981,8 @@ internal sealed partial class MainWindow : Window
                     via.Label,
                     _config.EnableChromeAntidetectShield,
                     _config.LowRamFarmMode,
-                    vaultSecret.CookieRaw);
+                    vaultSecret.CookieRaw,
+                    envProfFail);
                 swFail.Stop();
                 AntidetectEngineBenchmarkStore.Default.RecordStartup("chrome_native", (int)swFail.ElapsedMilliseconds);
                 ChromeSessionTracker.Default.RecordLaunch(
@@ -2011,6 +2013,7 @@ internal sealed partial class MainWindow : Window
                 via.NetworkLabel,
                 via.HasVaultCookie,
                 via.Label);
+            var envProf = ResolveViaEnvironmentProfileFor(via);
             var sw = Stopwatch.StartNew();
             var launchInfo = await ExtensionProvisioner.LaunchChromeSmartAsync(
                 targetUrl,
@@ -2020,7 +2023,8 @@ internal sealed partial class MainWindow : Window
                 via.Label,
                 _config.EnableChromeAntidetectShield,
                 _config.LowRamFarmMode,
-                vaultSecret.CookieRaw);
+                vaultSecret.CookieRaw,
+                envProf);
             sw.Stop();
             AntidetectEngineBenchmarkStore.Default.RecordStartup("chrome_native", (int)sw.ElapsedMilliseconds);
             ChromeSessionTracker.Default.RecordLaunch(
@@ -2051,6 +2055,22 @@ internal sealed partial class MainWindow : Window
                     MessageBox.Show(this, ex.Message, "Không mở được Trình duyệt", MessageBoxButton.OK, MessageBoxImage.Warning));
             }
         }
+    }
+
+    internal ViaEnvironmentProfile ResolveViaEnvironmentProfileFor(ViaWorkspaceEntry via)
+    {
+        ViaEnvOverrideItem? ov = null;
+        if (_config.ViaEnvOverrides != null && !string.IsNullOrWhiteSpace(via.ViaId))
+        {
+            _config.ViaEnvOverrides.TryGetValue(via.ViaId, out ov);
+        }
+        return ExtensionProvisioner.ResolveViaEnvironmentProfile(
+            via.Label,
+            via.ProfileDir,
+            via.NetworkLabel,
+            ov,
+            _config.EnableProxyGeoLocaleSync,
+            _config.EnableWebRtcLeakShield);
     }
 
     private void StartNativeRunnerIfNeeded(ViaWorkspaceEntry via, string targetUrl, bool isolatedMode, IntPtr windowHandle)
@@ -2745,12 +2765,17 @@ internal sealed partial class MainWindow : Window
         };
         var sep = baseUrl.Contains('?') ? "&" : "?";
 
+        var cookieUrlsCsv = routeStops.Any(s => string.Equals(s, "cookie_robot_custom", StringComparison.OrdinalIgnoreCase))
+            ? string.Join(",", WarmupCarePresets.ParseCookieRobotUrls(_config.CookieRobotUrls).Take(10))
+            : "";
+
         var launchUrl = baseUrl + sep + "adsops_keepalive_session=1&adsops_auto_close=" + (_config.AutoCloseKeepAliveTab ? "1" : "0") +
                         "&adsops_via_tier=" + Uri.EscapeDataString(v.RoleTier) +
                         "&adsops_via_label=" + Uri.EscapeDataString(v.Label) +
                         "&adsops_ka_mode=" + Uri.EscapeDataString(effectiveMode) +
                         "&adsops_ka_route=" + Uri.EscapeDataString(string.Join(",", routeStops)) +
                         (!string.IsNullOrEmpty(crossPageUrl) ? "&adsops_cross_page_url=" + Uri.EscapeDataString(crossPageUrl) : "") +
+                        (!string.IsNullOrEmpty(cookieUrlsCsv) ? "&adsops_cookie_urls=" + Uri.EscapeDataString(cookieUrlsCsv) : "") +
                         (fastTest ? "&adsops_fast_test=1" : "");
 
         var arrowSummary = WarmupActionCatalog.FormatSequenceArrowText(seqKeys);
@@ -3254,6 +3279,13 @@ internal sealed partial class MainWindow : Window
         return null;
     }
 
+    internal static int TryExtractParenthesizedCount(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return 0;
+        var m = System.Text.RegularExpressions.Regex.Match(text, @"\((\d+)\)");
+        return m.Success && int.TryParse(m.Groups[1].Value, out var n) ? Math.Clamp(n, 0, 9999) : 0;
+    }
+
     internal void SetPagePendingInviteCount(FanpageItemDto? page, int count, bool renderNow = false)
     {
         if (page == null) return;
@@ -3450,26 +3482,82 @@ internal sealed partial class MainWindow : Window
                             catch { }
                         }
 
-                        // If modal is already open: Select ALL people who reacted & commented ("Chọn tất cả" + all CheckBoxes) and immediately click "Gửi lời mời"
+                        // Auto-detect if the Meta Business Suite invite modal is already open on screen
+                        if (!modalOpened)
+                        {
+                            bool hasModalHeader = elements.Any(x =>
+                                x.Name.Contains("Mời mọi người tương tác với nội dung", StringComparison.OrdinalIgnoreCase) ||
+                                x.Name.Contains("Invite people who interacted", StringComparison.OrdinalIgnoreCase) ||
+                                x.Name.StartsWith("Bình luận (", StringComparison.OrdinalIgnoreCase) ||
+                                x.Name.StartsWith("Comments (", StringComparison.OrdinalIgnoreCase) ||
+                                x.Name.StartsWith("Cảm xúc (", StringComparison.OrdinalIgnoreCase) ||
+                                x.Name.StartsWith("Reactions (", StringComparison.OrdinalIgnoreCase));
+                            if (hasModalHeader)
+                            {
+                                modalOpened = true;
+                            }
+                        }
+
+                        // If modal is already open: read BOTH "Cảm xúc (X)" & "Bình luận (Y)" tabs, update tool count, switch tab if needed, Select All and click "Gửi lời mời (N)"
                         if (modalOpened)
                         {
-                            var selectAllEl = elements.FirstOrDefault(x =>
-                                x.Name.StartsWith("Chọn tất cả", StringComparison.OrdinalIgnoreCase) ||
-                                x.Name.StartsWith("Select all", StringComparison.OrdinalIgnoreCase));
+                            var reactTabEl = elements.FirstOrDefault(x =>
+                                x.Name.StartsWith("Cảm xúc", StringComparison.OrdinalIgnoreCase) ||
+                                x.Name.StartsWith("Reactions", StringComparison.OrdinalIgnoreCase));
+                            var commentTabEl = elements.FirstOrDefault(x =>
+                                x.Name.StartsWith("Bình luận", StringComparison.OrdinalIgnoreCase) ||
+                                x.Name.StartsWith("Comments", StringComparison.OrdinalIgnoreCase));
+                            int reactTabCount = TryExtractParenthesizedCount(reactTabEl.Name);
+                            int commentTabCount = TryExtractParenthesizedCount(commentTabEl.Name);
 
-                            if (selectAllEl.El != null && invitedClicks == 0)
+                            var preSendBtn = elements.FirstOrDefault(x =>
+                                (x.Type == ControlType.Button || x.Type == ControlType.Custom || x.Type == ControlType.Text) &&
+                                !x.Name.Contains("bạn bè", StringComparison.OrdinalIgnoreCase) &&
+                                !x.Name.Contains("friends", StringComparison.OrdinalIgnoreCase) &&
+                                (x.Name.StartsWith("Gửi lời mời", StringComparison.OrdinalIgnoreCase) ||
+                                 x.Name.StartsWith("Send invitation", StringComparison.OrdinalIgnoreCase) ||
+                                 x.Name.StartsWith("Send invite", StringComparison.OrdinalIgnoreCase)));
+                            int preSendCount = TryExtractParenthesizedCount(preSendBtn.Name);
+
+                            int modalTotalPending = Math.Max(reactTabCount + commentTabCount, preSendCount);
+                            if (modalTotalPending > 0 && modalTotalPending != detectedCount)
                             {
-                                if (TryInvokeElementNonIntrusive(selectAllEl.El))
-                                {
-                                    invitedClicks = Math.Max(1, detectedCount > 0 ? detectedCount : 1);
-                                    System.Threading.Thread.Sleep(350);
-                                }
+                                detectedCount = modalTotalPending;
+                                SetPagePendingInviteCount(page, modalTotalPending, renderNow: true);
+                                _ = Dispatcher.BeginInvoke(() =>
+                                    AppendLog($"🔔 [Auto-Invite] Phát hiện {modalTotalPending} người cần mời trên '{page.Name}' (Cảm xúc: {reactTabCount} • Bình luận: {commentTabCount})."));
                             }
 
                             var checkBoxes = elements
                                 .Where(x => x.Type == ControlType.CheckBox && x.Bounds.Width >= 8 && x.Bounds.Height >= 8)
                                 .ToList();
 
+                            // If current tab has no selectable people but "Bình luận (Y)" has pending people, switch to Comments tab
+                            if (checkBoxes.Count == 0 && preSendCount == 0 && commentTabCount > 0 && commentTabEl.El != null)
+                            {
+                                if (TryInvokeElementNonIntrusive(commentTabEl.El))
+                                {
+                                    _ = Dispatcher.BeginInvoke(() =>
+                                        AppendLog($"💬 [Auto-Invite] Tab Cảm xúc trống -> tự động chuyển sang tab '{commentTabEl.Name}' trên Page '{page.Name}'..."));
+                                    System.Threading.Thread.Sleep(550);
+                                    return false;
+                                }
+                            }
+
+                            var selectAllEl = elements.FirstOrDefault(x =>
+                                x.Name.StartsWith("Chọn tất cả", StringComparison.OrdinalIgnoreCase) ||
+                                x.Name.StartsWith("Select all", StringComparison.OrdinalIgnoreCase));
+
+                            if (selectAllEl.El != null && invitedClicks == 0 && preSendCount == 0)
+                            {
+                                if (TryInvokeElementNonIntrusive(selectAllEl.El))
+                                {
+                                    invitedClicks = Math.Max(1, modalTotalPending > 0 ? modalTotalPending : (detectedCount > 0 ? detectedCount : 1));
+                                    System.Threading.Thread.Sleep(350);
+                                }
+                            }
+
+                            int alreadyCheckedCount = 0;
                             if (checkBoxes.Count > 0)
                             {
                                 int toCheck = Math.Min(maxInvites, checkBoxes.Count);
@@ -3486,6 +3574,10 @@ internal sealed partial class MainWindow : Window
                                                 tp.Toggle();
                                                 newlyToggled++;
                                             }
+                                            else if (tp.Current.ToggleState == ToggleState.On)
+                                            {
+                                                alreadyCheckedCount++;
+                                            }
                                         }
                                         else if (invitedClicks == 0 && TryInvokeElementNonIntrusive(cb.El))
                                         {
@@ -3495,10 +3587,16 @@ internal sealed partial class MainWindow : Window
                                     catch { }
                                     System.Threading.Thread.Sleep(80);
                                 }
-                                if (newlyToggled > 0)
+                                int totalSelected = newlyToggled + alreadyCheckedCount;
+                                if (totalSelected > 0)
                                 {
-                                    invitedClicks = Math.Max(invitedClicks, newlyToggled);
+                                    invitedClicks = Math.Max(invitedClicks, totalSelected);
                                 }
+                            }
+
+                            if (preSendCount > 0)
+                            {
+                                invitedClicks = Math.Max(invitedClicks, preSendCount);
                             }
 
                             // Re-query fresh UIAutomation elements after selecting checkboxes so the newly-enabled "Gửi lời mời (X)" button is captured accurately

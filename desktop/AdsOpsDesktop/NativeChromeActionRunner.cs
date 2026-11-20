@@ -98,6 +98,10 @@ public static class NativeChromeActionRunner
         ["mbs_like_comments_and_invite"] = new("Thả Tim Comment & Mời Follow", "https://business.facebook.com/latest/home", 10000, 14500, "", Array.Empty<string>()),
         ["page_auto_post_media"] = new("Đăng bài nuôi Page (Ảnh + Spin)", "https://business.facebook.com/latest/composer", 12000, 18000, "", Array.Empty<string>()),
         ["page_auto_share_curated"] = new("Chia sẻ bài nguồn về Page", "https://www.facebook.com/", 11000, 16500, "like_post", Array.Empty<string>()),
+        ["cookie_robot_google"] = new("Cookie Robot: Google", "https://www.google.com/search?q=tin+tuc+cong+nghe+hom+nay", 12000, 18000, "", Array.Empty<string>()),
+        ["cookie_robot_news"] = new("Cookie Robot: Đọc báo VN", "https://vnexpress.net/", 15000, 22000, "", Array.Empty<string>()),
+        ["cookie_robot_youtube"] = new("Cookie Robot: YouTube", "https://www.youtube.com/", 18000, 26000, "", Array.Empty<string>()),
+        ["cookie_robot_custom"] = new("Cookie Robot: Web tùy chỉnh", "https://shopee.vn/", 15000, 22000, "", Array.Empty<string>()),
         ["biz"] = new("Business Suite (BM)", "https://business.facebook.com/latest/home", 9500, 13500, "", Array.Empty<string>()),
         ["refresh_cookie_and_close"] = new("Lưu Cookie DPAPI & Đóng", "https://www.facebook.com/", 2500, 4000, "save_close", Array.Empty<string>()),
         ["save_cookie_close"] = new("Lưu Cookie DPAPI & Đóng", "https://www.facebook.com/", 2500, 4000, "save_close", Array.Empty<string>()),
@@ -465,6 +469,54 @@ public static class NativeChromeActionRunner
         return false;
     }
 
+    private static readonly string[] GoogleQueryPool =
+    {
+        "tin+tuc+hom+nay+viet+nam",
+        "thoi+tiet+hom+nay",
+        "xu+huong+marketing+2026",
+        "gia+vang+hom+nay",
+        "cong+nghe+ai+moi+nhat",
+        "du+lich+viet+nam+dep",
+    };
+
+    private static readonly string[] VnNewsPool =
+    {
+        "https://vnexpress.net/",
+        "https://tuoitre.vn/",
+        "https://cafef.vn/",
+        "https://thanhnien.vn/",
+    };
+
+    public static bool IsExternalCookieRobotStep(string? stepKey)
+        => WarmupActionCatalog.IsExternalCookieRobotKey(stepKey);
+
+    public static bool HasStop(string? stepKey)
+        => !string.IsNullOrWhiteSpace(stepKey) && NativeStops.ContainsKey(stepKey.Trim());
+
+    public static string PickCookieRobotUrl(string stepKey, IReadOnlyList<string>? customUrls, Random? rng = null)
+    {
+        var r = rng ?? Random.Shared;
+        var key = (stepKey ?? "").Trim().ToLowerInvariant();
+        if (key == "cookie_robot_google")
+        {
+            var q = GoogleQueryPool[r.Next(GoogleQueryPool.Length)];
+            return $"https://www.google.com/search?q={q}";
+        }
+        if (key == "cookie_robot_news")
+        {
+            return VnNewsPool[r.Next(VnNewsPool.Length)];
+        }
+        if (key == "cookie_robot_youtube")
+        {
+            return "https://www.youtube.com/";
+        }
+        if (customUrls != null && customUrls.Count > 0)
+        {
+            return customUrls[r.Next(customUrls.Count)];
+        }
+        return "https://shopee.vn/";
+    }
+
     private static List<string> ParseSteps(string rawRoute)
     {
         var steps = (rawRoute ?? "")
@@ -572,6 +624,7 @@ public static class NativeChromeActionRunner
             var crossPageUrl = qs["adsops_cross_page_url"] ?? "";
             var composerUrl = qs["adsops_composer_url"] ?? "";
             var shareSourceUrl = qs["adsops_share_url"] ?? "";
+            var cookieRobotUrls = WarmupCarePresets.ParseCookieRobotUrls(qs["adsops_cookie_urls"] ?? "");
             bool wantAutoClose = !string.Equals(qs["adsops_auto_close"], "0", StringComparison.Ordinal);
             bool fastTest = string.Equals(qs["adsops_fast_test"], "1", StringComparison.Ordinal);
             int fixedStepMs = int.TryParse(qs["adsops_step_ms"], out var parsedMs) && parsedMs >= 500 ? parsedMs : 0;
@@ -581,51 +634,62 @@ public static class NativeChromeActionRunner
 
             log($"🤖 [Native Runner] Đã kích hoạt thực thi {steps.Count} bước cho '{via.Label}' (0% chiếm chuột)...");
 
+            string? prevStepCode = null;
             for (int idx = 0; idx < steps.Count && !ct.IsCancellationRequested; idx++)
             {
                 if (!IsWindow(hwnd)) return;
                 if (hasExtensionHeartbeat(viaKey)) return;
 
-                var (challengeReason, loggedOutReason) = InspectWindowState(hwnd);
-                if (!string.IsNullOrEmpty(challengeReason))
+                var code = steps[idx];
+                bool isExternalStep = IsExternalCookieRobotStep(code);
+                bool prevWasExternal = IsExternalCookieRobotStep(prevStepCode);
+
+                // Only run Facebook login/checkpoint heuristics when actually on a Facebook/Meta page
+                if (!isExternalStep && !prevWasExternal)
                 {
-                    await emitEvent(new BrowserEventPayloadDto
+                    var (challengeReason, loggedOutReason) = InspectWindowState(hwnd);
+                    if (!string.IsNullOrEmpty(challengeReason))
                     {
-                        EventType = "SAFETY_CHALLENGE",
-                        Source = "native_runner",
-                        ViaId = via.ViaId,
-                        ViaLabel = via.Label,
-                        BrowserProfile = safeProfile,
-                        Detail = challengeReason,
-                    }).ConfigureAwait(false);
-                    return;
-                }
-                if (!string.IsNullOrEmpty(loggedOutReason))
-                {
-                    await emitEvent(new BrowserEventPayloadDto
+                        await emitEvent(new BrowserEventPayloadDto
+                        {
+                            EventType = "SAFETY_CHALLENGE",
+                            Source = "native_runner",
+                            ViaId = via.ViaId,
+                            ViaLabel = via.Label,
+                            BrowserProfile = safeProfile,
+                            Detail = challengeReason,
+                        }).ConfigureAwait(false);
+                        return;
+                    }
+                    if (!string.IsNullOrEmpty(loggedOutReason))
                     {
-                        EventType = "COOKIE_LOGGED_OUT",
-                        Source = "native_runner",
-                        ViaId = via.ViaId,
-                        ViaLabel = via.Label,
-                        BrowserProfile = safeProfile,
-                        Detail = loggedOutReason,
-                    }).ConfigureAwait(false);
-                    return;
+                        await emitEvent(new BrowserEventPayloadDto
+                        {
+                            EventType = "COOKIE_LOGGED_OUT",
+                            Source = "native_runner",
+                            ViaId = via.ViaId,
+                            ViaLabel = via.Label,
+                            BrowserProfile = safeProfile,
+                            Detail = loggedOutReason,
+                        }).ConfigureAwait(false);
+                        return;
+                    }
                 }
 
-                var code = steps[idx];
                 var meta = NativeStops.TryGetValue(code, out var foundMeta) ? foundMeta : NativeStops["scroll_feed"];
-                var stepUrl = string.Equals(code, "visit_internal_fanpage", StringComparison.OrdinalIgnoreCase) &&
-                              crossPageUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
-                    ? crossPageUrl
-                    : string.Equals(code, "page_auto_post_media", StringComparison.OrdinalIgnoreCase) &&
-                      composerUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
-                        ? composerUrl
-                        : string.Equals(code, "page_auto_share_curated", StringComparison.OrdinalIgnoreCase) &&
-                          shareSourceUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
-                            ? shareSourceUrl
-                            : meta.Url;
+                var stepUrl = isExternalStep
+                    ? PickCookieRobotUrl(code, cookieRobotUrls)
+                    : string.Equals(code, "visit_internal_fanpage", StringComparison.OrdinalIgnoreCase) &&
+                      crossPageUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                        ? crossPageUrl
+                        : string.Equals(code, "page_auto_post_media", StringComparison.OrdinalIgnoreCase) &&
+                          composerUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                            ? composerUrl
+                            : string.Equals(code, "page_auto_share_curated", StringComparison.OrdinalIgnoreCase) &&
+                              shareSourceUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                                ? shareSourceUrl
+                                : meta.Url;
+                prevStepCode = code;
 
                 if (idx > 0 || (!string.Equals(code, "scroll_feed", StringComparison.OrdinalIgnoreCase) && !string.Equals(code, "feed", StringComparison.OrdinalIgnoreCase)))
                 {
