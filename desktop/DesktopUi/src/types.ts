@@ -220,6 +220,10 @@ export interface WebAutomationConfigDto {
   autoInvitePageFollowersOnWarmup: boolean
   maxPageFollowerInvitesPerRun: number
   totalPageFollowerInvitesSent: number
+  autoSilentInviteEnabled?: boolean
+  autoSilentInviteIntervalMinutes?: number
+  lastAutoSilentInviteLocal?: string
+  isSilentInviteRunning?: boolean
   autoDailyVaultBackup: boolean
   autoPilotScheduleTimesCsv: string
   preCheckProxyBeforeLaunch: boolean

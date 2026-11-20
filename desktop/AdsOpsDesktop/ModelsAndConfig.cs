@@ -221,6 +221,10 @@ public sealed class DesktopConfig
     public bool EnableWebRtcLeakShield { get; set; } = true;
     public bool EnableProxyGeoLocaleSync { get; set; } = true;
     public Dictionary<string, ViaEnvOverrideItem> ViaEnvOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    // v3.6.0 Silent Background Auto-Invite (Off-screen CDP) & Scheduled Auto-Detect/Invite
+    public bool AutoSilentInviteEnabled { get; set; } = false;
+    public int AutoSilentInviteIntervalMinutes { get; set; } = 60;
+    public string LastAutoSilentInviteUtc { get; set; } = "";
 
     [JsonIgnore]
     public string AccessToken
@@ -2925,8 +2929,8 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "3.5.0";
-    public const string DisplayVersion = "v3.5.0";
+    public const string Version = "3.6.0";
+    public const string DisplayVersion = "v3.6.0";
     public const string ExtVersion = "2.10.2";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 

@@ -740,6 +740,10 @@ internal sealed partial class MainWindow
                 AutoInvitePageFollowersOnWarmup = _config.AutoInvitePageFollowersOnWarmup,
                 MaxPageFollowerInvitesPerRun = _config.MaxPageFollowerInvitesPerRun,
                 TotalPageFollowerInvitesSent = _config.TotalPageFollowerInvitesSent,
+                AutoSilentInviteEnabled = _config.AutoSilentInviteEnabled,
+                AutoSilentInviteIntervalMinutes = Math.Clamp(_config.AutoSilentInviteIntervalMinutes, 15, 480),
+                LastAutoSilentInviteLocal = AlertItemDto.FormatIsoTimestampLocal(_config.LastAutoSilentInviteUtc, "Chưa chạy"),
+                IsSilentInviteRunning = IsSilentInviteRunning,
                 AutoDailyVaultBackup = _config.AutoDailyVaultBackup,
                 AutoPilotScheduleTimesCsv = _config.AutoPilotScheduleTimesCsv ?? "08:30, 20:00",
                 PreCheckProxyBeforeLaunch = _config.PreCheckProxyBeforeLaunch,
@@ -2171,6 +2175,42 @@ internal sealed partial class MainWindow
                             var mode = GetStr(root, "mode", _config.PageNurtureMode).ToLowerInvariant();
                             var viaBrowser = GetBool(root, "viaBrowser", true);
                             StartPageNurtureBatchQueue(mode, viaBrowser);
+                            break;
+                        }
+
+                    case "save_silent_invite_config":
+                        {
+                            _config.AutoSilentInviteEnabled = GetBool(root, "enabled", _config.AutoSilentInviteEnabled);
+                            _config.AutoSilentInviteIntervalMinutes = Math.Clamp(GetInt(root, "intervalMinutes", _config.AutoSilentInviteIntervalMinutes), 15, 480);
+                            _config.Save();
+                            _webUiConfigRev++;
+                            AppendLog(_config.AutoSilentInviteEnabled
+                                ? $"🤖 Đã BẬT Tự động Quét & Mời Follow chạy ẩn định kỳ (mỗi {_config.AutoSilentInviteIntervalMinutes} phút, 08:00–22:00)."
+                                : "⏸️ Đã TẮT Tự động Quét & Mời Follow chạy ẩn định kỳ.");
+                            PushOverviewStateToWebView();
+                            break;
+                        }
+
+                    case "silent_invite_single_page":
+                        {
+                            var pg = (_pagesSummary?.Items ?? new()).FirstOrDefault(p => string.Equals(p.Id, GetStr(root, "pageId"), StringComparison.OrdinalIgnoreCase));
+                            if (pg != null)
+                            {
+                                _ = RunSilentInviteSinglePageAsync(pg);
+                            }
+                            break;
+                        }
+
+                    case "silent_invite_batch_pages":
+                        {
+                            _ = RunSilentInviteBatchPagesAsync(isScheduled: false);
+                            break;
+                        }
+
+                    case "cancel_silent_invite":
+                        {
+                            CancelSilentInviteIfRunning();
+                            PushOverviewStateToWebView();
                             break;
                         }
 

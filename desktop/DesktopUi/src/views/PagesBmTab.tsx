@@ -396,9 +396,73 @@ export function PagesBmTab({ state }: { state: AppShellWebStateDto }) {
             <Button size="sm" onClick={() => sendDesktopCommand('batch_invite_followers')}>
               <UserPlus className="h-3.5 w-3.5" /> Mời Follow Lô
             </Button>
+            {state.automationConfig.isSilentInviteRunning ? (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => sendDesktopCommand('cancel_silent_invite')}
+              >
+                <Square className="h-3.5 w-3.5" /> Dừng Mời Ẩn
+              </Button>
+            ) : (
+              <Button
+                variant="secondary"
+                size="sm"
+                className="border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/15"
+                onClick={() => sendDesktopCommand('silent_invite_batch_pages')}
+                title="Chạy ẩn hoàn toàn ngoài màn hình (không bật Chrome che việc làm), tự quét cả 2 tab Cảm xúc & Bình luận rồi báo số người đã mời"
+              >
+                👻 Mời Ẩn Lô
+              </Button>
+            )}
             <Button variant="secondary" size="sm" onClick={() => sendDesktopCommand('batch_warmup_pages')}>
               <Sparkles className="h-3.5 w-3.5 text-emerald-400" /> Nuôi lô (Max 10)
             </Button>
+          </div>
+
+          {/* Silent Background Auto-Invite Scheduler Bar (v3.6.0) */}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <Switch
+                id="auto-silent-invite"
+                checked={Boolean(state.automationConfig.autoSilentInviteEnabled)}
+                onCheckedChange={(checked) =>
+                  sendDesktopCommand('save_silent_invite_config', {
+                    enabled: checked,
+                    intervalMinutes: state.automationConfig.autoSilentInviteIntervalMinutes ?? 60,
+                  })
+                }
+              />
+              <Label htmlFor="auto-silent-invite" className="cursor-pointer text-xs font-medium text-emerald-200">
+                🤖 Tự động Quét &amp; Mời Follow chạy ẩn định kỳ (không mở cửa sổ, chỉ báo thông báo số người mời được)
+              </Label>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                value={String(state.automationConfig.autoSilentInviteIntervalMinutes ?? 60)}
+                onValueChange={(val) =>
+                  sendDesktopCommand('save_silent_invite_config', {
+                    enabled: Boolean(state.automationConfig.autoSilentInviteEnabled),
+                    intervalMinutes: Number(val) || 60,
+                  })
+                }
+              >
+                <SelectTrigger className="h-7 w-28 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="30">Mỗi 30 phút</SelectItem>
+                  <SelectItem value="60">Mỗi 60 phút</SelectItem>
+                  <SelectItem value="120">Mỗi 2 giờ</SelectItem>
+                  <SelectItem value="240">Mỗi 4 giờ</SelectItem>
+                </SelectContent>
+              </Select>
+              <Badge variant="secondary" className="font-mono text-[10px]">
+                {state.automationConfig.isSilentInviteRunning
+                  ? '⏳ Đang quét & mời ẩn...'
+                  : `Gần nhất: ${state.automationConfig.lastAutoSilentInviteLocal || 'Chưa chạy'}`}
+              </Badge>
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-1.5">
@@ -593,6 +657,15 @@ function FanpageRowCard({
           >
             <UserPlus className="h-3 w-3" />
             Mời Follow{page.pendingInviteCount ? ` (${page.pendingInviteCount})` : ''}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="h-7 border border-emerald-500/35 px-2 text-xs text-emerald-300 hover:bg-emerald-500/15"
+            onClick={() => sendDesktopCommand('silent_invite_single_page', { pageId: page.id })}
+            title="Chạy ẩn hoàn toàn không mở cửa sổ che màn hình — tự quét Cảm xúc & Bình luận, bấm gửi mời rồi báo kết quả"
+          >
+            👻 Mời Ẩn
           </Button>
           <Button
             variant="secondary"

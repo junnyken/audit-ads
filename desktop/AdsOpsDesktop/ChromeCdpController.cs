@@ -416,4 +416,263 @@ public static class ChromeCdpController
             return false;
         }
     }
+
+    public sealed record SilentMbsInviteResult(
+        bool Ok,
+        bool NeedsLogin,
+        int DetectedPending,
+        int InvitedSent,
+        string Detail);
+
+    /// <summary>
+    /// Executes Meta Business Suite auto-invite completely off-screen via CDP Runtime.evaluate:
+    /// detects login wall, opens the reactor/comment invite modal, processes BOTH "Cảm xúc" &amp; "Bình luận" tabs,
+    /// clicks Select All + "Gửi lời mời (N)", and returns structured counts.
+    /// </summary>
+    public static async Task<SilentMbsInviteResult> RunSilentMbsAutoInviteAsync(
+        int cdpPort,
+        int maxInvites,
+        CancellationToken ct = default)
+    {
+        if (cdpPort <= 0)
+        {
+            return new SilentMbsInviteResult(false, false, 0, 0, "Cổng CDP không hợp lệ.");
+        }
+
+        try
+        {
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            linkedCts.CancelAfter(TimeSpan.FromSeconds(42));
+            var token = linkedCts.Token;
+
+            var browserWsUrl = await PollBrowserWsUrlAsync(cdpPort, 6000, token).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(browserWsUrl))
+            {
+                return new SilentMbsInviteResult(false, false, 0, 0, "Không kết nối được phiên CDP Chrome chạy ẩn.");
+            }
+            string? pageWsUrl;
+            using (var browserWs = new ClientWebSocket())
+            {
+                await browserWs.ConnectAsync(new Uri(browserWsUrl), token).ConfigureAwait(false);
+                pageWsUrl = await FindOrCreatePageTargetWsUrlAsync(browserWs, cdpPort, 5000, token).ConfigureAwait(false);
+            }
+            if (string.IsNullOrWhiteSpace(pageWsUrl))
+            {
+                return new SilentMbsInviteResult(false, false, 0, 0, "Không tìm thấy tab CDP Meta Business Suite.");
+            }
+
+            using var ws = new ClientWebSocket();
+            await ws.ConnectAsync(new Uri(pageWsUrl), token).ConfigureAwait(false);
+
+            var clampedMax = Math.Clamp(maxInvites, 1, 50);
+            var js = $$"""
+            (async () => {
+              const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+              const maxInv = {{clampedMax}};
+              const parseParen = (txt) => {
+                const m = String(txt || '').match(/\((\d+)\)/);
+                return m ? parseInt(m[1], 10) : 0;
+              };
+              const isVisible = (el) => {
+                if (!el) return false;
+                const r = el.getBoundingClientRect();
+                return r.width > 2 && r.height > 2;
+              };
+              const findByText = (root, predicate) => {
+                const nodes = Array.from((root || document).querySelectorAll('button,[role="button"],[role="tab"],a,span,div'));
+                return nodes.filter((el) => {
+                  const t = (el.innerText || el.textContent || '').trim();
+                  return t.length > 0 && t.length <= 160 && isVisible(el) && predicate(t, el);
+                });
+              };
+
+              // 1. Wait for MBS page load (up to 16s)
+              for (let i = 0; i < 32; i++) {
+                const href = String(location.href || '').toLowerCase();
+                if (href.includes('/login') || document.querySelector('input[name="email"], input[name="pass"]')) {
+                  return JSON.stringify({ ok: false, needsLogin: true, detectedPending: 0, invitedSent: 0, detail: 'Chưa đăng nhập Facebook trong Chrome Cô lập (hãy lưu Cookie vào Két DPAPI hoặc đăng nhập 1 lần).' });
+                }
+                const txt = (document.body?.innerText || '').toLowerCase();
+                if (txt.includes('bày tỏ cảm xúc') || txt.includes('reacted to your content') || txt.includes('gửi lời mời') || txt.includes('send invitations')) {
+                  break;
+                }
+                if (i === 10 || i === 18) window.scrollBy(0, 500);
+                await sleep(500);
+              }
+
+              // 2. Locate the "Tiếp cận những người đã bày tỏ cảm xúc" card & click its "Gửi lời mời" button
+              let dialog = document.querySelector('[role="dialog"]');
+              let cardDetected = 0;
+              if (!dialog) {
+                const anchors = findByText(document, (t) => {
+                  const l = t.toLowerCase();
+                  return l.includes('tiếp cận những người đã bày tỏ cảm xúc') || l.includes('reach people who reacted');
+                });
+                if (anchors.length === 0) {
+                  return JSON.stringify({ ok: true, needsLogin: false, detectedPending: 0, invitedSent: 0, detail: 'Hiện không có mục người bày tỏ cảm xúc/bình luận cần mời.' });
+                }
+                const anchorRect = anchors[0].getBoundingClientRect();
+                // Try reading small integer near anchor
+                const nums = findByText(document, (t) => /^\d{1,4}$/.test(t));
+                for (const n of nums) {
+                  const r = n.getBoundingClientRect();
+                  if (r.top >= anchorRect.top - 10 && r.top <= anchorRect.bottom + 170 && Math.abs(r.left - anchorRect.left) <= 280) {
+                    cardDetected = Math.max(cardDetected, parseInt(n.innerText.trim(), 10) || 0);
+                  }
+                }
+                const sendBtns = findByText(document, (t) => {
+                  const l = t.toLowerCase();
+                  return (l === 'gửi lời mời' || l === 'send invitations' || l === 'send invite') && !l.includes('bạn bè') && !l.includes('friends');
+                }).filter((el) => {
+                  const r = el.getBoundingClientRect();
+                  return r.top >= anchorRect.top - 40 && r.top <= anchorRect.bottom + 180;
+                });
+                if (sendBtns.length === 0) {
+                  return JSON.stringify({ ok: true, needsLogin: false, detectedPending: cardDetected, invitedSent: 0, detail: 'Hiện có 0 người cần mời theo dõi.' });
+                }
+                sendBtns[0].click();
+                for (let w = 0; w < 14; w++) {
+                  await sleep(350);
+                  dialog = document.querySelector('[role="dialog"]');
+                  if (dialog) break;
+                }
+              }
+
+              if (!dialog) {
+                return JSON.stringify({ ok: true, needsLogin: false, detectedPending: cardDetected, invitedSent: 0, detail: 'Không mở được hộp thoại mời theo dõi (có thể đã hết người cần mời).' });
+              }
+
+              // 3. Process BOTH tabs inside modal: Reactions ("Cảm xúc") and Comments ("Bình luận")
+              const processActiveTab = async () => {
+                await sleep(500);
+                const dlg = document.querySelector('[role="dialog"]');
+                if (!dlg) return { detected: 0, sent: 0 };
+
+                const selectAll = findByText(dlg, (t) => {
+                  const l = t.toLowerCase();
+                  return l.startsWith('chọn tất cả') || l.startsWith('select all');
+                });
+                const checkboxes = Array.from(dlg.querySelectorAll('input[type="checkbox"], [role="checkbox"]')).filter(isVisible);
+                let checkedNow = checkboxes.filter((cb) => cb.checked || cb.getAttribute('aria-checked') === 'true').length;
+
+                if (checkedNow === 0 && selectAll.length > 0) {
+                  selectAll[0].click();
+                  await sleep(450);
+                  const refreshed = Array.from(dlg.querySelectorAll('input[type="checkbox"], [role="checkbox"]')).filter(isVisible);
+                  checkedNow = refreshed.filter((cb) => cb.checked || cb.getAttribute('aria-checked') === 'true').length;
+                }
+                if (checkedNow === 0 && checkboxes.length > 0) {
+                  const lim = Math.min(maxInv, checkboxes.length);
+                  for (let i = 0; i < lim; i++) {
+                    checkboxes[i].click();
+                    await sleep(90);
+                  }
+                  checkedNow = lim;
+                }
+
+                await sleep(500);
+                const finalBtns = findByText(dlg, (t) => {
+                  const l = t.toLowerCase();
+                  return (l.startsWith('gửi lời mời') || l.startsWith('send invitation') || l.startsWith('send invite'))
+                    && !l.includes('bạn bè') && !l.includes('friends');
+                }).sort((a, b) => parseParen(b.innerText) - parseParen(a.innerText));
+
+                if (finalBtns.length > 0) {
+                  const btn = finalBtns[0];
+                  const btnCount = parseParen(btn.innerText);
+                  const eff = Math.max(btnCount, checkedNow);
+                  const disabled = btn.disabled || btn.getAttribute('aria-disabled') === 'true';
+                  if (eff > 0 && !disabled) {
+                    btn.click();
+                    await sleep(1100);
+                    return { detected: eff, sent: eff };
+                  }
+                }
+                return { detected: checkedNow, sent: 0 };
+              };
+
+              let totalDetected = cardDetected;
+              let totalSent = 0;
+
+              // Read tab headers before clicking
+              const reactTabs = findByText(dialog, (t) => {
+                const l = t.toLowerCase();
+                return l.startsWith('cảm xúc') || l.startsWith('reactions');
+              });
+              const commentTabs = findByText(dialog, (t) => {
+                const l = t.toLowerCase();
+                return l.startsWith('bình luận') || l.startsWith('comments');
+              });
+              const rCnt = reactTabs.length > 0 ? parseParen(reactTabs[0].innerText) : 0;
+              const cCnt = commentTabs.length > 0 ? parseParen(commentTabs[0].innerText) : 0;
+              totalDetected = Math.max(totalDetected, rCnt + cCnt);
+
+              // First process currently active tab
+              const res1 = await processActiveTab();
+              totalDetected = Math.max(totalDetected, res1.detected);
+              totalSent += res1.sent;
+
+              // If Comments tab still has pending people & modal still open, switch to Comments tab and invite too
+              const dlgAfter = document.querySelector('[role="dialog"]');
+              if (dlgAfter && cCnt > 0) {
+                const cTabs2 = findByText(dlgAfter, (t) => {
+                  const l = t.toLowerCase();
+                  return l.startsWith('bình luận') || l.startsWith('comments');
+                });
+                if (cTabs2.length > 0) {
+                  const alreadySelected = cTabs2[0].getAttribute('aria-selected') === 'true';
+                  if (!alreadySelected || res1.sent === 0) {
+                    cTabs2[0].click();
+                    const res2 = await processActiveTab();
+                    totalDetected = Math.max(totalDetected, res1.detected + res2.detected);
+                    totalSent += res2.sent;
+                  }
+                }
+              }
+
+              return JSON.stringify({
+                ok: true,
+                needsLogin: false,
+                detectedPending: Math.max(totalDetected, totalSent),
+                invitedSent: totalSent,
+                detail: totalSent > 0
+                  ? `Đã mời ẩn thành công ${totalSent} người (Cảm xúc: ${rCnt} • Bình luận: ${cCnt}).`
+                  : `Hiện có ${Math.max(totalDetected, 0)} người cần mời.`
+              });
+            })();
+            """;
+
+            var evalResp = await SendCdpCommandAsync(
+                ws,
+                2,
+                "Runtime.evaluate",
+                new { expression = js, awaitPromise = true, returnByValue = true },
+                token).ConfigureAwait(false);
+
+            if (evalResp.TryGetProperty("result", out var resObj) &&
+                resObj.TryGetProperty("result", out var innerObj) &&
+                innerObj.TryGetProperty("value", out var valEl) &&
+                valEl.ValueKind == JsonValueKind.String)
+            {
+                var rawJson = valEl.GetString();
+                if (!string.IsNullOrWhiteSpace(rawJson))
+                {
+                    using var doc = JsonDocument.Parse(rawJson);
+                    var r = doc.RootElement;
+                    bool ok = r.TryGetProperty("ok", out var okEl) && okEl.GetBoolean();
+                    bool needsLogin = r.TryGetProperty("needsLogin", out var nlEl) && nlEl.GetBoolean();
+                    int detected = r.TryGetProperty("detectedPending", out var dpEl) ? dpEl.GetInt32() : 0;
+                    int sent = r.TryGetProperty("invitedSent", out var isEl) ? isEl.GetInt32() : 0;
+                    string detail = r.TryGetProperty("detail", out var dtEl) ? (dtEl.GetString() ?? "") : "";
+                    return new SilentMbsInviteResult(ok, needsLogin, detected, sent, detail);
+                }
+            }
+
+            return new SilentMbsInviteResult(false, false, 0, 0, "Không đọc được phản hồi từ phiên chạy ẩn MBS.");
+        }
+        catch (Exception ex)
+        {
+            return new SilentMbsInviteResult(false, false, 0, 0, $"Lỗi chạy ẩn MBS: {ex.Message}");
+        }
+    }
 }

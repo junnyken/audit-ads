@@ -3279,6 +3279,233 @@ internal sealed partial class MainWindow : Window
         return null;
     }
 
+    private volatile bool _isSilentInviteRunning;
+    private CancellationTokenSource? _silentInviteCts;
+    internal bool IsSilentInviteRunning => _isSilentInviteRunning;
+
+    internal void CancelSilentInviteIfRunning()
+    {
+        try { _silentInviteCts?.Cancel(); } catch { }
+    }
+
+    internal async Task<ChromeCdpController.SilentMbsInviteResult> ExecuteSilentInviteForPageCoreAsync(
+        FanpageItemDto page,
+        CancellationToken ct)
+    {
+        var via = ResolveEffectiveViaForPage(page);
+        if (via == null)
+        {
+            return new ChromeCdpController.SilentMbsInviteResult(false, false, 0, 0, $"Không tìm thấy Via cầm Page '{page.Name}'.");
+        }
+        if (string.IsNullOrWhiteSpace(page.ExternalPageId))
+        {
+            return new ChromeCdpController.SilentMbsInviteResult(false, false, 0, 0, $"Page '{page.Name}' chưa có ID Facebook.");
+        }
+
+        var mbsUrl = $"https://business.facebook.com/latest/home?asset_id={Uri.EscapeDataString(page.ExternalPageId)}";
+        var vaultSecret = LocalSecretVaultStore.Default.Find(via.ViaId, via.ProfileDir, via.Label);
+        var envProf = ResolveViaEnvironmentProfileFor(via);
+
+        int? launchedPid = null;
+        int? launchedCdpPort = null;
+        try
+        {
+            var launch = await ExtensionProvisioner.LaunchChromeSmartAsync(
+                mbsUrl,
+                via.ProfileDir,
+                via.ExtensionFolder,
+                isolatedMode: true,
+                viaSlug: via.Label,
+                antidetectShield: _config.EnableChromeAntidetectShield,
+                lowRamMode: true,
+                vaultCookieRaw: vaultSecret.CookieRaw,
+                envProfile: envProf,
+                hiddenOffscreen: true).ConfigureAwait(false);
+
+            launchedPid = launch.Pid;
+            launchedCdpPort = launch.CdpPort;
+            if (!launch.CdpPort.HasValue || launch.CdpPort.Value <= 0)
+            {
+                return new ChromeCdpController.SilentMbsInviteResult(false, false, 0, 0, "Không khởi tạo được phiên Chrome Cô lập chạy ẩn.");
+            }
+
+            var res = await ChromeCdpController.RunSilentMbsAutoInviteAsync(
+                launch.CdpPort.Value,
+                Math.Clamp(_config.MaxPageFollowerInvitesPerRun, 5, 50),
+                ct).ConfigureAwait(false);
+
+            if (res.Ok)
+            {
+                if (res.InvitedSent > 0)
+                {
+                    _config.TotalPageFollowerInvitesSent += res.InvitedSent;
+                    _config.Save();
+                    SetPagePendingInviteCount(page, 0, renderNow: true);
+                }
+                else
+                {
+                    SetPagePendingInviteCount(page, res.DetectedPending, renderNow: true);
+                }
+            }
+            return res;
+        }
+        finally
+        {
+            if (launchedCdpPort is > 0)
+            {
+                try { await ChromeCdpController.CloseBrowserGracefullyAsync(launchedCdpPort.Value, 1500).ConfigureAwait(false); } catch { }
+            }
+            if (launchedPid is > 0)
+            {
+                try
+                {
+                    using var p = Process.GetProcessById(launchedPid.Value);
+                    if (!p.HasExited) p.Kill(entireProcessTree: true);
+                }
+                catch { }
+            }
+        }
+    }
+
+    internal async Task RunSilentInviteSinglePageAsync(FanpageItemDto page)
+    {
+        if (_isSilentInviteRunning)
+        {
+            AppendLog("⏳ Đang có phiên Mời Ẩn khác chạy ngầm. Vui lòng đợi vài giây...");
+            return;
+        }
+        _isSilentInviteRunning = true;
+        _silentInviteCts?.Dispose();
+        _silentInviteCts = new CancellationTokenSource();
+        var ct = _silentInviteCts.Token;
+
+        AppendLog($"👻 [Mời Ẩn] Đang quét & tự mời ngầm cho Page '{page.Name}' (không mở cửa sổ che màn hình)...");
+        PushOverviewStateToWebView();
+
+        try
+        {
+            var res = await ExecuteSilentInviteForPageCoreAsync(page, ct);
+            if (res.NeedsLogin)
+            {
+                AppendLog($"⚠️ [Mời Ẩn] Page '{page.Name}': {res.Detail}");
+                _tray?.ShowBalloon("👻 Mời Ẩn cần Cookie đăng nhập", $"Page '{page.Name}': hãy lưu Cookie của Via vào Két DPAPI hoặc đăng nhập 1 lần trong Chrome Cô lập.", 4500, error: true);
+            }
+            else if (res.InvitedSent > 0)
+            {
+                AppendLog($"✅ [Mời Ẩn] Page '{page.Name}': Đã tự động mời thành công {res.InvitedSent} người theo dõi!");
+                _tray?.ShowBalloon("✅ Mời Ẩn Thành Công", $"Page '{page.Name}': đã tự động mời {res.InvitedSent} người theo dõi!", 4000, error: false);
+            }
+            else if (res.Ok)
+            {
+                AppendLog($"👻 [Mời Ẩn] Page '{page.Name}': {res.Detail}");
+                _tray?.ShowBalloon("👻 Mời Ẩn Hoàn Tất", $"Page '{page.Name}': {res.Detail}", 3000, error: false);
+            }
+            else
+            {
+                AppendLog($"⚠️ [Mời Ẩn] Page '{page.Name}': {res.Detail}");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            AppendLog($"⏹️ [Mời Ẩn] Đã dừng phiên chạy ẩn cho Page '{page.Name}'.");
+        }
+        finally
+        {
+            _isSilentInviteRunning = false;
+            PushOverviewStateToWebView();
+        }
+    }
+
+    internal async Task RunSilentInviteBatchPagesAsync(bool isScheduled = false)
+    {
+        if (_isSilentInviteRunning)
+        {
+            if (!isScheduled) AppendLog("⏳ Đang có phiên Mời Ẩn khác chạy ngầm.");
+            return;
+        }
+        var livePages = (_pagesSummary?.Items ?? new())
+            .Where(p => string.Equals(p.HealthStatus, "LIVE", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(p.ExternalPageId))
+            .ToList();
+        if (livePages.Count == 0)
+        {
+            if (!isScheduled) AppendLog("⚠️ Chưa có Fanpage LIVE nào để chạy Mời Ẩn.");
+            return;
+        }
+
+        _isSilentInviteRunning = true;
+        _silentInviteCts?.Dispose();
+        _silentInviteCts = new CancellationTokenSource();
+        var ct = _silentInviteCts.Token;
+
+        _config.LastAutoSilentInviteUtc = DateTimeOffset.UtcNow.ToString("o", CultureInfo.InvariantCulture);
+        _config.Save();
+
+        var tag = isScheduled ? "Tự động định kỳ" : "Lô thủ công";
+        AppendLog($"👻 [Mời Ẩn • {tag}] Bắt đầu quét & tự mời ngầm {livePages.Count} Fanpage LIVE (0% che màn hình)...");
+        PushOverviewStateToWebView();
+
+        int totalInvited = 0;
+        int pagesWithInvites = 0;
+        int needsLoginCount = 0;
+
+        try
+        {
+            for (int i = 0; i < livePages.Count && !ct.IsCancellationRequested; i++)
+            {
+                var pg = livePages[i];
+                var res = await ExecuteSilentInviteForPageCoreAsync(pg, ct);
+                if (res.NeedsLogin)
+                {
+                    needsLoginCount++;
+                    AppendLog($"⚠️ [Mời Ẩn] ({i + 1}/{livePages.Count}) '{pg.Name}': chưa có phiên đăng nhập trong Chrome Cô lập / Két Cookie.");
+                }
+                else if (res.InvitedSent > 0)
+                {
+                    totalInvited += res.InvitedSent;
+                    pagesWithInvites++;
+                    AppendLog($"✅ [Mời Ẩn] ({i + 1}/{livePages.Count}) '{pg.Name}': đã mời thành công {res.InvitedSent} người!");
+                }
+                else
+                {
+                    AppendLog($"👻 [Mời Ẩn] ({i + 1}/{livePages.Count}) '{pg.Name}': 0 người mới cần mời.");
+                }
+
+                PushOverviewStateToWebView();
+                if (i + 1 < livePages.Count && !ct.IsCancellationRequested)
+                {
+                    await Task.Delay(Random.Shared.Next(8000, 15000), ct);
+                }
+            }
+
+            if (totalInvited > 0)
+            {
+                AppendLog($"🎉 [Mời Ẩn • {tag}] Hoàn tất: đã tự động mời thành công tổng cộng {totalInvited} người trên {pagesWithInvites}/{livePages.Count} Fanpage!");
+                _tray?.ShowBalloon(
+                    "🎉 Mời Ẩn Tự Động Thành Công",
+                    $"Đã tự động mời {totalInvited} người theo dõi trên {pagesWithInvites} Fanpage (chạy ẩn hoàn toàn).",
+                    5000,
+                    error: false);
+            }
+            else if (!isScheduled)
+            {
+                var msg = needsLoginCount == livePages.Count
+                    ? "Các Via chưa lưu Cookie vào Két DPAPI / chưa đăng nhập Chrome Cô lập để chạy ẩn."
+                    : $"Đã quét ẩn {livePages.Count} Page — hiện chưa có người mới cần mời.";
+                AppendLog($"👻 [Mời Ẩn] {msg}");
+                _tray?.ShowBalloon("👻 Mời Ẩn Hoàn Tất", msg, 3500, error: needsLoginCount == livePages.Count);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            AppendLog($"⏹️ [Mời Ẩn] Đã dừng lô chạy ẩn (đã mời được {totalInvited} người).");
+        }
+        finally
+        {
+            _isSilentInviteRunning = false;
+            PushOverviewStateToWebView();
+        }
+    }
+
     internal static int TryExtractParenthesizedCount(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return 0;
@@ -3975,6 +4202,26 @@ internal sealed partial class MainWindow : Window
         }
 
         if (now.Hour < _config.AutoKeepAliveStartHour || now.Hour >= _config.AutoKeepAliveEndHour) return;
+
+        // v3.6.0 Scheduled Silent Background Auto-Invite (runs off-screen without opening visible Chrome)
+        if (_config.AutoSilentInviteEnabled && !_isSilentInviteRunning && !IsAutoInviteRunning)
+        {
+            int intervalMin = Math.Clamp(_config.AutoSilentInviteIntervalMinutes, 15, 480);
+            bool dueSilent = true;
+            if (!string.IsNullOrWhiteSpace(_config.LastAutoSilentInviteUtc) &&
+                DateTimeOffset.TryParse(_config.LastAutoSilentInviteUtc, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var lastSilentDto))
+            {
+                if ((DateTimeOffset.UtcNow - lastSilentDto).TotalMinutes < intervalMin)
+                {
+                    dueSilent = false;
+                }
+            }
+            if (dueSilent)
+            {
+                _ = RunSilentInviteBatchPagesAsync(isScheduled: true);
+                return;
+            }
+        }
 
         if (_config.AutoDailyFullPipeline && string.IsNullOrWhiteSpace(_config.AutoPilotScheduleTimesCsv))
         {

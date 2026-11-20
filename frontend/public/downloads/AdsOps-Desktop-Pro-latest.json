@@ -1,13 +1,13 @@
 ﻿{
-    "version":  "3.5.0",
+    "version":  "3.6.0",
     "ext_version":  "2.10.2",
     "authenticode_signed":  true,
     "download_url":  "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
     "mirror_urls":  [
                         "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
                     ],
-    "sha256":  "2cd68d6a7eceb1946749e7836111d0979602492bb6dce8fabd20cf07b0b97230",
-    "size_bytes":  67783518,
-    "published_at":  "2026-11-20T03:46:40.1054155Z",
-    "release_notes":  "AdsOps Desktop Pro v3.5.0 (Per-Via Chrome Environment Isolation: 4 Window Sizes + Proxy Geo Lang/TZ + WebRTC Lock, Multi-Site Cookie Robot, 5 Care Presets, MBS 2-Tab Reactions+Comments Auto-Invite Fix) + Companion v2.10.2."
+    "sha256":  "856ba53a24e505d7674e496087f3b181d2120fe18b55cbc37dda0c3fea56a228",
+    "size_bytes":  67792680,
+    "published_at":  "2026-11-20T04:13:51.2057487Z",
+    "release_notes":  "AdsOps Desktop Pro v3.6.0 (Silent Background Auto-Invite via Off-Screen Chrome CDP + Scheduled Auto-Detect \u0026 Invite with Tray Notifications, Per-Via Chrome Env Isolation, Multi-Site Cookie Robot, 5 Care Presets) + Companion v2.10.2."
 }

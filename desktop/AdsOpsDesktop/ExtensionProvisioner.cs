@@ -716,7 +716,8 @@ public static class ExtensionProvisioner
         bool lowRamMode = true,
         int? cdpPort = null,
         bool startBlankForCdpBootstrap = false,
-        ViaEnvironmentProfile? envProfile = null)
+        ViaEnvironmentProfile? envProfile = null,
+        bool hiddenOffscreen = false)
     {
         if (string.IsNullOrWhiteSpace(url) || !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
@@ -725,6 +726,11 @@ public static class ExtensionProvisioner
         var safeProfile = SafeProfileDirRegex.IsMatch(profileDir ?? "") ? profileDir! : "Default";
         var effectiveEnv = envProfile ?? ResolveViaEnvironmentProfile(viaSlug, safeProfile);
         var args = new List<string>();
+
+        if (hiddenOffscreen)
+        {
+            args.Add("--window-position=-32000,-32000");
+        }
 
         if (isolatedMode)
         {
@@ -897,7 +903,8 @@ public static class ExtensionProvisioner
         bool antidetectShield = true,
         bool lowRamMode = true,
         string? vaultCookieRaw = null,
-        ViaEnvironmentProfile? envProfile = null)
+        ViaEnvironmentProfile? envProfile = null,
+        bool hiddenOffscreen = false)
     {
         var effectiveEnv = envProfile ?? ResolveViaEnvironmentProfile(viaSlug, profileDir);
         if (isolatedMode)
@@ -913,13 +920,15 @@ public static class ExtensionProvisioner
                 lowRamMode: lowRamMode,
                 cdpPort: cdpPort,
                 startBlankForCdpBootstrap: true,
-                envProfile: effectiveEnv);
+                envProfile: effectiveEnv,
+                hiddenOffscreen: hiddenOffscreen);
             var chromeExe = FindChromeExecutable() ?? "chrome.exe";
             var useDirectExec = File.Exists(chromeExe);
             var psi = new ProcessStartInfo
             {
                 FileName = chromeExe,
                 UseShellExecute = !useDirectExec,
+                WindowStyle = hiddenOffscreen ? ProcessWindowStyle.Minimized : ProcessWindowStyle.Normal,
             };
             if (!psi.UseShellExecute && !string.IsNullOrWhiteSpace(effectiveEnv.IanaTimezone))
             {

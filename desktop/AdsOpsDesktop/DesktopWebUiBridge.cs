@@ -281,6 +281,10 @@ public sealed class WebAutomationConfigDto
     public bool AutoInvitePageFollowersOnWarmup { get; set; } = true;
     public int MaxPageFollowerInvitesPerRun { get; set; } = 25;
     public int TotalPageFollowerInvitesSent { get; set; }
+    public bool AutoSilentInviteEnabled { get; set; }
+    public int AutoSilentInviteIntervalMinutes { get; set; } = 60;
+    public string LastAutoSilentInviteLocal { get; set; } = "Chưa chạy";
+    public bool IsSilentInviteRunning { get; set; }
     public bool AutoDailyVaultBackup { get; set; } = true;
     public string AutoPilotScheduleTimesCsv { get; set; } = "08:30, 20:00";
     public bool PreCheckProxyBeforeLaunch { get; set; } = true;

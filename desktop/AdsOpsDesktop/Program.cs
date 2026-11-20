@@ -2091,9 +2091,9 @@ internal static class Program
                 }
             }
 
-            // 35. v3.5.0 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
+            // 35. v3.6.0 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
             {
-                if (DesktopAppInfo.Version != "3.5.0" || DesktopAppInfo.ExtVersion != "2.10.2")
+                if (DesktopAppInfo.Version != "3.6.0" || DesktopAppInfo.ExtVersion != "2.10.2")
                 {
                     throw new InvalidOperationException(
                         $"DesktopAppInfo version mismatch: app={DesktopAppInfo.Version}, ext={DesktopAppInfo.ExtVersion}");
@@ -2143,7 +2143,7 @@ internal static class Program
                 foreach (var reqKey in new[]
                          {
                              "\"type\":\"full_state\"",
-                             "\"appVersion\":\"3.5.0\"",
+                             "\"appVersion\":\"3.6.0\"",
                              "\"extVersion\":\"2.10.2\"",
                              "\"activeView\":\"settings\"",
                              "\"totpMap\"",
@@ -2375,6 +2375,32 @@ internal static class Program
                     MainWindow.TryExtractParenthesizedCount("Cảm xúc") != 0)
                 {
                     throw new InvalidOperationException("TryExtractParenthesizedCount failed.");
+                }
+            }
+
+            // 39. v3.6.0 Silent Background Auto-Invite (Off-Screen Chrome CDP) Verification
+            {
+                var hiddenArgs = ExtensionProvisioner.BuildChromeArguments(
+                    "https://business.facebook.com/latest/home?asset_id=1036780049521757",
+                    "Profile 4",
+                    null,
+                    isolatedMode: true,
+                    viaSlug: "Via Hidden",
+                    antidetectShield: true,
+                    lowRamMode: true,
+                    cdpPort: 59999,
+                    startBlankForCdpBootstrap: true,
+                    hiddenOffscreen: true);
+                if (!hiddenArgs.Contains("--window-position=-32000,-32000") ||
+                    !hiddenArgs.Contains("--remote-debugging-port=59999"))
+                {
+                    throw new InvalidOperationException("BuildChromeArguments(hiddenOffscreen: true) missing off-screen/CDP flags.");
+                }
+
+                var sampleSilent = new ChromeCdpController.SilentMbsInviteResult(true, false, 4, 4, "OK");
+                if (!sampleSilent.Ok || sampleSilent.InvitedSent != 4)
+                {
+                    throw new InvalidOperationException("SilentMbsInviteResult mismatch.");
                 }
             }
 

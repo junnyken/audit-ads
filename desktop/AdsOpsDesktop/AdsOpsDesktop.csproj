@@ -8,13 +8,13 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>AdsOpsDesktop</AssemblyName>
     <RootNamespace>AdsOpsDesktop</RootNamespace>
-    <Version>3.5.0</Version>
-    <AssemblyVersion>3.5.0.0</AssemblyVersion>
-    <FileVersion>3.5.0.0</FileVersion>
+    <Version>3.6.0</Version>
+    <AssemblyVersion>3.6.0.0</AssemblyVersion>
+    <FileVersion>3.6.0.0</FileVersion>
     <Product>AdsOps Desktop Pro</Product>
     <Company>AdsOps</Company>
     <CodePage>65001</CodePage>
-    <Description>AdsOps Desktop Pro v3.5.0 — Unified 8-Tab shadcn/ui App Shell, Per-Via Environment Isolation (Window Size + Proxy Geo Lang/TZ + WebRTC Lock), Multi-Site Cookie Robot, 5 Care Presets &amp; Hybrid Page Nurture</Description>
+    <Description>AdsOps Desktop Pro v3.6.0 — Silent Background Auto-Invite (Off-Screen CDP) &amp; Scheduled Auto-Detect/Invite, Per-Via Chrome Env Isolation, Multi-Site Cookie Robot &amp; Hybrid Page Nurture</Description>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 
