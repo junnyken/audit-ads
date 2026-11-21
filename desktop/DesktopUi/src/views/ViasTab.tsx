@@ -123,6 +123,7 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
       if (!q) return true
       return (
         v.label.toLowerCase().includes(q) ||
+        (v.customTag || '').toLowerCase().includes(q) ||
         v.displayName.toLowerCase().includes(q) ||
         v.externalReferenceId.toLowerCase().includes(q) ||
         v.profileDir.toLowerCase().includes(q) ||
@@ -181,6 +182,17 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
                 className="pl-8"
               />
             </div>
+
+            <Button
+              variant="secondary"
+              size="sm"
+              className="border border-emerald-500/35 text-emerald-300 hover:bg-emerald-500/15"
+              onClick={() => sendDesktopCommand('harvest_all_open_cookies')}
+              title="Tự động thu Cookie Facebook sạch từ các cửa sổ Chrome Cô lập đang mở và lưu vào Két DPAPI (mở khóa 100% chế độ chạy ẩn)"
+            >
+              <KeyRound className="h-3.5 w-3.5" />
+              Thu Cookie đang mở
+            </Button>
 
             <Button
               variant="secondary"
@@ -503,6 +515,7 @@ function ViaRowCard({
               {via.externalReferenceId ? `UID: ${via.externalReferenceId}` : 'UID: —'} • Cầm{' '}
               {via.holdingPagesCount}/{via.holdingLimit} Page • {via.adAccountsCount} TKQC
               {via.ownerMemberName ? ` • 👤 ${via.ownerMemberName}` : ''}
+              {via.customTag ? ` • 🏷️ ${via.customTag}` : ''}
             </div>
           </div>
         </div>
@@ -626,6 +639,10 @@ function ViaRowCard({
               <DropdownMenuItem onClick={() => sendDesktopCommand('set_via_env_override', { viaId: via.viaId, cycleCountry: true })}>
                 <Globe className="h-3.5 w-3.5 text-indigo-400" />
                 Đổi Quốc gia / TZ ({via.envCountry || 'VN'} • {via.envTimezone || 'Asia/Ho_Chi_Minh'})
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => sendDesktopCommand('set_via_custom_tag', { viaId: via.viaId, cycleTag: true })}>
+                <Users className="h-3.5 w-3.5 text-amber-400" />
+                🏷️ Đổi Nhãn nhóm ({via.customTag || 'Chưa gắn'})
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => sendDesktopCommand('edit_via', { viaId: via.viaId })}>
                 <Edit3 className="h-3.5 w-3.5" />

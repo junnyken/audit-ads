@@ -162,6 +162,7 @@ public static class AntidetectBrowserConnector
     public static readonly (string Key, string Label, string DefaultUrl)[] SupportedEngines =
     {
         ("chrome_native", "Chrome Gốc Chuẩn (Khiên WebRTC + Chống Automation)", "http://127.0.0.1:17890"),
+        ("shardbrowser", "ShardBrowser Open-Source API (:40325 • 0đ Không giới hạn)", "http://127.0.0.1:40325"),
         ("adspower", "AdsPower Local API (:50325)", "http://127.0.0.1:50325"),
         ("dolphin_anty", "Dolphin{anty} Local API (:3001)", "http://127.0.0.1:3001"),
         ("hidemyacc", "Hidemyacc Local API (:12368)", "http://127.0.0.1:12368"),
@@ -174,6 +175,7 @@ public static class AntidetectBrowserConnector
         var s = (raw ?? "").Trim().ToLowerInvariant();
         return s switch
         {
+            "shardbrowser" or "shard" or "proxyshard" or "shardx" => "shardbrowser",
             "adspower" => "adspower",
             "dolphin" or "dolphin_anty" or "dolphin-anty" => "dolphin_anty",
             "hidemyacc" => "hidemyacc",
@@ -188,6 +190,7 @@ public static class AntidetectBrowserConnector
         var norm = NormalizeEngine(engine);
         return norm switch
         {
+            "shardbrowser" => "ShardBrowser",
             "adspower" => "AdsPower",
             "dolphin_anty" => "Dolphin{anty}",
             "hidemyacc" => "Hidemyacc",
@@ -335,6 +338,7 @@ public static class AntidetectBrowserConnector
         {
             var probePath = norm switch
             {
+                "shardbrowser" => "/health",
                 "adspower" => "/status",
                 "dolphin_anty" => "/v1.0/browser_profiles?limit=20",
                 "hidemyacc" => "/profiles",
@@ -362,7 +366,7 @@ public static class AntidetectBrowserConnector
             }
 
             var profiles = new List<AntidetectProfileSummary>();
-            if (norm == "adspower")
+            if (norm is "adspower" or "shardbrowser")
             {
                 var listRes = await ListProfilesAsync(norm, baseUrl, apiKey, ct, http).ConfigureAwait(false);
                 profiles = listRes;
@@ -474,6 +478,7 @@ public static class AntidetectBrowserConnector
         var baseUrl = ResolveEffectiveBaseUrl(norm, customBaseUrl);
         var path = norm switch
         {
+            "shardbrowser" => "/profiles",
             "adspower" => "/api/v1/user/list?page=1&page_size=100",
             "dolphin_anty" => "/v1.0/browser_profiles?limit=100",
             "hidemyacc" => "/profiles",
@@ -541,6 +546,9 @@ public static class AntidetectBrowserConnector
             HttpResponseMessage resp;
             switch (norm)
             {
+                case "shardbrowser":
+                    resp = await http.PostAsync($"{baseUrl}/profiles/{escId}/start", new StringContent("{}", Encoding.UTF8, "application/json"), ct).ConfigureAwait(false);
+                    break;
                 case "adspower":
                     resp = await http.GetAsync($"{baseUrl}/api/v1/browser/start?user_id={escId}&open_tabs=1", ct).ConfigureAwait(false);
                     break;
@@ -598,6 +606,14 @@ public static class AntidetectBrowserConnector
                         }
 
                         var targetObj = root.TryGetProperty("data", out var dEl) && dEl.ValueKind == JsonValueKind.Object ? dEl : root;
+                        if (targetObj.TryGetProperty("cdp", out var cdpEl) && cdpEl.ValueKind == JsonValueKind.Object)
+                        {
+                            if (string.IsNullOrEmpty(wsUrl))
+                            {
+                                wsUrl = ExtractJsonString(cdpEl, "web_socket_debugger_url", "wsEndpoint", "wsUrl");
+                            }
+                            debugPort ??= ExtractJsonInt(cdpEl, "port", "debug_port");
+                        }
                         if (targetObj.TryGetProperty("ws", out var wsEl) && wsEl.ValueKind == JsonValueKind.Object)
                         {
                             wsUrl = ExtractJsonString(wsEl, "puppeteer", "selenium");
@@ -675,6 +691,7 @@ public static class AntidetectBrowserConnector
         {
             HttpResponseMessage resp = norm switch
             {
+                "shardbrowser" => await http.PostAsync($"{baseUrl}/profiles/{escId}/stop", new StringContent("{}", Encoding.UTF8, "application/json"), ct).ConfigureAwait(false),
                 "adspower" => await http.GetAsync($"{baseUrl}/api/v1/browser/stop?user_id={escId}", ct).ConfigureAwait(false),
                 "dolphin_anty" => await http.GetAsync($"{baseUrl}/v1.0/browser_profiles/{escId}/stop", ct).ConfigureAwait(false),
                 "hidemyacc" => await http.PostAsync($"{baseUrl}/profiles/stop/{escId}", new StringContent("{}", Encoding.UTF8, "application/json"), ct).ConfigureAwait(false),

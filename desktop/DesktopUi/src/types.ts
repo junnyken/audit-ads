@@ -150,6 +150,7 @@ export interface WebViaItemDto {
   envLang?: string
   envTimezone?: string
   webRtcLocked?: boolean
+  customTag?: string
 }
 
 export interface WebWarmupActionDto {
@@ -294,6 +295,10 @@ export interface WebPageNurtureConfigDto {
   captionSpintax: string
   shareSourceCount: number
   imagesFoundCount: number
+  autoSilentPageNurtureEnabled?: boolean
+  autoSilentPageNurtureIntervalHours?: number
+  lastAutoSilentPageNurtureLocal?: string
+  isSilentPageNurtureRunning?: boolean
 }
 
 export interface WebFanpageDto {

@@ -675,4 +675,344 @@ public static class ChromeCdpController
             return new SilentMbsInviteResult(false, false, 0, 0, $"Lỗi chạy ẩn MBS: {ex.Message}");
         }
     }
+
+    public sealed record SilentPageContentResult(
+        bool Ok,
+        bool NeedsLogin,
+        string ActionKind,
+        bool MediaAttached,
+        string Detail);
+
+    /// <summary>
+    /// 100% Automated Off-Screen Page Post Publisher via CDP:
+    /// waits for Meta Business Suite Composer, attaches unique hash-jittered image via DOM.setFileInputFiles
+    /// (zero Windows file picker!), injects spun caption, and clicks Publish.
+    /// </summary>
+    public static async Task<SilentPageContentResult> RunSilentPagePublishPostAsync(
+        int cdpPort,
+        string caption,
+        string? uniqueImagePath,
+        CancellationToken ct = default)
+    {
+        if (cdpPort <= 0)
+        {
+            return new SilentPageContentResult(false, false, "post", false, "Cổng CDP không hợp lệ.");
+        }
+
+        try
+        {
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            linkedCts.CancelAfter(TimeSpan.FromSeconds(55));
+            var token = linkedCts.Token;
+
+            var browserWsUrl = await PollBrowserWsUrlAsync(cdpPort, 6000, token).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(browserWsUrl))
+            {
+                return new SilentPageContentResult(false, false, "post", false, "Không kết nối được phiên Chrome chạy ẩn.");
+            }
+            string? pageWsUrl;
+            using (var browserWs = new ClientWebSocket())
+            {
+                await browserWs.ConnectAsync(new Uri(browserWsUrl), token).ConfigureAwait(false);
+                pageWsUrl = await FindOrCreatePageTargetWsUrlAsync(browserWs, cdpPort, 5000, token).ConfigureAwait(false);
+            }
+            if (string.IsNullOrWhiteSpace(pageWsUrl))
+            {
+                return new SilentPageContentResult(false, false, "post", false, "Không tìm thấy tab Composer chạy ẩn.");
+            }
+
+            using var ws = new ClientWebSocket();
+            await ws.ConnectAsync(new Uri(pageWsUrl), token).ConfigureAwait(false);
+            int cmdId = 1;
+
+            // 1. Wait for Composer textbox or detect login wall
+            var waitJs = """
+            (async () => {
+              const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+              for (let i = 0; i < 34; i++) {
+                const href = String(location.href || '').toLowerCase();
+                if (href.includes('/login') || document.querySelector('input[name="email"], input[name="pass"]')) {
+                  return JSON.stringify({ ready: false, needsLogin: true });
+                }
+                const box = document.querySelector('[role="textbox"][contenteditable="true"], div[contenteditable="true"]');
+                if (box && box.getBoundingClientRect().height > 10) {
+                  return JSON.stringify({ ready: true, needsLogin: false });
+                }
+                await sleep(500);
+              }
+              return JSON.stringify({ ready: false, needsLogin: false });
+            })();
+            """;
+
+            var waitResp = await SendCdpCommandAsync(
+                ws, cmdId++, "Runtime.evaluate",
+                new { expression = waitJs, awaitPromise = true, returnByValue = true }, token).ConfigureAwait(false);
+            if (waitResp.TryGetProperty("result", out var wr) && wr.TryGetProperty("result", out var wInner) && wInner.TryGetProperty("value", out var wVal) && wVal.ValueKind == JsonValueKind.String)
+            {
+                using var wDoc = JsonDocument.Parse(wVal.GetString()!);
+                if (wDoc.RootElement.TryGetProperty("needsLogin", out var nl) && nl.GetBoolean())
+                {
+                    return new SilentPageContentResult(false, true, "post", false, "Chưa đăng nhập Facebook trong Chrome Cô lập (hãy lưu Cookie vào Két DPAPI hoặc bấm Thu Cookie).");
+                }
+                if (!(wDoc.RootElement.TryGetProperty("ready", out var rd) && rd.GetBoolean()))
+                {
+                    return new SilentPageContentResult(false, false, "post", false, "Meta Business Suite Composer tải quá lâu hoặc chưa mở được khung soạn bài.");
+                }
+            }
+
+            // 2. Attach unique image directly via CDP DOM.setFileInputFiles (no OS dialog!)
+            bool mediaAttached = false;
+            if (!string.IsNullOrWhiteSpace(uniqueImagePath) && File.Exists(uniqueImagePath))
+            {
+                try
+                {
+                    await SendCdpCommandAsync(ws, cmdId++, "DOM.enable", null, token).ConfigureAwait(false);
+                    var docResp = await SendCdpCommandAsync(ws, cmdId++, "DOM.getDocument", new { depth = -1, pierce = true }, token).ConfigureAwait(false);
+                    if (docResp.TryGetProperty("result", out var dRes) &&
+                        dRes.TryGetProperty("root", out var rootEl) &&
+                        rootEl.TryGetProperty("nodeId", out var rootNodeIdEl))
+                    {
+                        int rootNodeId = rootNodeIdEl.GetInt32();
+                        var qResp = await SendCdpCommandAsync(
+                            ws, cmdId++, "DOM.querySelectorAll",
+                            new { nodeId = rootNodeId, selector = "input[type='file']" }, token).ConfigureAwait(false);
+                        if (qResp.TryGetProperty("result", out var qRes) &&
+                            qRes.TryGetProperty("nodeIds", out var nodeIdsEl) &&
+                            nodeIdsEl.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var nidEl in nodeIdsEl.EnumerateArray())
+                            {
+                                int nid = nidEl.GetInt32();
+                                if (nid <= 0) continue;
+                                try
+                                {
+                                    await SendCdpCommandAsync(
+                                        ws, cmdId++, "DOM.setFileInputFiles",
+                                        new { nodeId = nid, files = new[] { uniqueImagePath } }, token).ConfigureAwait(false);
+                                    mediaAttached = true;
+                                    break;
+                                }
+                                catch { }
+                            }
+                        }
+                    }
+                    if (mediaAttached)
+                    {
+                        await Task.Delay(3200, token).ConfigureAwait(false);
+                    }
+                }
+                catch { }
+            }
+
+            // 3. Focus textbox, insert caption via Input.insertText, then click Publish/Đăng
+            var focusJs = """
+            (() => {
+              const boxes = Array.from(document.querySelectorAll('[role="textbox"][contenteditable="true"], div[contenteditable="true"]'))
+                .filter((el) => el.getBoundingClientRect().height > 12);
+              if (boxes.length === 0) return false;
+              boxes[0].focus();
+              boxes[0].click();
+              return true;
+            })();
+            """;
+            await SendCdpCommandAsync(ws, cmdId++, "Runtime.evaluate", new { expression = focusJs, returnByValue = true }, token).ConfigureAwait(false);
+            await Task.Delay(300, token).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(caption))
+            {
+                await SendCdpCommandAsync(ws, cmdId++, "Input.insertText", new { text = caption }, token).ConfigureAwait(false);
+                await Task.Delay(900, token).ConfigureAwait(false);
+            }
+
+            var publishJs = """
+            (async () => {
+              const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+              for (let attempt = 0; attempt < 16; attempt++) {
+                const btns = Array.from(document.querySelectorAll('button,[role="button"]')).filter((el) => {
+                  const r = el.getBoundingClientRect();
+                  if (r.width < 20 || r.height < 18) return false;
+                  const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+                  return t === 'đăng' || t === 'publish' || t === 'đăng ngay' || t === 'publish now' || t === 'post';
+                });
+                if (btns.length > 0) {
+                  const btn = btns[btns.length - 1];
+                  const disabled = btn.disabled || btn.getAttribute('aria-disabled') === 'true';
+                  if (!disabled) {
+                    btn.click();
+                    await sleep(2200);
+                    return JSON.stringify({ published: true, label: (btn.innerText || '').trim() });
+                  }
+                }
+                await sleep(600);
+              }
+              return JSON.stringify({ published: false, label: '' });
+            })();
+            """;
+            var pubResp = await SendCdpCommandAsync(
+                ws, cmdId++, "Runtime.evaluate",
+                new { expression = publishJs, awaitPromise = true, returnByValue = true }, token).ConfigureAwait(false);
+            if (pubResp.TryGetProperty("result", out var pr) && pr.TryGetProperty("result", out var pInner) && pInner.TryGetProperty("value", out var pVal) && pVal.ValueKind == JsonValueKind.String)
+            {
+                using var pDoc = JsonDocument.Parse(pVal.GetString()!);
+                bool published = pDoc.RootElement.TryGetProperty("published", out var pb) && pb.GetBoolean();
+                if (published)
+                {
+                    return new SilentPageContentResult(
+                        true, false, "post", mediaAttached,
+                        mediaAttached ? "Đã tự động đăng bài kèm ảnh đổi hash chạy ẩn thành công!" : "Đã tự động đăng bài nuôi Page (text spin) chạy ẩn thành công!");
+                }
+            }
+
+            return new SilentPageContentResult(false, false, "post", mediaAttached, "Không tìm thấy nút Đăng đang sẵn sàng trong Meta Business Suite Composer.");
+        }
+        catch (Exception ex)
+        {
+            return new SilentPageContentResult(false, false, "post", false, $"Lỗi đăng bài chạy ẩn: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 100% Automated Off-Screen Curated Post Share via CDP:
+    /// opens the source URL, scrolls naturally to read, clicks Share, inserts spun caption, and clicks Share now.
+    /// </summary>
+    public static async Task<SilentPageContentResult> RunSilentPageSharePostAsync(
+        int cdpPort,
+        string caption,
+        CancellationToken ct = default)
+    {
+        if (cdpPort <= 0)
+        {
+            return new SilentPageContentResult(false, false, "share", false, "Cổng CDP không hợp lệ.");
+        }
+
+        try
+        {
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            linkedCts.CancelAfter(TimeSpan.FromSeconds(48));
+            var token = linkedCts.Token;
+
+            var browserWsUrl = await PollBrowserWsUrlAsync(cdpPort, 6000, token).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(browserWsUrl))
+            {
+                return new SilentPageContentResult(false, false, "share", false, "Không kết nối được phiên Chrome chạy ẩn.");
+            }
+            string? pageWsUrl;
+            using (var browserWs = new ClientWebSocket())
+            {
+                await browserWs.ConnectAsync(new Uri(browserWsUrl), token).ConfigureAwait(false);
+                pageWsUrl = await FindOrCreatePageTargetWsUrlAsync(browserWs, cdpPort, 5000, token).ConfigureAwait(false);
+            }
+            if (string.IsNullOrWhiteSpace(pageWsUrl))
+            {
+                return new SilentPageContentResult(false, false, "share", false, "Không tìm thấy tab bài viết nguồn chạy ẩn.");
+            }
+
+            using var ws = new ClientWebSocket();
+            await ws.ConnectAsync(new Uri(pageWsUrl), token).ConfigureAwait(false);
+            int cmdId = 1;
+
+            var shareOpenJs = """
+            (async () => {
+              const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+              for (let i = 0; i < 22; i++) {
+                const href = String(location.href || '').toLowerCase();
+                if (href.includes('/login') || document.querySelector('input[name="email"], input[name="pass"]')) {
+                  return JSON.stringify({ opened: false, needsLogin: true });
+                }
+                if (i === 4 || i === 8) window.scrollBy(0, 320);
+                const shareBtns = Array.from(document.querySelectorAll('[role="button"], button')).filter((el) => {
+                  const r = el.getBoundingClientRect();
+                  if (r.width < 16 || r.height < 14) return false;
+                  const t = (el.innerText || el.getAttribute('aria-label') || '').trim().toLowerCase();
+                  return t === 'chia sẻ' || t === 'share' || t.startsWith('gửi nội dung này');
+                });
+                if (shareBtns.length > 0 && i >= 6) {
+                  shareBtns[0].click();
+                  await sleep(1400);
+                  return JSON.stringify({ opened: true, needsLogin: false });
+                }
+                await sleep(500);
+              }
+              return JSON.stringify({ opened: false, needsLogin: false });
+            })();
+            """;
+
+            var openResp = await SendCdpCommandAsync(
+                ws, cmdId++, "Runtime.evaluate",
+                new { expression = shareOpenJs, awaitPromise = true, returnByValue = true }, token).ConfigureAwait(false);
+            if (openResp.TryGetProperty("result", out var or) && or.TryGetProperty("result", out var oInner) && oInner.TryGetProperty("value", out var oVal) && oVal.ValueKind == JsonValueKind.String)
+            {
+                using var oDoc = JsonDocument.Parse(oVal.GetString()!);
+                if (oDoc.RootElement.TryGetProperty("needsLogin", out var nl) && nl.GetBoolean())
+                {
+                    return new SilentPageContentResult(false, true, "share", false, "Chưa đăng nhập Facebook trong Chrome Cô lập (hãy lưu Cookie vào Két DPAPI).");
+                }
+                if (!(oDoc.RootElement.TryGetProperty("opened", out var op) && op.GetBoolean()))
+                {
+                    return new SilentPageContentResult(false, false, "share", false, "Không tìm thấy nút Chia sẻ trên bài viết nguồn.");
+                }
+            }
+
+            // Insert caption if share dialog textbox is visible
+            var focusShareBoxJs = """
+            (() => {
+              const dlg = document.querySelector('[role="dialog"]') || document;
+              const box = dlg.querySelector('[role="textbox"][contenteditable="true"], div[contenteditable="true"]');
+              if (!box) return false;
+              box.focus();
+              box.click();
+              return true;
+            })();
+            """;
+            var fbResp = await SendCdpCommandAsync(ws, cmdId++, "Runtime.evaluate", new { expression = focusShareBoxJs, returnByValue = true }, token).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(caption) &&
+                fbResp.TryGetProperty("result", out var fbr) && fbr.TryGetProperty("result", out var fbIn) && fbIn.TryGetProperty("value", out var fbV) && fbV.ValueKind == JsonValueKind.True)
+            {
+                await Task.Delay(250, token).ConfigureAwait(false);
+                await SendCdpCommandAsync(ws, cmdId++, "Input.insertText", new { text = caption }, token).ConfigureAwait(false);
+                await Task.Delay(600, token).ConfigureAwait(false);
+            }
+
+            var confirmShareJs = """
+            (async () => {
+              const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+              for (let i = 0; i < 10; i++) {
+                const dlg = document.querySelector('[role="dialog"]') || document;
+                const btns = Array.from(dlg.querySelectorAll('[role="button"], button, [role="menuitem"]')).filter((el) => {
+                  const r = el.getBoundingClientRect();
+                  if (r.width < 18 || r.height < 16) return false;
+                  const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+                  return t === 'chia sẻ ngay' || t === 'share now' || t === 'chia sẻ' || t === 'share';
+                });
+                if (btns.length > 0) {
+                  const btn = btns[btns.length - 1];
+                  if (!btn.disabled && btn.getAttribute('aria-disabled') !== 'true') {
+                    btn.click();
+                    await sleep(1800);
+                    return JSON.stringify({ shared: true });
+                  }
+                }
+                await sleep(500);
+              }
+              return JSON.stringify({ shared: false });
+            })();
+            """;
+            var confResp = await SendCdpCommandAsync(
+                ws, cmdId++, "Runtime.evaluate",
+                new { expression = confirmShareJs, awaitPromise = true, returnByValue = true }, token).ConfigureAwait(false);
+            if (confResp.TryGetProperty("result", out var cr) && cr.TryGetProperty("result", out var cInner) && cInner.TryGetProperty("value", out var cVal) && cVal.ValueKind == JsonValueKind.String)
+            {
+                using var cDoc = JsonDocument.Parse(cVal.GetString()!);
+                if (cDoc.RootElement.TryGetProperty("shared", out var sh) && sh.GetBoolean())
+                {
+                    return new SilentPageContentResult(true, false, "share", false, "Đã tự động chia sẻ bài nguồn + Caption Spin chạy ẩn thành công!");
+                }
+            }
+
+            return new SilentPageContentResult(false, false, "share", false, "Chưa xác nhận được nút Chia sẻ ngay trong hộp thoại.");
+        }
+        catch (Exception ex)
+        {
+            return new SilentPageContentResult(false, false, "share", false, $"Lỗi chia sẻ bài chạy ẩn: {ex.Message}");
+        }
+    }
 }

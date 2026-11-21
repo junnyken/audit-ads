@@ -352,6 +352,35 @@ export function PagesBmTab({ state }: { state: AppShellWebStateDto }) {
                 >
                   <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> Lưu cấu hình
                 </Button>
+                {pn?.isSilentPageNurtureRunning ? (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => sendDesktopCommand('cancel_silent_page_nurture')}
+                  >
+                    <Square className="h-3.5 w-3.5" /> Dừng Nuôi Ẩn
+                  </Button>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="h-8 border border-emerald-500/40 text-xs text-emerald-300 hover:bg-emerald-500/15"
+                    onClick={() => {
+                      sendDesktopCommand('save_page_nurture_config', {
+                        mode: nurtureMode,
+                        assetsDir,
+                        enableImageHashJitter: hashJitter,
+                        shareSourceUrls: shareUrls,
+                        captionSpintax: captionSpin,
+                      })
+                      sendDesktopCommand('silent_page_nurture_batch', { mode: nurtureMode })
+                    }}
+                    title="Chạy ẩn hoàn toàn ngoài màn hình qua CDP: tự đính kèm ảnh đổi hash (DOM.setFileInputFiles), tự điền Caption Spin và tự bấm Đăng / Chia sẻ"
+                  >
+                    👻 Đăng/Share Ẩn Lô (100% Tự động)
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   className="h-8 text-xs"
@@ -366,8 +395,52 @@ export function PagesBmTab({ state }: { state: AppShellWebStateDto }) {
                     sendDesktopCommand('page_nurture_batch_run', { mode: nurtureMode, viaBrowser: true })
                   }}
                 >
-                  <Play className="h-3.5 w-3.5" /> Chạy lô Đăng/Share nuôi Page (Chrome thật)
+                  <Play className="h-3.5 w-3.5" /> Chạy lô Mở Chrome
                 </Button>
+              </div>
+            </div>
+
+            {/* Scheduled 14-Day Silent Page Nurture Bar (v3.7.0) */}
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/5 px-3 py-2">
+              <div className="flex items-center gap-2.5">
+                <Switch
+                  id="auto-silent-page-nurture"
+                  checked={Boolean(pn?.autoSilentPageNurtureEnabled)}
+                  onCheckedChange={(checked) =>
+                    sendDesktopCommand('save_silent_page_nurture_config', {
+                      enabled: checked,
+                      intervalHours: pn?.autoSilentPageNurtureIntervalHours ?? 12,
+                    })
+                  }
+                />
+                <Label htmlFor="auto-silent-page-nurture" className="cursor-pointer text-xs font-medium text-indigo-200">
+                  🤖 Tự động Nuôi Page 14 ngày chạy ẩn định kỳ (tự đăng ảnh đổi hash / share nguồn, chỉ báo thông báo)
+                </Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Select
+                  value={String(pn?.autoSilentPageNurtureIntervalHours ?? 12)}
+                  onValueChange={(val) =>
+                    sendDesktopCommand('save_silent_page_nurture_config', {
+                      enabled: Boolean(pn?.autoSilentPageNurtureEnabled),
+                      intervalHours: Number(val) || 12,
+                    })
+                  }
+                >
+                  <SelectTrigger className="h-7 w-28 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="6">Mỗi 6 giờ</SelectItem>
+                    <SelectItem value="12">Mỗi 12 giờ</SelectItem>
+                    <SelectItem value="24">Mỗi 24 giờ</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Badge variant="secondary" className="font-mono text-[10px]">
+                  {pn?.isSilentPageNurtureRunning
+                    ? '⏳ Đang đăng/share ẩn...'
+                    : `Gần nhất: ${pn?.lastAutoSilentPageNurtureLocal || 'Chưa chạy'}`}
+                </Badge>
               </div>
             </div>
           </CardContent>
@@ -691,6 +764,15 @@ function FanpageRowCard({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-72">
+              <DropdownMenuItem onClick={() => sendDesktopCommand('silent_page_nurture_single', { pageId: page.id, mode: 'post' })}>
+                <ImageIcon className="h-3.5 w-3.5 text-emerald-400" />
+                👻 Đăng bài Ảnh chạy ẩn (100% Tự động)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => sendDesktopCommand('silent_page_nurture_single', { pageId: page.id, mode: 'share' })}>
+                <Share2 className="h-3.5 w-3.5 text-sky-400" />
+                👻 Chia sẻ bài nguồn chạy ẩn (100% Tự động)
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => sendDesktopCommand('page_nurture_single_post', { pageId: page.id, viaBrowser: true })}>
                 <ImageIcon className="h-3.5 w-3.5 text-emerald-400" />
                 Đăng bài nuôi Page (Ảnh đổi hash + Caption Spin)

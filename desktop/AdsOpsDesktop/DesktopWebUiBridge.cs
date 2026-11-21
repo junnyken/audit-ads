@@ -203,6 +203,7 @@ public sealed class WebViaItemDto
     public string EnvLang { get; set; } = "vi-VN";
     public string EnvTimezone { get; set; } = "Asia/Ho_Chi_Minh";
     public bool WebRtcLocked { get; set; } = true;
+    public string CustomTag { get; set; } = "";
 }
 
 public sealed class WebWarmupActionDto
@@ -367,6 +368,10 @@ public sealed class WebPageNurtureConfigDto
     public string CaptionSpintax { get; set; } = "";
     public int ShareSourceCount { get; set; }
     public int ImagesFoundCount { get; set; }
+    public bool AutoSilentPageNurtureEnabled { get; set; }
+    public int AutoSilentPageNurtureIntervalHours { get; set; } = 12;
+    public string LastAutoSilentPageNurtureLocal { get; set; } = "Chưa chạy";
+    public bool IsSilentPageNurtureRunning { get; set; }
 }
 
 public sealed class WebFanpageDto

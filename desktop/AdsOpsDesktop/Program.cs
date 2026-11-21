@@ -2091,9 +2091,9 @@ internal static class Program
                 }
             }
 
-            // 35. v3.6.0 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
+            // 35. v3.7.0 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
             {
-                if (DesktopAppInfo.Version != "3.6.0" || DesktopAppInfo.ExtVersion != "2.10.2")
+                if (DesktopAppInfo.Version != "3.7.0" || DesktopAppInfo.ExtVersion != "2.10.2")
                 {
                     throw new InvalidOperationException(
                         $"DesktopAppInfo version mismatch: app={DesktopAppInfo.Version}, ext={DesktopAppInfo.ExtVersion}");
@@ -2143,7 +2143,7 @@ internal static class Program
                 foreach (var reqKey in new[]
                          {
                              "\"type\":\"full_state\"",
-                             "\"appVersion\":\"3.6.0\"",
+                             "\"appVersion\":\"3.7.0\"",
                              "\"extVersion\":\"2.10.2\"",
                              "\"activeView\":\"settings\"",
                              "\"totpMap\"",
@@ -2401,6 +2401,39 @@ internal static class Program
                 if (!sampleSilent.Ok || sampleSilent.InvitedSent != 4)
                 {
                     throw new InvalidOperationException("SilentMbsInviteResult mismatch.");
+                }
+            }
+
+            // 40. v3.7.0 ShardBrowser Connector, Silent Page Publish/Share CDP & Custom Via Tags Verification
+            {
+                if (AntidetectBrowserConnector.NormalizeEngine("shardbrowser") != "shardbrowser" ||
+                    AntidetectBrowserConnector.NormalizeEngine("proxyshard") != "shardbrowser" ||
+                    AntidetectBrowserConnector.GetDisplayName("shardbrowser") != "ShardBrowser" ||
+                    AntidetectBrowserConnector.GetDefaultBaseUrl("shardbrowser") != "http://127.0.0.1:40325")
+                {
+                    throw new InvalidOperationException("ShardBrowser AntidetectBrowserConnector mapping failed.");
+                }
+                if (!AntidetectBrowserConnector.SupportedEngines.Any(e => e.Key == "shardbrowser"))
+                {
+                    throw new InvalidOperationException("SupportedEngines missing shardbrowser.");
+                }
+
+                var silentPub = new ChromeCdpController.SilentPageContentResult(true, false, "post", true, "OK");
+                if (!silentPub.Ok || !silentPub.MediaAttached || silentPub.ActionKind != "post")
+                {
+                    throw new InvalidOperationException("SilentPageContentResult mismatch.");
+                }
+
+                var tagState = new AppShellWebStateDto
+                {
+                    Vias = new List<WebViaItemDto> { new() { ViaId = "v1", Label = "Via 1", CustomTag = "Nuôi tuần 1" } },
+                    PageNurture = new WebPageNurtureConfigDto { AutoSilentPageNurtureEnabled = true, AutoSilentPageNurtureIntervalHours = 12 },
+                };
+                var tagJson = DesktopWebUiBridge.BuildShellStateJson(tagState);
+                if (!tagJson.Contains("\"customTag\":\"Nu", StringComparison.Ordinal) ||
+                    !tagJson.Contains("\"autoSilentPageNurtureEnabled\":true", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("AppShellWebStateDto missing v3.7.0 customTag / autoSilentPageNurtureEnabled.");
                 }
             }
 

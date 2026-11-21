@@ -8,13 +8,13 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>AdsOpsDesktop</AssemblyName>
     <RootNamespace>AdsOpsDesktop</RootNamespace>
-    <Version>3.6.0</Version>
-    <AssemblyVersion>3.6.0.0</AssemblyVersion>
-    <FileVersion>3.6.0.0</FileVersion>
+    <Version>3.7.0</Version>
+    <AssemblyVersion>3.7.0.0</AssemblyVersion>
+    <FileVersion>3.7.0.0</FileVersion>
     <Product>AdsOps Desktop Pro</Product>
     <Company>AdsOps</Company>
     <CodePage>65001</CodePage>
-    <Description>AdsOps Desktop Pro v3.6.0 — Silent Background Auto-Invite (Off-Screen CDP) &amp; Scheduled Auto-Detect/Invite, Per-Via Chrome Env Isolation, Multi-Site Cookie Robot &amp; Hybrid Page Nurture</Description>
+    <Description>AdsOps Desktop Pro v3.7.0 — ShardBrowser Open-Source Antidetect (:40325), 100% Automated Off-Screen CDP Page Auto-Post (Media Hash-Jitter) &amp; Auto-Share, Scheduled 14-Day Silent Page Nurture, 1-Click Cookie Harvest &amp; Custom Via Tags</Description>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 

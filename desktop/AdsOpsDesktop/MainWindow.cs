@@ -3506,6 +3506,304 @@ internal sealed partial class MainWindow : Window
         }
     }
 
+    private volatile bool _isSilentPageNurtureRunning;
+    private CancellationTokenSource? _silentPageNurtureCts;
+    internal bool IsSilentPageNurtureRunning => _isSilentPageNurtureRunning;
+
+    internal void CancelSilentPageNurtureIfRunning()
+    {
+        try { _silentPageNurtureCts?.Cancel(); } catch { }
+    }
+
+    internal async Task<ChromeCdpController.SilentPageContentResult> ExecuteSilentPageNurtureCoreAsync(
+        FanpageItemDto page,
+        string actionMode,
+        CancellationToken ct)
+    {
+        var via = ResolveEffectiveViaForPage(page);
+        if (via == null)
+        {
+            return new ChromeCdpController.SilentPageContentResult(false, false, actionMode, false, $"Không tìm thấy Via cầm Page '{page.Name}'.");
+        }
+
+        var pageKey = !string.IsNullOrWhiteSpace(page.ExternalPageId) ? page.ExternalPageId! : page.Id;
+        var caption = PageContentNurtureEngine.SpinText(_config.PageCaptionSpintax, page.Name, page.Category ?? _batchNicheKey);
+        var vaultSecret = LocalSecretVaultStore.Default.Find(via.ViaId, via.ProfileDir, via.Label);
+        var envProf = ResolveViaEnvironmentProfileFor(via);
+
+        string targetUrl;
+        string? preparedImagePath = null;
+        bool isShare = string.Equals(actionMode, "share", StringComparison.OrdinalIgnoreCase);
+
+        if (isShare)
+        {
+            var shareUrls = PageContentNurtureEngine.ParseShareUrls(_config.PageShareSourceUrls);
+            var nextUrl = PageContentNurtureEngine.PickNextShareUrl(pageKey, shareUrls, _config.PageSharedUrlHistory);
+            if (string.IsNullOrWhiteSpace(nextUrl))
+            {
+                return new ChromeCdpController.SilentPageContentResult(false, false, "share", false, "Chưa có link nguồn chia sẻ (hãy dán URL vào khung Trung tâm Nuôi Page).");
+            }
+            targetUrl = nextUrl;
+        }
+        else
+        {
+            targetUrl = !string.IsNullOrWhiteSpace(page.ExternalPageId)
+                ? $"https://business.facebook.com/latest/composer?asset_id={Uri.EscapeDataString(page.ExternalPageId!)}"
+                : "https://business.facebook.com/latest/composer";
+            var pickedImg = PageContentNurtureEngine.PickRandomImageFromDir(_config.PageAssetsDir, page.Category ?? _batchNicheKey, "posts");
+            if (!string.IsNullOrWhiteSpace(pickedImg))
+            {
+                if (_config.EnableImageHashJitter)
+                {
+                    try { preparedImagePath = PageContentNurtureEngine.CreateUniqueImageVariant(pickedImg); }
+                    catch { preparedImagePath = pickedImg; }
+                }
+                else
+                {
+                    preparedImagePath = pickedImg;
+                }
+            }
+        }
+
+        int? launchedPid = null;
+        int? launchedCdpPort = null;
+        try
+        {
+            var launch = await ExtensionProvisioner.LaunchChromeSmartAsync(
+                targetUrl,
+                via.ProfileDir,
+                via.ExtensionFolder,
+                isolatedMode: true,
+                viaSlug: via.Label,
+                antidetectShield: _config.EnableChromeAntidetectShield,
+                lowRamMode: true,
+                vaultCookieRaw: vaultSecret.CookieRaw,
+                envProfile: envProf,
+                hiddenOffscreen: true).ConfigureAwait(false);
+
+            launchedPid = launch.Pid;
+            launchedCdpPort = launch.CdpPort;
+            if (!launch.CdpPort.HasValue || launch.CdpPort.Value <= 0)
+            {
+                return new ChromeCdpController.SilentPageContentResult(false, false, actionMode, false, "Không khởi tạo được phiên Chrome Cô lập chạy ẩn.");
+            }
+
+            var res = isShare
+                ? await ChromeCdpController.RunSilentPageSharePostAsync(launch.CdpPort.Value, caption, ct).ConfigureAwait(false)
+                : await ChromeCdpController.RunSilentPagePublishPostAsync(launch.CdpPort.Value, caption, preparedImagePath, ct).ConfigureAwait(false);
+
+            if (res.Ok)
+            {
+                if (isShare)
+                {
+                    _config.PageLocalShareCounts[pageKey] = (_config.PageLocalShareCounts.TryGetValue(pageKey, out var cur) ? cur : 0) + 1;
+                    _config.Save();
+                }
+                try
+                {
+                    await _api.PublishWarmupPostAsync(
+                        page.Id, caption, via.ViaId, via.Label, via.ProfileDir,
+                        postMode: "chrome_assist", contentType: isShare ? "share" : (res.MediaAttached ? "photo" : "post")).ConfigureAwait(false);
+                }
+                catch { }
+            }
+            return res;
+        }
+        finally
+        {
+            if (launchedCdpPort is > 0)
+            {
+                try { await ChromeCdpController.CloseBrowserGracefullyAsync(launchedCdpPort.Value, 1500).ConfigureAwait(false); } catch { }
+            }
+            if (launchedPid is > 0)
+            {
+                try
+                {
+                    using var p = Process.GetProcessById(launchedPid.Value);
+                    if (!p.HasExited) p.Kill(entireProcessTree: true);
+                }
+                catch { }
+            }
+        }
+    }
+
+    internal async Task RunSilentPageNurtureSingleAsync(FanpageItemDto page, string actionMode)
+    {
+        if (_isSilentPageNurtureRunning)
+        {
+            AppendLog("⏳ Đang có phiên Đăng/Share Ẩn khác chạy ngầm. Vui lòng đợi vài giây...");
+            return;
+        }
+        _isSilentPageNurtureRunning = true;
+        _silentPageNurtureCts?.Dispose();
+        _silentPageNurtureCts = new CancellationTokenSource();
+        var ct = _silentPageNurtureCts.Token;
+
+        var label = string.Equals(actionMode, "share", StringComparison.OrdinalIgnoreCase) ? "Chia sẻ bài Ẩn" : "Đăng bài Ảnh Ẩn";
+        AppendLog($"👻 [{label}] Đang chạy ngầm 100% tự động cho Page '{page.Name}' (không mở cửa sổ che màn hình)...");
+        PushOverviewStateToWebView();
+
+        try
+        {
+            var res = await ExecuteSilentPageNurtureCoreAsync(page, actionMode, ct);
+            if (res.NeedsLogin)
+            {
+                AppendLog($"⚠️ [{label}] Page '{page.Name}': {res.Detail}");
+                _tray?.ShowBalloon($"👻 {label} cần Cookie", $"Page '{page.Name}': hãy lưu Cookie Via vào Két DPAPI hoặc bấm 'Thu Cookie đang mở'.", 4500, error: true);
+            }
+            else if (res.Ok)
+            {
+                AppendLog($"✅ [{label}] Page '{page.Name}': {res.Detail}");
+                _tray?.ShowBalloon($"✅ {label} Thành Công", $"Page '{page.Name}': {res.Detail}", 4200, error: false);
+            }
+            else
+            {
+                AppendLog($"⚠️ [{label}] Page '{page.Name}': {res.Detail}");
+                _tray?.ShowBalloon($"⚠️ {label} Chưa Hoàn Tất", $"Page '{page.Name}': {res.Detail}", 3800, error: true);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            AppendLog($"⏹️ [{label}] Đã dừng phiên chạy ẩn cho Page '{page.Name}'.");
+        }
+        finally
+        {
+            _isSilentPageNurtureRunning = false;
+            PushOverviewStateToWebView();
+        }
+    }
+
+    internal async Task RunSilentPageNurtureBatchAsync(string rawMode, bool isScheduled = false)
+    {
+        if (_isSilentPageNurtureRunning)
+        {
+            if (!isScheduled) AppendLog("⏳ Đang có phiên Nuôi Page chạy ẩn khác.");
+            return;
+        }
+        var mode = rawMode is "post" or "share" or "alternate" ? rawMode : "alternate";
+        var livePages = (_pagesSummary?.Items ?? new())
+            .Where(p => string.Equals(p.HealthStatus, "LIVE", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(p.ExternalPageId))
+            .OrderBy(p => p.WarmupPostsCount)
+            .Take(5)
+            .ToList();
+        if (livePages.Count == 0)
+        {
+            if (!isScheduled) AppendLog("⚠️ Chưa có Fanpage LIVE nào để chạy Nuôi Page Ẩn.");
+            return;
+        }
+
+        _isSilentPageNurtureRunning = true;
+        _silentPageNurtureCts?.Dispose();
+        _silentPageNurtureCts = new CancellationTokenSource();
+        var ct = _silentPageNurtureCts.Token;
+
+        _config.LastAutoSilentPageNurtureUtc = DateTimeOffset.UtcNow.ToString("o", CultureInfo.InvariantCulture);
+        _config.Save();
+
+        var tag = isScheduled ? "Tự động định kỳ" : "Lô thủ công";
+        var shareUrls = PageContentNurtureEngine.ParseShareUrls(_config.PageShareSourceUrls);
+        AppendLog($"👻 [Nuôi Page Ẩn • {tag}] Bắt đầu chạy ẩn 100% tự động cho {livePages.Count} Fanpage LIVE (Chế độ: {mode})...");
+        PushOverviewStateToWebView();
+
+        int okCount = 0;
+        int loginMissing = 0;
+        try
+        {
+            for (int i = 0; i < livePages.Count && !ct.IsCancellationRequested; i++)
+            {
+                var pg = livePages[i];
+                var stepMode = mode == "share" || (mode == "alternate" && shareUrls.Count > 0 && i % 2 == 1) ? "share" : "post";
+                var res = await ExecuteSilentPageNurtureCoreAsync(pg, stepMode, ct);
+                if (res.NeedsLogin)
+                {
+                    loginMissing++;
+                    AppendLog($"⚠️ [Nuôi Page Ẩn] ({i + 1}/{livePages.Count}) '{pg.Name}': chưa có Cookie đăng nhập trong Két DPAPI.");
+                }
+                else if (res.Ok)
+                {
+                    okCount++;
+                    AppendLog($"✅ [Nuôi Page Ẩn] ({i + 1}/{livePages.Count}) '{pg.Name}': {res.Detail}");
+                }
+                else
+                {
+                    AppendLog($"⚠️ [Nuôi Page Ẩn] ({i + 1}/{livePages.Count}) '{pg.Name}': {res.Detail}");
+                }
+
+                PushOverviewStateToWebView();
+                if (i + 1 < livePages.Count && !ct.IsCancellationRequested)
+                {
+                    await Task.Delay(Random.Shared.Next(15000, 28000), ct);
+                }
+            }
+
+            if (okCount > 0)
+            {
+                AppendLog($"🎉 [Nuôi Page Ẩn • {tag}] Hoàn tất: đã tự động đăng/chia sẻ thành công cho {okCount}/{livePages.Count} Fanpage!");
+                _tray?.ShowBalloon("🎉 Nuôi Page Ẩn Thành Công", $"Đã tự động đăng/chia sẻ thành công cho {okCount}/{livePages.Count} Fanpage.", 4800, error: false);
+            }
+            else if (!isScheduled)
+            {
+                var msg = loginMissing == livePages.Count
+                    ? "Các Via chưa lưu Cookie vào Két DPAPI — hãy mở Via 1 lần rồi bấm '🔑 Thu Cookie đang mở'."
+                    : "Chưa đăng/chia sẻ được bài nào trong lô chạy ẩn này (xem Nhật ký để biết chi tiết).";
+                _tray?.ShowBalloon("👻 Nuôi Page Ẩn", msg, 4000, error: true);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            AppendLog($"⏹️ [Nuôi Page Ẩn] Đã dừng lô chạy ẩn (đã xong {okCount} Page).");
+        }
+        finally
+        {
+            _isSilentPageNurtureRunning = false;
+            PushOverviewStateToWebView();
+        }
+    }
+
+    internal async Task HarvestCookiesFromOpenIsolatedSessionsAsync()
+    {
+        var activeSessions = ChromeSessionTracker.Default.GetSnapshot()
+            .Where(s => s.Alive && s.CdpPort.HasValue && s.CdpPort.Value > 0)
+            .ToList();
+        if (activeSessions.Count == 0)
+        {
+            AppendLog("ℹ️ Hiện không có cửa sổ Chrome Cô lập (CDP) nào đang mở để thu Cookie. Hãy bấm 'Mở Chrome' cho Via trước rồi bấm 'Thu Cookie đang mở'.");
+            _tray?.ShowBalloon("🔑 Thu Cookie DPAPI", "Chưa có Chrome Cô lập nào đang mở. Hãy mở Via bằng Chrome Cô lập trước.", 3500, error: false);
+            return;
+        }
+
+        int savedCount = 0;
+        foreach (var sess in activeSessions)
+        {
+            var cookieRaw = await ChromeCdpController.TryHarvestFacebookCookieHeaderAsync(sess.CdpPort!.Value, 2500);
+            if (string.IsNullOrWhiteSpace(cookieRaw)) continue;
+            var via = _vias.FirstOrDefault(v => string.Equals(v.ViaId, sess.ViaId, StringComparison.OrdinalIgnoreCase)
+                                             || string.Equals(v.Label, sess.ViaLabel, StringComparison.OrdinalIgnoreCase));
+            var targetViaId = via?.ViaId ?? sess.ViaId;
+            var targetLabel = via?.Label ?? sess.ViaLabel;
+            var targetProfile = via?.ProfileDir ?? sess.ProfileDir;
+            var existing = LocalSecretVaultStore.Default.Find(targetViaId, targetProfile, targetLabel);
+            LocalSecretVaultStore.Default.Upsert(targetViaId, targetLabel, targetProfile, cookieRaw, existing.TwoFaSecret);
+            if (via != null)
+            {
+                via.HasVaultCookie = true;
+            }
+            savedCount++;
+            AppendLog($"🔑 [Thu Cookie DPAPI] Đã lưu Cookie Facebook sạch cho Via '{targetLabel}' vào Két DPAPI!");
+        }
+
+        if (savedCount > 0)
+        {
+            _tray?.ShowBalloon("🔑 Thu Cookie DPAPI Thành Công", $"Đã lưu Cookie cho {savedCount} Via vào Két DPAPI — sẵn sàng chạy Ẩn 100%!", 4200, error: false);
+            PushOverviewStateToWebView();
+        }
+        else
+        {
+            AppendLog("⚠️ Không tìm thấy phiên Facebook đã đăng nhập (c_user + xs) trong các cửa sổ Chrome Cô lập đang mở.");
+            _tray?.ShowBalloon("🔑 Thu Cookie DPAPI", "Chưa phát hiện Facebook đã đăng nhập trong Chrome Cô lập đang mở.", 3500, error: true);
+        }
+    }
+
     internal static int TryExtractParenthesizedCount(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return 0;
@@ -4219,6 +4517,26 @@ internal sealed partial class MainWindow : Window
             if (dueSilent)
             {
                 _ = RunSilentInviteBatchPagesAsync(isScheduled: true);
+                return;
+            }
+        }
+
+        // v3.7.0 Scheduled Silent Background Page Nurture (14-Day Auto-Post Media / Auto-Share via CDP)
+        if (_config.AutoSilentPageNurtureEnabled && !_isSilentPageNurtureRunning && !_isSilentInviteRunning && !IsAutoInviteRunning)
+        {
+            int intervalHrs = Math.Clamp(_config.AutoSilentPageNurtureIntervalHours, 4, 48);
+            bool dueNurture = true;
+            if (!string.IsNullOrWhiteSpace(_config.LastAutoSilentPageNurtureUtc) &&
+                DateTimeOffset.TryParse(_config.LastAutoSilentPageNurtureUtc, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var lastNurtureDto))
+            {
+                if ((DateTimeOffset.UtcNow - lastNurtureDto).TotalHours < intervalHrs)
+                {
+                    dueNurture = false;
+                }
+            }
+            if (dueNurture)
+            {
+                _ = RunSilentPageNurtureBatchAsync(_config.PageNurtureMode, isScheduled: true);
                 return;
             }
         }

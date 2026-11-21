@@ -411,6 +411,7 @@ internal sealed partial class MainWindow
                 EnvLang = envProf.Lang,
                 EnvTimezone = envProf.IanaTimezone,
                 WebRtcLocked = envProf.WebRtcLocked,
+                CustomTag = (_config.ViaCustomTags != null && _config.ViaCustomTags.TryGetValue(v.ViaId, out var ctag)) ? (ctag ?? "") : "",
             };
         }).ToList();
 
@@ -2214,6 +2215,86 @@ internal sealed partial class MainWindow
                             break;
                         }
 
+                    case "save_silent_page_nurture_config":
+                        {
+                            _config.AutoSilentPageNurtureEnabled = GetBool(root, "enabled", _config.AutoSilentPageNurtureEnabled);
+                            _config.AutoSilentPageNurtureIntervalHours = Math.Clamp(GetInt(root, "intervalHours", _config.AutoSilentPageNurtureIntervalHours), 4, 48);
+                            _config.Save();
+                            _webUiConfigRev++;
+                            AppendLog(_config.AutoSilentPageNurtureEnabled
+                                ? $"🤖 Đã BẬT Tự động Nuôi Page 14 ngày chạy ẩn định kỳ (mỗi {_config.AutoSilentPageNurtureIntervalHours} giờ, 08:00–22:00)."
+                                : "⏸️ Đã TẮT Tự động Nuôi Page 14 ngày chạy ẩn định kỳ.");
+                            PushOverviewStateToWebView();
+                            break;
+                        }
+
+                    case "silent_page_nurture_single":
+                        {
+                            var pg = (_pagesSummary?.Items ?? new()).FirstOrDefault(p => string.Equals(p.Id, GetStr(root, "pageId"), StringComparison.OrdinalIgnoreCase));
+                            var mode = GetStr(root, "mode", "post");
+                            if (pg != null)
+                            {
+                                _ = RunSilentPageNurtureSingleAsync(pg, mode);
+                            }
+                            break;
+                        }
+
+                    case "silent_page_nurture_batch":
+                        {
+                            var mode = GetStr(root, "mode", _config.PageNurtureMode);
+                            _ = RunSilentPageNurtureBatchAsync(mode, isScheduled: false);
+                            break;
+                        }
+
+                    case "cancel_silent_page_nurture":
+                        {
+                            CancelSilentPageNurtureIfRunning();
+                            PushOverviewStateToWebView();
+                            break;
+                        }
+
+                    case "harvest_all_open_cookies":
+                        {
+                            _ = HarvestCookiesFromOpenIsolatedSessionsAsync();
+                            break;
+                        }
+
+                    case "set_via_custom_tag":
+                        {
+                            var viaId = GetStr(root, "viaId").Trim();
+                            var via = _vias.FirstOrDefault(v => string.Equals(v.ViaId, viaId, StringComparison.OrdinalIgnoreCase));
+                            if (via != null)
+                            {
+                                _config.ViaCustomTags ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                                string nextTag;
+                                if (GetBool(root, "cycleTag", false))
+                                {
+                                    var tagCycle = new[] { "Nuôi tuần 1", "Chuẩn bị tạo Page", "Đang chạy Ads", "Via Kháng", "Dự phòng", "" };
+                                    var cur = _config.ViaCustomTags.TryGetValue(via.ViaId, out var ctVal) ? (ctVal ?? "") : "";
+                                    var idx = Array.FindIndex(tagCycle, x => string.Equals(x, cur, StringComparison.OrdinalIgnoreCase));
+                                    nextTag = tagCycle[(idx + 1) % tagCycle.Length];
+                                }
+                                else
+                                {
+                                    nextTag = GetStr(root, "tag").Trim();
+                                }
+                                if (string.IsNullOrWhiteSpace(nextTag))
+                                {
+                                    _config.ViaCustomTags.Remove(via.ViaId);
+                                    AppendLog($"🏷️ Đã gỡ nhãn tùy chỉnh của Via '{via.Label}'.");
+                                }
+                                else
+                                {
+                                    _config.ViaCustomTags[via.ViaId] = nextTag;
+                                    AppendLog($"🏷️ Đã gắn nhãn '{nextTag}' cho Via '{via.Label}'.");
+                                }
+                                _config.Save();
+                                _webUiConfigRev++;
+                                PushOverviewStateToWebView();
+                            }
+                            break;
+                        }
+
                     case "set_page_holder":
                         {
                             var pid = GetStr(root, "pageId");
@@ -2976,6 +3057,10 @@ internal sealed partial class MainWindow
                 : _config.PageCaptionSpintax,
             ShareSourceCount = shareUrls.Count,
             ImagesFoundCount = imgCount,
+            AutoSilentPageNurtureEnabled = _config.AutoSilentPageNurtureEnabled,
+            AutoSilentPageNurtureIntervalHours = Math.Clamp(_config.AutoSilentPageNurtureIntervalHours, 4, 48),
+            LastAutoSilentPageNurtureLocal = AlertItemDto.FormatIsoTimestampLocal(_config.LastAutoSilentPageNurtureUtc, "Chưa chạy"),
+            IsSilentPageNurtureRunning = IsSilentPageNurtureRunning,
         };
     }
 

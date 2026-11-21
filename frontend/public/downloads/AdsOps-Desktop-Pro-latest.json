@@ -1,13 +1,13 @@
 ﻿{
-    "version":  "3.6.0",
+    "version":  "3.7.0",
     "ext_version":  "2.10.2",
     "authenticode_signed":  true,
     "download_url":  "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
     "mirror_urls":  [
                         "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
                     ],
-    "sha256":  "856ba53a24e505d7674e496087f3b181d2120fe18b55cbc37dda0c3fea56a228",
-    "size_bytes":  67792680,
-    "published_at":  "2026-11-20T04:13:51.2057487Z",
-    "release_notes":  "AdsOps Desktop Pro v3.6.0 (Silent Background Auto-Invite via Off-Screen Chrome CDP + Scheduled Auto-Detect \u0026 Invite with Tray Notifications, Per-Via Chrome Env Isolation, Multi-Site Cookie Robot, 5 Care Presets) + Companion v2.10.2."
+    "sha256":  "b0b6ee464c6c6ba46753c00a1ee3c81e4c1029be5369709a57694f75d8f52b4c",
+    "size_bytes":  67808038,
+    "published_at":  "2026-11-21T17:45:40.9467289Z",
+    "release_notes":  "AdsOps Desktop Pro v3.7.0 (ShardBrowser Open-Source Antidetect :40325, 100% Automated Off-Screen CDP Page Auto-Post with Media Hash-Jitter \u0026 Auto-Share, Scheduled 14-Day Silent Page Nurture, 1-Click Cookie Harvest \u0026 Custom Via Tags) + Companion v2.10.2."
 }

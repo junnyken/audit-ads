@@ -225,6 +225,11 @@ public sealed class DesktopConfig
     public bool AutoSilentInviteEnabled { get; set; } = false;
     public int AutoSilentInviteIntervalMinutes { get; set; } = 60;
     public string LastAutoSilentInviteUtc { get; set; } = "";
+    // v3.7.0 Silent Background Page Nurture Scheduler (14-Day Auto-Post/Share via CDP) & Custom Via Tags
+    public bool AutoSilentPageNurtureEnabled { get; set; } = false;
+    public int AutoSilentPageNurtureIntervalHours { get; set; } = 12;
+    public string LastAutoSilentPageNurtureUtc { get; set; } = "";
+    public Dictionary<string, string> ViaCustomTags { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     [JsonIgnore]
     public string AccessToken
@@ -2929,8 +2934,8 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "3.6.0";
-    public const string DisplayVersion = "v3.6.0";
+    public const string Version = "3.7.0";
+    public const string DisplayVersion = "v3.7.0";
     public const string ExtVersion = "2.10.2";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 
