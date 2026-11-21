@@ -2091,9 +2091,9 @@ internal static class Program
                 }
             }
 
-            // 35. v3.8.0 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
+            // 35. v3.9.0 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
             {
-                if (DesktopAppInfo.Version != "3.8.0" || DesktopAppInfo.ExtVersion != "2.10.2")
+                if (DesktopAppInfo.Version != "3.9.0" || DesktopAppInfo.ExtVersion != "2.10.2")
                 {
                     throw new InvalidOperationException(
                         $"DesktopAppInfo version mismatch: app={DesktopAppInfo.Version}, ext={DesktopAppInfo.ExtVersion}");
@@ -2143,7 +2143,7 @@ internal static class Program
                 foreach (var reqKey in new[]
                          {
                              "\"type\":\"full_state\"",
-                             "\"appVersion\":\"3.8.0\"",
+                             "\"appVersion\":\"3.9.0\"",
                              "\"extVersion\":\"2.10.2\"",
                              "\"activeView\":\"settings\"",
                              "\"totpMap\"",
@@ -2151,6 +2151,7 @@ internal static class Program
                              "\"carePresets\"",
                              "\"pageNurture\"",
                              "\"standbyPoolMatrix\"",
+                             "\"embryoFactory\"",
                              "\"settings\"",
                              "\"liveRunner\"",
                              "\"adSearch\":\"TKQC-01\"",
@@ -2512,6 +2513,66 @@ internal static class Program
                     standbyReady.StageKey != "standby_ready" || standbyReady.RecoveryReadinessScore != 100)
                 {
                     throw new InvalidOperationException($"AgencyIncubationAdvisor mismatch: pre={preBake}, soak={soak}, ready={standbyReady}");
+                }
+            }
+
+            // 42. v3.9.0 Auto Embryo Factory Planner, ready_to_born Stage, Domain Email Suggester & shardbrowser Notes Parser
+            {
+                var sbParsed = ViaMetadataParser.ParseNotes("[TIER:standby][ADENG:shardbrowser][ADID:sb_01]", "Phôi 01");
+                if (sbParsed.AntidetectEngine != "shardbrowser" || sbParsed.AntidetectProfileId != "sb_01" || sbParsed.Tier != "standby")
+                {
+                    throw new InvalidOperationException($"shardbrowser ParseNotes mismatch: {sbParsed}");
+                }
+
+                var nowRef = new DateTimeOffset(2026, 11, 22, 8, 0, 0, TimeSpan.Zero);
+                if (!AutoEmbryoFactoryPlanner.IsSpawnDue(true, 3, nowRef.AddDays(-3.1).ToString("O"), 1, 3, nowRef) ||
+                    AutoEmbryoFactoryPlanner.IsSpawnDue(true, 3, nowRef.AddDays(-1.5).ToString("O"), 1, 3, nowRef) ||
+                    AutoEmbryoFactoryPlanner.IsSpawnDue(true, 3, "", 3, 3, nowRef))
+                {
+                    throw new InvalidOperationException("AutoEmbryoFactoryPlanner.IsSpawnDue failed boundary checks.");
+                }
+
+                if (!AutoEmbryoFactoryPlanner.IsEmbryoSessionDue(1, 3, nowRef.AddHours(-12).ToString("O"), nowRef) ||
+                    AutoEmbryoFactoryPlanner.IsEmbryoSessionDue(1, 3, nowRef.AddHours(-4).ToString("O"), nowRef) ||
+                    AutoEmbryoFactoryPlanner.IsEmbryoSessionDue(3, 3, nowRef.AddDays(-2).ToString("O"), nowRef))
+                {
+                    throw new InvalidOperationException("AutoEmbryoFactoryPlanner.IsEmbryoSessionDue failed checks.");
+                }
+
+                var poolRaw = "103.1.1.1:8080:u1:p1\n103.2.2.2:8080:u2:p2";
+                var existingVias = new List<ViaWorkspaceEntry>
+                {
+                    new() { ViaId = "v1", ProfileDir = "Profile 1", NetworkLabel = "103.1.1.1:8080:u1:p1", ClientGroup = "OtherClient" },
+                    new() { ViaId = "v2", ProfileDir = "Profile 3", NetworkLabel = "103.2.2.2:8080:u2:p2", ClientGroup = "NhaKhoa_A" },
+                };
+                var pickedProxy = AutoEmbryoFactoryPlanner.AllocateCleanProxyForEmbryo(poolRaw, existingVias, "NhaKhoa_A", 4);
+                if (pickedProxy != "103.2.2.2:8080:u2:p2")
+                {
+                    throw new InvalidOperationException($"AllocateCleanProxyForEmbryo expected 103.2.2.2 (Silo match), got '{pickedProxy}'");
+                }
+
+                var nextProf = AutoEmbryoFactoryPlanner.AllocateNextIsolatedProfileDir(existingVias, new[] { "Default" });
+                if (nextProf != "Profile 2")
+                {
+                    throw new InvalidOperationException($"AllocateNextIsolatedProfileDir expected 'Profile 2', got '{nextProf}'");
+                }
+
+                var domainMail = AutoEmbryoFactoryPlanner.SuggestAgencyDomainEmail("@Agency.VN", 4, new DateTimeOffset(2026, 11, 22, 0, 0, 0, TimeSpan.Zero));
+                if (domainMail != "via.phoi04.1122@agency.vn")
+                {
+                    throw new InvalidOperationException($"SuggestAgencyDomainEmail mismatch: '{domainMail}'");
+                }
+
+                var readyEmbryo = AgencyIncubationAdvisor.ComputeIncubationStatus(true, false, false, false, false, 3, "trusted", 0, requiredPreBakeSessions: 3, isEmbryo: true);
+                if (readyEmbryo.StageKey != "ready_to_born")
+                {
+                    throw new InvalidOperationException($"Expected ready_to_born stage, got '{readyEmbryo.StageKey}'");
+                }
+
+                if (LocalSecretVaultStore.ResolveWebmailUrl("ops@zoho.com") != "https://mail.zoho.com/" ||
+                    LocalSecretVaultStore.ResolveWebmailUrl("ops@yandex.ru") != "https://mail.yandex.com/")
+                {
+                    throw new InvalidOperationException("ResolveWebmailUrl zoho/yandex check failed.");
                 }
             }
 

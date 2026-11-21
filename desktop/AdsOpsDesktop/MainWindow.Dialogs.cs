@@ -3410,4 +3410,322 @@ internal sealed partial class MainWindow
         dlg.Content = root;
         dlg.ShowDialog();
     }
+
+    internal void OpenAssistedOnboardingDialog(ViaWorkspaceEntry via)
+    {
+        var dlg = new Window
+        {
+            Title = $"🧭 Bàn Khai Sinh 60 Giây (Assisted Onboarding) • {via.Label}",
+            Width = 650,
+            MaxHeight = 770,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            ResizeMode = ResizeMode.NoResize,
+            Background = ThemeTokens.BgCanvas,
+            Foreground = ThemeTokens.TextPrimary,
+            ShowInTaskbar = false,
+        };
+        ThemeTokens.ApplyDarkTitleBar(dlg);
+
+        var existing = LocalSecretVaultStore.Default.Find(via.ViaId, via.ProfileDir, via.Label);
+        var envProf = ResolveViaEnvironmentProfileFor(via);
+        var reqSess = Math.Clamp(_config.AutoEmbryoRequiredSessions, 2, 10);
+        var preBakeCnt = (_config.ViaPreBakeSessionCounts != null && _config.ViaPreBakeSessionCounts.TryGetValue(via.ViaId, out var pb)) ? pb : 0;
+        var proxyDisp = string.IsNullOrWhiteSpace(via.NetworkLabel) ? "Direct IP" : AutomationQueueEngine.ExtractProxyHostPort(via.NetworkLabel);
+
+        var root = new StackPanel { Margin = new Thickness(20) };
+
+        // Readiness top banner
+        var bannerStack = new StackPanel();
+        bannerStack.Children.Add(new TextBlock
+        {
+            Text = $"🥚 Trạng thái Phôi: Đã ủ {preBakeCnt}/{reqSess} phiên Cookie sạch • {via.ProfileDir} • {proxyDisp} • {envProf.ViewportLabel} ({envProf.CountryCode})",
+            FontFamily = ThemeTokens.UiFont,
+            FontSize = 12.5,
+            FontWeight = FontWeights.Bold,
+            Foreground = preBakeCnt >= reqSess ? ThemeTokens.SuccessText : ThemeTokens.AccentText,
+            TextWrapping = TextWrapping.Wrap,
+        });
+        bannerStack.Children.Add(new TextBlock
+        {
+            Text = "Quy trình 90% Auto: Trình duyệt đã có Cookie nền sạch. Bạn tự tay đăng ký / xác minh OTP chính chủ trên Chrome vừa mở, dán mã 2FA vào bên dưới để xem OTP live rồi bấm 1 nút Hoàn Tất Khai Sinh.",
+            FontFamily = ThemeTokens.UiFont,
+            FontSize = 11.5,
+            Foreground = ThemeTokens.TextSecondary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 0),
+        });
+        var bannerCard = UiComponents.CreateCard(bannerStack, new Thickness(12), ThemeTokens.BgSurfaceElevated, ThemeTokens.BorderDefault);
+        bannerCard.Margin = new Thickness(0, 0, 0, 10);
+        root.Children.Add(bannerCard);
+
+        // Input fields declared before launch actions
+        var tbRecEmail = UiComponents.CreateTextBox(existing.RecoveryEmail, "vd: agency.backup01@gmail.com hoặc mail domain riêng");
+        var tbEmailPass = UiComponents.CreateTextBox(existing.EmailPassword, "Mật khẩu hộp thư (mã hóa DPAPI)");
+        tbEmailPass.FontFamily = ThemeTokens.MonoFont;
+        var tbEmail2Fa = UiComponents.CreateTextBox(existing.EmailTwoFaSecret, "Secret 2FA Mail (Base32)");
+        tbEmail2Fa.FontFamily = ThemeTokens.MonoFont;
+        var tbFbUid = UiComponents.CreateTextBox(via.ExternalReferenceId, "Để trống để tự đọc c_user từ Cookie khi thu");
+        tbFbUid.FontFamily = ThemeTokens.MonoFont;
+        var tbFb2Fa = UiComponents.CreateTextBox(!string.IsNullOrWhiteSpace(existing.TwoFaSecret) ? existing.TwoFaSecret : via.TwoFaSecret, "Secret 2FA Facebook (Base32)");
+        tbFb2Fa.FontFamily = ThemeTokens.MonoFont;
+        var tbBackupCodes = UiComponents.CreateTextBox(existing.BackupCodesRaw, "Mỗi dòng 1 mã dự phòng 8 số Facebook / Google...", multiline: true, height: 68);
+        tbBackupCodes.FontFamily = ThemeTokens.MonoFont;
+
+        // 3 Quick Launch Buttons
+        var launchRow = new WrapPanel { Margin = new Thickness(0, 0, 0, 12) };
+        var btnLaunchMail = UiComponents.CreateButton("🌐 1. Mở Webmail / Gmail Sạch", ButtonVariant.Secondary, compact: true, onClick: (_, _) =>
+        {
+            var url = string.IsNullOrWhiteSpace(tbRecEmail.Text)
+                ? "https://accounts.google.com/"
+                : LocalSecretVaultStore.ResolveWebmailUrl(tbRecEmail.Text);
+            LaunchViaChromeSafe(via, url);
+            AppendLog($"🧭 [Khai Sinh 60s] Đã mở '{url}' cho '{via.Label}' ({via.ProfileDir}).");
+        });
+        btnLaunchMail.Margin = new Thickness(0, 0, 8, 6);
+        launchRow.Children.Add(btnLaunchMail);
+
+        var btnLaunchFb = UiComponents.CreateButton("📘 2. Mở Facebook Trang Chủ", ButtonVariant.Secondary, compact: true, onClick: (_, _) =>
+        {
+            LaunchViaChromeSafe(via, "https://www.facebook.com/");
+            AppendLog($"📘 [Khai Sinh 60s] Đã mở Facebook trên '{via.Label}' ({via.ProfileDir}).");
+        });
+        btnLaunchFb.Margin = new Thickness(0, 0, 8, 6);
+        launchRow.Children.Add(btnLaunchFb);
+
+        var btnLaunch2Fa = UiComponents.CreateButton("🔐 3. Mở Bật 2FA Facebook", ButtonVariant.Secondary, compact: true, onClick: (_, _) =>
+        {
+            LaunchViaChromeSafe(via, "https://accountscenter.facebook.com/password_and_security");
+            AppendLog($"🔐 [Khai Sinh 60s] Đã mở Cài đặt Bảo mật/2FA Facebook trên '{via.Label}'.");
+        });
+        btnLaunch2Fa.Margin = new Thickness(0, 0, 8, 6);
+        launchRow.Children.Add(btnLaunch2Fa);
+
+        if (!string.IsNullOrWhiteSpace(_config.AutoEmbryoCustomDomain))
+        {
+            var btnSuggestMail = UiComponents.CreateButton($"✨ Gợi ý Mail @{_config.AutoEmbryoCustomDomain.TrimStart('@')}", ButtonVariant.Subtle, compact: true, onClick: (_, _) =>
+            {
+                var idxSeed = Math.Max(1, _vias.FindIndex(x => string.Equals(x.ViaId, via.ViaId, StringComparison.OrdinalIgnoreCase)) + 1);
+                var sug = AutoEmbryoFactoryPlanner.SuggestAgencyDomainEmail(_config.AutoEmbryoCustomDomain, idxSeed, DateTimeOffset.Now);
+                if (!string.IsNullOrWhiteSpace(sug)) tbRecEmail.Text = sug;
+            });
+            btnSuggestMail.Margin = new Thickness(0, 0, 0, 6);
+            launchRow.Children.Add(btnSuggestMail);
+        }
+        root.Children.Add(launchRow);
+
+        // Two-column layout: Mail & Mail Pass
+        var mailGrid = new Grid();
+        mailGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        mailGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+        mailGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var bMail = BuildLabeledBox("Email Khôi phục / Chính chủ", tbRecEmail);
+        var bMailPass = BuildLabeledBox("Mật khẩu Email (DPAPI)", tbEmailPass);
+        Grid.SetColumn(bMail, 0);
+        Grid.SetColumn(bMailPass, 2);
+        mailGrid.Children.Add(bMail);
+        mailGrid.Children.Add(bMailPass);
+        root.Children.Add(mailGrid);
+
+        // Email 2FA + Live OTP
+        var mail2FaWrap = BuildLabeledBox("Secret 2FA Email (Base32 - Tùy chọn)", tbEmail2Fa);
+        mail2FaWrap.Margin = new Thickness(0, 8, 0, 0);
+        root.Children.Add(mail2FaWrap);
+
+        var mailOtpTxt = new TextBlock
+        {
+            Text = "OTP Mail: —",
+            FontFamily = ThemeTokens.MonoFont,
+            FontSize = 12,
+            FontWeight = FontWeights.Bold,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 10, 0),
+        };
+        void RefreshMailOtp()
+        {
+            var r = TotpService.ComputeTotp(tbEmail2Fa.Text);
+            mailOtpTxt.Text = r.Valid ? $"OTP Mail: {r.FormattedCode} ({r.SecondsRemaining}s)" : "OTP Mail: Chưa gắn";
+            mailOtpTxt.Foreground = r.Valid ? ThemeTokens.SuccessText : ThemeTokens.TextMuted;
+        }
+        tbEmail2Fa.TextChanged += (_, _) => RefreshMailOtp();
+        RefreshMailOtp();
+        var copyMailOtpBtn = UiComponents.CreateButton("Copy OTP Mail", ButtonVariant.Secondary, FluentIcons.Copy, compact: true, onClick: (_, _) =>
+        {
+            var r = TotpService.ComputeTotp(tbEmail2Fa.Text);
+            if (r.Valid) Clipboard.SetText(r.Code6);
+        });
+        var mailOtpRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 5, 0, 0) };
+        mailOtpRow.Children.Add(mailOtpTxt);
+        mailOtpRow.Children.Add(copyMailOtpBtn);
+        root.Children.Add(mailOtpRow);
+
+        // Two-column: FB UID & FB 2FA
+        var fbGrid = new Grid { Margin = new Thickness(0, 10, 0, 0) };
+        fbGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        fbGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+        fbGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var bUid = BuildLabeledBox("Facebook UID (tự lấy từ Cookie)", tbFbUid);
+        var bFb2Fa = BuildLabeledBox("Secret 2FA Facebook (Base32)", tbFb2Fa);
+        Grid.SetColumn(bUid, 0);
+        Grid.SetColumn(bFb2Fa, 2);
+        fbGrid.Children.Add(bUid);
+        fbGrid.Children.Add(bFb2Fa);
+        root.Children.Add(fbGrid);
+
+        var fbOtpTxt = new TextBlock
+        {
+            Text = "OTP Facebook: —",
+            FontFamily = ThemeTokens.MonoFont,
+            FontSize = 14,
+            FontWeight = FontWeights.Bold,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 10, 0),
+        };
+        void RefreshFbOtp()
+        {
+            var r = TotpService.ComputeTotp(tbFb2Fa.Text);
+            fbOtpTxt.Text = r.Valid ? $"🔑 OTP FB Live: {r.FormattedCode} ({r.SecondsRemaining}s)" : "🔑 OTP FB Live: Dán Base32 để lấy 6 số xác nhận khi bật 2FA";
+            fbOtpTxt.Foreground = r.Valid ? ThemeTokens.AccentText : ThemeTokens.TextMuted;
+        }
+        tbFb2Fa.TextChanged += (_, _) => RefreshFbOtp();
+        RefreshFbOtp();
+        var copyFbOtpBtn = UiComponents.CreateButton("Copy 6 số FB", ButtonVariant.Secondary, FluentIcons.Copy, compact: true, onClick: (_, _) =>
+        {
+            var r = TotpService.ComputeTotp(tbFb2Fa.Text);
+            if (r.Valid) Clipboard.SetText(r.Code6);
+        });
+        var fbOtpRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+        fbOtpRow.Children.Add(fbOtpTxt);
+        fbOtpRow.Children.Add(copyFbOtpBtn);
+        root.Children.Add(fbOtpRow);
+
+        var backupWrap = BuildLabeledBox("10 Mã Dự Phòng 8 Số (Backup Codes)", tbBackupCodes);
+        backupWrap.Margin = new Thickness(0, 10, 0, 0);
+        root.Children.Add(backupWrap);
+
+        var statusTxt = new TextBlock
+        {
+            Text = "",
+            FontFamily = ThemeTokens.UiFont,
+            FontSize = 12,
+            Foreground = ThemeTokens.DangerText,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 8, 0, 0),
+            Visibility = Visibility.Collapsed,
+        };
+        root.Children.Add(statusTxt);
+
+        var btnRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
+        var cancelBtn = UiComponents.CreateButton("Đóng", ButtonVariant.Secondary, onClick: (_, _) => dlg.Close());
+        cancelBtn.Margin = new Thickness(0, 0, 10, 0);
+
+        Button finishBtn = null!;
+        finishBtn = UiComponents.CreateButton(
+            "✅ Hoàn Tất Khai Sinh: Gom Cookie + Lưu Két + Ấp 7 Ngày",
+            ButtonVariant.Primary,
+            FluentIcons.CheckCircle,
+            onClick: async (_, _) =>
+            {
+                finishBtn.IsEnabled = false;
+                statusTxt.Visibility = Visibility.Collapsed;
+                try
+                {
+                    // 1. Harvest active Facebook cookies via CDP if Chrome is open
+                    string harvestedCookie = "";
+                    var openSess = ChromeSessionTracker.Default.GetSnapshot()
+                        .FirstOrDefault(s => s.Alive && s.CdpPort is > 0 &&
+                            ((!string.IsNullOrWhiteSpace(via.ViaId) && string.Equals(s.ViaId, via.ViaId, StringComparison.OrdinalIgnoreCase)) ||
+                             (!string.IsNullOrWhiteSpace(via.Label) && string.Equals(s.ViaLabel, via.Label, StringComparison.OrdinalIgnoreCase)) ||
+                             (!string.IsNullOrWhiteSpace(via.ProfileDir) && string.Equals(s.ProfileDir, via.ProfileDir, StringComparison.OrdinalIgnoreCase))));
+                    if (openSess?.CdpPort is int cdpPortVal && cdpPortVal > 0)
+                    {
+                        harvestedCookie = await ChromeCdpController.TryHarvestFacebookCookieHeaderAsync(cdpPortVal, 2500);
+                    }
+
+                    var finalCookie = !string.IsNullOrWhiteSpace(harvestedCookie) ? harvestedCookie : existing.CookieRaw;
+                    var uidVal = tbFbUid.Text.Trim();
+                    if (string.IsNullOrWhiteSpace(uidVal) && !string.IsNullOrWhiteSpace(finalCookie))
+                    {
+                        var um = System.Text.RegularExpressions.Regex.Match(finalCookie, @"(?:^|;\s*)c_user=(\d+)");
+                        if (um.Success) uidVal = um.Groups[1].Value;
+                    }
+
+                    // 2. Save 6-layer secrets locally via DPAPI
+                    LocalSecretVaultStore.Default.UpsertFull(
+                        via.ViaId,
+                        via.Label,
+                        via.ProfileDir,
+                        finalCookie,
+                        tbFb2Fa.Text.Trim(),
+                        tbRecEmail.Text.Trim(),
+                        tbEmailPass.Text.Trim(),
+                        tbEmail2Fa.Text.Trim(),
+                        tbBackupCodes.Text.Trim(),
+                        allowOverwriteEmpty: true);
+
+                    // 3. Hand off to 7-Day Standby Incubation Pipeline ("soak_72h")
+                    var nowIso = DateTimeOffset.UtcNow.ToString("O");
+                    _config.ViaCustomTags ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    _config.ViaCustomTags[via.ViaId] = "🐣 Đang Ấp 7 Ngày";
+                    _config.Save();
+
+                    if (!string.IsNullOrWhiteSpace(_config.GetJwt()) &&
+                        !via.ViaId.StartsWith("local-embryo-", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var builtNotes = ViaMetadataParser.BuildNotes(
+                            via.CleanNotes,
+                            "standby",
+                            nowIso,
+                            via.ClientGroup,
+                            "soak_72h",
+                            via.AntidetectEngine,
+                            via.AntidetectProfileId);
+                        await _api.UpdatePersonalAccountAsync(via.ViaId, new PersonalAccountUpsertRequestDto
+                        {
+                            Label = via.Label,
+                            DisplayName = string.IsNullOrWhiteSpace(via.DisplayName) ? via.Label : via.DisplayName,
+                            ExternalReferenceId = string.IsNullOrWhiteSpace(uidVal) ? null : uidVal,
+                            Status = "active",
+                            BrowserProfileLabel = string.IsNullOrWhiteSpace(via.BrowserProfileLabel) ? via.ProfileDir : via.BrowserProfileLabel,
+                            NetworkLabel = via.NetworkLabel,
+                            VaultReference = "Két DPAPI Local 6 Lớp (Desktop)",
+                            Notes = builtNotes,
+                        });
+                        await SyncCloudAsync(silent: true);
+                    }
+                    else
+                    {
+                        via.RoleTier = "standby";
+                        via.DefaultWarmupMode = "soak_72h";
+                        via.WarmupStartIso = nowIso;
+                        if (!string.IsNullOrWhiteSpace(uidVal)) via.ExternalReferenceId = uidVal;
+                        via.HasVaultCookie = !string.IsNullOrWhiteSpace(finalCookie);
+                        via.HasLocalTwoFa = !string.IsNullOrWhiteSpace(tbFb2Fa.Text);
+                        via.TwoFaSecret = tbFb2Fa.Text.Trim();
+                    }
+
+                    var cookieTag = !string.IsNullOrWhiteSpace(harvestedCookie)
+                        ? "Đã tự gom Cookie FB mới"
+                        : (!string.IsNullOrWhiteSpace(finalCookie) ? "Giữ Cookie DPAPI hiện có" : "Chưa bắt được Cookie FB (mở FB rồi bấm Thu Cookie sau)");
+                    AppendLog($"🎉 [Hoàn Tất Khai Sinh] '{via.Label}' -> {cookieTag} • Lưu Két 6 Lớp • Đưa vào Lò Ấp 7 Ngày (soak_72h)!");
+                    _tray?.ShowBalloon("🎉 Hoàn Tất Khai Sinh 60s!", $"'{via.Label}' đã lưu Két 6 Lớp & tự động đưa vào Lò Ấp 7 Ngày.", 4500, error: false);
+                    PushOverviewStateToWebView();
+                    dlg.DialogResult = true;
+                }
+                catch (Exception ex)
+                {
+                    statusTxt.Text = $"Lỗi lưu Khai Sinh: {ex.Message}";
+                    statusTxt.Visibility = Visibility.Visible;
+                    finishBtn.IsEnabled = true;
+                }
+            });
+
+        btnRow.Children.Add(cancelBtn);
+        btnRow.Children.Add(finishBtn);
+        root.Children.Add(btnRow);
+
+        dlg.Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 730, Content = root };
+        dlg.ShowDialog();
+    }
 }

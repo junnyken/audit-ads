@@ -369,6 +369,8 @@ internal sealed partial class MainWindow
             var hasMail2Fa = !string.IsNullOrWhiteSpace(localSec.EmailTwoFaSecret);
             var unusedBackupCnt = LocalSecretVaultStore.CountUnusedBackupCodes(localSec.BackupCodesRaw);
             var preBakeCnt = (_config.ViaPreBakeSessionCounts != null && _config.ViaPreBakeSessionCounts.TryGetValue(v.ViaId, out var pb)) ? pb : 0;
+            var reqSess = Math.Clamp(_config.AutoEmbryoRequiredSessions, 2, 10);
+            var isEmbryo = IsEmbryoVia(v, _config, localSec);
             var warmupStat = ViaMetadataParser.ComputeWarmupStatus(v.WarmupStartIso, soakHours: _config.SoakQuarantineHours);
             var daysElapsed = string.IsNullOrWhiteSpace(v.WarmupStartIso) && !v.IsInSoakQuarantine ? 7 : warmupStat.DaysElapsed;
             var incStat = AgencyIncubationAdvisor.ComputeIncubationStatus(
@@ -379,7 +381,9 @@ internal sealed partial class MainWindow
                 hasMail2Fa || unusedBackupCnt > 0,
                 preBakeCnt,
                 v.WarmupPhase,
-                daysElapsed);
+                daysElapsed,
+                requiredPreBakeSessions: reqSess,
+                isEmbryo: isEmbryo);
 
             return new WebViaItemDto
             {
@@ -436,6 +440,7 @@ internal sealed partial class MainWindow
                 HasMailTwoFa = hasMail2Fa,
                 UnusedBackupCodesCount = unusedBackupCnt,
                 PreBakeSessionsCount = preBakeCnt,
+                RequiredPreBakeSessions = reqSess,
                 RecoveryReadinessScore = incStat.RecoveryReadinessScore,
                 IncubationStageKey = incStat.StageKey,
                 IncubationStageLabel = incStat.StageLabel,
@@ -447,9 +452,9 @@ internal sealed partial class MainWindow
             .GroupBy(x => string.IsNullOrWhiteSpace(x.ClientGroup) ? "Chung (Agency Pool)" : x.ClientGroup.Trim(), StringComparer.OrdinalIgnoreCase)
             .Select(g =>
             {
-                int activePrimary = g.Count(x => x.RoleTier != "standby" && x.IncubationStageKey != "pre_bake");
-                int standbyReady = g.Count(x => x.RoleTier == "standby" || x.IncubationStageKey == "standby_ready");
-                int incubating = g.Count(x => x.IncubationStageKey is "pre_bake" or "soak_72h" or "interactive_4_7d");
+                int activePrimary = g.Count(x => x.RoleTier != "standby" && x.IncubationStageKey is not "pre_bake" and not "ready_to_born");
+                int standbyReady = g.Count(x => x.IncubationStageKey == "standby_ready" || (x.RoleTier == "standby" && x.IncubationStageKey is not "pre_bake" and not "ready_to_born"));
+                int incubating = g.Count(x => x.IncubationStageKey is "pre_bake" or "ready_to_born" or "soak_72h" or "interactive_4_7d");
                 int missingMail = g.Count(x => !x.HasRecoveryMail);
                 return new WebClientStandbyPoolRowDto
                 {
@@ -745,6 +750,7 @@ internal sealed partial class MainWindow
             RuntimeLogs = _logLines.TakeLast(60).Reverse().ToList(),
             Vias = viaItems,
             StandbyPoolMatrix = standbyMatrix,
+            EmbryoFactory = BuildEmbryoFactoryConfigDto(viaItems),
             TotpMap = totpMap,
             ChromeProfiles = _chromeProfiles.Select(cp => new WebOptionDto
             {
@@ -1478,6 +1484,53 @@ internal sealed partial class MainWindow
                                 AppendLog($"🥚 Bắt đầu 1 phiên Ủ Cookie Nền (Pre-Bake) cho phôi '{via.Label}'...");
                                 StartNaturalFlowForVias(new[] { via }, fastTest: false, requireConfirm: false);
                                 PushOverviewStateToWebView();
+                            }
+                            break;
+                        }
+
+                    case "save_embryo_factory_config":
+                        {
+                            _config.AutoEmbryoFactoryEnabled = GetBool(root, "enabled", _config.AutoEmbryoFactoryEnabled);
+                            _config.AutoEmbryoSpawnIntervalDays = Math.Clamp(GetInt(root, "spawnIntervalDays", _config.AutoEmbryoSpawnIntervalDays), 1, 14);
+                            _config.AutoEmbryoRequiredSessions = Math.Clamp(GetInt(root, "requiredSessions", _config.AutoEmbryoRequiredSessions), 2, 10);
+                            _config.AutoEmbryoMaxPending = Math.Clamp(GetInt(root, "maxPendingEmbryos", _config.AutoEmbryoMaxPending), 1, 10);
+                            _config.AutoEmbryoProxyPoolRaw = GetStr(root, "proxyPoolRaw", _config.AutoEmbryoProxyPoolRaw).Trim();
+                            _config.AutoEmbryoDefaultClientGroup = GetStr(root, "defaultClientGroup", _config.AutoEmbryoDefaultClientGroup).Trim();
+                            _config.AutoEmbryoCustomDomain = GetStr(root, "customDomain", _config.AutoEmbryoCustomDomain).Trim();
+                            _config.Save();
+                            _webUiConfigRev++;
+                            var validPx = AutoEmbryoFactoryPlanner.ParseValidProxies(_config.AutoEmbryoProxyPoolRaw).Count;
+                            AppendLog(_config.AutoEmbryoFactoryEnabled
+                                ? $"🥚 Đã BẬT Xưởng Phôi Định Kỳ (mỗi {_config.AutoEmbryoSpawnIntervalDays} ngày • {_config.AutoEmbryoRequiredSessions} phiên ủ ngầm • {validPx} Proxy sạch)."
+                                : $"💾 Đã lưu cấu hình Xưởng Phôi (Chu kỳ {_config.AutoEmbryoSpawnIntervalDays} ngày • {_config.AutoEmbryoRequiredSessions} phiên • {validPx} Proxy).");
+                            PushOverviewStateToWebView();
+                            break;
+                        }
+
+                    case "spawn_embryo_now":
+                        _ = SpawnCleanEmbryoProfileAsync(runInitialSilentBake: true, isScheduled: false);
+                        break;
+
+                    case "bake_all_embryos_silent":
+                        _ = RunSilentPreBakeBatchDueAsync(forceAllEmbryos: true, isScheduled: false);
+                        break;
+
+                    case "run_silent_prebake_single":
+                        {
+                            var via = _vias.FirstOrDefault(v => string.Equals(v.ViaId, GetStr(root, "viaId").Trim(), StringComparison.OrdinalIgnoreCase));
+                            if (via != null)
+                            {
+                                _ = RunSilentPreBakeForViaAsync(via, isScheduled: false);
+                            }
+                            break;
+                        }
+
+                    case "open_assisted_onboarding":
+                        {
+                            var via = _vias.FirstOrDefault(v => string.Equals(v.ViaId, GetStr(root, "viaId").Trim(), StringComparison.OrdinalIgnoreCase));
+                            if (via != null)
+                            {
+                                OpenAssistedOnboardingDialog(via);
                             }
                             break;
                         }
@@ -3172,6 +3225,48 @@ internal sealed partial class MainWindow
             AutoSilentPageNurtureIntervalHours = Math.Clamp(_config.AutoSilentPageNurtureIntervalHours, 4, 48),
             LastAutoSilentPageNurtureLocal = AlertItemDto.FormatIsoTimestampLocal(_config.LastAutoSilentPageNurtureUtc, "Chưa chạy"),
             IsSilentPageNurtureRunning = IsSilentPageNurtureRunning,
+        };
+    }
+
+    private WebEmbryoFactoryConfigDto BuildEmbryoFactoryConfigDto(List<WebViaItemDto> viaItems)
+    {
+        var intervalDays = Math.Clamp(_config.AutoEmbryoSpawnIntervalDays, 1, 14);
+        var reqSess = Math.Clamp(_config.AutoEmbryoRequiredSessions, 2, 10);
+        var maxPending = Math.Clamp(_config.AutoEmbryoMaxPending, 1, 10);
+        var validProxies = AutoEmbryoFactoryPlanner.ParseValidProxies(_config.AutoEmbryoProxyPoolRaw).Count;
+
+        string nextHint = "Bật Lịch Xưởng Phôi để tự động đẻ & ủ ngầm mỗi 2–3 ngày";
+        if (_config.AutoEmbryoFactoryEnabled)
+        {
+            if (string.IsNullOrWhiteSpace(_config.LastAutoEmbryoSpawnUtc) ||
+                !DateTimeOffset.TryParse(_config.LastAutoEmbryoSpawnUtc, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var lastDt))
+            {
+                nextHint = "Sẵn sàng tạo Phôi đầu tiên trong khung giờ 08:00–22:00";
+            }
+            else
+            {
+                var nextDt = lastDt.AddDays(intervalDays).ToLocalTime();
+                nextHint = DateTimeOffset.UtcNow >= lastDt.AddDays(intervalDays)
+                    ? "Đến lịch tạo Phôi mới hôm nay (08:00–22:00)"
+                    : $"Dự kiến tạo Phôi tiếp: {nextDt:dd/MM HH:mm}";
+            }
+        }
+
+        return new WebEmbryoFactoryConfigDto
+        {
+            Enabled = _config.AutoEmbryoFactoryEnabled,
+            SpawnIntervalDays = intervalDays,
+            RequiredSessions = reqSess,
+            MaxPendingEmbryos = maxPending,
+            ProxyPoolRaw = _config.AutoEmbryoProxyPoolRaw ?? "",
+            ProxyPoolValidCount = validProxies,
+            DefaultClientGroup = _config.AutoEmbryoDefaultClientGroup ?? "",
+            CustomDomain = _config.AutoEmbryoCustomDomain ?? "",
+            LastSpawnLocal = AlertItemDto.FormatIsoTimestampLocal(_config.LastAutoEmbryoSpawnUtc, "Chưa tạo"),
+            NextSpawnHint = nextHint,
+            PreBakingCount = viaItems.Count(x => x.IncubationStageKey == "pre_bake"),
+            ReadyToBornCount = viaItems.Count(x => x.IncubationStageKey == "ready_to_born"),
+            IsSilentPreBakeRunning = IsSilentPreBakeRunning,
         };
     }
 

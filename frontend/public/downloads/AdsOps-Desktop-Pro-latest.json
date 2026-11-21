@@ -1,13 +1,13 @@
-﻿{
-    "version":  "3.8.0",
+{
+    "version":  "3.9.0",
     "ext_version":  "2.10.2",
     "authenticode_signed":  true,
     "download_url":  "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
     "mirror_urls":  [
                         "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
                     ],
-    "sha256":  "21ed7a2793bf95edaa8a3a0eaefb13d3e73c65946920f5ca188b3f33d279f7fe",
-    "size_bytes":  67821817,
-    "published_at":  "2026-11-21T19:36:07.1243595Z",
-    "release_notes":  "AdsOps Desktop Pro v3.8.0 (Agency 6-Layer DPAPI Vault: Cookie + FB 2FA + Recovery Mail/Pass/2FA + Backup Codes, Clean Pre-Bake Embryo Profiles, 7-Day Incubation Pipeline \u0026 Client Standby Pool Matrix + 1-Click Checkpoint Rescue) + Companion v2.10.2."
+    "sha256":  "6db286b35df18f3afb5b4d2fb4d6634e730ede931419061727d8af7442d02a5b",
+    "size_bytes":  67841373,
+    "published_at":  "2026-11-21T20:21:08.5243515Z",
+    "release_notes":  "AdsOps Desktop Pro v3.9.0 (Scheduled 2-3 Day Auto Embryo Pre-Bake Factory, Off-Screen CDP Multi-Site Cookie Robot, 1-Click 60s Assisted Onboarding \u0026 7-Day Agency Standby Incubation Pipeline) + Companion v2.10.2."
 }

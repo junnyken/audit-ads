@@ -209,9 +209,27 @@ public sealed class WebViaItemDto
     public bool HasMailTwoFa { get; set; }
     public int UnusedBackupCodesCount { get; set; }
     public int PreBakeSessionsCount { get; set; }
+    public int RequiredPreBakeSessions { get; set; } = 3;
     public int RecoveryReadinessScore { get; set; }
     public string IncubationStageKey { get; set; } = "standby_ready";
     public string IncubationStageLabel { get; set; } = "";
+}
+
+public sealed class WebEmbryoFactoryConfigDto
+{
+    public bool Enabled { get; set; }
+    public int SpawnIntervalDays { get; set; } = 3;
+    public int RequiredSessions { get; set; } = 3;
+    public int MaxPendingEmbryos { get; set; } = 3;
+    public string ProxyPoolRaw { get; set; } = "";
+    public int ProxyPoolValidCount { get; set; }
+    public string DefaultClientGroup { get; set; } = "";
+    public string CustomDomain { get; set; } = "";
+    public string LastSpawnLocal { get; set; } = "Chưa tạo";
+    public string NextSpawnHint { get; set; } = "";
+    public int PreBakingCount { get; set; }
+    public int ReadyToBornCount { get; set; }
+    public bool IsSilentPreBakeRunning { get; set; }
 }
 
 public sealed class WebClientStandbyPoolRowDto
@@ -707,6 +725,7 @@ public sealed class AppShellWebStateDto
     // Tab 2: Multi-Via
     public List<WebViaItemDto> Vias { get; set; } = new();
     public List<WebClientStandbyPoolRowDto> StandbyPoolMatrix { get; set; } = new();
+    public WebEmbryoFactoryConfigDto EmbryoFactory { get; set; } = new();
     public Dictionary<string, LiveTotpItemDto> TotpMap { get; set; } = new();
     public List<WebOptionDto> ChromeProfiles { get; set; } = new();
     public List<WebOptionDto> SupportedEngines { get; set; } = new();

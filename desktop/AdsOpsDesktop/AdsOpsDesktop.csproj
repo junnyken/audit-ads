@@ -8,13 +8,13 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>AdsOpsDesktop</AssemblyName>
     <RootNamespace>AdsOpsDesktop</RootNamespace>
-    <Version>3.8.0</Version>
-    <AssemblyVersion>3.8.0.0</AssemblyVersion>
-    <FileVersion>3.8.0.0</FileVersion>
+    <Version>3.9.0</Version>
+    <AssemblyVersion>3.9.0.0</AssemblyVersion>
+    <FileVersion>3.9.0.0</FileVersion>
     <Product>AdsOps Desktop Pro</Product>
     <Company>AdsOps</Company>
     <CodePage>65001</CodePage>
-    <Description>AdsOps Desktop Pro v3.8.0 — Agency 6-Layer DPAPI Vault (Cookie + FB 2FA + Recovery Mail/Pass/2FA + Backup Codes), Clean Pre-Bake Embryo Profiles, 7-Day Incubation Pipeline &amp; Client Standby Pool Matrix</Description>
+    <Description>AdsOps Desktop Pro v3.9.0 — Scheduled 2-3 Day Auto Embryo Pre-Bake Factory, 1-Click 60s Assisted Onboarding &amp; 7-Day Agency Standby Pipeline</Description>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 

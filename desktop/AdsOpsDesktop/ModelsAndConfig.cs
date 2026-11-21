@@ -233,6 +233,17 @@ public sealed class DesktopConfig
     // v3.8.0 Agency 6-Layer DPAPI Vault, Clean Pre-Bake Embryo Profiles & Client Standby Pool
     public Dictionary<string, int> ViaPreBakeSessionCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public int MinClientStandbyTarget { get; set; } = 2;
+    // v3.9.0 Scheduled 2-3 Day Auto Embryo Pre-Bake Factory & 60s Assisted Onboarding
+    public bool AutoEmbryoFactoryEnabled { get; set; } = false;
+    public int AutoEmbryoSpawnIntervalDays { get; set; } = 3;
+    public int AutoEmbryoRequiredSessions { get; set; } = 3;
+    public int AutoEmbryoMaxPending { get; set; } = 3;
+    public string AutoEmbryoProxyPoolRaw { get; set; } = "";
+    public string AutoEmbryoDefaultClientGroup { get; set; } = "";
+    public string AutoEmbryoCustomDomain { get; set; } = "";
+    public string LastAutoEmbryoSpawnUtc { get; set; } = "";
+    public Dictionary<string, string> ViaLastPreBakeAtUtc { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public List<string> NotifiedReadyEmbryoIds { get; set; } = new();
 
     [JsonIgnore]
     public string AccessToken
@@ -359,6 +370,14 @@ public sealed class DesktopConfig
                     }
                     cfg.QueueRestMinSeconds = Math.Clamp(cfg.QueueRestMinSeconds < 5 ? 15 : cfg.QueueRestMinSeconds, 5, 300);
                     cfg.QueueRestMaxSeconds = Math.Clamp(cfg.QueueRestMaxSeconds < cfg.QueueRestMinSeconds ? cfg.QueueRestMinSeconds + 10 : cfg.QueueRestMaxSeconds, cfg.QueueRestMinSeconds, 600);
+                    cfg.AutoEmbryoSpawnIntervalDays = Math.Clamp(cfg.AutoEmbryoSpawnIntervalDays < 1 ? 3 : cfg.AutoEmbryoSpawnIntervalDays, 1, 14);
+                    cfg.AutoEmbryoRequiredSessions = Math.Clamp(cfg.AutoEmbryoRequiredSessions < 2 ? 3 : cfg.AutoEmbryoRequiredSessions, 2, 10);
+                    cfg.AutoEmbryoMaxPending = Math.Clamp(cfg.AutoEmbryoMaxPending < 1 ? 3 : cfg.AutoEmbryoMaxPending, 1, 10);
+                    cfg.ViaPreBakeSessionCounts ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                    cfg.ViaLastPreBakeAtUtc ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    cfg.ViaCustomTags ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    cfg.ViaEnvOverrides ??= new Dictionary<string, ViaEnvOverrideItem>(StringComparer.OrdinalIgnoreCase);
+                    cfg.NotifiedReadyEmbryoIds ??= new List<string>();
                     if (cfg.ConfigMigrationVersion < 303 && customPath == null)
                     {
                         // Remove legacy hardcoded seed count on upgrade to v3.0.3 so only real scanned counts are shown
@@ -504,6 +523,46 @@ public sealed class DesktopConfig
         QueueRestMinSeconds = Math.Clamp(src.QueueRestMinSeconds < 5 ? 15 : src.QueueRestMinSeconds, 5, 300);
         QueueRestMaxSeconds = Math.Clamp(src.QueueRestMaxSeconds < QueueRestMinSeconds ? QueueRestMinSeconds + 10 : src.QueueRestMaxSeconds, QueueRestMinSeconds, 600);
         AutoTileWindowsOnBatch = src.AutoTileWindowsOnBatch;
+        MinClientStandbyTarget = Math.Clamp(src.MinClientStandbyTarget < 1 ? 2 : src.MinClientStandbyTarget, 1, 10);
+        AutoEmbryoFactoryEnabled = src.AutoEmbryoFactoryEnabled;
+        AutoEmbryoSpawnIntervalDays = Math.Clamp(src.AutoEmbryoSpawnIntervalDays < 1 ? 3 : src.AutoEmbryoSpawnIntervalDays, 1, 14);
+        AutoEmbryoRequiredSessions = Math.Clamp(src.AutoEmbryoRequiredSessions < 2 ? 3 : src.AutoEmbryoRequiredSessions, 2, 10);
+        AutoEmbryoMaxPending = Math.Clamp(src.AutoEmbryoMaxPending < 1 ? 3 : src.AutoEmbryoMaxPending, 1, 10);
+        AutoEmbryoProxyPoolRaw = (src.AutoEmbryoProxyPoolRaw ?? "").Trim();
+        AutoEmbryoDefaultClientGroup = (src.AutoEmbryoDefaultClientGroup ?? "").Trim();
+        AutoEmbryoCustomDomain = (src.AutoEmbryoCustomDomain ?? "").Trim();
+        if (src.ViaPreBakeSessionCounts != null && src.ViaPreBakeSessionCounts.Count > 0)
+        {
+            ViaPreBakeSessionCounts ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in src.ViaPreBakeSessionCounts)
+            {
+                if (!string.IsNullOrWhiteSpace(kv.Key) && kv.Value >= 0) ViaPreBakeSessionCounts[kv.Key] = kv.Value;
+            }
+        }
+        if (src.ViaLastPreBakeAtUtc != null && src.ViaLastPreBakeAtUtc.Count > 0)
+        {
+            ViaLastPreBakeAtUtc ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in src.ViaLastPreBakeAtUtc)
+            {
+                if (!string.IsNullOrWhiteSpace(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value)) ViaLastPreBakeAtUtc[kv.Key] = kv.Value;
+            }
+        }
+        if (src.ViaCustomTags != null && src.ViaCustomTags.Count > 0)
+        {
+            ViaCustomTags ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in src.ViaCustomTags)
+            {
+                if (!string.IsNullOrWhiteSpace(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value)) ViaCustomTags[kv.Key] = kv.Value;
+            }
+        }
+        if (src.ViaEnvOverrides != null && src.ViaEnvOverrides.Count > 0)
+        {
+            ViaEnvOverrides ??= new Dictionary<string, ViaEnvOverrideItem>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in src.ViaEnvOverrides)
+            {
+                if (!string.IsNullOrWhiteSpace(kv.Key) && kv.Value != null) ViaEnvOverrides[kv.Key] = kv.Value;
+            }
+        }
         ConfigMigrationVersion = CurrentMigrationVersion;
     }
 
@@ -793,7 +852,7 @@ public static class ViaMetadataParser
     private static readonly Regex WarmupRegex = new(@"\[WARMUP:([0-9T:.\-]+Z?)\]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex ClientRegex = new(@"\[CLIENT:([^\[\]\r\n]{1,64})\]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex WarmupModeRegex = new(@"\[WMODE:(soak_72h|human_organic|bm_warmup|pre_camp)\]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex AntidetectEngineRegex = new(@"\[ADENG:(chrome_native|adspower|dolphin_anty|hidemyacc|genlogin|gologin)\]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex AntidetectEngineRegex = new(@"\[ADENG:(chrome_native|adspower|dolphin_anty|hidemyacc|genlogin|gologin|shardbrowser)\]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex AntidetectIdRegex = new(@"\[ADID:([^\[\]\r\n]{1,64})\]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     public static string NormalizeWarmupMode(string? raw)
@@ -2130,6 +2189,8 @@ public sealed class LocalSecretVaultStore
         if (domain.Contains("yahoo.")) return "https://mail.yahoo.com/";
         if (domain.Contains("icloud.")) return "https://www.icloud.com/mail";
         if (domain.Contains("proton.") || domain.Contains("pm.me")) return "https://mail.proton.me/";
+        if (domain.Contains("zoho.")) return "https://mail.zoho.com/";
+        if (domain.Contains("yandex.")) return "https://mail.yandex.com/";
         return "https://mail.google.com/";
     }
 }
@@ -2149,7 +2210,9 @@ public static class AgencyIncubationAdvisor
         bool hasMail2FaOrBackupCodes,
         int preBakeSessions,
         string? warmupPhase,
-        int daysElapsed)
+        int daysElapsed,
+        int requiredPreBakeSessions = 2,
+        bool isEmbryo = false)
     {
         int score = 0;
         if (hasProxy) score += 25;
@@ -2160,9 +2223,14 @@ public static class AgencyIncubationAdvisor
         score = Math.Clamp(score, 0, 100);
 
         var phase = (warmupPhase ?? "").Trim().ToLowerInvariant();
-        if (!hasCookie && preBakeSessions < 2 && daysElapsed < 1)
+        var reqSess = Math.Clamp(requiredPreBakeSessions, 2, 10);
+        if (!hasCookie && !hasFb2Fa && (isEmbryo || daysElapsed < 3))
         {
-            return new AgencyIncubationStatus("pre_bake", $"🥚 Ủ Phôi ({preBakeSessions}/2 phiên)", score);
+            if (preBakeSessions >= reqSess)
+            {
+                return new AgencyIncubationStatus("ready_to_born", $"🔔 Ủ Chín ({preBakeSessions}/{reqSess}) — Chờ Khai Sinh 60s", score);
+            }
+            return new AgencyIncubationStatus("pre_bake", $"🥚 Ủ Phôi ({preBakeSessions}/{reqSess} phiên)", score);
         }
         if (phase == "72h_lock" || daysElapsed < 3)
         {
@@ -2177,6 +2245,134 @@ public static class AgencyIncubationAdvisor
             return new AgencyIncubationStatus("standby_ready", "🛡️ Dự Phòng Sẵn Sàng", score);
         }
         return new AgencyIncubationStatus("active_missing_shield", "⚠️ Đủ ngày • Thiếu Két Mail/2FA", score);
+    }
+}
+
+/// <summary>
+/// Pure deterministic planner for scheduled 2-3 day clean Embryo profile spawning,
+/// silo-safe proxy allocation, Chrome profile isolation, and optional Agency domain email suggestion.
+/// </summary>
+public static class AutoEmbryoFactoryPlanner
+{
+    public static bool IsSpawnDue(
+        bool enabled,
+        int intervalDays,
+        string? lastSpawnUtc,
+        int activePendingEmbryos,
+        int maxPendingEmbryos,
+        DateTimeOffset nowUtc)
+    {
+        if (!enabled) return false;
+        if (activePendingEmbryos >= Math.Max(1, maxPendingEmbryos)) return false;
+        if (string.IsNullOrWhiteSpace(lastSpawnUtc) ||
+            !DateTimeOffset.TryParse(lastSpawnUtc, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var lastDt))
+        {
+            return true;
+        }
+        return (nowUtc - lastDt).TotalDays >= Math.Clamp(intervalDays, 1, 14);
+    }
+
+    public static bool IsEmbryoSessionDue(
+        int currentSessions,
+        int requiredSessions,
+        string? lastBakeUtc,
+        DateTimeOffset nowUtc,
+        double minGapHours = 10.0)
+    {
+        if (currentSessions >= Math.Clamp(requiredSessions, 2, 10)) return false;
+        if (string.IsNullOrWhiteSpace(lastBakeUtc) ||
+            !DateTimeOffset.TryParse(lastBakeUtc, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var lastDt))
+        {
+            return true;
+        }
+        return (nowUtc - lastDt).TotalHours >= minGapHours;
+    }
+
+    public static List<string> ParseValidProxies(string? proxyPoolRaw)
+    {
+        if (string.IsNullOrWhiteSpace(proxyPoolRaw)) return new List<string>();
+        return proxyPoolRaw
+            .Split(new[] { '\r', '\n', ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(x => x.Trim())
+            .Where(x => !string.IsNullOrWhiteSpace(x) && ExtensionProvisioner.ParseProxy(x) != null)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    public static string AllocateCleanProxyForEmbryo(
+        string? proxyPoolRaw,
+        IReadOnlyList<ViaWorkspaceEntry>? existingVias,
+        string? targetClientGroup,
+        int maxPerProxy = 4)
+    {
+        var candidates = ParseValidProxies(proxyPoolRaw);
+        if (candidates.Count == 0) return "";
+
+        var cap = Math.Clamp(maxPerProxy, 1, 50);
+        var cleanClient = (targetClientGroup ?? "").Trim();
+        var vias = existingVias ?? Array.Empty<ViaWorkspaceEntry>();
+
+        string bestProxy = "";
+        int bestCount = int.MaxValue;
+        foreach (var rawProxy in candidates)
+        {
+            var hostPort = AutomationQueueEngine.ExtractProxyHostPort(rawProxy);
+            if (string.IsNullOrWhiteSpace(hostPort)) continue;
+
+            var matched = vias.Where(v =>
+                string.Equals(AutomationQueueEngine.ExtractProxyHostPort(v.NetworkLabel), hostPort, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            bool hasSiloConflict = !string.IsNullOrEmpty(cleanClient) && matched.Any(v =>
+                !string.IsNullOrWhiteSpace(v.ClientGroup) &&
+                !string.Equals(v.ClientGroup.Trim(), cleanClient, StringComparison.OrdinalIgnoreCase));
+            if (hasSiloConflict) continue;
+
+            if (matched.Count < cap && matched.Count < bestCount)
+            {
+                bestCount = matched.Count;
+                bestProxy = rawProxy;
+            }
+        }
+        return bestProxy;
+    }
+
+    public static string AllocateNextIsolatedProfileDir(
+        IReadOnlyList<ViaWorkspaceEntry>? existingVias,
+        IEnumerable<string>? localProfileFolders = null)
+    {
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Default" };
+        if (existingVias != null)
+        {
+            foreach (var v in existingVias)
+            {
+                if (!string.IsNullOrWhiteSpace(v.ProfileDir)) used.Add(v.ProfileDir.Trim());
+                if (!string.IsNullOrWhiteSpace(v.BrowserProfileLabel)) used.Add(v.BrowserProfileLabel.Trim());
+            }
+        }
+        if (localProfileFolders != null)
+        {
+            foreach (var f in localProfileFolders)
+            {
+                if (!string.IsNullOrWhiteSpace(f)) used.Add(f.Trim());
+            }
+        }
+        for (int i = 1; i <= 9999; i++)
+        {
+            var candidate = $"Profile {i}";
+            if (!used.Contains(candidate)) return candidate;
+        }
+        return $"Profile {Guid.NewGuid().ToString("N")[..4]}";
+    }
+
+    public static string SuggestAgencyDomainEmail(string? customDomain, int embryoNumber, DateTimeOffset nowUtc)
+    {
+        var clean = (customDomain ?? "").Trim().TrimStart('@').ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(clean) || !clean.Contains('.') || clean.Contains(' '))
+        {
+            return "";
+        }
+        return $"via.phoi{Math.Max(1, embryoNumber):D2}.{nowUtc:MMdd}@{clean}";
     }
 }
 
@@ -3169,8 +3365,8 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "3.8.0";
-    public const string DisplayVersion = "v3.8.0";
+    public const string Version = "3.9.0";
+    public const string DisplayVersion = "v3.9.0";
     public const string ExtVersion = "2.10.2";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 

@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
+  BellRing,
   CheckSquare,
   ChevronDown,
   Chrome,
@@ -18,6 +19,7 @@ import {
   Search,
   ShieldAlert,
   ShieldCheck,
+  Sparkles,
   Terminal,
   Trash2,
   Upload,
@@ -43,6 +45,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { sendDesktopCommand } from '@/lib/bridge'
 import { cn } from '@/lib/utils'
@@ -99,8 +103,11 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
           ? v.needsKeepAlive
           : tierFilter === 'no_cookie'
           ? !v.hasVaultCookie
+          : tierFilter === 'ready_to_born'
+          ? v.incubationStageKey === 'ready_to_born'
           : tierFilter === 'incubating'
           ? v.incubationStageKey === 'pre_bake' ||
+            v.incubationStageKey === 'ready_to_born' ||
             v.incubationStageKey === 'soak_72h' ||
             v.incubationStageKey === 'interactive_4_7d'
           : tierFilter === 'standby_ready'
@@ -166,11 +173,16 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
     },
     { key: 'standby', label: `Dự phòng (${state.vias.filter((v) => v.roleTier === 'standby').length})` },
     {
+      key: 'ready_to_born',
+      label: `🔔 Chờ Khai Sinh (${state.vias.filter((v) => v.incubationStageKey === 'ready_to_born').length})`,
+    },
+    {
       key: 'incubating',
       label: `🥚 Đang Ủ / Ấp (${
         state.vias.filter(
           (v) =>
             v.incubationStageKey === 'pre_bake' ||
+            v.incubationStageKey === 'ready_to_born' ||
             v.incubationStageKey === 'soak_72h' ||
             v.incubationStageKey === 'interactive_4_7d',
         ).length
@@ -188,59 +200,252 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
       : []),
   ]
 
+  const ef = state.embryoFactory ?? {
+    enabled: false,
+    spawnIntervalDays: 3,
+    requiredSessions: 3,
+    maxPendingEmbryos: 3,
+    proxyPoolRaw: '',
+    proxyPoolValidCount: 0,
+    defaultClientGroup: '',
+    customDomain: '',
+    lastSpawnLocal: 'Chưa tạo',
+    nextSpawnHint: 'Bật Lịch Xưởng Phôi để tự động đẻ & ủ ngầm mỗi 2–3 ngày',
+    preBakingCount: 0,
+    readyToBornCount: 0,
+    isSilentPreBakeRunning: false,
+  }
+
   const [standbyOpen, setStandbyOpen] = useState(true)
+  const [factoryConfigOpen, setFactoryConfigOpen] = useState(false)
+  const [efEnabled, setEfEnabled] = useState(ef.enabled)
+  const [efInterval, setEfInterval] = useState(String(ef.spawnIntervalDays))
+  const [efSessions, setEfSessions] = useState(String(ef.requiredSessions))
+  const [efMaxPending, setEfMaxPending] = useState(String(ef.maxPendingEmbryos))
+  const [efClientGroup, setEfClientGroup] = useState(ef.defaultClientGroup)
+  const [efDomain, setEfDomain] = useState(ef.customDomain)
+  const [efProxyPool, setEfProxyPool] = useState(ef.proxyPoolRaw)
+
+  useEffect(() => {
+    setEfEnabled(ef.enabled)
+    setEfInterval(String(ef.spawnIntervalDays))
+    setEfSessions(String(ef.requiredSessions))
+    setEfMaxPending(String(ef.maxPendingEmbryos))
+    setEfClientGroup(ef.defaultClientGroup)
+    setEfDomain(ef.customDomain)
+    setEfProxyPool(ef.proxyPoolRaw)
+  }, [state.configRev])
+
   const poolRows = state.standbyPoolMatrix ?? []
 
   return (
     <div className="space-y-3.5">
-      {/* Agency Standby Pool & Clean Embryo Pre-Bake Summary Bar (v3.8.0) */}
-      {poolRows.length > 0 && (
-        <Card className="border-indigo-500/30 bg-indigo-500/5">
-          <CardContent className="space-y-2 p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <button
-                type="button"
-                className="flex items-center gap-2 text-left text-xs font-bold text-indigo-200 hover:text-indigo-100"
-                onClick={() => setStandbyOpen((v) => !v)}
-              >
-                <ShieldCheck className="h-4 w-4 text-emerald-400" />
-                🛡️ Kho Dự Phòng Chống Đứt Quãng Agency &amp; Xưởng Ủ Phôi (v3.8.0) {standbyOpen ? '▲' : '▼'}
-              </button>
+      {/* Agency Standby Pool & Scheduled 2-3 Day Embryo Factory Bar (v3.9.0) */}
+      <Card className="border-indigo-500/30 bg-indigo-500/5">
+        <CardContent className="space-y-2.5 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <button
+              type="button"
+              className="flex items-center gap-2 text-left text-xs font-bold text-indigo-200 hover:text-indigo-100"
+              onClick={() => setStandbyOpen((v) => !v)}
+            >
+              <ShieldCheck className="h-4 w-4 text-emerald-400" />
+              🛡️ Kho Dự Phòng Agency &amp; Xưởng Tự Động Ủ Phôi 2–3 Ngày (v3.9.0) {standbyOpen ? '▲' : '▼'}
+            </button>
+            <div className="flex flex-wrap items-center gap-1.5">
               <Button
                 variant="secondary"
                 size="sm"
+                className="h-7 border border-indigo-500/35 px-2.5 text-xs text-indigo-200 hover:bg-indigo-500/15"
+                onClick={() => setFactoryConfigOpen((v) => !v)}
+              >
+                ⚙️ Lịch Tự Động ({efEnabled ? `Mỗi ${efInterval}d` : 'Đang Tắt'}) {factoryConfigOpen ? '▲' : '▼'}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={ef.isSilentPreBakeRunning}
                 className="h-7 border border-emerald-500/35 px-2.5 text-xs text-emerald-300 hover:bg-emerald-500/15"
+                onClick={() => sendDesktopCommand('spawn_embryo_now')}
+              >
+                {ef.isSilentPreBakeRunning ? '⏳ Đang Ủ Ngầm...' : '🥚 Đẻ & Ủ Ngầm 1 Phôi Ngay'}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="h-7 px-2.5 text-xs"
                 onClick={() => sendDesktopCommand('add_via')}
               >
-                🥚 Thêm Phôi Dự Phòng Mới
+                + Thêm Via Thủ Công
               </Button>
             </div>
-            {standbyOpen && (
-              <div className="flex flex-wrap gap-1.5">
-                {poolRows.map((row) => (
-                  <Badge
-                    key={row.clientGroup}
-                    variant={row.hasStandbyDeficit ? 'warning' : 'secondary'}
-                    className="gap-1.5 px-2.5 py-1 font-mono text-[11px]"
-                  >
-                    <span className="font-sans font-semibold">{row.clientGroup}:</span>
-                    <span>{row.activePrimaryCount} Chính</span>
-                    <span>•</span>
-                    <span className={row.standbyReadyCount > 0 ? 'text-emerald-400' : 'text-amber-300'}>
-                      {row.standbyReadyCount} Sẵn sàng
-                    </span>
-                    {row.incubatingCount > 0 && <span>• {row.incubatingCount} đang ấp</span>}
-                    {row.missingRecoveryMailCount > 0 && (
-                      <span className="text-amber-300">• {row.missingRecoveryMailCount} thiếu Mail</span>
-                    )}
-                    {row.hasStandbyDeficit && <span>⚠ Thiếu (&lt;2 Standby)</span>}
-                  </Badge>
-                ))}
+          </div>
+
+          {ef.readyToBornCount > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-500/45 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200">
+              <div className="flex items-center gap-2 font-semibold">
+                <BellRing className="h-4 w-4 shrink-0 text-emerald-400" />
+                🔔 Có {ef.readyToBornCount} Phôi đã ủ chín Cookie sạch — Sẵn sàng Khai Sinh 60s chính chủ &amp; tự đưa vào Lò Ấp 7 Ngày!
               </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+              <Button
+                size="sm"
+                className="h-7 bg-emerald-600 px-2.5 text-xs text-white hover:bg-emerald-500"
+                onClick={() => setTierFilter('ready_to_born')}
+              >
+                Lọc Phôi Chờ Khai Sinh ({ef.readyToBornCount})
+              </Button>
+            </div>
+          )}
+
+          {standbyOpen && poolRows.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {poolRows.map((row) => (
+                <Badge
+                  key={row.clientGroup}
+                  variant={row.hasStandbyDeficit ? 'warning' : 'secondary'}
+                  className="gap-1.5 px-2.5 py-1 font-mono text-[11px]"
+                >
+                  <span className="font-sans font-semibold">{row.clientGroup}:</span>
+                  <span>{row.activePrimaryCount} Chính</span>
+                  <span>•</span>
+                  <span className={row.standbyReadyCount > 0 ? 'text-emerald-400' : 'text-amber-300'}>
+                    {row.standbyReadyCount} Sẵn sàng
+                  </span>
+                  {row.incubatingCount > 0 && <span>• {row.incubatingCount} đang ủ/ấp</span>}
+                  {row.missingRecoveryMailCount > 0 && (
+                    <span className="text-amber-300">• {row.missingRecoveryMailCount} thiếu Mail</span>
+                  )}
+                  {row.hasStandbyDeficit && <span>⚠ Thiếu (&lt;2 Standby)</span>}
+                </Badge>
+              ))}
+            </div>
+          )}
+
+          {factoryConfigOpen && (
+            <div className="space-y-3 rounded-lg border border-border/80 bg-background/70 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <Switch checked={efEnabled} onCheckedChange={setEfEnabled} />
+                  <div>
+                    <div className="text-xs font-bold text-foreground">
+                      Bật Lịch Tự Động Đẻ &amp; Ủ Cookie Ngầm Định Kỳ (08:00–22:00)
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {ef.nextSpawnHint} • Tạo gần nhất: {ef.lastSpawnLocal} • Proxy sạch trong kho: {ef.proxyPoolValidCount}
+                    </div>
+                  </div>
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={ef.isSilentPreBakeRunning}
+                  onClick={() => sendDesktopCommand('bake_all_embryos_silent')}
+                >
+                  👻 Ủ Ngầm Tất Cả Phôi Đang Chờ ({ef.preBakingCount})
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2.5 md:grid-cols-5">
+                <div className="space-y-1">
+                  <span className="text-[11px] font-semibold text-muted-foreground">Chu kỳ tạo (ngày)</span>
+                  <Select value={efInterval} onValueChange={setEfInterval}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">Mỗi 1 ngày</SelectItem>
+                      <SelectItem value="2">Mỗi 2 ngày</SelectItem>
+                      <SelectItem value="3">Mỗi 3 ngày (Khuyên dùng)</SelectItem>
+                      <SelectItem value="5">Mỗi 5 ngày</SelectItem>
+                      <SelectItem value="7">Mỗi 7 ngày</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1">
+                  <span className="text-[11px] font-semibold text-muted-foreground">Phiên Cookie Robot cần ủ</span>
+                  <Select value={efSessions} onValueChange={setEfSessions}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="2">2 phiên (~1–2 ngày)</SelectItem>
+                      <SelectItem value="3">3 phiên (~2–3 ngày)</SelectItem>
+                      <SelectItem value="4">4 phiên (Cực chín)</SelectItem>
+                      <SelectItem value="5">5 phiên (Siêu sạch)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1">
+                  <span className="text-[11px] font-semibold text-muted-foreground">Trần Phôi chờ tối đa</span>
+                  <Input
+                    value={efMaxPending}
+                    onChange={(e) => setEfMaxPending(e.target.value)}
+                    placeholder="3"
+                    className="h-8 font-mono text-xs"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <span className="text-[11px] font-semibold text-muted-foreground">Nhóm khách (Client Silo)</span>
+                  <Input
+                    value={efClientGroup}
+                    onChange={(e) => setEfClientGroup(e.target.value)}
+                    placeholder="VD: NhaKhoa_A"
+                    className="h-8 text-xs"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <span className="text-[11px] font-semibold text-muted-foreground">Domain Mail riêng (tùy chọn)</span>
+                  <Input
+                    value={efDomain}
+                    onChange={(e) => setEfDomain(e.target.value)}
+                    placeholder="VD: agency.vn"
+                    className="h-8 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[11px] font-semibold text-muted-foreground">
+                  Kho Proxy sạch dành riêng cho Phôi tự động (mỗi dòng 1 Proxy: ip:port:user:pass hoặc http://user:pass@ip:port)
+                </span>
+                <Textarea
+                  value={efProxyPool}
+                  onChange={(e) => setEfProxyPool(e.target.value)}
+                  rows={2}
+                  placeholder="103.1.2.3:8080:user:pass&#10;http://user:pass@45.6.7.8:3128"
+                  className="font-mono text-xs"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[11px] text-muted-foreground">
+                  ⚙️ 90% Tự Động: App tự đẻ Profile + ủ ngầm Cookie sạch mỗi {efInterval} ngày. Đủ {efSessions} phiên app báo chuông để bạn bấm Khai Sinh 60s chính chủ (không tự động vượt CAPTCHA/SMS), rồi tự đưa tiếp vào Lò Ấp 7 Ngày.
+                </p>
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    sendDesktopCommand('save_embryo_factory_config', {
+                      enabled: efEnabled,
+                      spawnIntervalDays: Number(efInterval) || 3,
+                      requiredSessions: Number(efSessions) || 3,
+                      maxPendingEmbryos: Number(efMaxPending) || 3,
+                      defaultClientGroup: efClientGroup,
+                      customDomain: efDomain,
+                      proxyPoolRaw: efProxyPool,
+                    })
+                  }
+                >
+                  💾 Lưu Lịch Xưởng Phôi
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Search, Action Header & Filters Card */}
       <Card>
@@ -474,7 +679,7 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
         </Card>
       ) : (
         <div className="space-y-2">
-          <div className="hidden grid-cols-[30px_1.5fr_0.95fr_1.15fr_176px_170px] items-center gap-3 px-3 text-[11px] font-bold uppercase tracking-wider text-muted-foreground lg:grid">
+          <div className="hidden grid-cols-[30px_1.45fr_0.9fr_1.1fr_168px_210px] items-center gap-3 px-3 text-[11px] font-bold uppercase tracking-wider text-muted-foreground lg:grid">
             <div className="flex justify-center">
               <Checkbox
                 checked={filtered.length > 0 && filtered.every((v) => selectedSet.has(v.viaId))}
@@ -553,7 +758,7 @@ function ViaRowCard({
 
   return (
     <Card className="transition-colors hover:border-primary/40">
-      <CardContent className="grid grid-cols-1 items-center gap-3 p-3 lg:grid-cols-[30px_1.5fr_0.95fr_1.15fr_176px_170px]">
+      <CardContent className="grid grid-cols-1 items-center gap-3 p-3 lg:grid-cols-[30px_1.45fr_0.9fr_1.1fr_168px_210px]">
         {/* Checkbox */}
         <div className="hidden justify-center lg:flex">
           <Checkbox checked={checked} onCheckedChange={(v) => onToggle(Boolean(v))} />
@@ -680,7 +885,18 @@ function ViaRowCard({
         </div>
 
         {/* Col 5: Actions */}
-        <div className="flex items-center justify-end gap-1.5">
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {via.incubationStageKey === 'ready_to_born' && (
+            <Button
+              size="sm"
+              className="h-8 bg-emerald-600 px-2 text-xs text-white hover:bg-emerald-500"
+              onClick={() => sendDesktopCommand('open_assisted_onboarding', { viaId: via.viaId })}
+              title="Phôi đã ủ chín Cookie sạch — Bấm để mở Bàn Khai Sinh 60 Giây (gom Cookie + lưu Két 6 Lớp + Lò Ấp 7 Ngày)"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Khai Sinh 60s
+            </Button>
+          )}
           <Button
             size="sm"
             disabled={!via.canLaunch}
@@ -697,7 +913,7 @@ function ViaRowCard({
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-60">
+            <DropdownMenuContent align="end" className="w-64">
               <DropdownMenuItem onClick={() => sendDesktopCommand('quick_test_via', { viaId: via.viaId })}>
                 <FlaskConical className="h-3.5 w-3.5 text-primary" />
                 Test Nhanh Kịch Bản (5s/bước)
@@ -718,13 +934,21 @@ function ViaRowCard({
                 <Globe className="h-3.5 w-3.5 text-sky-400" />
                 📧 Mở Hộp thư Khôi phục trên cùng Proxy
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => sendDesktopCommand('run_silent_prebake_single', { viaId: via.viaId })}>
+                <Coffee className="h-3.5 w-3.5 text-indigo-300" />
+                👻 Ủ Cookie Nền Chạy Ẩn (Off-Screen CDP)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => sendDesktopCommand('open_assisted_onboarding', { viaId: via.viaId })}>
+                <Sparkles className="h-3.5 w-3.5 text-emerald-300" />
+                🧭 Bàn Khai Sinh 60 Giây (Gom Cookie + Két 6 Lớp)
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => sendDesktopCommand('run_prebake_session', { viaId: via.viaId })}>
                 <Coffee className="h-3.5 w-3.5 text-amber-300" />
-                🥚 Chạy 1 Phiên Ủ Cookie Nền (Pre-Bake)
+                🥚 Chạy 1 Phiên Ủ Cookie Hiện Hình (Pre-Bake)
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => sendDesktopCommand('open_manual_onboarding', { viaId: via.viaId, target: 'gmail' })}>
-                <Users className="h-3.5 w-3.5 text-emerald-300" />
-                🧭 Mở Khởi tạo Gmail / 2FA Thủ công
+                <Users className="h-3.5 w-3.5 text-sky-300" />
+                🌐 Mở Khởi tạo Gmail / Webmail Thủ công
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => sendDesktopCommand('set_via_env_override', { viaId: via.viaId, cycleViewport: true })}>
                 <Monitor className="h-3.5 w-3.5 text-sky-400" />

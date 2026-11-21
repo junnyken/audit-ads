@@ -1057,8 +1057,12 @@ internal sealed partial class MainWindow : Window
             if (!string.IsNullOrWhiteSpace(resolvedViaId))
             {
                 _config.ViaPreBakeSessionCounts ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                _config.ViaPreBakeSessionCounts[resolvedViaId] = (_config.ViaPreBakeSessionCounts.TryGetValue(resolvedViaId, out var pbc) ? pbc : 0) + 1;
+                _config.ViaLastPreBakeAtUtc ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                var nextBakeCnt = (_config.ViaPreBakeSessionCounts.TryGetValue(resolvedViaId, out var pbc) ? pbc : 0) + 1;
+                _config.ViaPreBakeSessionCounts[resolvedViaId] = nextBakeCnt;
+                _config.ViaLastPreBakeAtUtc[resolvedViaId] = DateTimeOffset.UtcNow.ToString("O");
                 try { _config.Save(); } catch { }
+                MaybeNotifyReadyEmbryo(matched, nextBakeCnt, 0);
             }
             if (_config.AutoRefreshCookieAfterKeepAlive)
             {
@@ -3516,6 +3520,325 @@ internal sealed partial class MainWindow : Window
     private CancellationTokenSource? _silentPageNurtureCts;
     internal bool IsSilentPageNurtureRunning => _isSilentPageNurtureRunning;
 
+    private volatile bool _isSilentPreBakeRunning;
+    private CancellationTokenSource? _silentPreBakeCts;
+    internal bool IsSilentPreBakeRunning => _isSilentPreBakeRunning;
+
+    internal void CancelSilentPreBakeIfRunning()
+    {
+        try { _silentPreBakeCts?.Cancel(); } catch { }
+    }
+
+    internal static bool IsEmbryoVia(ViaWorkspaceEntry v, DesktopConfig cfg, LocalVaultLookupResult sec)
+    {
+        var hasCookie = v.HasVaultCookie || (sec.Found && !string.IsNullOrWhiteSpace(sec.CookieRaw));
+        if (hasCookie) return false;
+        var hasTag = cfg.ViaCustomTags != null &&
+                     cfg.ViaCustomTags.TryGetValue(v.ViaId, out var tag) &&
+                     !string.IsNullOrWhiteSpace(tag) &&
+                     (tag.Contains("Phôi", StringComparison.OrdinalIgnoreCase) ||
+                      tag.Contains("Khai Sinh", StringComparison.OrdinalIgnoreCase));
+        var hasSessions = cfg.ViaPreBakeSessionCounts != null &&
+                          cfg.ViaPreBakeSessionCounts.TryGetValue(v.ViaId, out var cnt) &&
+                          cnt > 0;
+        return string.Equals(v.RoleTier, "standby", StringComparison.OrdinalIgnoreCase) || hasTag || hasSessions;
+    }
+
+    private void MaybeNotifyReadyEmbryo(ViaWorkspaceEntry? via, int newSessionCount, int persistedCookiesCount)
+    {
+        if (via == null) return;
+        var reqSess = Math.Clamp(_config.AutoEmbryoRequiredSessions, 2, 10);
+        if (newSessionCount < reqSess) return;
+
+        var sec = LocalSecretVaultStore.Default.Find(via.ViaId, via.ProfileDir, via.Label);
+        if (via.HasVaultCookie || !string.IsNullOrWhiteSpace(sec.CookieRaw)) return;
+
+        _config.ViaCustomTags ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        _config.ViaCustomTags[via.ViaId] = "🔔 Chờ Khai Sinh 60s";
+        _config.NotifiedReadyEmbryoIds ??= new List<string>();
+        bool firstNotify = !_config.NotifiedReadyEmbryoIds.Any(x => string.Equals(x, via.ViaId, StringComparison.OrdinalIgnoreCase));
+        if (firstNotify)
+        {
+            _config.NotifiedReadyEmbryoIds.Add(via.ViaId);
+        }
+        try { _config.Save(); } catch { }
+
+        if (firstNotify)
+        {
+            var ckNote = persistedCookiesCount > 0 ? $" ({persistedCookiesCount} cookies nền sạch)" : "";
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                AppendLog($"🔔 [Phôi Sạch Ủ Chín] '{via.Label}' đã đủ {newSessionCount}/{reqSess} phiên Cookie Robot{ckNote} -> Bấm 'Khai Sinh 60s' để đăng ký chính chủ!");
+                _tray?.ShowBalloon(
+                    "🔔 Phôi Sạch Đã Ủ Chín!",
+                    $"'{via.Label}' đã ủ đủ {newSessionCount}/{reqSess} phiên Cookie sạch{ckNote}. Bấm «Khai Sinh 60s» để đăng ký chính chủ!",
+                    5500,
+                    error: false);
+                PushOverviewStateToWebView();
+            });
+        }
+    }
+
+    internal async Task<ViaWorkspaceEntry?> SpawnCleanEmbryoProfileAsync(bool runInitialSilentBake = true, bool isScheduled = false)
+    {
+        var nextIndex = _vias.Count + 1;
+        var existingLabels = new HashSet<string>(_vias.Select(v => v.Label), StringComparer.OrdinalIgnoreCase);
+        string label;
+        do
+        {
+            label = $"Phôi Dự Phòng #{nextIndex:D2} ({DateTime.Now:dd/MM})";
+            if (!existingLabels.Contains(label)) break;
+            nextIndex++;
+        } while (nextIndex <= 999);
+
+        var profileDir = AutoEmbryoFactoryPlanner.AllocateNextIsolatedProfileDir(
+            _vias,
+            _chromeProfiles.Select(p => p.Folder));
+        var assignedProxy = AutoEmbryoFactoryPlanner.AllocateCleanProxyForEmbryo(
+            _config.AutoEmbryoProxyPoolRaw,
+            _vias,
+            _config.AutoEmbryoDefaultClientGroup,
+            _config.MaxViasPerProxyInBatch);
+        var normEng = AntidetectBrowserConnector.NormalizeEngine(_config.DefaultBrowserEngine);
+        var builtNotes = ViaMetadataParser.BuildNotes(
+            "Phôi sạch tự động ủ Cookie Robot định kỳ",
+            "standby",
+            "",
+            _config.AutoEmbryoDefaultClientGroup ?? "",
+            "soak_72h",
+            normEng,
+            "");
+
+        ViaWorkspaceEntry? createdVia = null;
+        if (!string.IsNullOrWhiteSpace(_config.GetJwt()))
+        {
+            try
+            {
+                var createdDto = await _api.CreatePersonalAccountAsync(new PersonalAccountUpsertRequestDto
+                {
+                    Label = label,
+                    DisplayName = label,
+                    ExternalReferenceId = null,
+                    Status = "active",
+                    BrowserProfileLabel = profileDir,
+                    NetworkLabel = assignedProxy,
+                    VaultReference = "",
+                    Notes = builtNotes,
+                });
+                await SyncCloudAsync(silent: true);
+                createdVia = _vias.FirstOrDefault(v => string.Equals(v.ViaId, createdDto.Id, StringComparison.OrdinalIgnoreCase))
+                    ?? _vias.FirstOrDefault(v => string.Equals(v.Label, label, StringComparison.OrdinalIgnoreCase));
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"⚠️ [Xưởng Phôi] Chưa đồng bộ Cloud được ({ex.Message}) — khởi tạo Phôi cục bộ để tiếp tục ủ.");
+            }
+        }
+
+        if (createdVia == null)
+        {
+            var localId = $"local-embryo-{Guid.NewGuid():N}"[..21];
+            createdVia = new ViaWorkspaceEntry
+            {
+                ViaId = localId,
+                Label = label,
+                DisplayName = label,
+                Status = "active",
+                BrowserProfileLabel = profileDir,
+                ProfileDir = profileDir,
+                NetworkLabel = assignedProxy,
+                RoleTier = "standby",
+                ClientGroup = _config.AutoEmbryoDefaultClientGroup ?? "",
+                DefaultWarmupMode = "soak_72h",
+                AntidetectEngine = normEng,
+            };
+            _vias.Add(createdVia);
+        }
+
+        _config.ViaCustomTags ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        _config.ViaPreBakeSessionCounts ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        _config.ViaCustomTags[createdVia.ViaId] = "🥚 Phôi Tự Động";
+        if (!_config.ViaPreBakeSessionCounts.ContainsKey(createdVia.ViaId))
+        {
+            _config.ViaPreBakeSessionCounts[createdVia.ViaId] = 0;
+        }
+        _config.LastAutoEmbryoSpawnUtc = DateTimeOffset.UtcNow.ToString("O");
+
+        if (!string.IsNullOrWhiteSpace(_config.AutoEmbryoCustomDomain))
+        {
+            var suggestedMail = AutoEmbryoFactoryPlanner.SuggestAgencyDomainEmail(
+                _config.AutoEmbryoCustomDomain,
+                nextIndex,
+                DateTimeOffset.Now);
+            if (!string.IsNullOrWhiteSpace(suggestedMail))
+            {
+                LocalSecretVaultStore.Default.UpsertFull(
+                    createdVia.ViaId,
+                    createdVia.Label,
+                    createdVia.ProfileDir,
+                    "",
+                    "",
+                    suggestedMail,
+                    "",
+                    "",
+                    "",
+                    allowOverwriteEmpty: false);
+            }
+        }
+
+        try { createdVia.ExtensionFolder = ExtensionProvisioner.ProvisionForVia(createdVia, config: _config); } catch { }
+        _config.Save();
+
+        var proxyDisp = string.IsNullOrWhiteSpace(assignedProxy) ? "Direct IP" : AutomationQueueEngine.ExtractProxyHostPort(assignedProxy);
+        var modeTag = isScheduled ? "Tự động định kỳ" : "Thủ công";
+        AppendLog($"🥚 [Xưởng Phôi • {modeTag}] Đã tạo '{createdVia.Label}' ({createdVia.ProfileDir} • {proxyDisp}).");
+        PushOverviewStateToWebView();
+
+        if (runInitialSilentBake)
+        {
+            await RunSilentPreBakeForViaAsync(createdVia, isScheduled);
+        }
+        return createdVia;
+    }
+
+    internal async Task<bool> RunSilentPreBakeForViaAsync(ViaWorkspaceEntry via, bool isScheduled = false)
+    {
+        if (_isSilentPreBakeRunning)
+        {
+            if (!isScheduled) AppendLog("⏳ Đang có phiên Ủ Phôi chạy ẩn khác. Vui lòng đợi vài giây...");
+            return false;
+        }
+
+        _isSilentPreBakeRunning = true;
+        _silentPreBakeCts?.Dispose();
+        _silentPreBakeCts = new CancellationTokenSource();
+        var ct = _silentPreBakeCts.Token;
+
+        var reqSess = Math.Clamp(_config.AutoEmbryoRequiredSessions, 2, 10);
+        AppendLog($"👻 [Ủ Phôi Ẩn] Đang chạy Multi-Site Cookie Robot chạy ẩn cho '{via.Label}' ({via.ProfileDir})...");
+        PushOverviewStateToWebView();
+
+        int? launchedPid = null;
+        int? launchedCdpPort = null;
+        try
+        {
+            try { via.ExtensionFolder = ExtensionProvisioner.ProvisionForVia(via, config: _config); } catch { }
+            var envProf = ResolveViaEnvironmentProfileFor(via);
+            var candidateUrls = WarmupCarePresets.ParseCookieRobotUrls(_config.CookieRobotUrls);
+
+            var launch = await ExtensionProvisioner.LaunchChromeSmartAsync(
+                "about:blank",
+                via.ProfileDir,
+                via.ExtensionFolder,
+                isolatedMode: true,
+                viaSlug: via.Label,
+                antidetectShield: _config.EnableChromeAntidetectShield,
+                lowRamMode: true,
+                vaultCookieRaw: "",
+                envProfile: envProf,
+                hiddenOffscreen: true).ConfigureAwait(false);
+
+            launchedPid = launch.Pid;
+            launchedCdpPort = launch.CdpPort;
+            if (!launch.CdpPort.HasValue || launch.CdpPort.Value <= 0)
+            {
+                _ = Dispatcher.BeginInvoke(() => AppendLog($"⚠️ [Ủ Phôi Ẩn] '{via.Label}': Không mở được cổng CDP Chrome Cô lập."));
+                return false;
+            }
+
+            var res = await ChromeCdpController.RunSilentCookieRobotPreBakeAsync(launch.CdpPort.Value, candidateUrls, ct).ConfigureAwait(false);
+            if (!res.Ok)
+            {
+                _ = Dispatcher.BeginInvoke(() => AppendLog($"⚠️ [Ủ Phôi Ẩn] '{via.Label}': {res.Detail}"));
+                return false;
+            }
+
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                _config.ViaPreBakeSessionCounts ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                _config.ViaLastPreBakeAtUtc ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                var newCount = (_config.ViaPreBakeSessionCounts.TryGetValue(via.ViaId, out var c) ? c : 0) + 1;
+                _config.ViaPreBakeSessionCounts[via.ViaId] = newCount;
+                _config.ViaLastPreBakeAtUtc[via.ViaId] = DateTimeOffset.UtcNow.ToString("O");
+                try { _config.Save(); } catch { }
+
+                AppendLog($"🥚 [Ủ Phôi Ẩn] '{via.Label}' đạt {newCount}/{reqSess} phiên — {res.Detail}");
+                MaybeNotifyReadyEmbryo(via, newCount, res.PersistedCookiesCount);
+                PushOverviewStateToWebView();
+            });
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            _ = Dispatcher.BeginInvoke(() => AppendLog($"⏹️ [Ủ Phôi Ẩn] Đã dừng phiên ủ ẩn cho '{via.Label}'."));
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _ = Dispatcher.BeginInvoke(() => AppendLog($"⚠️ [Ủ Phôi Ẩn] '{via.Label}' lỗi: {ex.Message}"));
+            return false;
+        }
+        finally
+        {
+            if (launchedCdpPort is > 0)
+            {
+                try { await ChromeCdpController.CloseBrowserGracefullyAsync(launchedCdpPort.Value, 1500).ConfigureAwait(false); } catch { }
+            }
+            if (launchedPid is > 0)
+            {
+                try
+                {
+                    using var p = Process.GetProcessById(launchedPid.Value);
+                    if (!p.HasExited) p.Kill(entireProcessTree: true);
+                }
+                catch { }
+            }
+            _isSilentPreBakeRunning = false;
+            _ = Dispatcher.BeginInvoke(PushOverviewStateToWebView);
+        }
+    }
+
+    internal async Task RunSilentPreBakeBatchDueAsync(bool forceAllEmbryos = false, bool isScheduled = false)
+    {
+        if (_isSilentPreBakeRunning)
+        {
+            if (!isScheduled) AppendLog("⏳ Đang có phiên Ủ Phôi chạy ẩn khác.");
+            return;
+        }
+
+        var reqSess = Math.Clamp(_config.AutoEmbryoRequiredSessions, 2, 10);
+        var nowUtc = DateTimeOffset.UtcNow;
+        var targets = _vias
+            .Where(v => !v.IsInCooldown)
+            .Where(v =>
+            {
+                var sec = LocalSecretVaultStore.Default.Find(v.ViaId, v.ProfileDir, v.Label);
+                if (!IsEmbryoVia(v, _config, sec)) return false;
+                var curSess = (_config.ViaPreBakeSessionCounts != null && _config.ViaPreBakeSessionCounts.TryGetValue(v.ViaId, out var s)) ? s : 0;
+                if (curSess >= reqSess) return false;
+                if (forceAllEmbryos) return true;
+                var lastUtc = (_config.ViaLastPreBakeAtUtc != null && _config.ViaLastPreBakeAtUtc.TryGetValue(v.ViaId, out var lu)) ? lu : "";
+                return AutoEmbryoFactoryPlanner.IsEmbryoSessionDue(curSess, reqSess, lastUtc, nowUtc, minGapHours: 10.0);
+            })
+            .Take(2)
+            .ToList();
+
+        if (targets.Count == 0)
+        {
+            if (!isScheduled) AppendLog("ℹ️ Chưa có Phôi nào cần ủ thêm Cookie Robot lúc này.");
+            return;
+        }
+
+        for (int i = 0; i < targets.Count; i++)
+        {
+            await RunSilentPreBakeForViaAsync(targets[i], isScheduled);
+            if (i + 1 < targets.Count)
+            {
+                await Task.Delay(Random.Shared.Next(6000, 11000));
+            }
+        }
+    }
+
     internal void CancelSilentPageNurtureIfRunning()
     {
         try { _silentPageNurtureCts?.Cancel(); } catch { }
@@ -4547,6 +4870,40 @@ internal sealed partial class MainWindow : Window
             }
         }
 
+        // v3.9.0 Scheduled 2-3 Day Auto Embryo Spawner & Silent Cookie Pre-Bake
+        if (_config.AutoEmbryoFactoryEnabled && !_isSilentPreBakeRunning && !_isSilentInviteRunning && !_isSilentPageNurtureRunning && !IsAutoInviteRunning)
+        {
+            var reqSess = Math.Clamp(_config.AutoEmbryoRequiredSessions, 2, 10);
+            var nowUtc = DateTimeOffset.UtcNow;
+            var pendingEmbryos = _vias.Count(v => IsEmbryoVia(v, _config, LocalSecretVaultStore.Default.Find(v.ViaId, v.ProfileDir, v.Label)));
+            if (AutoEmbryoFactoryPlanner.IsSpawnDue(
+                    _config.AutoEmbryoFactoryEnabled,
+                    _config.AutoEmbryoSpawnIntervalDays,
+                    _config.LastAutoEmbryoSpawnUtc,
+                    pendingEmbryos,
+                    _config.AutoEmbryoMaxPending,
+                    nowUtc))
+            {
+                _ = SpawnCleanEmbryoProfileAsync(runInitialSilentBake: true, isScheduled: true);
+                return;
+            }
+
+            bool hasDueEmbryoSession = _vias.Any(v =>
+            {
+                if (v.IsInCooldown) return false;
+                var sec = LocalSecretVaultStore.Default.Find(v.ViaId, v.ProfileDir, v.Label);
+                if (!IsEmbryoVia(v, _config, sec)) return false;
+                var curSess = (_config.ViaPreBakeSessionCounts != null && _config.ViaPreBakeSessionCounts.TryGetValue(v.ViaId, out var s)) ? s : 0;
+                var lastUtc = (_config.ViaLastPreBakeAtUtc != null && _config.ViaLastPreBakeAtUtc.TryGetValue(v.ViaId, out var lu)) ? lu : "";
+                return AutoEmbryoFactoryPlanner.IsEmbryoSessionDue(curSess, reqSess, lastUtc, nowUtc, minGapHours: 10.0);
+            });
+            if (hasDueEmbryoSession)
+            {
+                _ = RunSilentPreBakeBatchDueAsync(forceAllEmbryos: false, isScheduled: true);
+                return;
+            }
+        }
+
         if (_config.AutoDailyFullPipeline && string.IsNullOrWhiteSpace(_config.AutoPilotScheduleTimesCsv))
         {
             var todayKey = now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -4958,6 +5315,7 @@ internal sealed partial class MainWindow : Window
         _uiTimer.Stop();
         _keepAliveTimer.Stop();
         _cloudSyncTimer.Stop();
+        CancelSilentPreBakeIfRunning();
         StopQueueAndActiveRunners();
         _queue.Dispose();
         _bridge?.Dispose();

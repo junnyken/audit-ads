@@ -156,9 +156,26 @@ export interface WebViaItemDto {
   hasMailTwoFa?: boolean
   unusedBackupCodesCount?: number
   preBakeSessionsCount?: number
+  requiredPreBakeSessions?: number
   recoveryReadinessScore?: number
   incubationStageKey?: string
   incubationStageLabel?: string
+}
+
+export interface WebEmbryoFactoryConfigDto {
+  enabled: boolean
+  spawnIntervalDays: number
+  requiredSessions: number
+  maxPendingEmbryos: number
+  proxyPoolRaw: string
+  proxyPoolValidCount: number
+  defaultClientGroup: string
+  customDomain: string
+  lastSpawnLocal: string
+  nextSpawnHint: string
+  preBakingCount: number
+  readyToBornCount: number
+  isSilentPreBakeRunning: boolean
 }
 
 export interface WebClientStandbyPoolRowDto {
@@ -601,6 +618,7 @@ export interface AppShellWebStateDto {
   runtimeLogs: string[]
   vias: WebViaItemDto[]
   standbyPoolMatrix?: WebClientStandbyPoolRowDto[]
+  embryoFactory?: WebEmbryoFactoryConfigDto
   totpMap: Record<string, LiveTotpItemDto>
   chromeProfiles: WebOptionDto[]
   supportedEngines: WebOptionDto[]
