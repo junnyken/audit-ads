@@ -2435,6 +2435,19 @@ internal static class Program
                 {
                     throw new InvalidOperationException("AppShellWebStateDto missing v3.7.0 customTag / autoSilentPageNurtureEnabled.");
                 }
+
+                // 40b. Verify CDP Runtime.evaluate unwrapped JSON parser (matches real SendCdpCommandAsync return shape)
+                using var evalDoc = System.Text.Json.JsonDocument.Parse("{\"result\":{\"type\":\"string\",\"value\":\"{\\\"ok\\\":true,\\\"invitedSent\\\":4}\"}}");
+                var extracted = ChromeCdpController.TryExtractEvalStringValue(evalDoc.RootElement);
+                if (string.IsNullOrWhiteSpace(extracted) || !extracted.Contains("\"invitedSent\":4", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException($"TryExtractEvalStringValue failed: '{extracted}'");
+                }
+                using var boolDoc = System.Text.Json.JsonDocument.Parse("{\"result\":{\"type\":\"boolean\",\"value\":true}}");
+                if (!ChromeCdpController.TryExtractEvalBoolValue(boolDoc.RootElement))
+                {
+                    throw new InvalidOperationException("TryExtractEvalBoolValue failed.");
+                }
             }
 
             Console.WriteLine("ADSOPS_DESKTOP_V260_SELFTEST_100_PASS");

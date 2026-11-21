@@ -417,6 +417,37 @@ public static class ChromeCdpController
         }
     }
 
+    /// <summary>Extracts the string value from a CDP Runtime.evaluate result element (already unwrapped by SendCdpCommandAsync).</summary>
+    internal static string? TryExtractEvalStringValue(JsonElement evalResp)
+    {
+        if (evalResp.ValueKind != JsonValueKind.Object) return null;
+        if (evalResp.TryGetProperty("result", out var inner) &&
+            inner.ValueKind == JsonValueKind.Object &&
+            inner.TryGetProperty("value", out var valEl) &&
+            valEl.ValueKind == JsonValueKind.String)
+        {
+            return valEl.GetString();
+        }
+        if (evalResp.TryGetProperty("value", out var directVal) && directVal.ValueKind == JsonValueKind.String)
+        {
+            return directVal.GetString();
+        }
+        return null;
+    }
+
+    internal static bool TryExtractEvalBoolValue(JsonElement evalResp)
+    {
+        if (evalResp.ValueKind != JsonValueKind.Object) return false;
+        if (evalResp.TryGetProperty("result", out var inner) &&
+            inner.ValueKind == JsonValueKind.Object &&
+            inner.TryGetProperty("value", out var valEl) &&
+            valEl.ValueKind == JsonValueKind.True)
+        {
+            return true;
+        }
+        return evalResp.TryGetProperty("value", out var directVal) && directVal.ValueKind == JsonValueKind.True;
+    }
+
     public sealed record SilentMbsInviteResult(
         bool Ok,
         bool NeedsLogin,
@@ -649,23 +680,17 @@ public static class ChromeCdpController
                 new { expression = js, awaitPromise = true, returnByValue = true },
                 token).ConfigureAwait(false);
 
-            if (evalResp.TryGetProperty("result", out var resObj) &&
-                resObj.TryGetProperty("result", out var innerObj) &&
-                innerObj.TryGetProperty("value", out var valEl) &&
-                valEl.ValueKind == JsonValueKind.String)
+            var rawJson = TryExtractEvalStringValue(evalResp);
+            if (!string.IsNullOrWhiteSpace(rawJson))
             {
-                var rawJson = valEl.GetString();
-                if (!string.IsNullOrWhiteSpace(rawJson))
-                {
-                    using var doc = JsonDocument.Parse(rawJson);
-                    var r = doc.RootElement;
-                    bool ok = r.TryGetProperty("ok", out var okEl) && okEl.GetBoolean();
-                    bool needsLogin = r.TryGetProperty("needsLogin", out var nlEl) && nlEl.GetBoolean();
-                    int detected = r.TryGetProperty("detectedPending", out var dpEl) ? dpEl.GetInt32() : 0;
-                    int sent = r.TryGetProperty("invitedSent", out var isEl) ? isEl.GetInt32() : 0;
-                    string detail = r.TryGetProperty("detail", out var dtEl) ? (dtEl.GetString() ?? "") : "";
-                    return new SilentMbsInviteResult(ok, needsLogin, detected, sent, detail);
-                }
+                using var doc = JsonDocument.Parse(rawJson);
+                var r = doc.RootElement;
+                bool ok = r.TryGetProperty("ok", out var okEl) && okEl.GetBoolean();
+                bool needsLogin = r.TryGetProperty("needsLogin", out var nlEl) && nlEl.GetBoolean();
+                int detected = r.TryGetProperty("detectedPending", out var dpEl) ? dpEl.GetInt32() : 0;
+                int sent = r.TryGetProperty("invitedSent", out var isEl) ? isEl.GetInt32() : 0;
+                string detail = r.TryGetProperty("detail", out var dtEl) ? (dtEl.GetString() ?? "") : "";
+                return new SilentMbsInviteResult(ok, needsLogin, detected, sent, detail);
             }
 
             return new SilentMbsInviteResult(false, false, 0, 0, "Không đọc được phản hồi từ phiên chạy ẩn MBS.");
@@ -747,9 +772,10 @@ public static class ChromeCdpController
             var waitResp = await SendCdpCommandAsync(
                 ws, cmdId++, "Runtime.evaluate",
                 new { expression = waitJs, awaitPromise = true, returnByValue = true }, token).ConfigureAwait(false);
-            if (waitResp.TryGetProperty("result", out var wr) && wr.TryGetProperty("result", out var wInner) && wInner.TryGetProperty("value", out var wVal) && wVal.ValueKind == JsonValueKind.String)
+            var waitJson = TryExtractEvalStringValue(waitResp);
+            if (!string.IsNullOrWhiteSpace(waitJson))
             {
-                using var wDoc = JsonDocument.Parse(wVal.GetString()!);
+                using var wDoc = JsonDocument.Parse(waitJson);
                 if (wDoc.RootElement.TryGetProperty("needsLogin", out var nl) && nl.GetBoolean())
                 {
                     return new SilentPageContentResult(false, true, "post", false, "Chưa đăng nhập Facebook trong Chrome Cô lập (hãy lưu Cookie vào Két DPAPI hoặc bấm Thu Cookie).");
@@ -768,16 +794,14 @@ public static class ChromeCdpController
                 {
                     await SendCdpCommandAsync(ws, cmdId++, "DOM.enable", null, token).ConfigureAwait(false);
                     var docResp = await SendCdpCommandAsync(ws, cmdId++, "DOM.getDocument", new { depth = -1, pierce = true }, token).ConfigureAwait(false);
-                    if (docResp.TryGetProperty("result", out var dRes) &&
-                        dRes.TryGetProperty("root", out var rootEl) &&
+                    if (docResp.TryGetProperty("root", out var rootEl) &&
                         rootEl.TryGetProperty("nodeId", out var rootNodeIdEl))
                     {
                         int rootNodeId = rootNodeIdEl.GetInt32();
                         var qResp = await SendCdpCommandAsync(
                             ws, cmdId++, "DOM.querySelectorAll",
                             new { nodeId = rootNodeId, selector = "input[type='file']" }, token).ConfigureAwait(false);
-                        if (qResp.TryGetProperty("result", out var qRes) &&
-                            qRes.TryGetProperty("nodeIds", out var nodeIdsEl) &&
+                        if (qResp.TryGetProperty("nodeIds", out var nodeIdsEl) &&
                             nodeIdsEl.ValueKind == JsonValueKind.Array)
                         {
                             foreach (var nidEl in nodeIdsEl.EnumerateArray())
@@ -850,9 +874,10 @@ public static class ChromeCdpController
             var pubResp = await SendCdpCommandAsync(
                 ws, cmdId++, "Runtime.evaluate",
                 new { expression = publishJs, awaitPromise = true, returnByValue = true }, token).ConfigureAwait(false);
-            if (pubResp.TryGetProperty("result", out var pr) && pr.TryGetProperty("result", out var pInner) && pInner.TryGetProperty("value", out var pVal) && pVal.ValueKind == JsonValueKind.String)
+            var pubJson = TryExtractEvalStringValue(pubResp);
+            if (!string.IsNullOrWhiteSpace(pubJson))
             {
-                using var pDoc = JsonDocument.Parse(pVal.GetString()!);
+                using var pDoc = JsonDocument.Parse(pubJson);
                 bool published = pDoc.RootElement.TryGetProperty("published", out var pb) && pb.GetBoolean();
                 if (published)
                 {
@@ -939,9 +964,10 @@ public static class ChromeCdpController
             var openResp = await SendCdpCommandAsync(
                 ws, cmdId++, "Runtime.evaluate",
                 new { expression = shareOpenJs, awaitPromise = true, returnByValue = true }, token).ConfigureAwait(false);
-            if (openResp.TryGetProperty("result", out var or) && or.TryGetProperty("result", out var oInner) && oInner.TryGetProperty("value", out var oVal) && oVal.ValueKind == JsonValueKind.String)
+            var openJson = TryExtractEvalStringValue(openResp);
+            if (!string.IsNullOrWhiteSpace(openJson))
             {
-                using var oDoc = JsonDocument.Parse(oVal.GetString()!);
+                using var oDoc = JsonDocument.Parse(openJson);
                 if (oDoc.RootElement.TryGetProperty("needsLogin", out var nl) && nl.GetBoolean())
                 {
                     return new SilentPageContentResult(false, true, "share", false, "Chưa đăng nhập Facebook trong Chrome Cô lập (hãy lưu Cookie vào Két DPAPI).");
@@ -964,8 +990,7 @@ public static class ChromeCdpController
             })();
             """;
             var fbResp = await SendCdpCommandAsync(ws, cmdId++, "Runtime.evaluate", new { expression = focusShareBoxJs, returnByValue = true }, token).ConfigureAwait(false);
-            if (!string.IsNullOrWhiteSpace(caption) &&
-                fbResp.TryGetProperty("result", out var fbr) && fbr.TryGetProperty("result", out var fbIn) && fbIn.TryGetProperty("value", out var fbV) && fbV.ValueKind == JsonValueKind.True)
+            if (!string.IsNullOrWhiteSpace(caption) && TryExtractEvalBoolValue(fbResp))
             {
                 await Task.Delay(250, token).ConfigureAwait(false);
                 await SendCdpCommandAsync(ws, cmdId++, "Input.insertText", new { text = caption }, token).ConfigureAwait(false);
@@ -999,9 +1024,10 @@ public static class ChromeCdpController
             var confResp = await SendCdpCommandAsync(
                 ws, cmdId++, "Runtime.evaluate",
                 new { expression = confirmShareJs, awaitPromise = true, returnByValue = true }, token).ConfigureAwait(false);
-            if (confResp.TryGetProperty("result", out var cr) && cr.TryGetProperty("result", out var cInner) && cInner.TryGetProperty("value", out var cVal) && cVal.ValueKind == JsonValueKind.String)
+            var confJson = TryExtractEvalStringValue(confResp);
+            if (!string.IsNullOrWhiteSpace(confJson))
             {
-                using var cDoc = JsonDocument.Parse(cVal.GetString()!);
+                using var cDoc = JsonDocument.Parse(confJson);
                 if (cDoc.RootElement.TryGetProperty("shared", out var sh) && sh.GetBoolean())
                 {
                     return new SilentPageContentResult(true, false, "share", false, "Đã tự động chia sẻ bài nguồn + Caption Spin chạy ẩn thành công!");

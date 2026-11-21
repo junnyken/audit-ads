@@ -6,8 +6,8 @@
     "mirror_urls":  [
                         "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
                     ],
-    "sha256":  "b0b6ee464c6c6ba46753c00a1ee3c81e4c1029be5369709a57694f75d8f52b4c",
-    "size_bytes":  67808038,
-    "published_at":  "2026-11-21T17:45:40.9467289Z",
-    "release_notes":  "AdsOps Desktop Pro v3.7.0 (ShardBrowser Open-Source Antidetect :40325, 100% Automated Off-Screen CDP Page Auto-Post with Media Hash-Jitter \u0026 Auto-Share, Scheduled 14-Day Silent Page Nurture, 1-Click Cookie Harvest \u0026 Custom Via Tags) + Companion v2.10.2."
+    "sha256":  "004abfa141c12ec4ad18e44a25a6bd090bc42f97df03e23b6691d8b8da6f7c27",
+    "size_bytes":  67807640,
+    "published_at":  "2026-11-21T18:48:09.6765417Z",
+    "release_notes":  "AdsOps Desktop Pro v3.7.0 (Verified Production Audit: Fixed CDP Runtime.evaluate/DOM response unwrapping for Silent Auto-Invite, Silent Page Auto-Post with Media Hash-Jitter \u0026 Silent Auto-Share; ShardBrowser :40325; 1-Click Cookie Harvest; Custom Via Tags) + Companion v2.10.2."
 }
