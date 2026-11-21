@@ -230,6 +230,9 @@ public sealed class DesktopConfig
     public int AutoSilentPageNurtureIntervalHours { get; set; } = 12;
     public string LastAutoSilentPageNurtureUtc { get; set; } = "";
     public Dictionary<string, string> ViaCustomTags { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    // v3.8.0 Agency 6-Layer DPAPI Vault, Clean Pre-Bake Embryo Profiles & Client Standby Pool
+    public Dictionary<string, int> ViaPreBakeSessionCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public int MinClientStandbyTarget { get; set; } = 2;
 
     [JsonIgnore]
     public string AccessToken
@@ -1729,6 +1732,10 @@ public sealed class LocalViaSecretRecord
     [JsonPropertyName("profile_dir")] public string ProfileDir { get; set; } = "";
     [JsonPropertyName("protected_cookie_b64")] public string ProtectedCookieB64 { get; set; } = "";
     [JsonPropertyName("protected_twofa_b64")] public string ProtectedTwoFaB64 { get; set; } = "";
+    [JsonPropertyName("recovery_email")] public string RecoveryEmail { get; set; } = "";
+    [JsonPropertyName("protected_email_password_b64")] public string ProtectedEmailPasswordB64 { get; set; } = "";
+    [JsonPropertyName("protected_email_twofa_b64")] public string ProtectedEmailTwoFaB64 { get; set; } = "";
+    [JsonPropertyName("protected_backup_codes_b64")] public string ProtectedBackupCodesB64 { get; set; } = "";
     [JsonPropertyName("updated_at_utc")] public string UpdatedAtUtc { get; set; } = DateTime.UtcNow.ToString("O");
 }
 
@@ -1739,6 +1746,10 @@ public sealed class PlainViaSecretBackupEntry
     [JsonPropertyName("profile_dir")] public string ProfileDir { get; set; } = "";
     [JsonPropertyName("cookie_raw")] public string CookieRaw { get; set; } = "";
     [JsonPropertyName("two_fa_secret")] public string TwoFaSecret { get; set; } = "";
+    [JsonPropertyName("recovery_email")] public string RecoveryEmail { get; set; } = "";
+    [JsonPropertyName("email_password")] public string EmailPassword { get; set; } = "";
+    [JsonPropertyName("email_two_fa_secret")] public string EmailTwoFaSecret { get; set; } = "";
+    [JsonPropertyName("backup_codes_raw")] public string BackupCodesRaw { get; set; } = "";
     [JsonPropertyName("updated_at_utc")] public string UpdatedAtUtc { get; set; } = DateTime.UtcNow.ToString("O");
 }
 
@@ -1749,7 +1760,11 @@ public sealed record LocalVaultLookupResult(
     string ProfileDir,
     string CookieRaw,
     string TwoFaSecret,
-    string UpdatedAtUtc);
+    string UpdatedAtUtc,
+    string RecoveryEmail = "",
+    string EmailPassword = "",
+    string EmailTwoFaSecret = "",
+    string BackupCodesRaw = "");
 
 /// <summary>100% local DPAPI-encrypted store for per-Via Cookie &amp; 2FA secrets (never transmitted to Cloud API).</summary>
 public sealed class LocalSecretVaultStore
@@ -1851,11 +1866,68 @@ public sealed class LocalSecretVaultStore
         string? twoFaSecret,
         bool allowOverwriteEmpty = false)
     {
+        return UpsertInternal(
+            viaId,
+            viaLabel,
+            profileDir,
+            cookieRaw,
+            twoFaSecret,
+            recoveryEmail: null,
+            emailPassword: null,
+            emailTwoFaSecret: null,
+            backupCodesRaw: null,
+            allowOverwriteEmpty: allowOverwriteEmpty,
+            updateRecoveryFields: false);
+    }
+
+    public LocalVaultLookupResult UpsertFull(
+        string? viaId,
+        string? viaLabel,
+        string? profileDir,
+        string? cookieRaw,
+        string? twoFaSecret,
+        string? recoveryEmail,
+        string? emailPassword,
+        string? emailTwoFaSecret,
+        string? backupCodesRaw,
+        bool allowOverwriteEmpty = false)
+    {
+        return UpsertInternal(
+            viaId,
+            viaLabel,
+            profileDir,
+            cookieRaw,
+            twoFaSecret,
+            recoveryEmail,
+            emailPassword,
+            emailTwoFaSecret,
+            backupCodesRaw,
+            allowOverwriteEmpty: allowOverwriteEmpty,
+            updateRecoveryFields: true);
+    }
+
+    private LocalVaultLookupResult UpsertInternal(
+        string? viaId,
+        string? viaLabel,
+        string? profileDir,
+        string? cookieRaw,
+        string? twoFaSecret,
+        string? recoveryEmail,
+        string? emailPassword,
+        string? emailTwoFaSecret,
+        string? backupCodesRaw,
+        bool allowOverwriteEmpty,
+        bool updateRecoveryFields)
+    {
         var cleanId = (viaId ?? "").Trim();
         var cleanLbl = (viaLabel ?? "").Trim();
         var cleanProf = (profileDir ?? "").Trim();
         var cleanCk = (cookieRaw ?? "").Trim();
         var clean2Fa = new string((twoFaSecret ?? "").Where(c => !char.IsWhiteSpace(c)).ToArray()).ToUpperInvariant();
+        var cleanEmail = (recoveryEmail ?? "").Trim();
+        var cleanEmailPass = (emailPassword ?? "").Trim();
+        var cleanEmail2Fa = new string((emailTwoFaSecret ?? "").Where(c => !char.IsWhiteSpace(c)).ToArray()).ToUpperInvariant();
+        var cleanBackupCodes = (backupCodesRaw ?? "").Trim();
 
         lock (_gate)
         {
@@ -1883,6 +1955,27 @@ public sealed class LocalSecretVaultStore
             {
                 rec.ProtectedTwoFaB64 = string.IsNullOrEmpty(clean2Fa) ? "" : WindowsDpapi.ProtectString(clean2Fa);
             }
+
+            if (updateRecoveryFields)
+            {
+                if (allowOverwriteEmpty || !string.IsNullOrEmpty(cleanEmail))
+                {
+                    rec.RecoveryEmail = cleanEmail;
+                }
+                if (allowOverwriteEmpty || !string.IsNullOrEmpty(cleanEmailPass))
+                {
+                    rec.ProtectedEmailPasswordB64 = string.IsNullOrEmpty(cleanEmailPass) ? "" : WindowsDpapi.ProtectString(cleanEmailPass);
+                }
+                if (allowOverwriteEmpty || !string.IsNullOrEmpty(cleanEmail2Fa))
+                {
+                    rec.ProtectedEmailTwoFaB64 = string.IsNullOrEmpty(cleanEmail2Fa) ? "" : WindowsDpapi.ProtectString(cleanEmail2Fa);
+                }
+                if (allowOverwriteEmpty || !string.IsNullOrEmpty(cleanBackupCodes))
+                {
+                    rec.ProtectedBackupCodesB64 = string.IsNullOrEmpty(cleanBackupCodes) ? "" : WindowsDpapi.ProtectString(cleanBackupCodes);
+                }
+            }
+
             rec.UpdatedAtUtc = DateTime.UtcNow.ToString("O");
             SaveToDiskLocked();
 
@@ -1893,7 +1986,11 @@ public sealed class LocalSecretVaultStore
                 rec.ProfileDir,
                 SafeUnprotect(rec.ProtectedCookieB64),
                 SafeUnprotect(rec.ProtectedTwoFaB64),
-                rec.UpdatedAtUtc);
+                rec.UpdatedAtUtc,
+                rec.RecoveryEmail ?? "",
+                SafeUnprotect(rec.ProtectedEmailPasswordB64),
+                SafeUnprotect(rec.ProtectedEmailTwoFaB64),
+                SafeUnprotect(rec.ProtectedBackupCodesB64));
         }
     }
 
@@ -1908,8 +2005,17 @@ public sealed class LocalSecretVaultStore
             }
             var ck = SafeUnprotect(rec.ProtectedCookieB64);
             var tfa = SafeUnprotect(rec.ProtectedTwoFaB64);
-            var hasData = !string.IsNullOrEmpty(ck) || !string.IsNullOrEmpty(tfa);
-            return new LocalVaultLookupResult(hasData, rec.ViaId, rec.ViaLabel, rec.ProfileDir, ck, tfa, rec.UpdatedAtUtc);
+            var recEmail = (rec.RecoveryEmail ?? "").Trim();
+            var emailPass = SafeUnprotect(rec.ProtectedEmailPasswordB64);
+            var email2Fa = SafeUnprotect(rec.ProtectedEmailTwoFaB64);
+            var backupCodes = SafeUnprotect(rec.ProtectedBackupCodesB64);
+            var hasData = !string.IsNullOrEmpty(ck) || !string.IsNullOrEmpty(tfa) ||
+                          !string.IsNullOrEmpty(recEmail) || !string.IsNullOrEmpty(emailPass) ||
+                          !string.IsNullOrEmpty(email2Fa) || !string.IsNullOrEmpty(backupCodes);
+            return new LocalVaultLookupResult(
+                hasData, rec.ViaId, rec.ViaLabel, rec.ProfileDir,
+                ck, tfa, rec.UpdatedAtUtc,
+                recEmail, emailPass, email2Fa, backupCodes);
         }
     }
 
@@ -1924,9 +2030,15 @@ public sealed class LocalSecretVaultStore
                 ProfileDir = r.ProfileDir,
                 CookieRaw = SafeUnprotect(r.ProtectedCookieB64),
                 TwoFaSecret = SafeUnprotect(r.ProtectedTwoFaB64),
+                RecoveryEmail = r.RecoveryEmail ?? "",
+                EmailPassword = SafeUnprotect(r.ProtectedEmailPasswordB64),
+                EmailTwoFaSecret = SafeUnprotect(r.ProtectedEmailTwoFaB64),
+                BackupCodesRaw = SafeUnprotect(r.ProtectedBackupCodesB64),
                 UpdatedAtUtc = r.UpdatedAtUtc,
             })
-            .Where(e => !string.IsNullOrEmpty(e.CookieRaw) || !string.IsNullOrEmpty(e.TwoFaSecret))
+            .Where(e => !string.IsNullOrEmpty(e.CookieRaw) || !string.IsNullOrEmpty(e.TwoFaSecret) ||
+                        !string.IsNullOrEmpty(e.RecoveryEmail) || !string.IsNullOrEmpty(e.EmailPassword) ||
+                        !string.IsNullOrEmpty(e.EmailTwoFaSecret) || !string.IsNullOrEmpty(e.BackupCodesRaw))
             .ToList();
         }
     }
@@ -1937,11 +2049,134 @@ public sealed class LocalSecretVaultStore
         int imported = 0;
         foreach (var e in entries)
         {
-            if (string.IsNullOrEmpty(e.CookieRaw) && string.IsNullOrEmpty(e.TwoFaSecret)) continue;
-            Upsert(e.ViaId, e.ViaLabel, e.ProfileDir, e.CookieRaw, e.TwoFaSecret, allowOverwriteEmpty: false);
+            if (string.IsNullOrEmpty(e.CookieRaw) && string.IsNullOrEmpty(e.TwoFaSecret) &&
+                string.IsNullOrEmpty(e.RecoveryEmail) && string.IsNullOrEmpty(e.EmailPassword) &&
+                string.IsNullOrEmpty(e.EmailTwoFaSecret) && string.IsNullOrEmpty(e.BackupCodesRaw)) continue;
+            UpsertFull(
+                e.ViaId, e.ViaLabel, e.ProfileDir,
+                e.CookieRaw, e.TwoFaSecret,
+                e.RecoveryEmail, e.EmailPassword, e.EmailTwoFaSecret, e.BackupCodesRaw,
+                allowOverwriteEmpty: false);
             imported++;
         }
         return imported;
+    }
+
+    private static readonly Regex BackupCodeTokenRegex = new(@"\b([A-Za-z0-9]{4}[\s\-]?[A-Za-z0-9]{4}|[A-Za-z0-9]{6,12})\b", RegexOptions.Compiled);
+
+    private static bool IsUsedBackupLine(string line)
+    {
+        var t = (line ?? "").TrimStart();
+        return t.StartsWith("[USED", StringComparison.OrdinalIgnoreCase) || t.StartsWith("✓", StringComparison.Ordinal);
+    }
+
+    public static int CountUnusedBackupCodes(string? rawCodes)
+    {
+        if (string.IsNullOrWhiteSpace(rawCodes)) return 0;
+        int count = 0;
+        var lines = rawCodes.Split(new[] { '\r', '\n', ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var rawLine in lines)
+        {
+            var line = rawLine.Trim();
+            if (string.IsNullOrEmpty(line) || IsUsedBackupLine(line)) continue;
+            if (BackupCodeTokenRegex.IsMatch(line)) count++;
+        }
+        return count;
+    }
+
+    public static (string? CopyCode, string UpdatedRaw, int RemainingUnused) ConsumeNextUnusedBackupCode(string? rawCodes)
+    {
+        if (string.IsNullOrWhiteSpace(rawCodes)) return (null, "", 0);
+        var normalizedLines = rawCodes
+            .Replace("\r\n", "\n")
+            .Replace('\r', '\n')
+            .Split('\n')
+            .SelectMany(l => l.Contains(',') || l.Contains(';')
+                ? l.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
+                : new[] { l })
+            .Select(l => l.TrimEnd())
+            .Where(l => !string.IsNullOrWhiteSpace(l) || rawCodes.Contains('\n'))
+            .ToList();
+
+        string? pickedCode = null;
+        var stamp = DateTime.Now.ToString("dd/MM HH:mm");
+        for (int i = 0; i < normalizedLines.Count; i++)
+        {
+            var line = normalizedLines[i].Trim();
+            if (string.IsNullOrEmpty(line) || IsUsedBackupLine(line)) continue;
+            var m = BackupCodeTokenRegex.Match(line);
+            if (!m.Success) continue;
+
+            var rawToken = m.Groups[1].Value;
+            pickedCode = rawToken.Replace(" ", "").Replace("-", "");
+            normalizedLines[i] = $"[USED {stamp}] {line}";
+            break;
+        }
+
+        var updatedRaw = string.Join(Environment.NewLine, normalizedLines.Where(l => !string.IsNullOrWhiteSpace(l)));
+        var remaining = CountUnusedBackupCodes(updatedRaw);
+        return (pickedCode, updatedRaw, remaining);
+    }
+
+    public static string ResolveWebmailUrl(string? recoveryEmail)
+    {
+        var email = (recoveryEmail ?? "").Trim().ToLowerInvariant();
+        var atIdx = email.IndexOf('@');
+        if (atIdx < 0 || atIdx >= email.Length - 1) return "https://mail.google.com/";
+        var domain = email[(atIdx + 1)..];
+        if (domain.Contains("gmail.") || domain.Contains("googlemail.")) return "https://mail.google.com/";
+        if (domain.Contains("outlook.") || domain.Contains("hotmail.") || domain.Contains("live.") || domain.Contains("msn."))
+            return "https://outlook.live.com/mail/";
+        if (domain.Contains("yahoo.")) return "https://mail.yahoo.com/";
+        if (domain.Contains("icloud.")) return "https://www.icloud.com/mail";
+        if (domain.Contains("proton.") || domain.Contains("pm.me")) return "https://mail.proton.me/";
+        return "https://mail.google.com/";
+    }
+}
+
+public sealed record AgencyIncubationStatus(
+    string StageKey,
+    string StageLabel,
+    int RecoveryReadinessScore);
+
+public static class AgencyIncubationAdvisor
+{
+    public static AgencyIncubationStatus ComputeIncubationStatus(
+        bool hasProxy,
+        bool hasCookie,
+        bool hasFb2Fa,
+        bool hasRecoveryMail,
+        bool hasMail2FaOrBackupCodes,
+        int preBakeSessions,
+        string? warmupPhase,
+        int daysElapsed)
+    {
+        int score = 0;
+        if (hasProxy) score += 25;
+        if (hasCookie) score += 25;
+        if (hasFb2Fa) score += 25;
+        if (hasRecoveryMail) score += 15;
+        if (hasMail2FaOrBackupCodes) score += 10;
+        score = Math.Clamp(score, 0, 100);
+
+        var phase = (warmupPhase ?? "").Trim().ToLowerInvariant();
+        if (!hasCookie && preBakeSessions < 2 && daysElapsed < 1)
+        {
+            return new AgencyIncubationStatus("pre_bake", $"🥚 Ủ Phôi ({preBakeSessions}/2 phiên)", score);
+        }
+        if (phase == "72h_lock" || daysElapsed < 3)
+        {
+            return new AgencyIncubationStatus("soak_72h", $"🌱 Ngâm Tĩnh ({Math.Clamp(daysElapsed, 1, 3)}/3 ngày)", score);
+        }
+        if (daysElapsed < 7)
+        {
+            return new AgencyIncubationStatus("interactive_4_7d", $"🌿 Tập Tương Tác ({daysElapsed}/7 ngày)", score);
+        }
+        if (hasCookie && hasFb2Fa && hasRecoveryMail)
+        {
+            return new AgencyIncubationStatus("standby_ready", "🛡️ Dự Phòng Sẵn Sàng", score);
+        }
+        return new AgencyIncubationStatus("active_missing_shield", "⚠️ Đủ ngày • Thiếu Két Mail/2FA", score);
     }
 }
 
@@ -2934,8 +3169,8 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "3.7.0";
-    public const string DisplayVersion = "v3.7.0";
+    public const string Version = "3.8.0";
+    public const string DisplayVersion = "v3.8.0";
     public const string ExtVersion = "2.10.2";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 

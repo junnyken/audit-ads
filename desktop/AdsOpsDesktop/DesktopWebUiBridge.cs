@@ -204,6 +204,24 @@ public sealed class WebViaItemDto
     public string EnvTimezone { get; set; } = "Asia/Ho_Chi_Minh";
     public bool WebRtcLocked { get; set; } = true;
     public string CustomTag { get; set; } = "";
+    public string RecoveryEmail { get; set; } = "";
+    public bool HasRecoveryMail { get; set; }
+    public bool HasMailTwoFa { get; set; }
+    public int UnusedBackupCodesCount { get; set; }
+    public int PreBakeSessionsCount { get; set; }
+    public int RecoveryReadinessScore { get; set; }
+    public string IncubationStageKey { get; set; } = "standby_ready";
+    public string IncubationStageLabel { get; set; } = "";
+}
+
+public sealed class WebClientStandbyPoolRowDto
+{
+    public string ClientGroup { get; set; } = "Chung (Agency Pool)";
+    public int ActivePrimaryCount { get; set; }
+    public int StandbyReadyCount { get; set; }
+    public int IncubatingCount { get; set; }
+    public int MissingRecoveryMailCount { get; set; }
+    public bool HasStandbyDeficit { get; set; }
 }
 
 public sealed class WebWarmupActionDto
@@ -688,6 +706,7 @@ public sealed class AppShellWebStateDto
 
     // Tab 2: Multi-Via
     public List<WebViaItemDto> Vias { get; set; } = new();
+    public List<WebClientStandbyPoolRowDto> StandbyPoolMatrix { get; set; } = new();
     public Dictionary<string, LiveTotpItemDto> TotpMap { get; set; } = new();
     public List<WebOptionDto> ChromeProfiles { get; set; } = new();
     public List<WebOptionDto> SupportedEngines { get; set; } = new();

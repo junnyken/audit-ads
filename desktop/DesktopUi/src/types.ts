@@ -151,6 +151,23 @@ export interface WebViaItemDto {
   envTimezone?: string
   webRtcLocked?: boolean
   customTag?: string
+  recoveryEmail?: string
+  hasRecoveryMail?: boolean
+  hasMailTwoFa?: boolean
+  unusedBackupCodesCount?: number
+  preBakeSessionsCount?: number
+  recoveryReadinessScore?: number
+  incubationStageKey?: string
+  incubationStageLabel?: string
+}
+
+export interface WebClientStandbyPoolRowDto {
+  clientGroup: string
+  activePrimaryCount: number
+  standbyReadyCount: number
+  incubatingCount: number
+  missingRecoveryMailCount: number
+  hasStandbyDeficit: boolean
 }
 
 export interface WebWarmupActionDto {
@@ -583,6 +600,7 @@ export interface AppShellWebStateDto {
   cloudLogs: OverviewActivityItemDto[]
   runtimeLogs: string[]
   vias: WebViaItemDto[]
+  standbyPoolMatrix?: WebClientStandbyPoolRowDto[]
   totpMap: Record<string, LiveTotpItemDto>
   chromeProfiles: WebOptionDto[]
   supportedEngines: WebOptionDto[]

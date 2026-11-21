@@ -1054,6 +1054,12 @@ internal sealed partial class MainWindow : Window
             {
                 _ = Dispatcher.BeginInvoke(() => { matched.KeepAliveSuccessCount++; });
             }
+            if (!string.IsNullOrWhiteSpace(resolvedViaId))
+            {
+                _config.ViaPreBakeSessionCounts ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                _config.ViaPreBakeSessionCounts[resolvedViaId] = (_config.ViaPreBakeSessionCounts.TryGetValue(resolvedViaId, out var pbc) ? pbc : 0) + 1;
+                try { _config.Save(); } catch { }
+            }
             if (_config.AutoRefreshCookieAfterKeepAlive)
             {
                 var cdpMatch = ChromeSessionTracker.Default.GetSnapshot().FirstOrDefault(s =>

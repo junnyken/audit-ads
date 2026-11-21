@@ -2091,9 +2091,9 @@ internal static class Program
                 }
             }
 
-            // 35. v3.7.0 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
+            // 35. v3.8.0 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
             {
-                if (DesktopAppInfo.Version != "3.7.0" || DesktopAppInfo.ExtVersion != "2.10.2")
+                if (DesktopAppInfo.Version != "3.8.0" || DesktopAppInfo.ExtVersion != "2.10.2")
                 {
                     throw new InvalidOperationException(
                         $"DesktopAppInfo version mismatch: app={DesktopAppInfo.Version}, ext={DesktopAppInfo.ExtVersion}");
@@ -2143,13 +2143,14 @@ internal static class Program
                 foreach (var reqKey in new[]
                          {
                              "\"type\":\"full_state\"",
-                             "\"appVersion\":\"3.7.0\"",
+                             "\"appVersion\":\"3.8.0\"",
                              "\"extVersion\":\"2.10.2\"",
                              "\"activeView\":\"settings\"",
                              "\"totpMap\"",
                              "\"automationConfig\"",
                              "\"carePresets\"",
                              "\"pageNurture\"",
+                             "\"standbyPoolMatrix\"",
                              "\"settings\"",
                              "\"liveRunner\"",
                              "\"adSearch\":\"TKQC-01\"",
@@ -2447,6 +2448,70 @@ internal static class Program
                 if (!ChromeCdpController.TryExtractEvalBoolValue(boolDoc.RootElement))
                 {
                     throw new InvalidOperationException("TryExtractEvalBoolValue failed.");
+                }
+            }
+
+            // 41. v3.8.0 Agency 6-Layer DPAPI Vault, Backup Codes Rotation, Webmail URL Resolver & Incubation Stage
+            {
+                var v6Path = Path.Combine(tempRoot, "vault_6layer_v380.json");
+                var v6Store = new LocalSecretVaultStore(v6Path);
+                var saved6 = v6Store.UpsertFull(
+                    "v_agency_1",
+                    "Via Standby 1",
+                    "Profile 9",
+                    "c_user=999; xs=abc;",
+                    "JBSWY3DPEHPK3PXP",
+                    "ops.backup@gmail.com",
+                    "MailP@ss!2026",
+                    "NB2W45DFOIZA",
+                    "1111 2222\n3333 4444\n5555 6666",
+                    allowOverwriteEmpty: true);
+
+                var loaded6 = v6Store.Find("v_agency_1", "Profile 9", "Via Standby 1");
+                if (!loaded6.Found ||
+                    loaded6.RecoveryEmail != "ops.backup@gmail.com" ||
+                    loaded6.EmailPassword != "MailP@ss!2026" ||
+                    loaded6.EmailTwoFaSecret != "NB2W45DFOIZA" ||
+                    LocalSecretVaultStore.CountUnusedBackupCodes(loaded6.BackupCodesRaw) != 3)
+                {
+                    throw new InvalidOperationException($"6-Layer DPAPI Vault Find mismatch: {loaded6}");
+                }
+
+                // Verify ExportPlainEntries & ImportPlainEntries preserve all 6 fields
+                var exported6 = v6Store.ExportPlainEntries();
+                var v6Clone = new LocalSecretVaultStore(Path.Combine(tempRoot, "vault_6layer_clone.json"));
+                if (v6Clone.ImportPlainEntries(exported6) != 1)
+                {
+                    throw new InvalidOperationException("6-Layer Vault ImportPlainEntries failed.");
+                }
+                var reloaded6 = v6Clone.Find("v_agency_1", "Profile 9", "Via Standby 1");
+                if (reloaded6.RecoveryEmail != "ops.backup@gmail.com" || reloaded6.EmailPassword != "MailP@ss!2026" || reloaded6.EmailTwoFaSecret != "NB2W45DFOIZA")
+                {
+                    throw new InvalidOperationException("6-Layer Vault backup round-trip lost email secrets.");
+                }
+
+                // Verify Backup Code consumption marks [USED] and decrements count
+                var (poppedCode, updatedRaw, remCodes) = LocalSecretVaultStore.ConsumeNextUnusedBackupCode(loaded6.BackupCodesRaw);
+                if (poppedCode != "11112222" || remCodes != 2 || !updatedRaw.Contains("[USED", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException($"ConsumeNextUnusedBackupCode failed: code={poppedCode}, rem={remCodes}");
+                }
+
+                // Verify Webmail URL resolution
+                if (LocalSecretVaultStore.ResolveWebmailUrl("ops@gmail.com") != "https://mail.google.com/" ||
+                    LocalSecretVaultStore.ResolveWebmailUrl("ops@hotmail.com") != "https://outlook.live.com/mail/")
+                {
+                    throw new InvalidOperationException("ResolveWebmailUrl mismatch.");
+                }
+
+                // Verify AgencyIncubationAdvisor stages & 100-point recovery readiness
+                var preBake = AgencyIncubationAdvisor.ComputeIncubationStatus(true, false, false, false, false, 0, "trusted", 0);
+                var soak = AgencyIncubationAdvisor.ComputeIncubationStatus(true, true, true, false, false, 2, "72h_lock", 1);
+                var standbyReady = AgencyIncubationAdvisor.ComputeIncubationStatus(true, true, true, true, true, 2, "trusted", 8);
+                if (preBake.StageKey != "pre_bake" || soak.StageKey != "soak_72h" ||
+                    standbyReady.StageKey != "standby_ready" || standbyReady.RecoveryReadinessScore != 100)
+                {
+                    throw new InvalidOperationException($"AgencyIncubationAdvisor mismatch: pre={preBake}, soak={soak}, ready={standbyReady}");
                 }
             }
 

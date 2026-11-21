@@ -491,8 +491,9 @@ internal sealed partial class MainWindow
     {
         var dlg = new Window
         {
-            Title = $"Két DPAPI Local • {via.Label}",
-            Width = 540,
+            Title = $"Két DPAPI Local 6 Lớp • {via.Label}",
+            Width = 580,
+            MaxHeight = 720,
             SizeToContent = SizeToContent.Height,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Owner = this,
@@ -508,14 +509,14 @@ internal sealed partial class MainWindow
 
         root.Children.Add(new TextBlock
         {
-            Text = $"Hồ sơ Chrome: {via.ProfileDir} • Mã hóa Windows DPAPI gắn theo user Windows hiện tại.",
+            Text = $"Hồ sơ Chrome: {via.ProfileDir} • Mã hóa Windows DPAPI cục bộ 6 lớp (chưa bao giờ đẩy lên Cloud).",
             FontFamily = ThemeTokens.UiFont,
             FontSize = 12,
             Foreground = ThemeTokens.TextSecondary,
-            Margin = new Thickness(0, 0, 0, 12),
+            Margin = new Thickness(0, 0, 0, 10),
         });
 
-        var tb2Fa = UiComponents.CreateTextBox(!string.IsNullOrWhiteSpace(existing.TwoFaSecret) ? existing.TwoFaSecret : via.TwoFaSecret, "Mã 2FA Base32");
+        var tb2Fa = UiComponents.CreateTextBox(!string.IsNullOrWhiteSpace(existing.TwoFaSecret) ? existing.TwoFaSecret : via.TwoFaSecret, "Mã 2FA Base32 Facebook");
         tb2Fa.FontFamily = ThemeTokens.MonoFont;
         var otpCodeText = new TextBlock
         {
@@ -553,7 +554,7 @@ internal sealed partial class MainWindow
         var otpPanel = new StackPanel();
         otpPanel.Children.Add(otpCodeText);
         otpPanel.Children.Add(otpRemainText);
-        var copyOtpBtn = UiComponents.CreateButton("Copy 6 số", ButtonVariant.Secondary, FluentIcons.Copy, compact: true, onClick: (_, _) =>
+        var copyOtpBtn = UiComponents.CreateButton("Copy 6 số FB", ButtonVariant.Secondary, FluentIcons.Copy, compact: true, onClick: (_, _) =>
         {
             var r = TotpService.ComputeTotp(tb2Fa.Text);
             if (r.Valid) Clipboard.SetText(r.Code6);
@@ -562,14 +563,123 @@ internal sealed partial class MainWindow
         copyOtpBtn.HorizontalAlignment = HorizontalAlignment.Left;
         otpPanel.Children.Add(copyOtpBtn);
 
-        root.Children.Add(BuildLabeledBox("Secret 2FA (Base32)", tb2Fa));
+        root.Children.Add(BuildLabeledBox("Secret 2FA Facebook (Base32)", tb2Fa));
         var previewCard = UiComponents.CreateCard(otpPanel, new Thickness(12), ThemeTokens.BgSurfaceElevated, ThemeTokens.BorderDefault);
-        previewCard.Margin = new Thickness(0, 8, 0, 10);
+        previewCard.Margin = new Thickness(0, 6, 0, 10);
         root.Children.Add(previewCard);
 
-        var tbCookie = UiComponents.CreateTextBox(existing.CookieRaw, "c_user=...; xs=...", multiline: true, height: 96);
+        var tbCookie = UiComponents.CreateTextBox(existing.CookieRaw, "c_user=...; xs=...", multiline: true, height: 82);
         tbCookie.FontFamily = ThemeTokens.MonoFont;
         root.Children.Add(BuildLabeledBox("Cookie Facebook (Lưu cục bộ DPAPI)", tbCookie));
+
+        // ===== SECTION: RECOVERY EMAIL + EMAIL 2FA + BACKUP CODES (6-LAYER AGENCY VAULT) =====
+        var mailHeader = new TextBlock
+        {
+            Text = "📧 Két Email Khôi Phục (Gmail / Outlook) & Mã Dự Phòng 8 Số",
+            FontFamily = ThemeTokens.UiFont,
+            FontSize = 13,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeTokens.AccentText,
+            Margin = new Thickness(0, 14, 0, 6),
+        };
+        root.Children.Add(mailHeader);
+
+        var tbRecEmail = UiComponents.CreateTextBox(existing.RecoveryEmail, "vd: agency.backup01@gmail.com");
+        root.Children.Add(BuildLabeledBox("Địa chỉ Email Khôi phục (Gmail / Outlook / Hotmail)", tbRecEmail));
+
+        var tbEmailPass = UiComponents.CreateTextBox(existing.EmailPassword, "Mật khẩu hộp thư khôi phục (mã hóa DPAPI)");
+        tbEmailPass.FontFamily = ThemeTokens.MonoFont;
+        var passBoxWrap = BuildLabeledBox("Mật khẩu Email Khôi phục", tbEmailPass);
+        passBoxWrap.Margin = new Thickness(0, 8, 0, 0);
+        root.Children.Add(passBoxWrap);
+
+        var tbEmail2Fa = UiComponents.CreateTextBox(existing.EmailTwoFaSecret, "Secret 2FA của Gmail / Outlook (Base32)");
+        tbEmail2Fa.FontFamily = ThemeTokens.MonoFont;
+        var email2FaWrap = BuildLabeledBox("Secret 2FA Email (Base32)", tbEmail2Fa);
+        email2FaWrap.Margin = new Thickness(0, 8, 0, 0);
+        root.Children.Add(email2FaWrap);
+
+        var mailOtpText = new TextBlock
+        {
+            Text = "Chưa có 2FA Mail",
+            FontFamily = ThemeTokens.MonoFont,
+            FontSize = 14,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeTokens.SuccessText,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        void RefreshMailOtp()
+        {
+            var r = TotpService.ComputeTotp(tbEmail2Fa.Text);
+            mailOtpText.Text = r.Valid ? $"OTP Mail: {r.FormattedCode} ({r.SecondsRemaining}s)" : "OTP Mail: Chưa cấu hình";
+            mailOtpText.Foreground = r.Valid ? ThemeTokens.SuccessText : ThemeTokens.TextMuted;
+        }
+        tbEmail2Fa.TextChanged += (_, _) => RefreshMailOtp();
+        RefreshMailOtp();
+
+        var mailActionsRow = new WrapPanel { Margin = new Thickness(0, 6, 0, 8) };
+        mailOtpText.Margin = new Thickness(0, 0, 10, 0);
+        mailActionsRow.Children.Add(mailOtpText);
+        var copyMailOtpBtn = UiComponents.CreateButton("Copy 6 số Mail", ButtonVariant.Secondary, FluentIcons.Copy, compact: true, onClick: (_, _) =>
+        {
+            var r = TotpService.ComputeTotp(tbEmail2Fa.Text);
+            if (r.Valid) Clipboard.SetText(r.Code6);
+        });
+        copyMailOtpBtn.Margin = new Thickness(0, 0, 8, 0);
+        mailActionsRow.Children.Add(copyMailOtpBtn);
+        var openMailBtn = UiComponents.CreateButton("📧 Mở Hộp Thư Trên Cùng Profile/Proxy", ButtonVariant.Secondary, compact: true, onClick: (_, _) =>
+        {
+            var mailUrl = LocalSecretVaultStore.ResolveWebmailUrl(tbRecEmail.Text);
+            LaunchViaChromeSafe(via, mailUrl);
+            AppendLog($"📧 Đã mở hộp thư '{mailUrl}' trên cùng Profile & Proxy của Via '{via.Label}'.");
+        });
+        mailActionsRow.Children.Add(openMailBtn);
+        root.Children.Add(mailActionsRow);
+
+        var tbBackupCodes = UiComponents.CreateTextBox(existing.BackupCodesRaw, "Mỗi dòng 1 mã dự phòng 8 số Facebook/Google (VD: 4829 1034)...", multiline: true, height: 82);
+        tbBackupCodes.FontFamily = ThemeTokens.MonoFont;
+        root.Children.Add(BuildLabeledBox("10 Mã Dự Phòng 8 Số (Backup Codes)", tbBackupCodes));
+
+        var backupRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 4) };
+        var backupCountLabel = new TextBlock
+        {
+            FontFamily = ThemeTokens.MonoFont,
+            FontSize = 11,
+            Foreground = ThemeTokens.TextSecondary,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(10, 0, 0, 0),
+        };
+        void RefreshBackupCount()
+        {
+            var cnt = LocalSecretVaultStore.CountUnusedBackupCodes(tbBackupCodes.Text);
+            backupCountLabel.Text = cnt > 0 ? $"Còn {cnt} mã chưa dùng" : "Chưa có mã chưa dùng";
+            backupCountLabel.Foreground = cnt > 0 ? ThemeTokens.SuccessText : ThemeTokens.WarningText;
+        }
+        tbBackupCodes.TextChanged += (_, _) => RefreshBackupCount();
+        RefreshBackupCount();
+
+        var consumeBackupBtn = UiComponents.CreateButton("📋 Rút & Copy 1 Mã 8 Số Chưa Dùng", ButtonVariant.Secondary, FluentIcons.Copy, compact: true, onClick: (_, _) =>
+        {
+            var (code, updatedRaw, remaining) = LocalSecretVaultStore.ConsumeNextUnusedBackupCode(tbBackupCodes.Text);
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                MessageBox.Show(dlg, "Không còn mã dự phòng 8 số nào chưa dùng trong danh sách.", "Hết mã dự phòng", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            Clipboard.SetText(code);
+            tbBackupCodes.Text = updatedRaw;
+            LocalSecretVaultStore.Default.UpsertFull(
+                via.ViaId, via.Label, via.ProfileDir,
+                tbCookie.Text.Trim(), tb2Fa.Text.Trim(),
+                tbRecEmail.Text.Trim(), tbEmailPass.Text.Trim(), tbEmail2Fa.Text.Trim(), updatedRaw,
+                allowOverwriteEmpty: true);
+            AppendLog($"📋 Đã rút & copy mã dự phòng '{code}' cho Via '{via.Label}' (còn {remaining} mã chưa dùng).");
+            RefreshBackupCount();
+            RenderCurrentView();
+        });
+        backupRow.Children.Add(consumeBackupBtn);
+        backupRow.Children.Add(backupCountLabel);
+        root.Children.Add(backupRow);
 
         var btnRow = new Grid { Margin = new Thickness(0, 16, 0, 0) };
         btnRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -580,18 +690,19 @@ internal sealed partial class MainWindow
         {
             var confirm = UiComponents.ShowConfirmActionDialog(
                 dlg,
-                "Xác nhận xóa Cookie & 2FA Local",
-                $"Xóa toàn bộ Cookie và Secret 2FA lưu trên máy cho Via '{via.Label}'.",
+                "Xác nhận xóa toàn bộ Két 6 Lớp Local",
+                $"Xóa Cookie, 2FA FB, Email khôi phục & Mã 8 số lưu trên máy cho Via '{via.Label}'.",
                 new (string, string)[] { ("Via:", via.Label), ("Profile:", via.ProfileDir) },
                 "Hành động này chỉ xóa trên DPAPI Vault của máy tính này, không đụng dữ liệu Cloud.",
                 "Xóa trắng Local",
                 isDanger: true);
             if (!confirm) return;
-            LocalSecretVaultStore.Default.Upsert(via.ViaId, via.Label, via.ProfileDir, "", "", allowOverwriteEmpty: true);
+            LocalSecretVaultStore.Default.UpsertFull(via.ViaId, via.Label, via.ProfileDir, "", "", "", "", "", "", allowOverwriteEmpty: true);
             via.TwoFaSecret = "";
+            via.HasVaultCookie = false;
             ApplyUpdatedProxyClusterLimits();
             try { via.ExtensionFolder = ExtensionProvisioner.ProvisionForVia(via, config: _config); } catch { }
-            AppendLog($"Đã xóa Cookie & 2FA local cho Via '{via.Label}'.");
+            AppendLog($"Đã xóa toàn bộ Két DPAPI 6 lớp cho Via '{via.Label}'.");
             dlg.DialogResult = true;
             RenderCurrentView();
         });
@@ -600,13 +711,18 @@ internal sealed partial class MainWindow
         var rightBtns = new StackPanel { Orientation = Orientation.Horizontal };
         var cancelBtn = UiComponents.CreateButton("Đóng", ButtonVariant.Secondary, onClick: (_, _) => dlg.Close());
         cancelBtn.Margin = new Thickness(0, 0, 8, 0);
-        var saveBtn = UiComponents.CreateButton("Lưu Két Local", ButtonVariant.Primary, FluentIcons.CheckCircle, onClick: (_, _) =>
+        var saveBtn = UiComponents.CreateButton("Lưu Két 6 Lớp", ButtonVariant.Primary, FluentIcons.CheckCircle, onClick: (_, _) =>
         {
-            LocalSecretVaultStore.Default.Upsert(via.ViaId, via.Label, via.ProfileDir, tbCookie.Text.Trim(), tb2Fa.Text.Trim(), allowOverwriteEmpty: true);
+            LocalSecretVaultStore.Default.UpsertFull(
+                via.ViaId, via.Label, via.ProfileDir,
+                tbCookie.Text.Trim(), tb2Fa.Text.Trim(),
+                tbRecEmail.Text.Trim(), tbEmailPass.Text.Trim(), tbEmail2Fa.Text.Trim(), tbBackupCodes.Text.Trim(),
+                allowOverwriteEmpty: true);
             via.TwoFaSecret = TotpService.NormalizeBase32Secret(tb2Fa.Text);
+            via.HasVaultCookie = !string.IsNullOrWhiteSpace(tbCookie.Text);
             ApplyUpdatedProxyClusterLimits();
             try { via.ExtensionFolder = ExtensionProvisioner.ProvisionForVia(via, config: _config); } catch { }
-            AppendLog($"Đã lưu Két DPAPI local cho Via '{via.Label}'.");
+            AppendLog($"✅ Đã lưu Két DPAPI 6 lớp (Cookie + 2FA FB + Mail khôi phục + Mã 8 số) cho Via '{via.Label}'.");
             dlg.DialogResult = true;
             RenderCurrentView();
         });
@@ -616,7 +732,252 @@ internal sealed partial class MainWindow
         btnRow.Children.Add(rightBtns);
 
         root.Children.Add(btnRow);
-        dlg.Content = root;
+        dlg.Content = new ScrollViewer
+        {
+            MaxHeight = 680,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Content = root,
+        };
+        dlg.ShowDialog();
+    }
+
+    private void OpenCheckpointRescueDialog(ViaWorkspaceEntry via)
+    {
+        var dlg = new Window
+        {
+            Title = $"🚑 Ứng cứu Checkpoint 1-Chạm • {via.Label}",
+            Width = 580,
+            MaxHeight = 700,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            ResizeMode = ResizeMode.NoResize,
+            Background = ThemeTokens.BgCanvas,
+            Foreground = ThemeTokens.TextPrimary,
+            ShowInTaskbar = false,
+        };
+        ThemeTokens.ApplyDarkTitleBar(dlg);
+
+        var sec = LocalSecretVaultStore.Default.Find(via.ViaId, via.ProfileDir, via.Label);
+        var fbSecret = !string.IsNullOrWhiteSpace(sec.TwoFaSecret) ? sec.TwoFaSecret : via.TwoFaSecret;
+        var root = new StackPanel { Margin = new Thickness(20) };
+
+        root.Children.Add(new TextBlock
+        {
+            Text = $"Mở đồng thời Facebook + Hộp thư Khôi phục trên cùng Profile '{via.ProfileDir}' ({(string.IsNullOrWhiteSpace(via.NetworkLabel) ? "Direct IP" : via.NetworkLabel)}) để gỡ xác minh an toàn.",
+            TextWrapping = TextWrapping.Wrap,
+            FontFamily = ThemeTokens.UiFont,
+            FontSize = 12,
+            Foreground = ThemeTokens.TextSecondary,
+            Margin = new Thickness(0, 0, 0, 12),
+        });
+
+        // 1. Live Facebook 2FA & Quick Browser Launch
+        var fbOtp = TotpService.ComputeTotp(fbSecret);
+        var fbPanel = new StackPanel();
+        fbPanel.Children.Add(new TextBlock
+        {
+            Text = fbOtp.Valid ? $"🔑 OTP 2FA Facebook: {fbOtp.FormattedCode} (còn {fbOtp.SecondsRemaining}s)" : "🔑 OTP 2FA Facebook: Chưa gắn trong Két",
+            FontFamily = ThemeTokens.MonoFont,
+            FontSize = 14,
+            FontWeight = FontWeights.Bold,
+            Foreground = fbOtp.Valid ? ThemeTokens.AccentText : ThemeTokens.WarningText,
+        });
+        var fbBtnRow = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
+        var copyFbOtp = UiComponents.CreateButton("Copy OTP FB", ButtonVariant.Secondary, FluentIcons.Copy, compact: true, onClick: (_, _) =>
+        {
+            var r = TotpService.ComputeTotp(fbSecret);
+            if (r.Valid) Clipboard.SetText(r.Code6);
+        });
+        copyFbOtp.Margin = new Thickness(0, 0, 8, 0);
+        fbBtnRow.Children.Add(copyFbOtp);
+        var openFbRescue = UiComponents.CreateButton("🌐 Mở Facebook Gỡ Khóa", ButtonVariant.Primary, compact: true, onClick: (_, _) =>
+        {
+            LaunchViaChromeSafe(via, "https://www.facebook.com/");
+        });
+        fbBtnRow.Children.Add(openFbRescue);
+        fbPanel.Children.Add(fbBtnRow);
+        var fbCard = UiComponents.CreateCard(fbPanel, new Thickness(12), ThemeTokens.BgSurfaceElevated, ThemeTokens.BorderDefault);
+        fbCard.Margin = new Thickness(0, 0, 0, 10);
+        root.Children.Add(fbCard);
+
+        // 2. Recovery Mail & Email 2FA & Backup Code
+        var mailOtp = TotpService.ComputeTotp(sec.EmailTwoFaSecret);
+        var unusedCnt = LocalSecretVaultStore.CountUnusedBackupCodes(sec.BackupCodesRaw);
+        var mailPanel = new StackPanel();
+        mailPanel.Children.Add(new TextBlock
+        {
+            Text = !string.IsNullOrWhiteSpace(sec.RecoveryEmail)
+                ? $"📧 Mail Khôi Phục: {sec.RecoveryEmail}"
+                : "📧 Mail Khôi Phục: Chưa lưu trong Két (bấm 'Mở Két 6 Lớp' để bổ sung)",
+            FontFamily = ThemeTokens.UiFont,
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = !string.IsNullOrWhiteSpace(sec.RecoveryEmail) ? ThemeTokens.TextPrimary : ThemeTokens.WarningText,
+        });
+        mailPanel.Children.Add(new TextBlock
+        {
+            Text = mailOtp.Valid ? $"OTP 2FA Mail: {mailOtp.FormattedCode} (còn {mailOtp.SecondsRemaining}s)" : "OTP 2FA Mail: Chưa gắn",
+            FontFamily = ThemeTokens.MonoFont,
+            FontSize = 12,
+            Foreground = mailOtp.Valid ? ThemeTokens.SuccessText : ThemeTokens.TextMuted,
+            Margin = new Thickness(0, 4, 0, 0),
+        });
+        var backupStatusTxt = new TextBlock
+        {
+            Text = $"Mã dự phòng 8 số chưa dùng: {unusedCnt} mã",
+            FontFamily = ThemeTokens.MonoFont,
+            FontSize = 12,
+            Foreground = unusedCnt > 0 ? ThemeTokens.SuccessText : ThemeTokens.TextMuted,
+            Margin = new Thickness(0, 2, 0, 0),
+        };
+        mailPanel.Children.Add(backupStatusTxt);
+
+        var mailBtnRow = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
+        var openMailBtn = UiComponents.CreateButton("📧 Mở Hộp Thư Cùng Proxy", ButtonVariant.Secondary, compact: true, onClick: (_, _) =>
+        {
+            LaunchViaChromeSafe(via, LocalSecretVaultStore.ResolveWebmailUrl(sec.RecoveryEmail));
+        });
+        openMailBtn.Margin = new Thickness(0, 0, 6, 4);
+        mailBtnRow.Children.Add(openMailBtn);
+
+        var copyMailPassBtn = UiComponents.CreateButton("Copy Pass Mail", ButtonVariant.Secondary, FluentIcons.Copy, compact: true, onClick: (_, _) =>
+        {
+            if (!string.IsNullOrWhiteSpace(sec.EmailPassword)) Clipboard.SetText(sec.EmailPassword);
+        });
+        copyMailPassBtn.Margin = new Thickness(0, 0, 6, 4);
+        mailBtnRow.Children.Add(copyMailPassBtn);
+
+        var copyMailOtpBtn = UiComponents.CreateButton("Copy OTP Mail", ButtonVariant.Secondary, FluentIcons.Copy, compact: true, onClick: (_, _) =>
+        {
+            var r = TotpService.ComputeTotp(sec.EmailTwoFaSecret);
+            if (r.Valid) Clipboard.SetText(r.Code6);
+        });
+        copyMailOtpBtn.Margin = new Thickness(0, 0, 6, 4);
+        mailBtnRow.Children.Add(copyMailOtpBtn);
+
+        var popBackupBtn = UiComponents.CreateButton($"📋 Rút 1 Mã 8 Số ({unusedCnt})", ButtonVariant.Secondary, FluentIcons.Copy, compact: true, onClick: (_, _) =>
+        {
+            var cur = LocalSecretVaultStore.Default.Find(via.ViaId, via.ProfileDir, via.Label);
+            var (code, updatedRaw, rem) = LocalSecretVaultStore.ConsumeNextUnusedBackupCode(cur.BackupCodesRaw);
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                MessageBox.Show(dlg, "Chưa có hoặc đã dùng hết mã dự phòng 8 số cho Via này.", "Hết mã dự phòng", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            Clipboard.SetText(code);
+            LocalSecretVaultStore.Default.UpsertFull(
+                via.ViaId, via.Label, via.ProfileDir,
+                cur.CookieRaw, cur.TwoFaSecret,
+                cur.RecoveryEmail, cur.EmailPassword, cur.EmailTwoFaSecret, updatedRaw,
+                allowOverwriteEmpty: true);
+            backupStatusTxt.Text = $"Đã copy '{code}' • Còn {rem} mã chưa dùng";
+            AppendLog($"🚑 [Ứng cứu] Đã rút & copy mã 8 số '{code}' cho '{via.Label}' (còn {rem} mã).");
+            RenderCurrentView();
+        });
+        popBackupBtn.Margin = new Thickness(0, 0, 6, 4);
+        mailBtnRow.Children.Add(popBackupBtn);
+        mailPanel.Children.Add(mailBtnRow);
+
+        var mailCard = UiComponents.CreateCard(mailPanel, new Thickness(12), ThemeTokens.BgSurfaceElevated, ThemeTokens.BorderDefault);
+        mailCard.Margin = new Thickness(0, 0, 0, 12);
+        root.Children.Add(mailCard);
+
+        // 3. Standby Ready Failover Candidates in same ClientGroup
+        var targetGroup = (via.ClientGroup ?? "").Trim();
+        var standbyCandidates = _vias
+            .Where(other =>
+                !string.Equals(other.ViaId, via.ViaId, StringComparison.OrdinalIgnoreCase) &&
+                !other.IsInCooldown &&
+                (string.IsNullOrEmpty(targetGroup) || string.Equals((other.ClientGroup ?? "").Trim(), targetGroup, StringComparison.OrdinalIgnoreCase)))
+            .Select(other =>
+            {
+                var os = LocalSecretVaultStore.Default.Find(other.ViaId, other.ProfileDir, other.Label);
+                var days = ViaMetadataParser.ComputeWarmupStatus(other.WarmupStartIso, soakHours: _config.SoakQuarantineHours).DaysElapsed;
+                if (string.IsNullOrWhiteSpace(other.WarmupStartIso) && !other.IsInSoakQuarantine) days = Math.Max(days, 7);
+                var pb = (_config.ViaPreBakeSessionCounts != null && _config.ViaPreBakeSessionCounts.TryGetValue(other.ViaId, out var c)) ? c : 0;
+                var inc = AgencyIncubationAdvisor.ComputeIncubationStatus(
+                    !string.IsNullOrWhiteSpace(other.NetworkLabel),
+                    !string.IsNullOrWhiteSpace(os.CookieRaw) || other.HasVaultCookie,
+                    !string.IsNullOrWhiteSpace(os.TwoFaSecret) || !string.IsNullOrWhiteSpace(other.TwoFaSecret),
+                    !string.IsNullOrWhiteSpace(os.RecoveryEmail),
+                    !string.IsNullOrWhiteSpace(os.EmailTwoFaSecret) || LocalSecretVaultStore.CountUnusedBackupCodes(os.BackupCodesRaw) > 0,
+                    pb,
+                    other.WarmupPhase,
+                    days);
+                return (Via: other, Inc: inc);
+            })
+            .OrderByDescending(x => x.Via.RoleTier == "standby" ? 1 : 0)
+            .ThenByDescending(x => x.Inc.RecoveryReadinessScore)
+            .Take(4)
+            .ToList();
+
+        var poolTitle = new TextBlock
+        {
+            Text = string.IsNullOrEmpty(targetGroup)
+                ? "🛡️ Via Dự Phòng Sẵn Sàng Tiếp Quản (Agency Pool):"
+                : $"🛡️ Via Dự Phòng Cùng Nhóm '{targetGroup}' Để Tiếp Quản:",
+            FontFamily = ThemeTokens.UiFont,
+            FontSize = 12,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeTokens.TextPrimary,
+            Margin = new Thickness(0, 0, 0, 6),
+        };
+        root.Children.Add(poolTitle);
+
+        if (standbyCandidates.Count == 0)
+        {
+            root.Children.Add(new TextBlock
+            {
+                Text = "Chưa có Via dự phòng cùng nhóm — hãy thêm phôi mới và ủ Cookie Robot trước.",
+                FontSize = 11,
+                Foreground = ThemeTokens.WarningText,
+                Margin = new Thickness(0, 0, 0, 10),
+            });
+        }
+        else
+        {
+            foreach (var cand in standbyCandidates)
+            {
+                var rowGrid = new Grid { Margin = new Thickness(0, 3, 0, 3) };
+                rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                var info = new TextBlock
+                {
+                    Text = $"{cand.Via.Label} • {cand.Inc.StageLabel} • Kháng {cand.Inc.RecoveryReadinessScore}/100",
+                    FontSize = 12,
+                    Foreground = ThemeTokens.TextSecondary,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                var launchCandBtn = UiComponents.CreateButton("Mở Via Dự Phòng", ButtonVariant.Secondary, compact: true, onClick: (_, _) =>
+                {
+                    LaunchViaChromeSafe(cand.Via, "https://business.facebook.com/");
+                });
+                Grid.SetColumn(launchCandBtn, 1);
+                rowGrid.Children.Add(info);
+                rowGrid.Children.Add(launchCandBtn);
+                root.Children.Add(rowGrid);
+            }
+        }
+
+        var footerRow = new WrapPanel { Margin = new Thickness(0, 14, 0, 0), HorizontalAlignment = HorizontalAlignment.Right };
+        var editVaultBtn = UiComponents.CreateButton("🔑 Mở Két 6 Lớp", ButtonVariant.Secondary, onClick: (_, _) =>
+        {
+            dlg.Close();
+            OpenLocalVaultDialog(via);
+        });
+        editVaultBtn.Margin = new Thickness(0, 0, 8, 0);
+        var closeBtn = UiComponents.CreateButton("Đóng", ButtonVariant.Primary, onClick: (_, _) => dlg.Close());
+        footerRow.Children.Add(editVaultBtn);
+        footerRow.Children.Add(closeBtn);
+        root.Children.Add(footerRow);
+
+        dlg.Content = new ScrollViewer
+        {
+            MaxHeight = 660,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Content = root,
+        };
         dlg.ShowDialog();
     }
 

@@ -23,9 +23,49 @@ function formatVnd(amount: number): string {
 
 export function WorkspaceOpsTab({ state }: { state: AppShellWebStateDto }) {
   const rs = state.retainersSummary
+  const standbyMatrix = state.standbyPoolMatrix ?? []
 
   return (
     <div className="space-y-4">
+      {/* AGENCY STANDBY POOL MATRIX (v3.8.0) */}
+      <Card className="border-indigo-500/30">
+        <CardHeader className="pb-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2 text-sm font-bold text-indigo-200">
+              <ShieldAlert className="h-4 w-4 text-emerald-400" />
+              🛡️ Ma Trận Kho Dự Phòng Theo Khách Hàng (Agency Standby Pool)
+            </CardTitle>
+            <Button size="sm" variant="secondary" onClick={() => sendDesktopCommand('add_via')}>
+              <Plus className="h-3.5 w-3.5" /> Thêm Phôi Dự Phòng
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {standbyMatrix.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Chưa có Via trong hệ thống để thống kê kho dự phòng.</p>
+          ) : (
+            <div className="space-y-2">
+              {standbyMatrix.map((row) => (
+                <div
+                  key={row.clientGroup}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-background/50 px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-xs font-bold text-foreground">{row.clientGroup}</div>
+                    <div className="font-mono text-[11px] text-muted-foreground">
+                      Via Chính: {row.activePrimaryCount} • Sẵn sàng Standby: {row.standbyReadyCount} • Đang ấp: {row.incubatingCount} • Thiếu Két Mail: {row.missingRecoveryMailCount}
+                    </div>
+                  </div>
+                  <Badge variant={row.hasStandbyDeficit ? 'warning' : 'success'} className="text-[10px]">
+                    {row.hasStandbyDeficit ? '⚠ THIẾU DỰ PHÒNG (<2)' : '✓ ĐỦ DỰ PHÒNG'}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* CLIENT RETAINERS */}
       <Card>
         <CardHeader className="pb-3">

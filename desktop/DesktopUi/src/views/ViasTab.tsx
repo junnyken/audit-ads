@@ -99,6 +99,12 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
           ? v.needsKeepAlive
           : tierFilter === 'no_cookie'
           ? !v.hasVaultCookie
+          : tierFilter === 'incubating'
+          ? v.incubationStageKey === 'pre_bake' ||
+            v.incubationStageKey === 'soak_72h' ||
+            v.incubationStageKey === 'interactive_4_7d'
+          : tierFilter === 'standby_ready'
+          ? v.incubationStageKey === 'standby_ready'
           : tierFilter === 'running'
           ? v.isBrowserRunning
           : tierFilter === 'cooldown'
@@ -159,6 +165,21 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
       label: `Lên Camp (${state.vias.filter((v) => v.roleTier !== 'vault' && v.roleTier !== 'hold' && v.roleTier !== 'standby').length})`,
     },
     { key: 'standby', label: `Dự phòng (${state.vias.filter((v) => v.roleTier === 'standby').length})` },
+    {
+      key: 'incubating',
+      label: `🥚 Đang Ủ / Ấp (${
+        state.vias.filter(
+          (v) =>
+            v.incubationStageKey === 'pre_bake' ||
+            v.incubationStageKey === 'soak_72h' ||
+            v.incubationStageKey === 'interactive_4_7d',
+        ).length
+      })`,
+    },
+    {
+      key: 'standby_ready',
+      label: `🛡️ Dự Phòng Sẵn Sàng (${state.vias.filter((v) => v.incubationStageKey === 'standby_ready').length})`,
+    },
     { key: 'keepalive_due', label: `Cần Đảo Ấm (${state.vias.filter((v) => v.needsKeepAlive).length})` },
     { key: 'no_cookie', label: `Thiếu Cookie (${state.vias.filter((v) => !v.hasVaultCookie).length})` },
     { key: 'running', label: `Đang mở (${state.vias.filter((v) => v.isBrowserRunning).length})` },
@@ -167,8 +188,60 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
       : []),
   ]
 
+  const [standbyOpen, setStandbyOpen] = useState(true)
+  const poolRows = state.standbyPoolMatrix ?? []
+
   return (
     <div className="space-y-3.5">
+      {/* Agency Standby Pool & Clean Embryo Pre-Bake Summary Bar (v3.8.0) */}
+      {poolRows.length > 0 && (
+        <Card className="border-indigo-500/30 bg-indigo-500/5">
+          <CardContent className="space-y-2 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <button
+                type="button"
+                className="flex items-center gap-2 text-left text-xs font-bold text-indigo-200 hover:text-indigo-100"
+                onClick={() => setStandbyOpen((v) => !v)}
+              >
+                <ShieldCheck className="h-4 w-4 text-emerald-400" />
+                🛡️ Kho Dự Phòng Chống Đứt Quãng Agency &amp; Xưởng Ủ Phôi (v3.8.0) {standbyOpen ? '▲' : '▼'}
+              </button>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="h-7 border border-emerald-500/35 px-2.5 text-xs text-emerald-300 hover:bg-emerald-500/15"
+                onClick={() => sendDesktopCommand('add_via')}
+              >
+                🥚 Thêm Phôi Dự Phòng Mới
+              </Button>
+            </div>
+            {standbyOpen && (
+              <div className="flex flex-wrap gap-1.5">
+                {poolRows.map((row) => (
+                  <Badge
+                    key={row.clientGroup}
+                    variant={row.hasStandbyDeficit ? 'warning' : 'secondary'}
+                    className="gap-1.5 px-2.5 py-1 font-mono text-[11px]"
+                  >
+                    <span className="font-sans font-semibold">{row.clientGroup}:</span>
+                    <span>{row.activePrimaryCount} Chính</span>
+                    <span>•</span>
+                    <span className={row.standbyReadyCount > 0 ? 'text-emerald-400' : 'text-amber-300'}>
+                      {row.standbyReadyCount} Sẵn sàng
+                    </span>
+                    {row.incubatingCount > 0 && <span>• {row.incubatingCount} đang ấp</span>}
+                    {row.missingRecoveryMailCount > 0 && (
+                      <span className="text-amber-300">• {row.missingRecoveryMailCount} thiếu Mail</span>
+                    )}
+                    {row.hasStandbyDeficit && <span>⚠ Thiếu (&lt;2 Standby)</span>}
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Search, Action Header & Filters Card */}
       <Card>
         <CardContent className="space-y-3 p-3.5">
@@ -531,6 +604,11 @@ function ViaRowCard({
                 </span>
               </div>
               <Progress value={Math.max(12, via.trustScore)} className="h-1.5" indicatorClassName={barClass} />
+              <div className="truncate font-mono text-[10px] text-muted-foreground">
+                {via.incubationStageLabel || '🛡️ Đang vận hành'}
+                {via.hasRecoveryMail ? ' • 📧 Mail Két' : ' • ⚠ Thiếu Mail'}
+                {(via.unusedBackupCodesCount ?? 0) > 0 ? ` • 🔢 ${via.unusedBackupCodesCount} mã` : ''}
+              </div>
             </div>
           </TooltipTrigger>
           <TooltipContent>{via.trustSummary || `Điểm Trust ${via.trustScore}/100 (${via.warmupLabel})`}</TooltipContent>
@@ -630,7 +708,23 @@ function ViaRowCard({
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => sendDesktopCommand('open_local_vault', { viaId: via.viaId })}>
                 <KeyRound className="h-3.5 w-3.5 text-emerald-400" />
-                Két Cookie &amp; 2FA DPAPI Local
+                Két 6 Lớp (Cookie + 2FA + Mail + Mã 8 số)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => sendDesktopCommand('open_checkpoint_rescue', { viaId: via.viaId })}>
+                <ShieldAlert className="h-3.5 w-3.5 text-rose-400" />
+                🚑 Ứng cứu Checkpoint 1-Chạm (2FA + Mail)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => sendDesktopCommand('open_recovery_mailbox', { viaId: via.viaId })}>
+                <Globe className="h-3.5 w-3.5 text-sky-400" />
+                📧 Mở Hộp thư Khôi phục trên cùng Proxy
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => sendDesktopCommand('run_prebake_session', { viaId: via.viaId })}>
+                <Coffee className="h-3.5 w-3.5 text-amber-300" />
+                🥚 Chạy 1 Phiên Ủ Cookie Nền (Pre-Bake)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => sendDesktopCommand('open_manual_onboarding', { viaId: via.viaId, target: 'gmail' })}>
+                <Users className="h-3.5 w-3.5 text-emerald-300" />
+                🧭 Mở Khởi tạo Gmail / 2FA Thủ công
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => sendDesktopCommand('set_via_env_override', { viaId: via.viaId, cycleViewport: true })}>
                 <Monitor className="h-3.5 w-3.5 text-sky-400" />

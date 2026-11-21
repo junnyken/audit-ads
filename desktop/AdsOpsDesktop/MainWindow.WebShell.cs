@@ -362,6 +362,25 @@ internal sealed partial class MainWindow
             var normEng = AntidetectBrowserConnector.NormalizeEngine(v.AntidetectEngine);
             var canLaunch = CanCurrentUserLaunchVia(v, out var denyReason);
             var envProf = ResolveViaEnvironmentProfileFor(v);
+            var localSec = LocalSecretVaultStore.Default.Find(v.ViaId, v.ProfileDir, v.Label);
+            var hasCookie = v.HasVaultCookie || !string.IsNullOrWhiteSpace(localSec.CookieRaw);
+            var hasFb2Fa = v.HasLocalTwoFa || !string.IsNullOrWhiteSpace(v.TwoFaSecret) || !string.IsNullOrWhiteSpace(localSec.TwoFaSecret) || (totpMap.TryGetValue(v.ViaId, out var t2) && t2.Valid);
+            var hasRecMail = !string.IsNullOrWhiteSpace(localSec.RecoveryEmail);
+            var hasMail2Fa = !string.IsNullOrWhiteSpace(localSec.EmailTwoFaSecret);
+            var unusedBackupCnt = LocalSecretVaultStore.CountUnusedBackupCodes(localSec.BackupCodesRaw);
+            var preBakeCnt = (_config.ViaPreBakeSessionCounts != null && _config.ViaPreBakeSessionCounts.TryGetValue(v.ViaId, out var pb)) ? pb : 0;
+            var warmupStat = ViaMetadataParser.ComputeWarmupStatus(v.WarmupStartIso, soakHours: _config.SoakQuarantineHours);
+            var daysElapsed = string.IsNullOrWhiteSpace(v.WarmupStartIso) && !v.IsInSoakQuarantine ? 7 : warmupStat.DaysElapsed;
+            var incStat = AgencyIncubationAdvisor.ComputeIncubationStatus(
+                !string.IsNullOrWhiteSpace(v.NetworkLabel),
+                hasCookie,
+                hasFb2Fa,
+                hasRecMail,
+                hasMail2Fa || unusedBackupCnt > 0,
+                preBakeCnt,
+                v.WarmupPhase,
+                daysElapsed);
+
             return new WebViaItemDto
             {
                 ViaId = v.ViaId,
@@ -385,8 +404,8 @@ internal sealed partial class MainWindow
                 WarmupLabel = v.WarmupLabel,
                 WarmupPhase = v.WarmupPhase,
                 IdleDays = v.IdleDays,
-                HasVaultCookie = v.HasVaultCookie,
-                HasTwoFa = v.HasLocalTwoFa || !string.IsNullOrWhiteSpace(v.TwoFaSecret) || (totpMap.TryGetValue(v.ViaId, out var t) && t.Valid),
+                HasVaultCookie = hasCookie,
+                HasTwoFa = hasFb2Fa,
                 NeedsKeepAlive = v.NeedsKeepAlive,
                 IsInCooldown = v.IsInCooldown,
                 CooldownReason = v.CooldownReason,
@@ -412,8 +431,39 @@ internal sealed partial class MainWindow
                 EnvTimezone = envProf.IanaTimezone,
                 WebRtcLocked = envProf.WebRtcLocked,
                 CustomTag = (_config.ViaCustomTags != null && _config.ViaCustomTags.TryGetValue(v.ViaId, out var ctag)) ? (ctag ?? "") : "",
+                RecoveryEmail = localSec.RecoveryEmail,
+                HasRecoveryMail = hasRecMail,
+                HasMailTwoFa = hasMail2Fa,
+                UnusedBackupCodesCount = unusedBackupCnt,
+                PreBakeSessionsCount = preBakeCnt,
+                RecoveryReadinessScore = incStat.RecoveryReadinessScore,
+                IncubationStageKey = incStat.StageKey,
+                IncubationStageLabel = incStat.StageLabel,
             };
         }).ToList();
+
+        var minStandby = Math.Max(1, _config.MinClientStandbyTarget);
+        var standbyMatrix = viaItems
+            .GroupBy(x => string.IsNullOrWhiteSpace(x.ClientGroup) ? "Chung (Agency Pool)" : x.ClientGroup.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(g =>
+            {
+                int activePrimary = g.Count(x => x.RoleTier != "standby" && x.IncubationStageKey != "pre_bake");
+                int standbyReady = g.Count(x => x.RoleTier == "standby" || x.IncubationStageKey == "standby_ready");
+                int incubating = g.Count(x => x.IncubationStageKey is "pre_bake" or "soak_72h" or "interactive_4_7d");
+                int missingMail = g.Count(x => !x.HasRecoveryMail);
+                return new WebClientStandbyPoolRowDto
+                {
+                    ClientGroup = g.Key,
+                    ActivePrimaryCount = activePrimary,
+                    StandbyReadyCount = standbyReady,
+                    IncubatingCount = incubating,
+                    MissingRecoveryMailCount = missingMail,
+                    HasStandbyDeficit = activePrimary > 0 && standbyReady < minStandby,
+                };
+            })
+            .OrderByDescending(r => r.HasStandbyDeficit ? 1 : 0)
+            .ThenByDescending(r => r.ActivePrimaryCount)
+            .ToList();
 
         var isCustomSeq = string.Equals(_config.WarmupFlowMode, "custom_sequence", StringComparison.OrdinalIgnoreCase);
         _config.CustomWarmupActionSequence ??= WarmupActionCatalog.GetDefaultSequence();
@@ -694,6 +744,7 @@ internal sealed partial class MainWindow
             CloudLogs = cloudLogs,
             RuntimeLogs = _logLines.TakeLast(60).Reverse().ToList(),
             Vias = viaItems,
+            StandbyPoolMatrix = standbyMatrix,
             TotpMap = totpMap,
             ChromeProfiles = _chromeProfiles.Select(cp => new WebOptionDto
             {
@@ -1386,6 +1437,66 @@ internal sealed partial class MainWindow
                         {
                             var via = _vias.FirstOrDefault(v => string.Equals(v.ViaId, GetStr(root, "viaId").Trim(), StringComparison.OrdinalIgnoreCase));
                             if (via != null) OpenLocalVaultDialog(via);
+                            break;
+                        }
+
+                    case "open_recovery_mailbox":
+                        {
+                            var via = _vias.FirstOrDefault(v => string.Equals(v.ViaId, GetStr(root, "viaId").Trim(), StringComparison.OrdinalIgnoreCase));
+                            if (via != null)
+                            {
+                                var sec = LocalSecretVaultStore.Default.Find(via.ViaId, via.ProfileDir, via.Label);
+                                var mailUrl = LocalSecretVaultStore.ResolveWebmailUrl(sec.RecoveryEmail);
+                                LaunchViaChromeSafe(via, mailUrl);
+                                AppendLog($"📧 Đã mở hộp thư '{mailUrl}' trên cùng Profile & Proxy của Via '{via.Label}'.");
+                            }
+                            break;
+                        }
+
+                    case "open_checkpoint_rescue":
+                        {
+                            var via = _vias.FirstOrDefault(v => string.Equals(v.ViaId, GetStr(root, "viaId").Trim(), StringComparison.OrdinalIgnoreCase));
+                            if (via != null) OpenCheckpointRescueDialog(via);
+                            break;
+                        }
+
+                    case "run_prebake_session":
+                        {
+                            var via = _vias.FirstOrDefault(v => string.Equals(v.ViaId, GetStr(root, "viaId").Trim(), StringComparison.OrdinalIgnoreCase));
+                            if (via != null)
+                            {
+                                var robotPreset = WarmupCarePresets.FindByKey("cookie_robot_only");
+                                if (robotPreset != null)
+                                {
+                                    _config.WarmupFlowMode = "custom_sequence";
+                                    _config.CustomWarmupActionSequence = robotPreset.Steps.ToList();
+                                    _config.QueueRestMinSeconds = robotPreset.RestMinSeconds;
+                                    _config.QueueRestMaxSeconds = robotPreset.RestMaxSeconds;
+                                    _config.Save();
+                                    _webUiConfigRev++;
+                                }
+                                AppendLog($"🥚 Bắt đầu 1 phiên Ủ Cookie Nền (Pre-Bake) cho phôi '{via.Label}'...");
+                                StartNaturalFlowForVias(new[] { via }, fastTest: false, requireConfirm: false);
+                                PushOverviewStateToWebView();
+                            }
+                            break;
+                        }
+
+                    case "open_manual_onboarding":
+                        {
+                            var via = _vias.FirstOrDefault(v => string.Equals(v.ViaId, GetStr(root, "viaId").Trim(), StringComparison.OrdinalIgnoreCase));
+                            var target = GetStr(root, "target", "gmail").Trim().ToLowerInvariant();
+                            if (via != null)
+                            {
+                                var url = target switch
+                                {
+                                    "facebook" => "https://www.facebook.com/",
+                                    "fb_security" => "https://accountscenter.facebook.com/password_and_security",
+                                    _ => "https://accounts.google.com/",
+                                };
+                                LaunchViaChromeSafe(via, url);
+                                AppendLog($"🧭 Đã mở cửa sổ thủ công '{url}' trên Profile '{via.ProfileDir}' của '{via.Label}'. Hoàn tất xác minh xong hãy bấm 'Thu Cookie đang mở' & lưu Két 6 Lớp.");
+                            }
                             break;
                         }
 
