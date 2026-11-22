@@ -160,6 +160,8 @@ export interface WebViaItemDto {
   recoveryReadinessScore?: number
   incubationStageKey?: string
   incubationStageLabel?: string
+  accountPlatform?: string
+  googleAdsCustomerId?: string
 }
 
 export interface WebEmbryoFactoryConfigDto {

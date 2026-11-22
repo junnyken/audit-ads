@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BarChart3, FileSpreadsheet, RefreshCw, Rocket, Search } from 'lucide-react'
+import { BarChart3, Code2, FileSpreadsheet, RefreshCw, Rocket, Search } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -26,6 +26,7 @@ export function AdAccountsTab({
 }) {
   const [search, setSearch] = useState(initialSearch)
   const [statusFilter, setStatusFilter] = useState(initialFilter || 'all')
+  const [platformFilter, setPlatformFilter] = useState<'all' | 'meta' | 'google_ads'>('all')
 
   useEffect(() => {
     if (initialSearch) setSearch(initialSearch)
@@ -34,6 +35,12 @@ export function AdAccountsTab({
   useEffect(() => {
     if (initialFilter) setStatusFilter(initialFilter)
   }, [initialFilter])
+
+  const isGoogleAcc = (extId: string) => (extId || '').toLowerCase().startsWith('gads_')
+  const formatGoogleCid = (extId: string) => {
+    const raw = (extId || '').replace(/^gads_/i, '')
+    return raw.length === 10 ? `${raw.slice(0, 3)}-${raw.slice(3, 6)}-${raw.slice(6)}` : raw
+  }
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -45,6 +52,9 @@ export function AdAccountsTab({
           ? !a.isActive
           : true
       if (!okTab) return false
+      const gads = isGoogleAcc(a.externalAccountId)
+      if (platformFilter === 'meta' && gads) return false
+      if (platformFilter === 'google_ads' && !gads) return false
       if (!q) return true
       return (
         a.displayName.toLowerCase().includes(q) ||
@@ -52,10 +62,12 @@ export function AdAccountsTab({
         a.bmName.toLowerCase().includes(q)
       )
     })
-  }, [state.adAccounts, search, statusFilter])
+  }, [state.adAccounts, search, statusFilter, platformFilter])
 
   const activeCount = state.adAccounts.filter((a) => a.isActive).length
   const restrictedCount = state.adAccounts.length - activeCount
+  const googleCount = state.adAccounts.filter((a) => isGoogleAcc(a.externalAccountId)).length
+  const metaCount = state.adAccounts.length - googleCount
 
   return (
     <div className="space-y-3.5">
@@ -90,6 +102,14 @@ export function AdAccountsTab({
                 className="pl-8"
               />
             </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => sendDesktopCommand('open_google_ads_script_wizard')}
+              title="Lấy mã Google Ads Script cho 2 MCC & 5 Gmail khách độc lập (0% rủi ro)"
+            >
+              <Code2 className="h-3.5 w-3.5 text-sky-400" /> Kết nối Google Ads Script
+            </Button>
             <Button variant="secondary" size="sm" onClick={() => sendDesktopCommand('export_ad_accounts_csv')}>
               <FileSpreadsheet className="h-3.5 w-3.5" /> Xuất CSV
             </Button>
@@ -98,23 +118,43 @@ export function AdAccountsTab({
             </Button>
           </div>
 
-          <div className="flex flex-wrap gap-1.5">
-            {[
-              { key: 'all', label: `Tất cả (${state.adAccounts.length})` },
-              { key: 'active', label: `Active (${activeCount})` },
-              { key: 'disabled', label: `Hạn chế / Khác (${restrictedCount})` },
-            ].map((ch) => (
-              <Button
-                key={ch.key}
-                type="button"
-                size="sm"
-                variant={statusFilter === ch.key ? 'default' : 'secondary'}
-                className="h-7 px-2.5 text-xs"
-                onClick={() => setStatusFilter(ch.key)}
-              >
-                {ch.label}
-              </Button>
-            ))}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { key: 'all', label: `Tất cả (${state.adAccounts.length})` },
+                { key: 'active', label: `Active (${activeCount})` },
+                { key: 'disabled', label: `Hạn chế / Khác (${restrictedCount})` },
+              ].map((ch) => (
+                <Button
+                  key={ch.key}
+                  type="button"
+                  size="sm"
+                  variant={statusFilter === ch.key ? 'default' : 'secondary'}
+                  className="h-7 px-2.5 text-xs"
+                  onClick={() => setStatusFilter(ch.key)}
+                >
+                  {ch.label}
+                </Button>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { key: 'all' as const, label: 'Mọi nền tảng' },
+                { key: 'meta' as const, label: `📘 Meta (${metaCount})` },
+                { key: 'google_ads' as const, label: `🔷 Google Ads (${googleCount})` },
+              ].map((pf) => (
+                <Button
+                  key={pf.key}
+                  type="button"
+                  size="sm"
+                  variant={platformFilter === pf.key ? 'default' : 'secondary'}
+                  className="h-7 px-2.5 text-xs"
+                  onClick={() => setPlatformFilter(pf.key)}
+                >
+                  {pf.label}
+                </Button>
+              ))}
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -155,11 +195,22 @@ export function AdAccountsTab({
                 {filtered.map((acc) => (
                   <TableRow key={acc.id}>
                     <TableCell>
-                      <div className="max-w-[200px] truncate text-xs font-semibold text-foreground">
-                        {acc.displayName}
+                      <div className="flex max-w-[230px] items-center gap-1.5">
+                        <Badge
+                          variant={isGoogleAcc(acc.externalAccountId) ? 'info' : 'secondary'}
+                          className="shrink-0 px-1 py-0 text-[9px]"
+                        >
+                          {isGoogleAcc(acc.externalAccountId) ? 'GOOGLE' : 'META'}
+                        </Badge>
+                        <span className="truncate text-xs font-semibold text-foreground">
+                          {acc.displayName}
+                        </span>
                       </div>
                       <div className="font-mono text-[11px] text-muted-foreground">
-                        act_{acc.externalAccountId} • {acc.currency}
+                        {isGoogleAcc(acc.externalAccountId)
+                          ? `CID ${formatGoogleCid(acc.externalAccountId)}`
+                          : `act_${acc.externalAccountId}`}{' '}
+                        • {acc.currency}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -203,7 +254,8 @@ export function AdAccountsTab({
                           className="h-7 px-2.5 text-xs"
                           onClick={() => sendDesktopCommand('open_ads_manager', { accountId: acc.id })}
                         >
-                          <Rocket className="h-3 w-3" /> Ads Manager
+                          <Rocket className="h-3 w-3" />{' '}
+                          {isGoogleAcc(acc.externalAccountId) ? 'Google Ads' : 'Ads Manager'}
                         </Button>
                       </div>
                     </TableCell>

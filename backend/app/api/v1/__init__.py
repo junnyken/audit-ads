@@ -4,13 +4,14 @@ from app.api.v1.routers import (
     account_operations,
     ad_accounts,
     alerts,
-    automation_ops,
     audit,
     auth,
+    automation_ops,
     community,
     events,
     extension,
     facebook_identities,
+    google_ads_sync,
     health,
     meta_operations,
     meta_reader_credentials,
@@ -50,3 +51,4 @@ api_router.include_router(facebook_identities.router)
 api_router.include_router(automation_ops.router)
 api_router.include_router(community.router)
 api_router.include_router(playbooks.router)
+api_router.include_router(google_ads_sync.router)

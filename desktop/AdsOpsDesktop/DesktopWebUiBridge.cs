@@ -213,6 +213,8 @@ public sealed class WebViaItemDto
     public int RecoveryReadinessScore { get; set; }
     public string IncubationStageKey { get; set; } = "standby_ready";
     public string IncubationStageLabel { get; set; } = "";
+    public string AccountPlatform { get; set; } = "meta";
+    public string GoogleAdsCustomerId { get; set; } = "";
 }
 
 public sealed class WebEmbryoFactoryConfigDto

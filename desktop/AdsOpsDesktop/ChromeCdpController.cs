@@ -1205,4 +1205,185 @@ public static class ChromeCdpController
             return new SilentCookieRobotResult(false, 0, 0, $"Lỗi Ủ Cookie chạy ẩn: {ex.Message}");
         }
     }
+
+    private static readonly string[] VisibleGoogleQueries =
+    {
+        "thoi tiet hom nay",
+        "gia vang hom nay",
+        "lich thi dau bong da",
+        "tin tuc cong nghe moi",
+        "kinh nghiem chay quang cao hieu qua",
+    };
+
+    private static readonly string[] VisibleVnNewsUrls =
+    {
+        "https://vnexpress.net/",
+        "https://tuoitre.vn/",
+        "https://cafef.vn/",
+    };
+
+    /// <summary>
+    /// Runs visible external Cookie Robot / Google Ecosystem Warmup steps (`cookie_robot_*`) over CDP
+    /// with natural scrolling, then optionally hands off to a final Facebook URL (or finishes cleanly
+    /// for Google Ads Ecosystem Keep-Alive / `cookie_robot_only` without ever touching ads.google.com).
+    /// </summary>
+    public static async Task<SilentCookieRobotResult> RunVisibleExternalWarmupThenNavigateAsync(
+        int cdpPort,
+        IReadOnlyList<string> externalStepKeys,
+        IReadOnlyList<string>? customUrls,
+        string? finalTargetUrl,
+        bool fastTest,
+        bool autoCloseWhenFinishedOnly,
+        Action<int, int, string, int>? onStepProgress = null,
+        CancellationToken ct = default)
+    {
+        if (cdpPort <= 0 || externalStepKeys == null || externalStepKeys.Count == 0)
+        {
+            return new SilentCookieRobotResult(false, 0, 0, "Không có bước Cookie Robot ngoài Facebook để chạy.");
+        }
+
+        var stops = new List<(string Key, string Url, string Title)>();
+        int customIdx = 0;
+        var cleanCustom = (customUrls ?? Array.Empty<string>())
+            .Select(u => (u ?? "").Trim())
+            .Where(u => u.StartsWith("https://", StringComparison.OrdinalIgnoreCase) &&
+                        !u.Contains("facebook.com", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        foreach (var rawKey in externalStepKeys)
+        {
+            var key = (rawKey ?? "").Trim().ToLowerInvariant();
+            if (key == "cookie_robot_google")
+            {
+                var q = VisibleGoogleQueries[Random.Shared.Next(VisibleGoogleQueries.Length)];
+                stops.Add((key, $"https://www.google.com/search?q={Uri.EscapeDataString(q)}", "Cookie Robot: Google Search"));
+            }
+            else if (key == "cookie_robot_news")
+            {
+                var nu = VisibleVnNewsUrls[Random.Shared.Next(VisibleVnNewsUrls.Length)];
+                stops.Add((key, nu, "Cookie Robot: Đọc báo VN"));
+            }
+            else if (key == "cookie_robot_youtube")
+            {
+                stops.Add((key, "https://www.youtube.com/", "Cookie Robot: YouTube"));
+            }
+            else if (key == "cookie_robot_custom")
+            {
+                var cu = cleanCustom.Count > 0 ? cleanCustom[customIdx++ % cleanCustom.Count] : "https://shopee.vn/";
+                stops.Add((key, cu, "Cookie Robot: Web tùy chỉnh"));
+            }
+        }
+
+        if (stops.Count == 0)
+        {
+            return new SilentCookieRobotResult(false, 0, 0, "Danh sách bước ngoài Facebook rỗng.");
+        }
+
+        try
+        {
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            linkedCts.CancelAfter(TimeSpan.FromSeconds(180));
+            var token = linkedCts.Token;
+
+            var browserWsUrl = await PollBrowserWsUrlAsync(cdpPort, 8000, token).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(browserWsUrl))
+            {
+                return new SilentCookieRobotResult(false, 0, 0, "Không kết nối được CDP Chrome đang mở.");
+            }
+
+            string? pageWsUrl;
+            using (var browserWs = new ClientWebSocket())
+            {
+                await browserWs.ConnectAsync(new Uri(browserWsUrl), token).ConfigureAwait(false);
+                pageWsUrl = await FindOrCreatePageTargetWsUrlAsync(browserWs, cdpPort, 1, token).ConfigureAwait(false);
+            }
+            if (string.IsNullOrWhiteSpace(pageWsUrl))
+            {
+                return new SilentCookieRobotResult(false, 0, 0, "Không tìm thấy tab Chrome đang mở.");
+            }
+
+            using var ws = new ClientWebSocket();
+            await ws.ConnectAsync(new Uri(pageWsUrl), token).ConfigureAwait(false);
+            int cmdId = 1;
+            try { await SendCdpCommandAsync(ws, cmdId++, "Page.enable", null, token).ConfigureAwait(false); } catch { }
+            try { await SendCdpCommandAsync(ws, cmdId++, "Network.enable", null, token).ConfigureAwait(false); } catch { }
+
+            int visited = 0;
+            for (int i = 0; i < stops.Count; i++)
+            {
+                token.ThrowIfCancellationRequested();
+                var (_, url, title) = stops[i];
+                int stepWaitSec = fastTest ? 5 : Random.Shared.Next(12, 19);
+                onStepProgress?.Invoke(i + 1, stops.Count, title, stepWaitSec);
+
+                var navResp = await SendCdpCommandAsync(ws, cmdId++, "Page.navigate", new { url }, token).ConfigureAwait(false);
+                if (navResp.ValueKind == JsonValueKind.Object &&
+                    navResp.TryGetProperty("errorText", out var errEl) &&
+                    !string.IsNullOrWhiteSpace(errEl.GetString()))
+                {
+                    continue;
+                }
+
+                await Task.Delay(TimeSpan.FromMilliseconds(stepWaitSec * 450), token).ConfigureAwait(false);
+                try
+                {
+                    await SendCdpCommandAsync(
+                        ws,
+                        cmdId++,
+                        "Runtime.evaluate",
+                        new { expression = "try{window.scrollBy({top:420,behavior:'smooth'});}catch(e){}", returnByValue = true },
+                        token).ConfigureAwait(false);
+                    await Task.Delay(TimeSpan.FromMilliseconds(stepWaitSec * 300), token).ConfigureAwait(false);
+                    await SendCdpCommandAsync(
+                        ws,
+                        cmdId++,
+                        "Runtime.evaluate",
+                        new { expression = "try{window.scrollBy({top:320,behavior:'smooth'});}catch(e){}", returnByValue = true },
+                        token).ConfigureAwait(false);
+                    await Task.Delay(TimeSpan.FromMilliseconds(stepWaitSec * 250), token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) { throw; }
+                catch { }
+                visited++;
+            }
+
+            int cookieCount = 0;
+            try
+            {
+                var ckResp = await SendCdpCommandAsync(ws, cmdId++, "Network.getAllCookies", null, token).ConfigureAwait(false);
+                if (ckResp.ValueKind == JsonValueKind.Object &&
+                    ckResp.TryGetProperty("cookies", out var ckArr) &&
+                    ckArr.ValueKind == JsonValueKind.Array)
+                {
+                    cookieCount = ckArr.GetArrayLength();
+                }
+            }
+            catch { }
+
+            if (!string.IsNullOrWhiteSpace(finalTargetUrl) &&
+                finalTargetUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                await SendCdpCommandAsync(ws, cmdId++, "Page.navigate", new { url = finalTargetUrl }, token).ConfigureAwait(false);
+            }
+            else if (autoCloseWhenFinishedOnly)
+            {
+                await Task.Delay(900, token).ConfigureAwait(false);
+                try { await SendCdpCommandAsync(ws, cmdId++, "Browser.close", null, token).ConfigureAwait(false); } catch { }
+            }
+
+            return new SilentCookieRobotResult(
+                visited > 0,
+                visited,
+                cookieCount,
+                $"Đã ghé {visited}/{stops.Count} trang hệ sinh thái ngoài Facebook ({cookieCount} cookies nền).");
+        }
+        catch (OperationCanceledException)
+        {
+            return new SilentCookieRobotResult(false, 0, 0, "Đã hủy phiên Cookie Robot đang chạy.");
+        }
+        catch (Exception ex)
+        {
+            return new SilentCookieRobotResult(false, 0, 0, $"Lỗi chạy Cookie Robot ngoài Facebook: {ex.Message}");
+        }
+    }
 }

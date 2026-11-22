@@ -392,13 +392,19 @@ def build_spend_facts(
             if older.id not in seen:
                 rows.append(older)
                 seen.add(older.id)
+    script_row = next((r for r in rows if r.reader_source == "google_ads_script"), None)
+    has_script_obs = script_row is not None
     return assemble(
-        observable=reader is not None,
+        observable=(reader is not None) or has_script_obs,
         observations=[_view(row) for row in rows],
         now=now,
         stale_after_hours=settings.spend_observation_stale_after_hours,
-        reader_source=reader.reader_source if reader else None,
-        meta_connection_id=str(reader.connection.id) if reader else None,
+        reader_source=reader.reader_source if reader else ("google_ads_script" if has_script_obs else None),
+        meta_connection_id=(
+            str(reader.connection.id)
+            if reader
+            else (str(script_row.meta_connection_id) if script_row else None)
+        ),
         registry_currency=account.currency,
         baseline_min_days=settings.spend_baseline_min_days,
         change_ratio_threshold=settings.spend_change_ratio_threshold,
@@ -483,9 +489,11 @@ def list_compact_reads(
         reader = None
         if account.archived_at is None and canonical_external_id(account.external_account_id):
             reader = readers.get(_account_business_id(account))
-        views = [_view(row) for row in rows_by_account.get(account.id, [])]
+        raw_rows = rows_by_account.get(account.id, [])
+        has_script_obs = any(r.reader_source == "google_ads_script" for r in raw_rows)
+        views = [_view(row) for row in raw_rows]
         facts = assemble(
-            observable=reader is not None,
+            observable=(reader is not None) or has_script_obs,
             observations=views,
             now=now,
             stale_after_hours=settings.spend_observation_stale_after_hours,
@@ -503,7 +511,7 @@ def list_compact_reads(
             "observed_currency": facts.observed_currency,
             "latest_complete_day": day,
         }
-        if reader is None:
+        if reader is None and not has_script_obs:
             # O4: why the product cannot read it. Present only on a `not_observable` row, so the
             # S1 compact shape of every observable row stays exactly what it was.
             spend["not_observable_reason"] = not_observable_reason(account, mapping)

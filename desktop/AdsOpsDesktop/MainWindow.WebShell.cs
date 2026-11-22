@@ -444,6 +444,8 @@ internal sealed partial class MainWindow
                 RecoveryReadinessScore = incStat.RecoveryReadinessScore,
                 IncubationStageKey = incStat.StageKey,
                 IncubationStageLabel = incStat.StageLabel,
+                AccountPlatform = v.AccountPlatform,
+                GoogleAdsCustomerId = v.GoogleAdsCustomerId,
             };
         }).ToList();
 
@@ -1421,9 +1423,28 @@ internal sealed partial class MainWindow
                     case "open_via_chrome":
                         {
                             var via = _vias.FirstOrDefault(v => string.Equals(v.ViaId, GetStr(root, "viaId").Trim(), StringComparison.OrdinalIgnoreCase));
-                            if (via != null) LaunchViaChromeSafe(via, "https://www.facebook.com/");
+                            if (via != null)
+                            {
+                                var defaultUrl = via.IsGoogleAdsAccount ? "https://ads.google.com/aw/overview" : "https://www.facebook.com/";
+                                LaunchViaChromeSafe(via, defaultUrl);
+                            }
                             break;
                         }
+
+                    case "open_google_ads_clean":
+                        {
+                            var via = _vias.FirstOrDefault(v => string.Equals(v.ViaId, GetStr(root, "viaId").Trim(), StringComparison.OrdinalIgnoreCase));
+                            if (via != null)
+                            {
+                                AppendLog($"🎯 [Google Ads Sạch 1:1] Mở '{via.Label}' (CID {(string.IsNullOrWhiteSpace(via.GoogleAdsCustomerId) ? "—" : via.GoogleAdsCustomerId)}) vào https://ads.google.com/aw/overview (0% script).");
+                                LaunchViaChromeSafe(via, "https://ads.google.com/aw/overview");
+                            }
+                            break;
+                        }
+
+                    case "open_google_ads_script_wizard":
+                        OpenGoogleAdsScriptSetupDialog();
+                        break;
 
                     case "quick_test_via":
                         {
@@ -2584,6 +2605,33 @@ internal sealed partial class MainWindow
                                 : null;
                             if (acc != null)
                             {
+                                var extClean = (acc.ExternalAccountId ?? "").Trim();
+                                var isGoogleAcc = extClean.StartsWith("gads_", StringComparison.OrdinalIgnoreCase);
+                                if (isGoogleAcc)
+                                {
+                                    var gDigits = extClean.Length > 5 ? extClean[5..] : extClean;
+                                    var fmtCid = ViaMetadataParser.FormatGoogleAdsCid(gDigits);
+                                    var matchedGadsVia = _vias.FirstOrDefault(v =>
+                                        v.IsGoogleAdsAccount &&
+                                        !string.IsNullOrWhiteSpace(v.GoogleAdsCustomerId) &&
+                                        string.Equals(ViaMetadataParser.FormatGoogleAdsCid(v.GoogleAdsCustomerId), fmtCid, StringComparison.OrdinalIgnoreCase))
+                                        ?? _vias.FirstOrDefault(v => v.IsGoogleAdsAccount);
+                                    if (matchedGadsVia != null)
+                                    {
+                                        LaunchViaChromeSafe(matchedGadsVia, "https://ads.google.com/aw/overview");
+                                    }
+                                    else
+                                    {
+                                        MessageBox.Show(
+                                            this,
+                                            $"Tài khoản Google Ads {acc.DisplayName} ({fmtCid}) chưa được gắn hồ sơ Trình duyệt 1:1 trong tab 'Tất cả Via & Google Ads'.\nHãy thêm hồ sơ (Google MCC / Gmail Khách Lẻ) gắn Proxy 1:1 riêng để mở an toàn!",
+                                            "Chưa gắn Hồ sơ Trình duyệt Google 1:1",
+                                            MessageBoxButton.OK,
+                                            MessageBoxImage.Information);
+                                    }
+                                    break;
+                                }
+
                                 var via = ResolveEffectiveViaForAdAccount(acc);
                                 if (via == null)
                                 {
@@ -2591,7 +2639,7 @@ internal sealed partial class MainWindow
                                 }
                                 else
                                 {
-                                    var cleanId = (acc.ExternalAccountId ?? "").Replace("act_", "", StringComparison.OrdinalIgnoreCase);
+                                    var cleanId = extClean.Replace("act_", "", StringComparison.OrdinalIgnoreCase);
                                     LaunchViaChromeSafe(via, $"https://adsmanager.facebook.com/adsmanager/manage/campaigns?act={Uri.EscapeDataString(cleanId)}");
                                 }
                             }

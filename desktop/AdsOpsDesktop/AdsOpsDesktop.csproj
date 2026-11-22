@@ -8,13 +8,13 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>AdsOpsDesktop</AssemblyName>
     <RootNamespace>AdsOpsDesktop</RootNamespace>
-    <Version>3.9.1</Version>
-    <AssemblyVersion>3.9.1.0</AssemblyVersion>
-    <FileVersion>3.9.1.0</FileVersion>
+    <Version>4.0.0</Version>
+    <AssemblyVersion>4.0.0.0</AssemblyVersion>
+    <FileVersion>4.0.0.0</FileVersion>
     <Product>AdsOps Desktop Pro</Product>
     <Company>AdsOps</Company>
     <CodePage>65001</CodePage>
-    <Description>AdsOps Desktop Pro v3.9.1 — Scheduled 2-3 Day Auto Embryo Pre-Bake Factory (Hardened Proxy/CDP Verification), 1-Click 60s Assisted Onboarding &amp; 7-Day Agency Standby Pipeline</Description>
+    <Description>AdsOps Desktop Pro v4.0.0 — Zero-Risk Google Ads 2 MCC + 5 Standalone 1:1 Silo Hub, Official Google Ads Script Sync &amp; Hardened Facebook Companion v2.10.3</Description>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 

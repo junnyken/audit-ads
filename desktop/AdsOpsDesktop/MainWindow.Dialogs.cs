@@ -92,6 +92,34 @@ internal sealed partial class MainWindow
         twoCol2.Children.Add(tierBox);
         root.Children.Add(twoCol2);
 
+        // v4.0.0 Platform & Google Ads MCC / Standalone 1:1 CID
+        var twoColPlat = new Grid { Margin = new Thickness(0, 8, 0, 0) };
+        twoColPlat.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        twoColPlat.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+        twoColPlat.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var cbPlatform = UiComponents.CreateComboBox(new[]
+        {
+            new ComboBoxItem { Content = "📘 Meta Ads — Via Facebook (Mặc định)", Tag = "meta" },
+            new ComboBoxItem { Content = "🔷 Google Ads — Tài khoản MCC Quản lý", Tag = "google_ads_mcc" },
+            new ComboBoxItem { Content = "🟢 Google Ads — Gmail Khách Độc Lập (1:1 Silo)", Tag = "google_ads_standalone" },
+        });
+        cbPlatform.SelectedIndex = ViaMetadataParser.NormalizePlatform(existing?.AccountPlatform) switch
+        {
+            "google_ads_mcc" => 1,
+            "google_ads_standalone" => 2,
+            _ => 0,
+        };
+        var tbGadsCid = UiComponents.CreateTextBox(existing?.GoogleAdsCustomerId ?? "", "VD: 123-456-7890 (bỏ trống nếu là Meta)");
+        tbGadsCid.FontFamily = ThemeTokens.MonoFont;
+        var platBox = BuildLabeledBox("Nền tảng Tài khoản (Meta / Google Ads)", cbPlatform);
+        var cidBox = BuildLabeledBox("Mã Google Ads / MCC ID (xxx-xxx-xxxx)", tbGadsCid);
+        Grid.SetColumn(platBox, 0);
+        Grid.SetColumn(cidBox, 2);
+        twoColPlat.Children.Add(platBox);
+        twoColPlat.Children.Add(cidBox);
+        root.Children.Add(twoColPlat);
+
         // Chrome Profile & Proxy
         var twoCol3 = new Grid { Margin = new Thickness(0, 8, 0, 0) };
         twoCol3.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -212,11 +240,26 @@ internal sealed partial class MainWindow
         {
             var hostPort = AutomationQueueEngine.ExtractProxyHostPort(tbProxy.Text);
             var clientVal = tbClientGroup.Text.Trim();
+            var platVal = (cbPlatform.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "meta";
+            var isGads = ViaMetadataParser.NormalizePlatform(platVal) != "meta";
             var profVal = (cbProfile.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "Default";
             var maxSafe = Math.Max(1, _config.MaxViasPerProxyInBatch);
             var hints = new List<string>();
             bool isDanger = false;
             bool isWarn = false;
+
+            if (isGads && string.IsNullOrWhiteSpace(hostPort))
+            {
+                var otherDirectGads = _vias.Where(v =>
+                    !string.Equals(v.ViaId, existing?.ViaId, StringComparison.OrdinalIgnoreCase) &&
+                    v.IsGoogleAdsAccount &&
+                    string.IsNullOrWhiteSpace(AutomationQueueEngine.ExtractProxyHostPort(v.NetworkLabel))).ToList();
+                if (otherDirectGads.Count > 0)
+                {
+                    isDanger = true;
+                    hints.Add($"🚨 RỦI RO LIÊN ĐỚI GOOGLE ADS: Đang có {otherDirectGads.Count} tài khoản Google Ads dùng chung Direct IP ({string.Join(", ", otherDirectGads.Select(x => x.Label))}) — Bắt buộc gắn Proxy Tĩnh 1:1 riêng!");
+                }
+            }
 
             // Unconditional duplicate Chrome Profile check (across ALL Vias regardless of ClientGroup)
             if (!string.IsNullOrWhiteSpace(profVal))
@@ -240,10 +283,16 @@ internal sealed partial class MainWindow
                     .ToList();
                 if (collisions.Count > 0)
                 {
+                    var gadsCollisions = isGads ? collisions.Where(v => v.IsGoogleAdsAccount).ToList() : new List<ViaWorkspaceEntry>();
                     var crossClient = collisions.Where(v =>
                         !string.Equals(v.ClientGroup ?? "", clientVal, StringComparison.OrdinalIgnoreCase) &&
                         (!string.IsNullOrEmpty(clientVal) || !string.IsNullOrEmpty(v.ClientGroup))).ToList();
-                    if (crossClient.Count > 0)
+                    if (gadsCollisions.Count > 0)
+                    {
+                        isDanger = true;
+                        hints.Add($"🚨 CHẶN CHẾT CHÙM GOOGLE ADS: Proxy {hostPort} đang gắn cho Google Ads khác ({string.Join(", ", gadsCollisions.Select(x => x.Label))}) — Phải dùng Proxy 1:1 riêng tuyệt đối!");
+                    }
+                    else if (crossClient.Count > 0)
                     {
                         isDanger = true;
                         hints.Add($"🚨 XUNG ĐỘT SILO KHÁCH HÀNG: Proxy {hostPort} đang gắn cho khách khác ({string.Join(", ", crossClient.Select(x => $"{x.Label} [{x.ClientGroup}]"))})!");
@@ -276,6 +325,7 @@ internal sealed partial class MainWindow
         tbProxy.TextChanged += (_, _) => RefreshProxyDupWarning();
         tbClientGroup.TextChanged += (_, _) => RefreshProxyDupWarning();
         cbProfile.SelectionChanged += (_, _) => RefreshProxyDupWarning();
+        cbPlatform.SelectionChanged += (_, _) => RefreshProxyDupWarning();
         RefreshProxyDupWarning();
         root.Children.Add(proxyDupHint);
         root.Children.Add(twoColSilo);
@@ -440,7 +490,16 @@ internal sealed partial class MainWindow
                     _ => existing?.WarmupStartIso ?? "",
                 };
 
-                var builtNotes = ViaMetadataParser.BuildNotes(tbNotes.Text.Trim(), tierTag, nextWarmupIso, tbClientGroup.Text.Trim(), wModeTag, adEngTag, tbAdProfileId.Text.Trim());
+                var builtNotes = ViaMetadataParser.BuildNotes(
+                    tbNotes.Text.Trim(),
+                    tierTag,
+                    nextWarmupIso,
+                    tbClientGroup.Text.Trim(),
+                    wModeTag,
+                    adEngTag,
+                    tbAdProfileId.Text.Trim(),
+                    (cbPlatform.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "meta",
+                    tbGadsCid.Text.Trim());
                 var payload = new PersonalAccountUpsertRequestDto
                 {
                     Label = labelVal,
@@ -3743,6 +3802,190 @@ internal sealed partial class MainWindow
         dlg.Closed += (_, _) => onboardOtpTimer.Stop();
 
         dlg.Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 730, Content = root };
+        dlg.ShowDialog();
+    }
+
+    private void OpenGoogleAdsScriptSetupDialog()
+    {
+        var dlg = new Window
+        {
+            Title = "📜 Kết Nối Google Ads Zero-Risk (2 MCC + 5 Gmail Khách Độc Lập)",
+            Width = 760,
+            MaxHeight = 780,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            ResizeMode = ResizeMode.NoResize,
+            Background = ThemeTokens.BgCanvas,
+            Foreground = ThemeTokens.TextPrimary,
+            ShowInTaskbar = false,
+        };
+        ThemeTokens.ApplyDarkTitleBar(dlg);
+
+        var root = new StackPanel { Margin = new Thickness(20) };
+
+        root.Children.Add(new TextBlock
+        {
+            Text = "Cách ly rủi ro 100%: Không nối 5 Gmail khách hàng lẻ vào MCC, không chèn bất kỳ automation script nào lên ads.google.com — Dán Official Google Ads Script bên dưới chạy Hàng giờ để tự động đồng bộ Chi tiêu, Ngân sách & Cảnh báo Đỏ về AdsOps + Telegram!",
+            FontFamily = ThemeTokens.UiFont,
+            FontSize = 12,
+            Foreground = ThemeTokens.TextSecondary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 12),
+        });
+
+        var statusBanner = new TextBlock
+        {
+            Text = "⏳ Đang tải cấu hình & khóa Webhook riêng của Workspace từ Cloud...",
+            FontFamily = ThemeTokens.UiFont,
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = ThemeTokens.AccentText,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 10),
+        };
+        root.Children.Add(statusBanner);
+
+        var tbMccScript = UiComponents.CreateTextBox("", "Đang tải Google Ads MCC Script...", multiline: true, height: 155);
+        tbMccScript.FontFamily = ThemeTokens.MonoFont;
+        tbMccScript.IsReadOnly = true;
+
+        var tbSingleScript = UiComponents.CreateTextBox("", "Đang tải Google Ads Standalone Script...", multiline: true, height: 155);
+        tbSingleScript.FontFamily = ThemeTokens.MonoFont;
+        tbSingleScript.IsReadOnly = true;
+
+        // Tab 1: MCC Script (for 2 MCCs)
+        var mccHdr = new Grid { Margin = new Thickness(0, 4, 0, 4) };
+        mccHdr.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        mccHdr.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        mccHdr.Children.Add(new TextBlock
+        {
+            Text = "🔷 BƯỚC 1 (Cho 2 MCC): Dán vào Công cụ -> Hành động hàng loạt -> Tập lệnh trên từng MCC",
+            FontFamily = ThemeTokens.UiFont,
+            FontSize = 12,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeTokens.TextPrimary,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        var btnCopyMcc = UiComponents.CreateButton("📋 Copy Mã MCC", ButtonVariant.Primary, compact: true, onClick: (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(tbMccScript.Text)) return;
+            Clipboard.SetText(tbMccScript.Text);
+            AppendLog("📋 Đã copy mã Google Ads MCC Script vào Clipboard.");
+            MessageBox.Show(dlg, "Đã copy mã MCC Script! Dán vào từng tài khoản MCC (chọn lịch chạy Hàng giờ).", "Đã Copy", MessageBoxButton.OK, MessageBoxImage.Information);
+        });
+        Grid.SetColumn(btnCopyMcc, 1);
+        mccHdr.Children.Add(btnCopyMcc);
+        root.Children.Add(mccHdr);
+        root.Children.Add(tbMccScript);
+
+        // Tab 2: Standalone Script (for 5 independent client Gmails)
+        var singleHdr = new Grid { Margin = new Thickness(0, 12, 0, 4) };
+        singleHdr.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        singleHdr.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        singleHdr.Children.Add(new TextBlock
+        {
+            Text = "🟢 BƯỚC 2 (Cho 5 Gmail Khách Độc Lập 1:1): Dán riêng vào từng TKQC (Không nối MCC)",
+            FontFamily = ThemeTokens.UiFont,
+            FontSize = 12,
+            FontWeight = FontWeights.Bold,
+            Foreground = ThemeTokens.SuccessText,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        var btnCopySingle = UiComponents.CreateButton("📋 Copy Mã Gmail Lẻ", ButtonVariant.Primary, compact: true, onClick: (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(tbSingleScript.Text)) return;
+            Clipboard.SetText(tbSingleScript.Text);
+            AppendLog("📋 Đã copy mã Google Ads Standalone Script vào Clipboard.");
+            MessageBox.Show(dlg, "Đã copy mã Standalone Script! Mở từng Gmail khách bằng Chrome Sạch 1:1 -> Tập lệnh -> Dán & đặt lịch Hàng giờ.", "Đã Copy", MessageBoxButton.OK, MessageBoxImage.Information);
+        });
+        Grid.SetColumn(btnCopySingle, 1);
+        singleHdr.Children.Add(btnCopySingle);
+        root.Children.Add(singleHdr);
+        root.Children.Add(tbSingleScript);
+
+        void ApplyConfigDto(GoogleAdsScriptConfigDto dto)
+        {
+            tbMccScript.Text = dto.MccScriptCode ?? "";
+            tbSingleScript.Text = dto.SingleAccountScriptCode ?? "";
+            var pushInfo = string.IsNullOrWhiteSpace(dto.LastPushAt)
+                ? "Chưa nhận gói đẩy nào"
+                : $"Lần đẩy gần nhất: {AlertItemDto.FormatIsoTimestampLocal(dto.LastPushAt, dto.LastPushAt!)}";
+            statusBanner.Text = $"✓ Khóa Webhook: {dto.KeyMasked} • Đã đồng bộ {dto.SyncedAccountsCount} TKQC Google Ads • {pushInfo}";
+            statusBanner.Foreground = ThemeTokens.SuccessText;
+        }
+
+        async Task LoadConfigAsync()
+        {
+            if (string.IsNullOrWhiteSpace(_config.GetJwt()))
+            {
+                statusBanner.Text = "⚠️ Chưa đăng nhập AdsOps Cloud — Hãy đăng nhập để nhận Khóa Webhook thật của Workspace.";
+                statusBanner.Foreground = ThemeTokens.WarningText;
+                tbMccScript.Text = "// Đăng nhập AdsOps Cloud để lấy mã Google Ads MCC Script kèm Key bảo mật riêng.";
+                tbSingleScript.Text = "// Đăng nhập AdsOps Cloud để lấy mã Google Ads Standalone Script kèm Key bảo mật riêng.";
+                return;
+            }
+            try
+            {
+                var cfgDto = await _api.GetGoogleAdsScriptConfigAsync();
+                ApplyConfigDto(cfgDto);
+            }
+            catch (Exception ex)
+            {
+                statusBanner.Text = $"❌ Chưa tải được cấu hình từ Cloud: {ex.Message}";
+                statusBanner.Foreground = ThemeTokens.DangerText;
+            }
+        }
+
+        var btnRow = new Grid { Margin = new Thickness(0, 14, 0, 0) };
+        btnRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        btnRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        btnRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var rotateBtn = UiComponents.CreateButton("🔄 Đổi Khóa Webhook Mới", ButtonVariant.Secondary, compact: true, onClick: async (_, _) =>
+        {
+            if (!UiComponents.ShowConfirmActionDialog(
+                dlg,
+                "Đổi Khóa Google Ads Webhook",
+                "Tạo khóa X-AdsOps-Ingest-Key mới?",
+                new (string, string)[] { ("Lưu ý:", "Sau khi đổi khóa, cần dán lại đoạn mã mới vào các Google Ads Script đang chạy.") },
+                "Dùng khi nghi ngờ lộ khóa Ingest.",
+                "Xác nhận Đổi Khóa",
+                isDanger: true))
+            {
+                return;
+            }
+            try
+            {
+                var cfgNew = await _api.RotateGoogleAdsIngestKeyAsync();
+                ApplyConfigDto(cfgNew);
+                AppendLog($"🔑 Đã cấp mới khóa Webhook Google Ads ({cfgNew.KeyMasked}).");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(dlg, $"Lỗi đổi khóa (chỉ Chủ sở hữu Workspace được phép): {ex.Message}", "Không thể đổi khóa", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        });
+        Grid.SetColumn(rotateBtn, 0);
+
+        var rightBtns = new StackPanel { Orientation = Orientation.Horizontal };
+        var syncBtn = UiComponents.CreateButton("🔁 Làm mới Bảng TKQC", ButtonVariant.Secondary, compact: true, onClick: async (_, _) =>
+        {
+            await SyncCloudAsync(silent: false);
+            await LoadConfigAsync();
+        });
+        syncBtn.Margin = new Thickness(0, 0, 8, 0);
+        var closeBtn = UiComponents.CreateButton("Đóng", ButtonVariant.Primary, onClick: (_, _) => dlg.Close());
+        rightBtns.Children.Add(syncBtn);
+        rightBtns.Children.Add(closeBtn);
+        Grid.SetColumn(rightBtns, 2);
+
+        btnRow.Children.Add(rotateBtn);
+        btnRow.Children.Add(rightBtns);
+        root.Children.Add(btnRow);
+
+        dlg.Loaded += async (_, _) => await LoadConfigAsync();
+        dlg.Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 740, Content = root };
         dlg.ShowDialog();
     }
 }

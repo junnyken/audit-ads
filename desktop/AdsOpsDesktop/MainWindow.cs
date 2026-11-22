@@ -1750,6 +1750,8 @@ internal sealed partial class MainWindow : Window
                 KeepAliveSuccessCount = stew.KeepAliveSuccessCount,
                 AntidetectEngine = parsed.AntidetectEngine,
                 AntidetectProfileId = parsed.AntidetectProfileId,
+                AccountPlatform = parsed.AccountPlatform,
+                GoogleAdsCustomerId = parsed.GoogleAdsCustomerId,
                 OwnerMemberId = r.OwnerMemberId ?? "",
                 OwnerMemberName = ResolveTeamMemberDisplayName(r.OwnerMemberId),
                 Timezone = r.Timezone ?? "",
@@ -1930,6 +1932,17 @@ internal sealed partial class MainWindow : Window
                 }
                 return;
             }
+            if (_config.EnforceClientSilo && via.IsGoogleAdsAccount && via.HasSiloConflict)
+            {
+                var siloMsg = $"⛔ CHẶN RỦI RO CHẾT CHÙM GOOGLE ADS cho '{via.Label}':\n{via.SiloConflictDetail}\n\nHãy gắn Proxy Tĩnh 1:1 riêng cho từng MCC và từng Gmail khách hàng trước khi mở Chrome!";
+                AppendLog($"⛔ Chặn mở '{via.Label}': {via.SiloConflictDetail}");
+                if (interactiveAlerts)
+                {
+                    _ = Dispatcher.BeginInvoke(() =>
+                        MessageBox.Show(this, siloMsg, "Khiên Bảo Vệ Silo Google Ads 1:1", MessageBoxButton.OK, MessageBoxImage.Stop));
+                }
+                return;
+            }
             if (via.IsInCooldown)
             {
                 AppendLog($"⚠️ Lưu ý: Via '{via.Label}' đang trong thời gian Cooldown ({via.CooldownReason}). Mở trình duyệt để kiểm tra thủ công.");
@@ -2066,6 +2079,7 @@ internal sealed partial class MainWindow : Window
                 : $"Profile gốc Chrome · HWND 0x{launchInfo.WindowHandle.ToInt64():X}";
             AppendLog($"Đã mở Chrome ({launchModeTag}) '{via.ProfileDir}' ({via.Label}, {(int)sw.ElapsedMilliseconds}ms) -> {targetUrl}");
             StartNativeRunnerIfNeeded(via, targetUrl, launchInfo.IsolatedMode, launchInfo.WindowHandle);
+            TryStartExternalCookieRobotBridgeIfNeeded(via, targetUrl, launchInfo.IsolatedMode, launchInfo.CdpPort);
             _ = SendProfileLifecycleEventNonBlockingAsync("PROFILE_LAUNCHED", via, targetUrl, (int)sw.ElapsedMilliseconds, "chrome_native");
         }
         catch (Exception ex)
@@ -2095,12 +2109,103 @@ internal sealed partial class MainWindow : Window
             _config.EnableWebRtcLeakShield);
     }
 
+    private void TryStartExternalCookieRobotBridgeIfNeeded(ViaWorkspaceEntry via, string targetUrl, bool isolatedMode, int? cdpPort)
+    {
+        if (!isolatedMode || !cdpPort.HasValue || cdpPort.Value <= 0) return;
+        bool isGadsKa = targetUrl.Contains("adsops_gads_keepalive=1", StringComparison.OrdinalIgnoreCase);
+        bool hasPreRobot = targetUrl.Contains("adsops_pre_robot=", StringComparison.OrdinalIgnoreCase);
+        if (!isGadsKa && !hasPreRobot) return;
+
+        var externalSteps = new List<string>();
+        string? finalFbUrl = null;
+        bool fastTest = targetUrl.Contains("adsops_fast_test=1", StringComparison.OrdinalIgnoreCase);
+        bool autoClose = targetUrl.Contains("adsops_auto_close=1", StringComparison.OrdinalIgnoreCase);
+
+        if (isGadsKa)
+        {
+            externalSteps.AddRange(new[] { "cookie_robot_google", "cookie_robot_news", "cookie_robot_youtube" });
+        }
+        else if (Uri.TryCreate(targetUrl, UriKind.Absolute, out var u))
+        {
+            var qs = System.Web.HttpUtility.ParseQueryString(u.Query);
+            var rawRobot = qs["adsops_pre_robot"] ?? "";
+            foreach (var p in rawRobot.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (WarmupActionCatalog.IsExternalCookieRobotKey(p))
+                {
+                    externalSteps.Add(p);
+                }
+            }
+            var rawNext = qs["adsops_fb_next"] ?? "";
+            if (!string.IsNullOrWhiteSpace(rawNext) && rawNext.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                finalFbUrl = rawNext;
+            }
+        }
+
+        if (externalSteps.Count == 0) return;
+
+        var customUrls = WarmupCarePresets.ParseCookieRobotUrls(_config.CookieRobotUrls);
+        var ct = GetOrCreateActiveRunnersToken();
+
+        _ = Task.Run(async () =>
+        {
+            var res = await ChromeCdpController.RunVisibleExternalWarmupThenNavigateAsync(
+                cdpPort.Value,
+                externalSteps,
+                customUrls,
+                finalFbUrl,
+                fastTest,
+                autoCloseWhenFinishedOnly: autoClose && string.IsNullOrWhiteSpace(finalFbUrl),
+                onStepProgress: (stepIdx, total, title, waitSec) =>
+                {
+                    _ = Dispatcher.BeginInvoke(() =>
+                    {
+                        _liveRunnerCurrentStepIdx = stepIdx;
+                        _liveRunnerTotalSteps = Math.Max(total, _liveRunnerTotalSteps);
+                        _liveRunnerCurrentStepTitle = title;
+                        _liveRunnerStepDurationSec = waitSec;
+                        _liveRunnerStepStartedAtUtc = DateTime.UtcNow;
+                        _liveActionProgressDetail = $"🌐 [{via.Label}] Bước {stepIdx}/{total}: {title}";
+                        _liveActionProgressAt = DateTimeOffset.UtcNow;
+                        UpdateLiveQueueWidgets();
+                    });
+                },
+                ct).ConfigureAwait(false);
+
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                AppendLog($"🌐 [{via.Label}] Cookie Robot / Hệ sinh thái ngoài FB: {res.Detail}");
+                if (string.IsNullOrWhiteSpace(finalFbUrl))
+                {
+                    _liveRunnerActive = false;
+                    _liveRunnerCompleted = res.Ok;
+                    _liveRunnerFinishedTotalSec = _liveRunnerStartedAtUtc != DateTime.MinValue
+                        ? Math.Max(1, (int)(DateTime.UtcNow - _liveRunnerStartedAtUtc).TotalSeconds)
+                        : 15;
+                    _liveActionProgressDetail = (res.Ok ? "✓ " : "⚠️ ") + res.Detail;
+                    _liveActionProgressAt = DateTimeOffset.UtcNow;
+                    if (!res.Ok)
+                    {
+                        lock (_keepAliveFailedVias)
+                        {
+                            if (!string.IsNullOrWhiteSpace(via.ViaId)) _keepAliveFailedVias.Add(via.ViaId.Trim());
+                        }
+                    }
+                    UpdateLiveQueueWidgets();
+                }
+            });
+        }, ct);
+    }
+
     private void StartNativeRunnerIfNeeded(ViaWorkspaceEntry via, string targetUrl, bool isolatedMode, IntPtr windowHandle)
     {
         bool isAutomationUrl = targetUrl.Contains("adsops_keepalive_session=1", StringComparison.OrdinalIgnoreCase)
                             || targetUrl.Contains("adsops_keepalive=1", StringComparison.OrdinalIgnoreCase)
                             || targetUrl.Contains("adsops_preads_warmup=1", StringComparison.OrdinalIgnoreCase)
-                            || targetUrl.Contains("adsops_prepage_warmup=1", StringComparison.OrdinalIgnoreCase);
+                            || targetUrl.Contains("adsops_prepage_warmup=1", StringComparison.OrdinalIgnoreCase)
+                            || targetUrl.Contains("adsops_gads_keepalive=1", StringComparison.OrdinalIgnoreCase)
+                            || targetUrl.Contains("adsops_pre_robot=", StringComparison.OrdinalIgnoreCase);
         if (!isAutomationUrl) return;
 
         InitLiveRunnerForVia(via, targetUrl, isolatedMode, windowHandle);
@@ -2228,6 +2333,12 @@ internal sealed partial class MainWindow : Window
         "browse_marketplace" => 11,
         "browse_groups" => 11,
         "mbs_like_comments_and_invite" => 13,
+        "page_auto_post_media" => 17,
+        "page_auto_share_curated" => 15,
+        "cookie_robot_google" => 14,
+        "cookie_robot_news" => 16,
+        "cookie_robot_youtube" => 18,
+        "cookie_robot_custom" => 15,
         "refresh_cookie_and_close" or "save_cookie_close" => 4,
         _ => 11,
     };
@@ -2380,7 +2491,9 @@ internal sealed partial class MainWindow : Window
 
     private void LaunchViaChromeSafe(ViaWorkspaceEntry via, string targetUrl)
     {
-        var effectiveUrl = WrapWithPreAdsWarmupIfEnabled(targetUrl);
+        var effectiveUrl = via.IsGoogleAdsAccount
+            ? targetUrl
+            : WrapWithPreAdsWarmupIfEnabled(targetUrl);
         if (!string.Equals(effectiveUrl, targetUrl, StringComparison.Ordinal))
         {
             AppendLog($"🛡️ [Bước đệm Chống Checkpoint] Via '{via.Label}' sẽ lướt Newsfeed tự nhiên {_config.PreAdsWarmupSeconds}s trước khi vào Ads Manager / BM.");
@@ -2761,6 +2874,17 @@ internal sealed partial class MainWindow : Window
         string? crossPageUrl,
         bool fastTest = false)
     {
+        if (v.IsGoogleAdsAccount)
+        {
+            var gadsSteps = new[] { "cookie_robot_google", "cookie_robot_news", "cookie_robot_youtube" };
+            var gadsUrl = "https://www.google.com/?adsops_gads_keepalive=1&adsops_auto_close=" +
+                          (_config.AutoCloseKeepAliveTab ? "1" : "0") +
+                          "&adsops_via_label=" + Uri.EscapeDataString(v.Label) +
+                          "&adsops_ka_route=" + Uri.EscapeDataString(string.Join(",", gadsSteps)) +
+                          (fastTest ? "&adsops_fast_test=1" : "");
+            return (gadsUrl, "🌐 Giữ Ấm Hệ Sinh Thái Google (Search ➔ Báo ➔ YouTube • 0% Chạm Ads)");
+        }
+
         var effectiveMode = v.IsInSoakQuarantine && _config.EnforceSoakQuarantine
             ? "soak_72h"
             : ViaMetadataParser.NormalizeWarmupMode(!string.IsNullOrWhiteSpace(v.DefaultWarmupMode) ? v.DefaultWarmupMode : _config.DefaultWarmupMode);
@@ -2772,35 +2896,55 @@ internal sealed partial class MainWindow : Window
         var routeStops = seqKeys.Where(k => !string.Equals(k, "refresh_cookie_and_close", StringComparison.OrdinalIgnoreCase)).ToList();
         if (routeStops.Count == 0) routeStops.Add("scroll_feed");
 
-        var firstKey = routeStops[0];
-        var baseUrl = firstKey.ToLowerInvariant() switch
-        {
-            "visit_internal_fanpage" when !string.IsNullOrWhiteSpace(crossPageUrl) && crossPageUrl.Contains("facebook.com", StringComparison.OrdinalIgnoreCase) => crossPageUrl,
-            "watch_reels" => "https://www.facebook.com/watch/",
-            "read_notifications" => "https://www.facebook.com/notifications",
-            "search_keyword" => "https://www.facebook.com/search/top/?q=xu%20huong",
-            "visit_own_profile" => "https://www.facebook.com/me",
-            "browse_marketplace" => "https://www.facebook.com/marketplace/",
-            "browse_groups" => "https://www.facebook.com/groups/feed/",
-            "mbs_like_comments_and_invite" => "https://business.facebook.com/latest/home?adsops_auto_invite_followers=1&adsops_like_comments=1",
-            _ => "https://www.facebook.com/",
-        };
-        var sep = baseUrl.Contains('?') ? "&" : "?";
+        var externalStops = routeStops.Where(WarmupActionCatalog.IsExternalCookieRobotKey).ToList();
+        var fbStops = routeStops.Where(k => !WarmupActionCatalog.IsExternalCookieRobotKey(k)).ToList();
 
-        var cookieUrlsCsv = routeStops.Any(s => string.Equals(s, "cookie_robot_custom", StringComparison.OrdinalIgnoreCase))
+        var cookieUrlsCsv = externalStops.Any(s => string.Equals(s, "cookie_robot_custom", StringComparison.OrdinalIgnoreCase))
             ? string.Join(",", WarmupCarePresets.ParseCookieRobotUrls(_config.CookieRobotUrls).Take(10))
             : "";
 
-        var launchUrl = baseUrl + sep + "adsops_keepalive_session=1&adsops_auto_close=" + (_config.AutoCloseKeepAliveTab ? "1" : "0") +
-                        "&adsops_via_tier=" + Uri.EscapeDataString(v.RoleTier) +
-                        "&adsops_via_label=" + Uri.EscapeDataString(v.Label) +
-                        "&adsops_ka_mode=" + Uri.EscapeDataString(effectiveMode) +
-                        "&adsops_ka_route=" + Uri.EscapeDataString(string.Join(",", routeStops)) +
-                        (!string.IsNullOrEmpty(crossPageUrl) ? "&adsops_cross_page_url=" + Uri.EscapeDataString(crossPageUrl) : "") +
-                        (!string.IsNullOrEmpty(cookieUrlsCsv) ? "&adsops_cookie_urls=" + Uri.EscapeDataString(cookieUrlsCsv) : "") +
-                        (fastTest ? "&adsops_fast_test=1" : "");
+        string? BuildFbRouteUrl(List<string> stopsToRun)
+        {
+            if (stopsToRun.Count == 0) return null;
+            var fk = stopsToRun[0];
+            var fbBase = fk.ToLowerInvariant() switch
+            {
+                "visit_internal_fanpage" when !string.IsNullOrWhiteSpace(crossPageUrl) && crossPageUrl.Contains("facebook.com", StringComparison.OrdinalIgnoreCase) => crossPageUrl,
+                "watch_reels" => "https://www.facebook.com/watch/",
+                "read_notifications" => "https://www.facebook.com/notifications",
+                "search_keyword" => "https://www.facebook.com/search/top/?q=xu%20huong",
+                "visit_own_profile" => "https://www.facebook.com/me",
+                "browse_marketplace" => "https://www.facebook.com/marketplace/",
+                "browse_groups" => "https://www.facebook.com/groups/feed/",
+                "mbs_like_comments_and_invite" => "https://business.facebook.com/latest/home?adsops_auto_invite_followers=1&adsops_like_comments=1",
+                "page_auto_post_media" => "https://business.facebook.com/latest/composer",
+                _ => "https://www.facebook.com/",
+            };
+            var sepChar = fbBase.Contains('?') ? "&" : "?";
+            return fbBase + sepChar + "adsops_keepalive_session=1&adsops_auto_close=" + (_config.AutoCloseKeepAliveTab ? "1" : "0") +
+                   "&adsops_via_tier=" + Uri.EscapeDataString(v.RoleTier) +
+                   "&adsops_via_label=" + Uri.EscapeDataString(v.Label) +
+                   "&adsops_ka_mode=" + Uri.EscapeDataString(effectiveMode) +
+                   "&adsops_ka_route=" + Uri.EscapeDataString(string.Join(",", stopsToRun)) +
+                   (!string.IsNullOrEmpty(crossPageUrl) ? "&adsops_cross_page_url=" + Uri.EscapeDataString(crossPageUrl) : "") +
+                   (!string.IsNullOrEmpty(cookieUrlsCsv) ? "&adsops_cookie_urls=" + Uri.EscapeDataString(cookieUrlsCsv) : "") +
+                   (fastTest ? "&adsops_fast_test=1" : "");
+        }
 
         var arrowSummary = WarmupActionCatalog.FormatSequenceArrowText(seqKeys);
+        if (externalStops.Count > 0)
+        {
+            var fbNextUrl = BuildFbRouteUrl(fbStops) ?? "";
+            var robotUrl = "https://www.google.com/?adsops_pre_robot=" + Uri.EscapeDataString(string.Join(",", externalStops)) +
+                           "&adsops_auto_close=" + (_config.AutoCloseKeepAliveTab ? "1" : "0") +
+                           "&adsops_via_label=" + Uri.EscapeDataString(v.Label) +
+                           "&adsops_ka_route=" + Uri.EscapeDataString(string.Join(",", routeStops)) +
+                           (!string.IsNullOrEmpty(fbNextUrl) ? "&adsops_fb_next=" + Uri.EscapeDataString(fbNextUrl) : "") +
+                           (fastTest ? "&adsops_fast_test=1" : "");
+            return (robotUrl, effectiveMode == "soak_72h" ? "Ngâm 72h thụ động" : arrowSummary);
+        }
+
+        var launchUrl = BuildFbRouteUrl(fbStops) ?? "https://www.facebook.com/?adsops_keepalive_session=1";
         return (launchUrl, effectiveMode == "soak_72h" ? "Ngâm 72h thụ động" : arrowSummary);
     }
 

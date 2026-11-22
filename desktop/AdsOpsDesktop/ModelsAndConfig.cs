@@ -843,7 +843,9 @@ public sealed record ParsedViaNotes(
     string ClientGroup = "",
     string WarmupMode = "human_organic",
     string AntidetectEngine = "chrome_native",
-    string AntidetectProfileId = "");
+    string AntidetectProfileId = "",
+    string AccountPlatform = "meta",
+    string GoogleAdsCustomerId = "");
 public sealed record ViaWarmupStatus(int HoursElapsed, int DaysElapsed, string Phase, string Label, string Hint);
 
 public static class ViaMetadataParser
@@ -854,6 +856,29 @@ public static class ViaMetadataParser
     private static readonly Regex WarmupModeRegex = new(@"\[WMODE:(soak_72h|human_organic|bm_warmup|pre_camp)\]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex AntidetectEngineRegex = new(@"\[ADENG:(chrome_native|adspower|dolphin_anty|hidemyacc|genlogin|gologin|shardbrowser)\]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex AntidetectIdRegex = new(@"\[ADID:([^\[\]\r\n]{1,64})\]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex PlatformRegex = new(@"\[PLATFORM:(meta|google_ads_mcc|google_ads_standalone)\]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex GadsCidRegex = new(@"\[GADSCID:([0-9\-]{6,18})\]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    public static string NormalizePlatform(string? raw)
+    {
+        var p = (raw ?? "").Trim().ToLowerInvariant();
+        return p switch
+        {
+            "google_ads_mcc" or "mcc" => "google_ads_mcc",
+            "google_ads_standalone" or "google_ads" or "google" => "google_ads_standalone",
+            _ => "meta",
+        };
+    }
+
+    public static string FormatGoogleAdsCid(string? raw)
+    {
+        var digits = Regex.Replace((raw ?? "").Trim(), @"\D", "");
+        if (digits.Length == 10)
+        {
+            return $"{digits[..3]}-{digits[3..6]}-{digits[6..]}";
+        }
+        return digits;
+    }
 
     public static string NormalizeWarmupMode(string? raw)
     {
@@ -876,6 +901,8 @@ public static class ViaMetadataParser
         var wmm = WarmupModeRegex.Match(notes);
         var adm = AntidetectEngineRegex.Match(notes);
         var adid = AntidetectIdRegex.Match(notes);
+        var pfm = PlatformRegex.Match(notes);
+        var cidm = GadsCidRegex.Match(notes);
 
         var tier = "camp";
         if (tm.Success)
@@ -901,6 +928,8 @@ public static class ViaMetadataParser
         var warmupMode = wmm.Success ? NormalizeWarmupMode(wmm.Groups[1].Value) : "human_organic";
         var antidetectEngine = adm.Success ? AntidetectBrowserConnector.NormalizeEngine(adm.Groups[1].Value) : "chrome_native";
         var antidetectProfileId = adid.Success ? adid.Groups[1].Value.Trim() : "";
+        var accountPlatform = pfm.Success ? NormalizePlatform(pfm.Groups[1].Value) : "meta";
+        var gadsCid = cidm.Success ? FormatGoogleAdsCid(cidm.Groups[1].Value) : "";
 
         var clean = TierRegex.Replace(notes, " ");
         clean = WarmupRegex.Replace(clean, " ");
@@ -908,8 +937,10 @@ public static class ViaMetadataParser
         clean = WarmupModeRegex.Replace(clean, " ");
         clean = AntidetectEngineRegex.Replace(clean, " ");
         clean = AntidetectIdRegex.Replace(clean, " ");
+        clean = PlatformRegex.Replace(clean, " ");
+        clean = GadsCidRegex.Replace(clean, " ");
         clean = Regex.Replace(clean, @"\s+", " ").Trim();
-        return new ParsedViaNotes(tier, warmupIso, clean, clientGroup, warmupMode, antidetectEngine, antidetectProfileId);
+        return new ParsedViaNotes(tier, warmupIso, clean, clientGroup, warmupMode, antidetectEngine, antidetectProfileId, accountPlatform, gadsCid);
     }
 
     public static string BuildNotes(
@@ -919,7 +950,9 @@ public static class ViaMetadataParser
         string? clientGroup = null,
         string? warmupMode = null,
         string? antidetectEngine = null,
-        string? antidetectProfileId = null)
+        string? antidetectProfileId = null,
+        string? accountPlatform = null,
+        string? googleAdsCustomerId = null)
     {
         var rawTier = (tier ?? "").Trim().ToLowerInvariant();
         var safeTier = rawTier switch
@@ -954,6 +987,16 @@ public static class ViaMetadataParser
             {
                 tags.Add($"[ADID:{safeAdId}]");
             }
+        }
+        var normPlat = NormalizePlatform(accountPlatform);
+        if (normPlat != "meta")
+        {
+            tags.Add($"[PLATFORM:{normPlat}]");
+        }
+        var fmtCid = FormatGoogleAdsCid(googleAdsCustomerId);
+        if (fmtCid.Length >= 6 && fmtCid.Length <= 18)
+        {
+            tags.Add($"[GADSCID:{fmtCid}]");
         }
         var prefix = string.Join(" ", tags);
         var tail = (cleanNotes ?? "").Trim();
@@ -1657,6 +1700,11 @@ public sealed class ViaWorkspaceEntry
     public double ActiveCpuPercent { get; set; }
     public bool HasVaultCookie { get; set; }
     public bool HasLocalTwoFa { get; set; }
+    public string AccountPlatform { get; set; } = "meta"; // "meta" | "google_ads_mcc" | "google_ads_standalone"
+    public string GoogleAdsCustomerId { get; set; } = "";
+    public bool IsGoogleAdsAccount =>
+        string.Equals(AccountPlatform, "google_ads_mcc", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(AccountPlatform, "google_ads_standalone", StringComparison.OrdinalIgnoreCase);
 }
 
 public sealed class AutomationPlaybookStepDto
@@ -3197,6 +3245,9 @@ public sealed class ChromeSessionTracker
                 .Where(s => !s.ClosedAt.HasValue && !s.KeepAliveClosed &&
                             (s.Url.Contains("adsops_keepalive", StringComparison.OrdinalIgnoreCase) ||
                              s.Url.Contains("adsops_preads_warmup", StringComparison.OrdinalIgnoreCase) ||
+                             s.Url.Contains("adsops_prepage_warmup", StringComparison.OrdinalIgnoreCase) ||
+                             s.Url.Contains("adsops_gads_keepalive", StringComparison.OrdinalIgnoreCase) ||
+                             s.Url.Contains("adsops_pre_robot=", StringComparison.OrdinalIgnoreCase) ||
                              s.Url.Contains("adsops_auto_invite", StringComparison.OrdinalIgnoreCase) ||
                              s.Url.Contains("pages/creation", StringComparison.OrdinalIgnoreCase)))
                 .Select(s => s.SessionId)
@@ -3365,9 +3416,9 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "3.9.1";
-    public const string DisplayVersion = "v3.9.1";
-    public const string ExtVersion = "2.10.2";
+    public const string Version = "4.0.0";
+    public const string DisplayVersion = "v4.0.0";
+    public const string ExtVersion = "2.10.3";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 
     /// <summary>
@@ -4025,6 +4076,18 @@ public sealed class DomainSeoConfigDto
     [JsonPropertyName("seo_checklist")] public List<DomainSeoChecklistItemDto> SeoChecklist { get; set; } = new();
 }
 
+public sealed class GoogleAdsScriptConfigDto
+{
+    [JsonPropertyName("workspace_id")] public string WorkspaceId { get; set; } = string.Empty;
+    [JsonPropertyName("ingest_url")] public string IngestUrl { get; set; } = string.Empty;
+    [JsonPropertyName("key_configured")] public bool KeyConfigured { get; set; }
+    [JsonPropertyName("key_masked")] public string KeyMasked { get; set; } = string.Empty;
+    [JsonPropertyName("mcc_script_code")] public string MccScriptCode { get; set; } = string.Empty;
+    [JsonPropertyName("single_account_script_code")] public string SingleAccountScriptCode { get; set; } = string.Empty;
+    [JsonPropertyName("synced_accounts_count")] public int SyncedAccountsCount { get; set; }
+    [JsonPropertyName("last_push_at")] public string? LastPushAt { get; set; }
+}
+
 public sealed class RetainerLinkedAccountDto
 {
     [JsonPropertyName("id")] public string Id { get; set; } = string.Empty;
@@ -4564,17 +4627,34 @@ public static class ViaTrustEvaluator
                 }
 
                 // 2) Cross-client Proxy check (same ClientGroup or both unassigned may safely share Residential Proxy up to maxSharedPerProxy)
-                var differentClients = !string.Equals(clientA, clientB, StringComparison.OrdinalIgnoreCase) &&
-                                       (!string.IsNullOrEmpty(clientA) || !string.IsNullOrEmpty(clientB));
-                if (differentClients)
+                var pxB = AutomationQueueEngine.ExtractProxyHostPort(b.NetworkLabel);
+                var bothGoogleAds = a.IsGoogleAdsAccount && b.IsGoogleAdsAccount;
+                if (bothGoogleAds)
                 {
-                    var pxB = AutomationQueueEngine.ExtractProxyHostPort(b.NetworkLabel);
                     if (!string.IsNullOrEmpty(pxA) && string.Equals(pxA, pxB, StringComparison.OrdinalIgnoreCase))
                     {
-                        var peerA = string.IsNullOrEmpty(clientB) ? b.Label : $"Khách {clientB} ({b.Label})";
-                        var peerB = string.IsNullOrEmpty(clientA) ? a.Label : $"Khách {clientA} ({a.Label})";
-                        reasonsA.Add($"Trùng Proxy {pxA} với {peerA}");
-                        reasonsB.Add($"Trùng Proxy {pxA} với {peerB}");
+                        reasonsA.Add($"🚨 CHẶN CHẾT CHÙM GOOGLE ADS: Trùng Proxy {pxA} với {b.Label} — Bắt buộc 1 Gmail/MCC = 1 IP riêng!");
+                        reasonsB.Add($"🚨 CHẶN CHẾT CHÙM GOOGLE ADS: Trùng Proxy {pxA} với {a.Label} — Bắt buộc 1 Gmail/MCC = 1 IP riêng!");
+                    }
+                    else if (string.IsNullOrEmpty(pxA) && string.IsNullOrEmpty(pxB))
+                    {
+                        reasonsA.Add($"🚨 RỦI RO LIÊN ĐỚI GOOGLE ADS: Đang dùng chung Mạng gốc (Direct IP) với {b.Label} — Hãy gắn Proxy Tĩnh 1:1 riêng!");
+                        reasonsB.Add($"🚨 RỦI RO LIÊN ĐỚI GOOGLE ADS: Đang dùng chung Mạng gốc (Direct IP) với {a.Label} — Hãy gắn Proxy Tĩnh 1:1 riêng!");
+                    }
+                }
+                else
+                {
+                    var differentClients = !string.Equals(clientA, clientB, StringComparison.OrdinalIgnoreCase) &&
+                                           (!string.IsNullOrEmpty(clientA) || !string.IsNullOrEmpty(clientB));
+                    if (differentClients)
+                    {
+                        if (!string.IsNullOrEmpty(pxA) && string.Equals(pxA, pxB, StringComparison.OrdinalIgnoreCase))
+                        {
+                            var peerA = string.IsNullOrEmpty(clientB) ? b.Label : $"Khách {clientB} ({b.Label})";
+                            var peerB = string.IsNullOrEmpty(clientA) ? a.Label : $"Khách {clientA} ({a.Label})";
+                            reasonsA.Add($"Trùng Proxy {pxA} với {peerA}");
+                            reasonsB.Add($"Trùng Proxy {pxA} với {peerB}");
+                        }
                     }
                 }
 

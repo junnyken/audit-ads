@@ -717,5 +717,11 @@ public sealed class AdsOpsApiClient : IDisposable
     public Task<List<ProfileLaunchAuditDto>> GetProfileLaunchAuditAsync(int limit = 60, CancellationToken ct = default) =>
         SendJsonAsync<List<ProfileLaunchAuditDto>>(HttpMethod.Get, $"/api/v1/playbooks/launch-audit?limit={Math.Clamp(limit, 1, 200)}", null, ct);
 
+    public Task<GoogleAdsScriptConfigDto> GetGoogleAdsScriptConfigAsync(CancellationToken ct = default) =>
+        SendJsonAsync<GoogleAdsScriptConfigDto>(HttpMethod.Get, "/api/v1/google-ads/script-config", null, ct);
+
+    public Task<GoogleAdsScriptConfigDto> RotateGoogleAdsIngestKeyAsync(CancellationToken ct = default) =>
+        SendJsonAsync<GoogleAdsScriptConfigDto>(HttpMethod.Post, "/api/v1/google-ads/rotate-key", new { }, ct);
+
     public void Dispose() => _http.Dispose();
 }

@@ -2091,9 +2091,9 @@ internal static class Program
                 }
             }
 
-            // 35. v3.9.1 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
+            // 35. v4.0.0 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
             {
-                if (DesktopAppInfo.Version != "3.9.1" || DesktopAppInfo.ExtVersion != "2.10.2")
+                if (DesktopAppInfo.Version != "4.0.0" || DesktopAppInfo.ExtVersion != "2.10.3")
                 {
                     throw new InvalidOperationException(
                         $"DesktopAppInfo version mismatch: app={DesktopAppInfo.Version}, ext={DesktopAppInfo.ExtVersion}");
@@ -2143,8 +2143,8 @@ internal static class Program
                 foreach (var reqKey in new[]
                          {
                              "\"type\":\"full_state\"",
-                             "\"appVersion\":\"3.9.1\"",
-                             "\"extVersion\":\"2.10.2\"",
+                             "\"appVersion\":\"4.0.0\"",
+                             "\"extVersion\":\"2.10.3\"",
                              "\"activeView\":\"settings\"",
                              "\"totpMap\"",
                              "\"automationConfig\"",
@@ -2691,6 +2691,87 @@ internal static class Program
                         }
                         try { await Task.WhenAny(srvTask, Task.Delay(500)); } catch { }
                     }
+                }
+            }
+
+            // 44. v4.0.0 Facebook Companion v2.10.3 Hardening + Zero-Risk 2 MCC & 5 Standalone Google Ads 1:1 Silo Guard
+            {
+                var tpl4 = ExtensionProvisioner.LoadTemplates();
+                if (tpl4.Version != "2.10.3" ||
+                    !tpl4.ContentJs.Contains("adsops_prepage_warmup", StringComparison.Ordinal) ||
+                    !tpl4.ContentJs.Contains("page_auto_post_media", StringComparison.Ordinal) ||
+                    !tpl4.ContentJs.Contains("page_auto_share_curated", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("Companion v2.10.3 hardening check failed (missing prepage or page_nurture stops).");
+                }
+
+                // 44a. Verify 0% Google script injection in Extension manifest.json
+                var gadsSampleVia = new ViaWorkspaceEntry
+                {
+                    ViaId = "gads-mcc-1",
+                    Label = "Google MCC 1",
+                    ProfileDir = "Profile 81",
+                    BrowserProfileLabel = "Profile 81",
+                    NetworkLabel = "10.10.1.1:8001:u:p",
+                    AccountPlatform = "google_ads_mcc",
+                    GoogleAdsCustomerId = "900-111-0001",
+                };
+                var gadsExtDir = ExtensionProvisioner.ProvisionForVia(
+                    gadsSampleVia,
+                    Path.Combine(tempRoot, "gads_ext_test"),
+                    new LocalSecretVaultStore(Path.Combine(tempRoot, "gads_vault.json")));
+                var gadsManifestJson = File.ReadAllText(Path.Combine(gadsExtDir, "manifest.json"), Encoding.UTF8);
+                if (gadsManifestJson.Contains("google.com", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException("Security violation: Extension manifest content_scripts must NEVER match google.com!");
+                }
+
+                // 44b. Metadata roundtrip for MCC & Standalone CID
+                var builtMccNotes = ViaMetadataParser.BuildNotes(
+                    "MCC Agency chinh",
+                    "vault",
+                    "",
+                    "Agency_Google",
+                    "human_organic",
+                    "chrome_native",
+                    "",
+                    "google_ads_mcc",
+                    "9001110001");
+                var parsedMcc = ViaMetadataParser.ParseNotes(builtMccNotes, "MCC 1");
+                if (parsedMcc.AccountPlatform != "google_ads_mcc" ||
+                    parsedMcc.GoogleAdsCustomerId != "900-111-0001" ||
+                    parsedMcc.CleanNotes != "MCC Agency chinh")
+                {
+                    throw new InvalidOperationException($"Google Ads metadata roundtrip failed: plat={parsedMcc.AccountPlatform}, cid={parsedMcc.GoogleAdsCustomerId}, clean='{parsedMcc.CleanNotes}'");
+                }
+
+                // 44c. Strict 1:1 Proxy Lock for 2 MCC + 5 Standalone Client Gmails
+                var gadsDupList = new List<ViaWorkspaceEntry>
+                {
+                    new() { ViaId = "g1", Label = "Client Gmail 1", ProfileDir = "Profile 82", ClientGroup = "SameGroup", NetworkLabel = "45.10.20.30:8080:u:p", AccountPlatform = "google_ads_standalone", GoogleAdsCustomerId = "555-000-0001" },
+                    new() { ViaId = "g2", Label = "Client Gmail 2", ProfileDir = "Profile 83", ClientGroup = "SameGroup", NetworkLabel = "45.10.20.30:8080:u:p", AccountPlatform = "google_ads_standalone", GoogleAdsCustomerId = "555-000-0002" },
+                };
+                ViaTrustEvaluator.DetectClientSiloConflicts(gadsDupList, maxSharedPerProxy: 4);
+                if (!gadsDupList[0].HasSiloConflict || !gadsDupList[1].HasSiloConflict ||
+                    !gadsDupList[0].SiloConflictDetail.Contains("GOOGLE ADS", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException("Google Ads 1:1 strict lock must flag proxy collision even inside same ClientGroup!");
+                }
+
+                var gadsClean7 = new List<ViaWorkspaceEntry>
+                {
+                    new() { ViaId = "mcc1", Label = "MCC 1", ProfileDir = "Profile 91", NetworkLabel = "10.0.1.1:8001:u:p", AccountPlatform = "google_ads_mcc", GoogleAdsCustomerId = "900-111-0001" },
+                    new() { ViaId = "mcc2", Label = "MCC 2", ProfileDir = "Profile 92", NetworkLabel = "10.0.1.2:8002:u:p", AccountPlatform = "google_ads_mcc", GoogleAdsCustomerId = "900-111-0002" },
+                    new() { ViaId = "cli1", Label = "Client 1", ProfileDir = "Profile 93", NetworkLabel = "10.0.1.3:8003:u:p", AccountPlatform = "google_ads_standalone", GoogleAdsCustomerId = "555-000-0001" },
+                    new() { ViaId = "cli2", Label = "Client 2", ProfileDir = "Profile 94", NetworkLabel = "10.0.1.4:8004:u:p", AccountPlatform = "google_ads_standalone", GoogleAdsCustomerId = "555-000-0002" },
+                    new() { ViaId = "cli3", Label = "Client 3", ProfileDir = "Profile 95", NetworkLabel = "10.0.1.5:8005:u:p", AccountPlatform = "google_ads_standalone", GoogleAdsCustomerId = "555-000-0003" },
+                    new() { ViaId = "cli4", Label = "Client 4", ProfileDir = "Profile 96", NetworkLabel = "10.0.1.6:8006:u:p", AccountPlatform = "google_ads_standalone", GoogleAdsCustomerId = "555-000-0004" },
+                    new() { ViaId = "cli5", Label = "Client 5", ProfileDir = "Profile 97", NetworkLabel = "10.0.1.7:8007:u:p", AccountPlatform = "google_ads_standalone", GoogleAdsCustomerId = "555-000-0005" },
+                };
+                ViaTrustEvaluator.DetectClientSiloConflicts(gadsClean7, maxSharedPerProxy: 4);
+                if (gadsClean7.Any(x => x.HasSiloConflict))
+                {
+                    throw new InvalidOperationException("Clean 2 MCC + 5 Standalone Google Ads profiles with 1:1 proxies must have 0 silo conflicts!");
                 }
             }
 

@@ -116,6 +116,10 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
           ? v.isBrowserRunning
           : tierFilter === 'cooldown'
           ? v.isInCooldown || v.hasSiloConflict || v.proxyStatus === 'DEAD'
+          : tierFilter === 'google_mcc'
+          ? (v.accountPlatform || 'meta') === 'google_ads_mcc'
+          : tierFilter === 'google_standalone'
+          ? (v.accountPlatform || 'meta') === 'google_ads_standalone'
           : true
       if (!tierOk) return false
       if (engineFilter !== 'all' && v.antidetectEngine.toLowerCase() !== engineFilter.toLowerCase()) return false
@@ -137,6 +141,7 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
       return (
         v.label.toLowerCase().includes(q) ||
         (v.customTag || '').toLowerCase().includes(q) ||
+        (v.googleAdsCustomerId || '').toLowerCase().includes(q) ||
         v.displayName.toLowerCase().includes(q) ||
         v.externalReferenceId.toLowerCase().includes(q) ||
         v.profileDir.toLowerCase().includes(q) ||
@@ -163,9 +168,15 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
   const issueCount = state.vias.filter(
     (v) => v.isInCooldown || v.hasSiloConflict || v.proxyStatus === 'DEAD',
   ).length
+  const googleMccCount = state.vias.filter((v) => (v.accountPlatform || 'meta') === 'google_ads_mcc').length
+  const googleStandaloneCount = state.vias.filter(
+    (v) => (v.accountPlatform || 'meta') === 'google_ads_standalone',
+  ).length
 
   const tierChips = [
     { key: 'all', label: `Tất cả (${state.vias.length})` },
+    { key: 'google_mcc', label: `🔷 Google MCC (${googleMccCount})` },
+    { key: 'google_standalone', label: `🟢 Gmail Khách Lẻ 1:1 (${googleStandaloneCount})` },
     { key: 'vault', label: `Hold BM (${state.vias.filter((v) => v.roleTier === 'vault' || v.roleTier === 'hold').length})` },
     {
       key: 'camp',
@@ -533,9 +544,19 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
               </DropdownMenuContent>
             </DropdownMenu>
 
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => sendDesktopCommand('open_google_ads_script_wizard')}
+              title="Lấy mã Google Ads Script cho 2 MCC & 5 Gmail khách độc lập (Zero-Risk)"
+            >
+              <Globe className="h-3.5 w-3.5 text-sky-400" />
+              Mã Google Ads Script
+            </Button>
+
             <Button size="sm" onClick={() => sendDesktopCommand('add_via')}>
               <Plus className="h-3.5 w-3.5" />
-              Thêm Via
+              Thêm Via / Google Ads
             </Button>
           </div>
 
@@ -753,8 +774,16 @@ function ViaRowCard({
     ? `Cần Đảo Ấm (${via.idleDays.toFixed(1)}d)`
     : `Ấm (${via.idleDays.toFixed(1)}d)`
 
-  const launchLabel =
-    via.antidetectEngine === 'chrome_native' ? 'Mở Chrome' : `Mở ${via.antidetectEngineLabel}`
+  const plat = via.accountPlatform || 'meta'
+  const isGadsMcc = plat === 'google_ads_mcc'
+  const isGadsStandalone = plat === 'google_ads_standalone'
+  const isGoogleAds = isGadsMcc || isGadsStandalone
+
+  const launchLabel = isGoogleAds
+    ? '🎯 Mở Google Ads'
+    : via.antidetectEngine === 'chrome_native'
+    ? 'Mở Chrome'
+    : `Mở ${via.antidetectEngineLabel}`
 
   return (
     <Card className="transition-colors hover:border-primary/40">
@@ -772,9 +801,19 @@ function ViaRowCard({
           <div className="min-w-0 space-y-0.5">
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="truncate text-sm font-bold text-foreground">{via.label}</span>
-              <Badge variant={tierInfo.variant} className="px-1.5 py-0 text-[10px]">
-                {tierInfo.label}
-              </Badge>
+              {isGadsMcc ? (
+                <Badge variant="info" className="px-1.5 py-0 text-[10px]">
+                  🔷 GOOGLE MCC
+                </Badge>
+              ) : isGadsStandalone ? (
+                <Badge variant="success" className="px-1.5 py-0 text-[10px]">
+                  🟢 GMAIL 1:1
+                </Badge>
+              ) : (
+                <Badge variant={tierInfo.variant} className="px-1.5 py-0 text-[10px]">
+                  {tierInfo.label}
+                </Badge>
+              )}
               {via.isInCooldown ? (
                 <Badge variant="destructive" className="px-1.5 py-0 text-[10px]" title={via.cooldownReason}>
                   ❄️ COOLDOWN
@@ -790,8 +829,9 @@ function ViaRowCard({
               ) : null}
             </div>
             <div className="truncate font-mono text-[11px] text-muted-foreground">
-              {via.externalReferenceId ? `UID: ${via.externalReferenceId}` : 'UID: —'} • Cầm{' '}
-              {via.holdingPagesCount}/{via.holdingLimit} Page • {via.adAccountsCount} TKQC
+              {isGoogleAds
+                ? `${via.googleAdsCustomerId ? `CID: ${via.googleAdsCustomerId}` : 'CID: Chưa gắn'} • Cách ly 1:1 (0% Script Google)`
+                : `${via.externalReferenceId ? `UID: ${via.externalReferenceId}` : 'UID: —'} • Cầm ${via.holdingPagesCount}/${via.holdingLimit} Page • ${via.adAccountsCount} TKQC`}
               {via.ownerMemberName ? ` • 👤 ${via.ownerMemberName}` : ''}
               {via.customTag ? ` • 🏷️ ${via.customTag}` : ''}
             </div>
@@ -900,7 +940,11 @@ function ViaRowCard({
           <Button
             size="sm"
             disabled={!via.canLaunch}
-            onClick={() => sendDesktopCommand('open_via_chrome', { viaId: via.viaId })}
+            onClick={() =>
+              sendDesktopCommand(isGoogleAds ? 'open_google_ads_clean' : 'open_via_chrome', {
+                viaId: via.viaId,
+              })
+            }
             title={via.canLaunch ? `Mở trình duyệt an toàn (${launchLabel})` : via.denyReason}
           >
             <Chrome className="h-3.5 w-3.5" />
