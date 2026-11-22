@@ -240,7 +240,7 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
 
   return (
     <div className="space-y-3.5">
-      {/* Agency Standby Pool & Scheduled 2-3 Day Embryo Factory Bar (v3.9.0) */}
+      {/* Agency Standby Pool & Scheduled 2-3 Day Embryo Factory Bar (v3.9.1) */}
       <Card className="border-indigo-500/30 bg-indigo-500/5">
         <CardContent className="space-y-2.5 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -250,7 +250,7 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
               onClick={() => setStandbyOpen((v) => !v)}
             >
               <ShieldCheck className="h-4 w-4 text-emerald-400" />
-              🛡️ Kho Dự Phòng Agency &amp; Xưởng Tự Động Ủ Phôi 2–3 Ngày (v3.9.0) {standbyOpen ? '▲' : '▼'}
+              🛡️ Kho Dự Phòng Agency &amp; Xưởng Tự Động Ủ Phôi 2–3 Ngày (v3.9.1) {standbyOpen ? '▲' : '▼'}
             </button>
             <div className="flex flex-wrap items-center gap-1.5">
               <Button

@@ -2091,9 +2091,9 @@ internal static class Program
                 }
             }
 
-            // 35. v3.9.0 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
+            // 35. v3.9.1 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
             {
-                if (DesktopAppInfo.Version != "3.9.0" || DesktopAppInfo.ExtVersion != "2.10.2")
+                if (DesktopAppInfo.Version != "3.9.1" || DesktopAppInfo.ExtVersion != "2.10.2")
                 {
                     throw new InvalidOperationException(
                         $"DesktopAppInfo version mismatch: app={DesktopAppInfo.Version}, ext={DesktopAppInfo.ExtVersion}");
@@ -2143,7 +2143,7 @@ internal static class Program
                 foreach (var reqKey in new[]
                          {
                              "\"type\":\"full_state\"",
-                             "\"appVersion\":\"3.9.0\"",
+                             "\"appVersion\":\"3.9.1\"",
                              "\"extVersion\":\"2.10.2\"",
                              "\"activeView\":\"settings\"",
                              "\"totpMap\"",
@@ -2573,6 +2573,124 @@ internal static class Program
                     LocalSecretVaultStore.ResolveWebmailUrl("ops@yandex.ru") != "https://mail.yandex.com/")
                 {
                     throw new InvalidOperationException("ResolveWebmailUrl zoho/yandex check failed.");
+                }
+            }
+
+            // 43. v3.9.1 Real Off-Screen Chrome CDP Pre-Bake E2E, .adsops_prebaked_embryo Isolation & Dead-Target Reject
+            {
+                ExtensionProvisioner.MarkIsolatedProfilePreBaked("Phôi E2E 391", "Default");
+                if (!ExtensionProvisioner.ShouldUseIsolatedProfile(true, "Default", "", false, "Phôi E2E 391"))
+                {
+                    throw new InvalidOperationException("ShouldUseIsolatedProfile must return true when .adsops_prebaked_embryo marker exists.");
+                }
+
+                var realChromeExe = ExtensionProvisioner.FindChromeExecutable();
+                if (!string.IsNullOrWhiteSpace(realChromeExe) && File.Exists(realChromeExe))
+                {
+                    // Obtain a guaranteed-closed loopback port for testing Page.navigate errorText rejection
+                    int closedPort;
+                    using (var tmpSock = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0))
+                    {
+                        tmpSock.Start();
+                        closedPort = ((System.Net.IPEndPoint)tmpSock.LocalEndpoint).Port;
+                        tmpSock.Stop();
+                    }
+
+                    // Spin up real loopback HTTP server returning Set-Cookie
+                    using var liveServer = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+                    liveServer.Start();
+                    var livePort = ((System.Net.IPEndPoint)liveServer.LocalEndpoint).Port;
+                    using var srvCts = new CancellationTokenSource();
+                    var srvTask = Task.Run(async () =>
+                    {
+                        while (!srvCts.IsCancellationRequested)
+                        {
+                            System.Net.Sockets.TcpClient? client = null;
+                            try
+                            {
+                                client = await liveServer.AcceptTcpClientAsync(srvCts.Token);
+                                using (client)
+                                await using (var stream = client.GetStream())
+                                {
+                                    var buf = new byte[2048];
+                                    await stream.ReadAsync(buf, srvCts.Token);
+                                    const string body = "<html><body>OK</body></html>";
+                                    var bodyBytes = Encoding.UTF8.GetBytes(body);
+                                    var headerBytes = Encoding.ASCII.GetBytes(
+                                        $"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nSet-Cookie: adsops_prebake_e2e=1; Path=/; Max-Age=3600\r\nContent-Length: {bodyBytes.Length}\r\nConnection: close\r\n\r\n");
+                                    await stream.WriteAsync(headerBytes, srvCts.Token);
+                                    await stream.WriteAsync(bodyBytes, srvCts.Token);
+                                    await stream.FlushAsync(srvCts.Token);
+                                }
+                            }
+                            catch
+                            {
+                                try { client?.Dispose(); } catch { }
+                            }
+                        }
+                    });
+
+                    int? e2ePid = null;
+                    int? e2eCdp = null;
+                    try
+                    {
+                        var launchRes = await ExtensionProvisioner.LaunchChromeSmartAsync(
+                            "https://example.com/",
+                            "Profile 77",
+                            null,
+                            isolatedMode: true,
+                            viaSlug: "Phôi E2E 391",
+                            antidetectShield: true,
+                            lowRamMode: true,
+                            vaultCookieRaw: "",
+                            envProfile: null,
+                            hiddenOffscreen: true);
+                        e2ePid = launchRes.Pid;
+                        e2eCdp = launchRes.CdpPort;
+                        if (!e2eCdp.HasValue || e2eCdp.Value <= 0)
+                        {
+                            throw new InvalidOperationException("LaunchChromeSmartAsync failed to open CDP port for real E2E Pre-Bake test.");
+                        }
+
+                        var deadRes = await ChromeCdpController.RunSilentCookieRobotPreBakeAsync(
+                            e2eCdp.Value,
+                            new[] { $"http://127.0.0.1:{closedPort}/" },
+                            CancellationToken.None,
+                            customUrlsOnly: true);
+                        if (deadRes.Ok || deadRes.VisitedSitesCount != 0)
+                        {
+                            throw new InvalidOperationException($"Dead target must fail Pre-Bake (expected Ok=false, Visited=0), got Ok={deadRes.Ok}, Visited={deadRes.VisitedSitesCount} ({deadRes.Detail})");
+                        }
+
+                        var okRes = await ChromeCdpController.RunSilentCookieRobotPreBakeAsync(
+                            e2eCdp.Value,
+                            new[] { $"http://127.0.0.1:{livePort}/" },
+                            CancellationToken.None,
+                            customUrlsOnly: true);
+                        if (!okRes.Ok || okRes.VisitedSitesCount != 1 || okRes.PersistedCookiesCount < 1)
+                        {
+                            throw new InvalidOperationException($"Real CDP Pre-Bake E2E failed: Ok={okRes.Ok}, Visited={okRes.VisitedSitesCount}, Cookies={okRes.PersistedCookiesCount}, Detail={okRes.Detail}");
+                        }
+                    }
+                    finally
+                    {
+                        srvCts.Cancel();
+                        try { liveServer.Stop(); } catch { }
+                        if (e2eCdp is > 0)
+                        {
+                            try { await ChromeCdpController.CloseBrowserGracefullyAsync(e2eCdp.Value, 1500); } catch { }
+                        }
+                        if (e2ePid is > 0)
+                        {
+                            try
+                            {
+                                using var p = Process.GetProcessById(e2ePid.Value);
+                                if (!p.HasExited) p.Kill(entireProcessTree: true);
+                            }
+                            catch { }
+                        }
+                        try { await Task.WhenAny(srvTask, Task.Delay(500)); } catch { }
+                    }
                 }
             }
 

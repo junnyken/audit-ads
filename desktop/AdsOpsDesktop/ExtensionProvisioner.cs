@@ -292,6 +292,10 @@ public static class ExtensionProvisioner
         var safeProfile = ResolveProfileDirectory(profileDir, viaSlug);
         var isoDir = ResolveIsolatedProfileDirectory(viaSlug, safeProfile);
         SanitizeIsolatedProfileHealth(isoDir);
+        if (File.Exists(Path.Combine(isoDir, ".adsops_prebaked_embryo")))
+        {
+            return true;
+        }
         var networkCookies = Path.Combine(isoDir, "Default", "Network", "Cookies");
         var legacyCookies = Path.Combine(isoDir, "Default", "Cookies");
         try
@@ -309,6 +313,19 @@ public static class ExtensionProvisioner
             return false;
         }
         return true;
+    }
+
+    /// <summary>Marks an isolated Embryo profile directory so subsequent launches always reuse the exact pre-baked cookie store.</summary>
+    public static void MarkIsolatedProfilePreBaked(string? viaSlug, string? profileDir)
+    {
+        try
+        {
+            var safeProfile = ResolveProfileDirectory(profileDir, viaSlug);
+            var isoDir = ResolveIsolatedProfileDirectory(viaSlug, safeProfile);
+            Directory.CreateDirectory(isoDir);
+            File.WriteAllText(Path.Combine(isoDir, ".adsops_prebaked_embryo"), DateTimeOffset.UtcNow.ToString("O"));
+        }
+        catch { }
     }
 
     /// <summary>

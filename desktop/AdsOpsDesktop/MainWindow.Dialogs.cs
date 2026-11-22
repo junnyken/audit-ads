@@ -732,6 +732,14 @@ internal sealed partial class MainWindow
         btnRow.Children.Add(rightBtns);
 
         root.Children.Add(btnRow);
+        var vaultOtpTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        vaultOtpTimer.Tick += (_, _) =>
+        {
+            RefreshOtp();
+            RefreshMailOtp();
+        };
+        vaultOtpTimer.Start();
+        dlg.Closed += (_, _) => vaultOtpTimer.Stop();
         dlg.Content = new ScrollViewer
         {
             MaxHeight = 680,
@@ -3640,7 +3648,7 @@ internal sealed partial class MainWindow
                              (!string.IsNullOrWhiteSpace(via.ProfileDir) && string.Equals(s.ProfileDir, via.ProfileDir, StringComparison.OrdinalIgnoreCase))));
                     if (openSess?.CdpPort is int cdpPortVal && cdpPortVal > 0)
                     {
-                        harvestedCookie = await ChromeCdpController.TryHarvestFacebookCookieHeaderAsync(cdpPortVal, 2500);
+                        harvestedCookie = await ChromeCdpController.TryHarvestFacebookCookieHeaderAsync(cdpPortVal, 2500) ?? "";
                     }
 
                     var finalCookie = !string.IsNullOrWhiteSpace(harvestedCookie) ? harvestedCookie : existing.CookieRaw;
@@ -3724,6 +3732,15 @@ internal sealed partial class MainWindow
         btnRow.Children.Add(cancelBtn);
         btnRow.Children.Add(finishBtn);
         root.Children.Add(btnRow);
+
+        var onboardOtpTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        onboardOtpTimer.Tick += (_, _) =>
+        {
+            RefreshFbOtp();
+            RefreshMailOtp();
+        };
+        onboardOtpTimer.Start();
+        dlg.Closed += (_, _) => onboardOtpTimer.Stop();
 
         dlg.Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 730, Content = root };
         dlg.ShowDialog();

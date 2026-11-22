@@ -1764,6 +1764,18 @@ internal sealed partial class MainWindow : Window
             list.Add(entry);
         }
 
+        var prevLocalEmbryos = _vias
+            .Where(v => v.ViaId.StartsWith("local-embryo-", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        foreach (var le in prevLocalEmbryos)
+        {
+            if (!list.Any(x => string.Equals(x.ViaId, le.ViaId, StringComparison.OrdinalIgnoreCase) ||
+                               string.Equals(x.Label, le.Label, StringComparison.OrdinalIgnoreCase)))
+            {
+                list.Add(le);
+            }
+        }
+
         _vias = list;
         ApplyUpdatedProxyClusterLimits();
         RefreshLiveSessionTelemetryOnVias();
@@ -3687,6 +3699,7 @@ internal sealed partial class MainWindow : Window
         }
 
         try { createdVia.ExtensionFolder = ExtensionProvisioner.ProvisionForVia(createdVia, config: _config); } catch { }
+        ExtensionProvisioner.MarkIsolatedProfilePreBaked(createdVia.Label, createdVia.ProfileDir);
         _config.Save();
 
         var proxyDisp = string.IsNullOrWhiteSpace(assignedProxy) ? "Direct IP" : AutomationQueueEngine.ExtractProxyHostPort(assignedProxy);
@@ -3722,12 +3735,35 @@ internal sealed partial class MainWindow : Window
         int? launchedCdpPort = null;
         try
         {
+            if (_config.PreCheckProxyBeforeLaunch && !string.IsNullOrWhiteSpace(via.NetworkLabel))
+            {
+                var parsedPx = ExtensionProvisioner.ParseProxy(via.NetworkLabel);
+                if (parsedPx == null)
+                {
+                    _ = Dispatcher.BeginInvoke(() => AppendLog($"🛑 [Ủ Phôi Ẩn] Bỏ qua '{via.Label}': Cấu hình Proxy không hợp lệ."));
+                    return false;
+                }
+                try
+                {
+                    using var tcp = new System.Net.Sockets.TcpClient();
+                    using var pxCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    pxCts.CancelAfter(TimeSpan.FromSeconds(4));
+                    await tcp.ConnectAsync(parsedPx.Host, parsedPx.Port, pxCts.Token).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+                {
+                    _ = Dispatcher.BeginInvoke(() => AppendLog($"🛑 [Ủ Phôi Ẩn] Bỏ qua '{via.Label}': Proxy {parsedPx.Host}:{parsedPx.Port} không phản hồi ({ex.Message})."));
+                    return false;
+                }
+            }
+
             try { via.ExtensionFolder = ExtensionProvisioner.ProvisionForVia(via, config: _config); } catch { }
+            ExtensionProvisioner.MarkIsolatedProfilePreBaked(via.Label, via.ProfileDir);
             var envProf = ResolveViaEnvironmentProfileFor(via);
             var candidateUrls = WarmupCarePresets.ParseCookieRobotUrls(_config.CookieRobotUrls);
 
             var launch = await ExtensionProvisioner.LaunchChromeSmartAsync(
-                "about:blank",
+                "https://www.google.com/",
                 via.ProfileDir,
                 via.ExtensionFolder,
                 isolatedMode: true,

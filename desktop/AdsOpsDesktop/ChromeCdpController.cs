@@ -1051,31 +1051,35 @@ public static class ChromeCdpController
     /// <summary>
     /// Runs an off-screen headless-window Multi-Site Cookie Robot warmup session over CDP
     /// on non-Facebook sites (Google Search, VnExpress, YouTube, Custom URLs) so clean browser cookies persist on disk.
+    /// Rejects failed navigations (Page.navigate errorText) and empty cookie stores so broken proxies never fake success.
     /// NEVER navigates to registration/signup forms or attempts CAPTCHA solving.
     /// </summary>
     public static async Task<SilentCookieRobotResult> RunSilentCookieRobotPreBakeAsync(
         int cdpPort,
         IReadOnlyList<string>? candidateUrls,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool customUrlsOnly = false)
     {
         if (cdpPort <= 0)
         {
             return new SilentCookieRobotResult(false, 0, 0, "Cổng CDP không hợp lệ.");
         }
 
-        var defaultSites = new[]
+        var sitePool = new List<string>();
+        if (!customUrlsOnly)
         {
-            "https://www.google.com/",
-            "https://vnexpress.net/",
-            "https://www.youtube.com/",
-        };
-        var sitePool = new List<string>(defaultSites);
+            sitePool.Add("https://www.google.com/");
+            sitePool.Add("https://vnexpress.net/");
+            sitePool.Add("https://www.youtube.com/");
+        }
         if (candidateUrls != null)
         {
             foreach (var raw in candidateUrls)
             {
                 var u = (raw ?? "").Trim();
-                if (!u.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) continue;
+                bool allowedScheme = u.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+                    (customUrlsOnly && u.StartsWith("http://127.0.0.1:", StringComparison.OrdinalIgnoreCase));
+                if (!allowedScheme) continue;
                 if (u.Contains("facebook.com", StringComparison.OrdinalIgnoreCase) ||
                     u.Contains("fb.com", StringComparison.OrdinalIgnoreCase)) continue;
                 if (!sitePool.Any(x => string.Equals(x, u, StringComparison.OrdinalIgnoreCase)))
@@ -1085,6 +1089,10 @@ public static class ChromeCdpController
             }
         }
         var targetSites = sitePool.Take(4).ToList();
+        if (targetSites.Count == 0)
+        {
+            return new SilentCookieRobotResult(false, 0, 0, "Không có URL hợp lệ để chạy Ủ Cookie Robot.");
+        }
 
         try
         {
@@ -1117,13 +1125,25 @@ public static class ChromeCdpController
             try { await SendCdpCommandAsync(ws, cmdId++, "Network.enable", null, token).ConfigureAwait(false); } catch { }
 
             int visitedCount = 0;
+            string lastNavError = "";
             foreach (var siteUrl in targetSites)
             {
                 token.ThrowIfCancellationRequested();
                 try
                 {
-                    await SendCdpCommandAsync(ws, cmdId++, "Page.navigate", new { url = siteUrl }, token).ConfigureAwait(false);
-                    await Task.Delay(Random.Shared.Next(2600, 3800), token).ConfigureAwait(false);
+                    var navResp = await SendCdpCommandAsync(ws, cmdId++, "Page.navigate", new { url = siteUrl }, token).ConfigureAwait(false);
+                    if (navResp.ValueKind == JsonValueKind.Object &&
+                        navResp.TryGetProperty("errorText", out var errEl))
+                    {
+                        var errStr = errEl.GetString();
+                        if (!string.IsNullOrWhiteSpace(errStr))
+                        {
+                            lastNavError = errStr;
+                            continue;
+                        }
+                    }
+
+                    await Task.Delay(customUrlsOnly ? 450 : Random.Shared.Next(2600, 3800), token).ConfigureAwait(false);
 
                     try
                     {
@@ -1133,7 +1153,7 @@ public static class ChromeCdpController
                             "Runtime.evaluate",
                             new { expression = "try{window.scrollBy({top:380,behavior:'smooth'});}catch(e){}", returnByValue = true },
                             token).ConfigureAwait(false);
-                        await Task.Delay(1400, token).ConfigureAwait(false);
+                        await Task.Delay(customUrlsOnly ? 200 : 1400, token).ConfigureAwait(false);
                         await SendCdpCommandAsync(
                             ws,
                             cmdId++,
@@ -1150,9 +1170,9 @@ public static class ChromeCdpController
                 {
                     throw;
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Continue to next external site if one target fails/blocks
+                    lastNavError = ex.Message;
                 }
             }
 
@@ -1169,11 +1189,12 @@ public static class ChromeCdpController
             }
             catch { }
 
-            return new SilentCookieRobotResult(
-                visitedCount > 0,
-                visitedCount,
-                persistedCookiesCount,
-                $"Đã ủ ngầm {visitedCount} trang ({persistedCookiesCount} cookies nền sạch).");
+            bool ok = visitedCount > 0 && persistedCookiesCount > 0;
+            var detail = ok
+                ? $"Đã ủ ngầm {visitedCount} trang ({persistedCookiesCount} cookies nền sạch)."
+                : $"Ủ Cookie thất bại ({visitedCount} trang / {persistedCookiesCount} cookies" +
+                  (string.IsNullOrWhiteSpace(lastNavError) ? "" : $" • {lastNavError}") + ").";
+            return new SilentCookieRobotResult(ok, visitedCount, persistedCookiesCount, detail);
         }
         catch (OperationCanceledException)
         {
