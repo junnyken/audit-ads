@@ -999,6 +999,87 @@ public static class ExtensionProvisioner
         bool antidetectShield = true,
         bool lowRamMode = true)
         => LaunchChromeDetailed(url, profileDir, extFolder, isolatedMode, viaSlug, antidetectShield, lowRamMode).Pid;
+
+    /// <summary>
+    /// Validates whether a raw Vault Cookie header or JSON cookie array holds a live (non-expired)
+    /// Facebook authenticated session (must include both non-empty c_user and xs).
+    /// </summary>
+    public static bool HasValidFacebookAuthCookieString(string? rawCookie)
+    {
+        if (string.IsNullOrWhiteSpace(rawCookie)) return false;
+        var trimmed = rawCookie.Trim();
+        if (trimmed.StartsWith('['))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(trimmed);
+                if (doc.RootElement.ValueKind != JsonValueKind.Array) return false;
+                var nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                bool hasCUser = false;
+                bool hasXs = false;
+                foreach (var item in doc.RootElement.EnumerateArray())
+                {
+                    if (item.ValueKind != JsonValueKind.Object) continue;
+                    var name = item.TryGetProperty("name", out var nEl) ? (nEl.GetString() ?? "").Trim() : "";
+                    var val = item.TryGetProperty("value", out var vEl) ? (vEl.GetString() ?? "").Trim() : "";
+                    if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(val)) continue;
+                    if (item.TryGetProperty("expirationDate", out var expEl) && expEl.ValueKind == JsonValueKind.Number)
+                    {
+                        var exp = expEl.GetDouble();
+                        if (exp > 0 && exp < nowUnix) continue;
+                    }
+                    if (string.Equals(name, "c_user", StringComparison.OrdinalIgnoreCase)) hasCUser = true;
+                    else if (string.Equals(name, "xs", StringComparison.OrdinalIgnoreCase)) hasXs = true;
+                }
+                return hasCUser && hasXs;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        var parts = trimmed.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        bool pairCUser = false;
+        bool pairXs = false;
+        foreach (var part in parts)
+        {
+            int eq = part.IndexOf('=');
+            if (eq <= 0 || eq >= part.Length - 1) continue;
+            var k = part[..eq].Trim();
+            var v = part[(eq + 1)..].Trim();
+            if (string.IsNullOrEmpty(v)) continue;
+            if (string.Equals(k, "c_user", StringComparison.OrdinalIgnoreCase)) pairCUser = true;
+            else if (string.Equals(k, "xs", StringComparison.OrdinalIgnoreCase)) pairXs = true;
+        }
+        return pairCUser && pairXs;
+    }
+
+    /// <summary>Checks whether the Via's on-disk Isolated Chrome profile already persists a Facebook c_user cookie.</summary>
+    public static bool IsolatedProfileHasFacebookSession(string? viaSlug, string? profileDir, string? isolatedRootOverride = null)
+    {
+        try
+        {
+            var safeProfile = ResolveProfileDirectory(profileDir, viaSlug);
+            var isoDir = !string.IsNullOrWhiteSpace(isolatedRootOverride)
+                ? Path.Combine(isolatedRootOverride, Path.GetFileName(ResolveIsolatedProfileDirectory(viaSlug, safeProfile)))
+                : ResolveIsolatedProfileDirectory(viaSlug, safeProfile);
+            SanitizeIsolatedProfileHealth(isoDir);
+            var networkCookies = Path.Combine(isoDir, "Default", "Network", "Cookies");
+            var legacyCookies = Path.Combine(isoDir, "Default", "Cookies");
+            return CookiesFileContainsFacebookSession(networkCookies) ||
+                   CookiesFileContainsFacebookSession(legacyCookies);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>True when either DPAPI Vault or on-disk Isolated Profile already holds an authenticated Facebook session.</summary>
+    public static bool HasUsableIsolatedFacebookSession(string? viaSlug, string? profileDir, string? vaultCookieRaw, string? isolatedRootOverride = null)
+        => HasValidFacebookAuthCookieString(vaultCookieRaw) ||
+           IsolatedProfileHasFacebookSession(viaSlug, profileDir, isolatedRootOverride);
 }
 
 public sealed record WorkstationMemorySnapshot(

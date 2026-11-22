@@ -8,13 +8,13 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>AdsOpsDesktop</AssemblyName>
     <RootNamespace>AdsOpsDesktop</RootNamespace>
-    <Version>4.0.1</Version>
-    <AssemblyVersion>4.0.1.0</AssemblyVersion>
-    <FileVersion>4.0.1.0</FileVersion>
+    <Version>4.0.2</Version>
+    <AssemblyVersion>4.0.2.0</AssemblyVersion>
+    <FileVersion>4.0.2.0</FileVersion>
     <Product>AdsOps Desktop Pro</Product>
     <Company>AdsOps</Company>
     <CodePage>65001</CodePage>
-    <Description>AdsOps Desktop Pro v4.0.1 — Hardened 24/7 Facebook Nurturing Engine, Zero-Risk Google Ads 2 MCC + 5 Standalone 1:1 Silo Hub &amp; Official Google Ads Script Sync</Description>
+    <Description>AdsOps Desktop Pro v4.0.2 — Resilient Meta DOM Selector Pack, Pre-Flight Session &amp; Native Bridge, Auto Visual Post Card Generator &amp; Extension v2.10.4</Description>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 

@@ -1,13 +1,13 @@
 {
-    "version":  "4.0.1",
-    "ext_version":  "2.10.3",
+    "version":  "4.0.2",
+    "ext_version":  "2.10.4",
     "authenticode_signed":  true,
     "download_url":  "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
     "mirror_urls":  [
                         "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
                     ],
-    "sha256":  "f84c091a3754a6a392921894dc6e1cf31009d5074041439ddce15ff65b118049",
-    "size_bytes":  67867446,
-    "published_at":  "2026-11-22T09:19:59.7782047+00:00",
-    "release_notes":  "AdsOps Desktop Pro v4.0.1 (Hardened 24/7 Facebook Nurturing: Offline Scheduler Resilience, Continuous DPAPI Cookie Refresh preserving 2FA, External Cookie Robot Queue Completion, Strict Google Ads Fallback Exclusion, Open-Profile Lock \u0026 Proxy Guards, Temp Variant Cleanup \u0026 Hybrid CDP Page Post/Share Bridge)."
+    "sha256":  "a4f6b06896453ba84145a0968c8187f0b1aec1024f3e561dee4fa43b7049ad29",
+    "size_bytes":  67882250,
+    "published_at":  "2026-11-22T10:52:29.5816014+00:00",
+    "release_notes":  "AdsOps Desktop Pro v4.0.2 (Hot-Reload MetaDomSelectorPack + 2-Tier Composer \u0026 2-Step Share Fallbacks, Pre-Flight Session Validator + Scheduled Backoff, Companion v2.10.4 Native Chrome Post/Share \u0026 Proactive Cookie Sync, STA 1080x1080 Visual Post Card Generator \u0026 Smart Share Pivot)."
 }

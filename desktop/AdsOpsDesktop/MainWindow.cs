@@ -1080,8 +1080,7 @@ internal sealed partial class MainWindow : Window
                     var harvested = await ChromeCdpController.TryHarvestFacebookCookieHeaderAsync(cdpPortVal, 1800).ConfigureAwait(false);
                     if (!string.IsNullOrWhiteSpace(harvested))
                     {
-                        bool hasAuthPair = harvested.Contains("c_user=", StringComparison.OrdinalIgnoreCase) &&
-                                           harvested.Contains("xs=", StringComparison.OrdinalIgnoreCase);
+                        bool hasAuthPair = ExtensionProvisioner.HasValidFacebookAuthCookieString(harvested);
                         bool shouldPersist = string.IsNullOrWhiteSpace(curSecret.CookieRaw) || hasAuthPair;
                         if (shouldPersist)
                         {
@@ -2020,8 +2019,13 @@ internal sealed partial class MainWindow : Window
 
                 if (!shouldFailover) return;
 
+                bool routePrefersCdpFail = !via.IsGoogleAdsAccount &&
+                    (targetUrl.Contains("page_auto_post_media", StringComparison.OrdinalIgnoreCase) ||
+                     targetUrl.Contains("page_auto_share_curated", StringComparison.OrdinalIgnoreCase) ||
+                     targetUrl.Contains("adsops_pre_robot=", StringComparison.OrdinalIgnoreCase)) &&
+                    ExtensionProvisioner.HasUsableIsolatedFacebookSession(via.Label, via.ProfileDir, vaultSecret.CookieRaw);
                 var effectiveIsoFail = ExtensionProvisioner.ShouldUseIsolatedProfile(
-                    _config.UseIsolatedProfiles,
+                    _config.UseIsolatedProfiles || routePrefersCdpFail,
                     via.ProfileDir,
                     via.NetworkLabel,
                     via.HasVaultCookie,
@@ -2062,8 +2066,13 @@ internal sealed partial class MainWindow : Window
                 return;
             }
 
+            bool routePrefersCdp = !via.IsGoogleAdsAccount &&
+                (targetUrl.Contains("page_auto_post_media", StringComparison.OrdinalIgnoreCase) ||
+                 targetUrl.Contains("page_auto_share_curated", StringComparison.OrdinalIgnoreCase) ||
+                 targetUrl.Contains("adsops_pre_robot=", StringComparison.OrdinalIgnoreCase)) &&
+                ExtensionProvisioner.HasUsableIsolatedFacebookSession(via.Label, via.ProfileDir, vaultSecret.CookieRaw);
             var effectiveIso = ExtensionProvisioner.ShouldUseIsolatedProfile(
-                _config.UseIsolatedProfiles,
+                _config.UseIsolatedProfiles || routePrefersCdp,
                 via.ProfileDir,
                 via.NetworkLabel,
                 via.HasVaultCookie,
@@ -2952,9 +2961,18 @@ internal sealed partial class MainWindow : Window
         FanpageItemDto? owningPage = null;
         string composerUrl = "";
         string shareUrl = "";
+        string postCaptionPreview = "";
         if (hasPagePostStop || hasPageShareStop)
         {
             owningPage = ResolvePrimaryLivePageForVia(v.ViaId);
+            postCaptionPreview = PageContentNurtureEngine.SpinText(
+                _config.PageCaptionSpintax,
+                owningPage?.Name ?? v.Label,
+                owningPage?.Category ?? _batchNicheKey);
+            if (postCaptionPreview.Length > 260)
+            {
+                postCaptionPreview = postCaptionPreview[..257].TrimEnd() + "...";
+            }
             if (hasPagePostStop)
             {
                 composerUrl = owningPage != null && !string.IsNullOrWhiteSpace(owningPage.ExternalPageId)
@@ -3003,6 +3021,7 @@ internal sealed partial class MainWindow : Window
                    (!string.IsNullOrEmpty(cookieUrlsCsv) ? "&adsops_cookie_urls=" + Uri.EscapeDataString(cookieUrlsCsv) : "") +
                    (!string.IsNullOrEmpty(composerUrl) ? "&adsops_composer_url=" + Uri.EscapeDataString(composerUrl) : "") +
                    (!string.IsNullOrEmpty(shareUrl) ? "&adsops_share_url=" + Uri.EscapeDataString(shareUrl) : "") +
+                   (!string.IsNullOrEmpty(postCaptionPreview) ? "&adsops_post_caption=" + Uri.EscapeDataString(postCaptionPreview) : "") +
                    (fastTest ? "&adsops_fast_test=1" : "");
         }
 
@@ -3554,7 +3573,65 @@ internal sealed partial class MainWindow : Window
     private volatile bool _isSilentInviteRunning;
     private CancellationTokenSource? _silentInviteCts;
     private readonly ConcurrentDictionary<string, DateTimeOffset> _recentCdpStepActions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _silentMissingLoginBackoffUntil = new(StringComparer.OrdinalIgnoreCase);
     internal bool IsSilentInviteRunning => _isSilentInviteRunning;
+
+    internal bool CheckSilentFacebookSessionReady(
+        ViaWorkspaceEntry via,
+        LocalVaultLookupResult vaultSecret,
+        bool isScheduled,
+        out string detail)
+    {
+        var key = !string.IsNullOrWhiteSpace(via.ViaId) ? via.ViaId : $"{via.ProfileDir}::{via.Label}";
+        if (ExtensionProvisioner.HasUsableIsolatedFacebookSession(via.Label, via.ProfileDir, vaultSecret.CookieRaw))
+        {
+            _silentMissingLoginBackoffUntil.TryRemove(key, out _);
+            detail = "OK";
+            return true;
+        }
+
+        if (isScheduled && _silentMissingLoginBackoffUntil.TryGetValue(key, out var backoffUntil) && DateTimeOffset.UtcNow < backoffUntil)
+        {
+            detail = $"Tạm bỏ qua '{via.Label}' đến {backoffUntil.ToLocalTime():HH:mm} (chưa có Cookie DPAPI / phiên FB trong Chrome Cô lập).";
+            return false;
+        }
+
+        _silentMissingLoginBackoffUntil[key] = DateTimeOffset.UtcNow.AddHours(2);
+        detail = $"Via '{via.Label}' chưa có Cookie FB hợp lệ trong Két DPAPI hoặc Profile Cô lập -> mở Via 1 lần để tự đồng bộ Cookie.";
+        return false;
+    }
+
+    private async Task TryRefreshVaultCookieFromSilentCdpAsync(
+        int cdpPort,
+        ViaWorkspaceEntry via,
+        LocalVaultLookupResult curSecret)
+    {
+        if (!_config.AutoRefreshCookieAfterKeepAlive || via.IsGoogleAdsAccount || cdpPort <= 0) return;
+        try
+        {
+            var harvested = await ChromeCdpController.TryHarvestFacebookCookieHeaderAsync(cdpPort, 1800).ConfigureAwait(false);
+            if (!ExtensionProvisioner.HasValidFacebookAuthCookieString(harvested)) return;
+
+            _silentMissingLoginBackoffUntil.TryRemove(!string.IsNullOrWhiteSpace(via.ViaId) ? via.ViaId : $"{via.ProfileDir}::{via.Label}", out _);
+            bool changed = !string.Equals(harvested!.Trim(), (curSecret.CookieRaw ?? "").Trim(), StringComparison.Ordinal);
+            if (changed)
+            {
+                LocalSecretVaultStore.Default.Upsert(
+                    via.ViaId,
+                    via.Label,
+                    via.ProfileDir,
+                    harvested,
+                    curSecret.TwoFaSecret ?? "");
+            }
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                via.HasVaultCookie = true;
+                via.LastCookieRefreshUtc = DateTimeOffset.UtcNow;
+            });
+            ViaStewardshipStore.Default.RecordCookieRefresh(via.ViaId, via.Label, via.ClientGroup);
+        }
+        catch { }
+    }
 
     internal static bool IsIsolatedProfileLockFileHeld(string? isoDir)
     {
@@ -3731,31 +3808,14 @@ internal sealed partial class MainWindow : Window
                 }
                 else
                 {
-                    string? imgPath = null;
-                    var pickedImg = PageContentNurtureEngine.PickRandomImageFromDir(_config.PageAssetsDir, nicheKey, "posts");
-                    if (!string.IsNullOrWhiteSpace(pickedImg))
+                    var (imgPath, isTempCardOrVariant) = PageContentNurtureEngine.ResolveOrGeneratePostImage(
+                        _config.PageAssetsDir, nicheKey, pageName, caption, _config.EnableImageHashJitter);
+                    if (isTempCardOrVariant)
                     {
-                        if (_config.EnableImageHashJitter)
-                        {
-                            try
-                            {
-                                imgPath = PageContentNurtureEngine.CreateUniqueImageVariant(pickedImg);
-                                if (!string.Equals(imgPath, pickedImg, StringComparison.OrdinalIgnoreCase))
-                                {
-                                    tempVariantPath = imgPath;
-                                }
-                            }
-                            catch
-                            {
-                                imgPath = pickedImg;
-                            }
-                        }
-                        else
-                        {
-                            imgPath = pickedImg;
-                        }
+                        tempVariantPath = imgPath;
                     }
-                    res = await ChromeCdpController.RunSilentPagePublishPostAsync(cdpPort, caption, imgPath, stepCts.Token).ConfigureAwait(false);
+                    res = await ChromeCdpController.RunSilentPagePublishPostAsync(
+                        cdpPort, caption, imgPath, stepCts.Token, owningPage?.ExternalPageId).ConfigureAwait(false);
                 }
 
                 if (res.Ok && owningPage != null && !string.IsNullOrWhiteSpace(owningPage.Id))
@@ -3790,7 +3850,8 @@ internal sealed partial class MainWindow : Window
 
     internal async Task<ChromeCdpController.SilentMbsInviteResult> ExecuteSilentInviteForPageCoreAsync(
         FanpageItemDto page,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool isScheduled = false)
     {
         var via = ResolveEffectiveViaForPage(page);
         if (via == null)
@@ -3805,6 +3866,13 @@ internal sealed partial class MainWindow : Window
         {
             return new ChromeCdpController.SilentMbsInviteResult(false, false, 0, 0, $"Chrome Profile '{via.ProfileDir}' ({via.Label}) đang mở -> bỏ qua Mời Ẩn để tránh xung đột Profile Lock.");
         }
+
+        var vaultSecret = LocalSecretVaultStore.Default.Find(via.ViaId, via.ProfileDir, via.Label);
+        if (!CheckSilentFacebookSessionReady(via, vaultSecret, isScheduled, out var sessionDetail))
+        {
+            return new ChromeCdpController.SilentMbsInviteResult(false, true, 0, 0, sessionDetail);
+        }
+
         var (pxOk, pxReason) = await PreCheckViaProxyTcpQuickAsync(via, _config.PreCheckProxyBeforeLaunch, ct).ConfigureAwait(false);
         if (!pxOk)
         {
@@ -3812,7 +3880,6 @@ internal sealed partial class MainWindow : Window
         }
 
         var mbsUrl = $"https://business.facebook.com/latest/home?asset_id={Uri.EscapeDataString(page.ExternalPageId)}";
-        var vaultSecret = LocalSecretVaultStore.Default.Find(via.ViaId, via.ProfileDir, via.Label);
         var envProf = ResolveViaEnvironmentProfileFor(via);
 
         int? launchedPid = null;
@@ -3855,6 +3922,7 @@ internal sealed partial class MainWindow : Window
                 {
                     SetPagePendingInviteCount(page, res.DetectedPending, renderNow: true);
                 }
+                await TryRefreshVaultCookieFromSilentCdpAsync(launch.CdpPort.Value, via, vaultSecret).ConfigureAwait(false);
             }
             return res;
         }
@@ -3962,7 +4030,7 @@ internal sealed partial class MainWindow : Window
             for (int i = 0; i < livePages.Count && !ct.IsCancellationRequested; i++)
             {
                 var pg = livePages[i];
-                var res = await ExecuteSilentInviteForPageCoreAsync(pg, ct);
+                var res = await ExecuteSilentInviteForPageCoreAsync(pg, ct, isScheduled);
                 if (res.NeedsLogin)
                 {
                     needsLoginCount++;
@@ -4360,7 +4428,8 @@ internal sealed partial class MainWindow : Window
     internal async Task<ChromeCdpController.SilentPageContentResult> ExecuteSilentPageNurtureCoreAsync(
         FanpageItemDto page,
         string actionMode,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool isScheduled = false)
     {
         var via = ResolveEffectiveViaForPage(page);
         if (via == null)
@@ -4371,6 +4440,13 @@ internal sealed partial class MainWindow : Window
         {
             return new ChromeCdpController.SilentPageContentResult(false, false, actionMode, false, $"Chrome Profile '{via.ProfileDir}' ({via.Label}) đang mở -> bỏ qua Nuôi Page Ẩn để tránh xung đột Profile Lock.");
         }
+
+        var vaultSecret = LocalSecretVaultStore.Default.Find(via.ViaId, via.ProfileDir, via.Label);
+        if (!CheckSilentFacebookSessionReady(via, vaultSecret, isScheduled, out var sessionDetail))
+        {
+            return new ChromeCdpController.SilentPageContentResult(false, true, actionMode, false, sessionDetail);
+        }
+
         var (pxOk, pxReason) = await PreCheckViaProxyTcpQuickAsync(via, _config.PreCheckProxyBeforeLaunch, ct).ConfigureAwait(false);
         if (!pxOk)
         {
@@ -4378,11 +4454,11 @@ internal sealed partial class MainWindow : Window
         }
 
         var pageKey = !string.IsNullOrWhiteSpace(page.ExternalPageId) ? page.ExternalPageId! : page.Id;
-        var caption = PageContentNurtureEngine.SpinText(_config.PageCaptionSpintax, page.Name, page.Category ?? _batchNicheKey);
-        var vaultSecret = LocalSecretVaultStore.Default.Find(via.ViaId, via.ProfileDir, via.Label);
+        var nicheKey = page.Category ?? _batchNicheKey;
+        var caption = PageContentNurtureEngine.SpinText(_config.PageCaptionSpintax, page.Name, nicheKey);
         var envProf = ResolveViaEnvironmentProfileFor(via);
 
-        string targetUrl;
+        string targetUrl = "";
         string? preparedImagePath = null;
         string? tempCreatedVariantPath = null;
         bool isShare = string.Equals(actionMode, "share", StringComparison.OrdinalIgnoreCase);
@@ -4394,34 +4470,28 @@ internal sealed partial class MainWindow : Window
             var nextUrl = PageContentNurtureEngine.PickNextShareUrl(pageKey, shareUrls, _config.PageSharedUrlHistory);
             if (string.IsNullOrWhiteSpace(nextUrl))
             {
-                return new ChromeCdpController.SilentPageContentResult(false, false, "share", false, "Chưa có link nguồn chia sẻ (hãy dán URL vào khung Trung tâm Nuôi Page).");
+                isShare = false;
+                actionMode = "post";
+                _ = Dispatcher.BeginInvoke(() =>
+                    AppendLog($"ℹ️ [Nuôi Page Ẩn] Page '{page.Name}' chưa có danh sách Link nguồn chia sẻ -> tự động chuyển sang Đăng bài Ảnh Card + Caption Spin."));
             }
-            targetUrl = nextUrl;
+            else
+            {
+                targetUrl = nextUrl;
+            }
         }
-        else
+
+        if (!isShare)
         {
             targetUrl = !string.IsNullOrWhiteSpace(page.ExternalPageId)
                 ? $"https://business.facebook.com/latest/composer?asset_id={Uri.EscapeDataString(page.ExternalPageId!)}"
                 : "https://business.facebook.com/latest/composer";
-            var pickedImg = PageContentNurtureEngine.PickRandomImageFromDir(_config.PageAssetsDir, page.Category ?? _batchNicheKey, "posts");
-            if (!string.IsNullOrWhiteSpace(pickedImg))
+            var (resolvedImg, isTempCardOrVariant) = PageContentNurtureEngine.ResolveOrGeneratePostImage(
+                _config.PageAssetsDir, nicheKey, page.Name, caption, _config.EnableImageHashJitter);
+            preparedImagePath = resolvedImg;
+            if (isTempCardOrVariant)
             {
-                if (_config.EnableImageHashJitter)
-                {
-                    try
-                    {
-                        preparedImagePath = PageContentNurtureEngine.CreateUniqueImageVariant(pickedImg);
-                        if (!string.Equals(preparedImagePath, pickedImg, StringComparison.OrdinalIgnoreCase))
-                        {
-                            tempCreatedVariantPath = preparedImagePath;
-                        }
-                    }
-                    catch { preparedImagePath = pickedImg; }
-                }
-                else
-                {
-                    preparedImagePath = pickedImg;
-                }
+                tempCreatedVariantPath = resolvedImg;
             }
         }
 
@@ -4450,10 +4520,11 @@ internal sealed partial class MainWindow : Window
 
             var res = isShare
                 ? await ChromeCdpController.RunSilentPageSharePostAsync(launch.CdpPort.Value, caption, ct).ConfigureAwait(false)
-                : await ChromeCdpController.RunSilentPagePublishPostAsync(launch.CdpPort.Value, caption, preparedImagePath, ct).ConfigureAwait(false);
+                : await ChromeCdpController.RunSilentPagePublishPostAsync(launch.CdpPort.Value, caption, preparedImagePath, ct, page.ExternalPageId).ConfigureAwait(false);
 
             if (res.Ok)
             {
+                await TryRefreshVaultCookieFromSilentCdpAsync(launch.CdpPort.Value, via, vaultSecret).ConfigureAwait(false);
                 if (isShare)
                 {
                     _config.PageLocalShareCounts ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -4575,7 +4646,7 @@ internal sealed partial class MainWindow : Window
             {
                 var pg = livePages[i];
                 var stepMode = mode == "share" || (mode == "alternate" && shareUrls.Count > 0 && i % 2 == 1) ? "share" : "post";
-                var res = await ExecuteSilentPageNurtureCoreAsync(pg, stepMode, ct);
+                var res = await ExecuteSilentPageNurtureCoreAsync(pg, stepMode, ct, isScheduled);
                 if (res.NeedsLogin)
                 {
                     loginMissing++;

@@ -495,11 +495,24 @@ public static class ChromeCdpController
             using var ws = new ClientWebSocket();
             await ws.ConnectAsync(new Uri(pageWsUrl), token).ConfigureAwait(false);
 
+            var sel = MetaDomSelectorPack.LoadOrCreateDefault();
+            var selJson = JsonSerializer.Serialize(sel);
             var clampedMax = Math.Clamp(maxInvites, 1, 50);
             var js = $$"""
             (async () => {
               const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
               const maxInv = {{clampedMax}};
+              const SEL = {{selJson}};
+              const reactClick = (el) => {
+                if (!el) return;
+                try {
+                  ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach((evName) => {
+                    el.dispatchEvent(new MouseEvent(evName, { bubbles: true, cancelable: true, view: window }));
+                  });
+                } catch {
+                  try { el.click(); } catch {}
+                }
+              };
               const parseParen = (txt) => {
                 const m = String(txt || '').match(/\((\d+)\)/);
                 return m ? parseInt(m[1], 10) : 0;
@@ -509,13 +522,31 @@ public static class ChromeCdpController
                 const r = el.getBoundingClientRect();
                 return r.width > 2 && r.height > 2;
               };
+              const getElLabel = (el) => {
+                const txt = (el.innerText || el.textContent || '').trim();
+                const aria = (el.getAttribute && el.getAttribute('aria-label') || '').trim();
+                return (txt || aria).trim();
+              };
               const findByText = (root, predicate) => {
                 const nodes = Array.from((root || document).querySelectorAll('button,[role="button"],[role="tab"],a,span,div'));
                 return nodes.filter((el) => {
-                  const t = (el.innerText || el.textContent || '').trim();
-                  return t.length > 0 && t.length <= 160 && isVisible(el) && predicate(t, el);
+                  const t = getElLabel(el);
+                  return t.length > 0 && t.length <= 180 && isVisible(el) && predicate(t, el);
                 });
               };
+              const dismissTooltipsOutsideDialog = () => {
+                const tips = findByText(document, (t, el) => {
+                  if (el.closest('[role="dialog"]')) return false;
+                  const l = t.toLowerCase();
+                  return (SEL.dismissOverlayLabels || []).some((k) => l === String(k).toLowerCase());
+                });
+                tips.slice(0, 2).forEach((b) => reactClick(b));
+              };
+              const isExcluded = (l) => (SEL.inviteExcludeSubstrings || []).some((ex) => l.includes(String(ex).toLowerCase()));
+              const matchesInviteBtn = (l) => (SEL.inviteButtonLabels || []).some((k) => {
+                const lk = String(k).toLowerCase();
+                return l === lk || l.startsWith(lk + ' ');
+              });
 
               // 1. Wait for MBS page load (up to 16s)
               for (let i = 0; i < 32; i++) {
@@ -523,8 +554,10 @@ public static class ChromeCdpController
                 if (href.includes('/login') || document.querySelector('input[name="email"], input[name="pass"]')) {
                   return JSON.stringify({ ok: false, needsLogin: true, detectedPending: 0, invitedSent: 0, detail: 'Chưa đăng nhập Facebook trong Chrome Cô lập (hãy lưu Cookie vào Két DPAPI hoặc đăng nhập 1 lần).' });
                 }
+                if (i === 2 || i === 6) dismissTooltipsOutsideDialog();
                 const txt = (document.body?.innerText || '').toLowerCase();
-                if (txt.includes('bày tỏ cảm xúc') || txt.includes('reacted to your content') || txt.includes('gửi lời mời') || txt.includes('send invitations')) {
+                const hasCardKw = (SEL.inviteCardKeywords || []).some((k) => txt.includes(String(k).toLowerCase()));
+                if (hasCardKw || txt.includes('gửi lời mời') || txt.includes('send invitations')) {
                   break;
                 }
                 if (i === 10 || i === 18) window.scrollBy(0, 500);
@@ -537,31 +570,30 @@ public static class ChromeCdpController
               if (!dialog) {
                 const anchors = findByText(document, (t) => {
                   const l = t.toLowerCase();
-                  return l.includes('tiếp cận những người đã bày tỏ cảm xúc') || l.includes('reach people who reacted');
+                  return (SEL.inviteCardKeywords || []).some((k) => l.includes(String(k).toLowerCase()));
                 });
                 if (anchors.length === 0) {
                   return JSON.stringify({ ok: true, needsLogin: false, detectedPending: 0, invitedSent: 0, detail: 'Hiện không có mục người bày tỏ cảm xúc/bình luận cần mời.' });
                 }
                 const anchorRect = anchors[0].getBoundingClientRect();
-                // Try reading small integer near anchor
                 const nums = findByText(document, (t) => /^\d{1,4}$/.test(t));
                 for (const n of nums) {
                   const r = n.getBoundingClientRect();
-                  if (r.top >= anchorRect.top - 10 && r.top <= anchorRect.bottom + 170 && Math.abs(r.left - anchorRect.left) <= 280) {
+                  if (r.top >= anchorRect.top - 10 && r.top <= anchorRect.bottom + 180 && Math.abs(r.left - anchorRect.left) <= 300) {
                     cardDetected = Math.max(cardDetected, parseInt(n.innerText.trim(), 10) || 0);
                   }
                 }
                 const sendBtns = findByText(document, (t) => {
                   const l = t.toLowerCase();
-                  return (l === 'gửi lời mời' || l === 'send invitations' || l === 'send invite') && !l.includes('bạn bè') && !l.includes('friends');
+                  return matchesInviteBtn(l) && !isExcluded(l);
                 }).filter((el) => {
                   const r = el.getBoundingClientRect();
-                  return r.top >= anchorRect.top - 40 && r.top <= anchorRect.bottom + 180;
+                  return r.top >= anchorRect.top - 45 && r.top <= anchorRect.bottom + 190;
                 });
                 if (sendBtns.length === 0) {
                   return JSON.stringify({ ok: true, needsLogin: false, detectedPending: cardDetected, invitedSent: 0, detail: 'Hiện có 0 người cần mời theo dõi.' });
                 }
-                sendBtns[0].click();
+                reactClick(sendBtns[0]);
                 for (let w = 0; w < 14; w++) {
                   await sleep(350);
                   dialog = document.querySelector('[role="dialog"]');
@@ -587,7 +619,7 @@ public static class ChromeCdpController
                 let checkedNow = checkboxes.filter((cb) => cb.checked || cb.getAttribute('aria-checked') === 'true').length;
 
                 if (checkedNow === 0 && selectAll.length > 0) {
-                  selectAll[0].click();
+                  reactClick(selectAll[0]);
                   await sleep(450);
                   const refreshed = Array.from(dlg.querySelectorAll('input[type="checkbox"], [role="checkbox"]')).filter(isVisible);
                   checkedNow = refreshed.filter((cb) => cb.checked || cb.getAttribute('aria-checked') === 'true').length;
@@ -595,26 +627,44 @@ public static class ChromeCdpController
                 if (checkedNow === 0 && checkboxes.length > 0) {
                   const lim = Math.min(maxInv, checkboxes.length);
                   for (let i = 0; i < lim; i++) {
-                    checkboxes[i].click();
+                    reactClick(checkboxes[i]);
                     await sleep(90);
                   }
                   checkedNow = lim;
                 }
 
+                // Per-row Invite fallback when Meta displays single-click row buttons instead of checkboxes
+                if (checkedNow === 0 && checkboxes.length === 0) {
+                  const rowBtns = Array.from(dlg.querySelectorAll('button,[role="button"]')).filter((el) => {
+                    if (!isVisible(el) || el.disabled || el.getAttribute('aria-disabled') === 'true') return false;
+                    const l = getElLabel(el).toLowerCase();
+                    return (l === 'mời' || l === 'invite' || l === 'gửi lời mời') && !isExcluded(l);
+                  });
+                  if (rowBtns.length > 0) {
+                    const rowLim = Math.min(maxInv, rowBtns.length);
+                    let rowSent = 0;
+                    for (let i = 0; i < rowLim; i++) {
+                      reactClick(rowBtns[i]);
+                      rowSent++;
+                      await sleep(220);
+                    }
+                    return { detected: rowBtns.length, sent: rowSent };
+                  }
+                }
+
                 await sleep(500);
                 const finalBtns = findByText(dlg, (t) => {
                   const l = t.toLowerCase();
-                  return (l.startsWith('gửi lời mời') || l.startsWith('send invitation') || l.startsWith('send invite'))
-                    && !l.includes('bạn bè') && !l.includes('friends');
-                }).sort((a, b) => parseParen(b.innerText) - parseParen(a.innerText));
+                  return matchesInviteBtn(l) && !isExcluded(l);
+                }).sort((a, b) => parseParen(getElLabel(b)) - parseParen(getElLabel(a)));
 
                 if (finalBtns.length > 0) {
                   const btn = finalBtns[0];
-                  const btnCount = parseParen(btn.innerText);
+                  const btnCount = parseParen(getElLabel(btn));
                   const eff = Math.max(btnCount, checkedNow);
                   const disabled = btn.disabled || btn.getAttribute('aria-disabled') === 'true';
                   if (eff > 0 && !disabled) {
-                    btn.click();
+                    reactClick(btn);
                     await sleep(1100);
                     return { detected: eff, sent: eff };
                   }
@@ -625,7 +675,6 @@ public static class ChromeCdpController
               let totalDetected = cardDetected;
               let totalSent = 0;
 
-              // Read tab headers before clicking
               const reactTabs = findByText(dialog, (t) => {
                 const l = t.toLowerCase();
                 return l.startsWith('cảm xúc') || l.startsWith('reactions');
@@ -634,16 +683,14 @@ public static class ChromeCdpController
                 const l = t.toLowerCase();
                 return l.startsWith('bình luận') || l.startsWith('comments');
               });
-              const rCnt = reactTabs.length > 0 ? parseParen(reactTabs[0].innerText) : 0;
-              const cCnt = commentTabs.length > 0 ? parseParen(commentTabs[0].innerText) : 0;
+              const rCnt = reactTabs.length > 0 ? parseParen(getElLabel(reactTabs[0])) : 0;
+              const cCnt = commentTabs.length > 0 ? parseParen(getElLabel(commentTabs[0])) : 0;
               totalDetected = Math.max(totalDetected, rCnt + cCnt);
 
-              // First process currently active tab
               const res1 = await processActiveTab();
               totalDetected = Math.max(totalDetected, res1.detected);
               totalSent += res1.sent;
 
-              // If Comments tab still has pending people & modal still open, switch to Comments tab and invite too
               const dlgAfter = document.querySelector('[role="dialog"]');
               if (dlgAfter && cCnt > 0) {
                 const cTabs2 = findByText(dlgAfter, (t) => {
@@ -653,7 +700,7 @@ public static class ChromeCdpController
                 if (cTabs2.length > 0) {
                   const alreadySelected = cTabs2[0].getAttribute('aria-selected') === 'true';
                   if (!alreadySelected || res1.sent === 0) {
-                    cTabs2[0].click();
+                    reactClick(cTabs2[0]);
                     const res2 = await processActiveTab();
                     totalDetected = Math.max(totalDetected, res1.detected + res2.detected);
                     totalSent += res2.sent;
@@ -717,7 +764,8 @@ public static class ChromeCdpController
         int cdpPort,
         string caption,
         string? uniqueImagePath,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? fallbackPageExternalId = null)
     {
         if (cdpPort <= 0)
         {
@@ -726,8 +774,10 @@ public static class ChromeCdpController
 
         try
         {
+            var sel = MetaDomSelectorPack.LoadOrCreateDefault();
+            var selJson = JsonSerializer.Serialize(sel);
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            linkedCts.CancelAfter(TimeSpan.FromSeconds(55));
+            linkedCts.CancelAfter(TimeSpan.FromSeconds(65));
             var token = linkedCts.Token;
 
             var browserWsUrl = await PollBrowserWsUrlAsync(cdpPort, 6000, token).ConfigureAwait(false);
@@ -750,17 +800,37 @@ public static class ChromeCdpController
             await ws.ConnectAsync(new Uri(pageWsUrl), token).ConfigureAwait(false);
             int cmdId = 1;
 
-            // 1. Wait for Composer textbox or detect login wall
-            var waitJs = """
+            // 1. Mark CDP busy (suppresses Companion native DOM fallback race) & wait for MBS Composer
+            var waitJs = $$"""
             (async () => {
               const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-              for (let i = 0; i < 34; i++) {
+              const SEL = {{selJson}};
+              try { document.documentElement.setAttribute('data-adsops-cdp-busy', '1'); } catch {}
+              const dismissTips = () => {
+                const btns = Array.from(document.querySelectorAll('button,[role="button"]')).filter((el) => {
+                  if (el.closest('[role="dialog"]')) return false;
+                  const r = el.getBoundingClientRect();
+                  if (r.width < 16 || r.height < 14) return false;
+                  const t = (el.innerText || el.getAttribute('aria-label') || '').trim().toLowerCase();
+                  return (SEL.dismissOverlayLabels || []).some((k) => t === String(k).toLowerCase());
+                });
+                btns.slice(0, 2).forEach((b) => { try { b.click(); } catch {} });
+              };
+              const findTextbox = () => {
+                for (const s of (SEL.composerTextboxSelectors || ['[role="textbox"][contenteditable="true"]'])) {
+                  const el = Array.from(document.querySelectorAll(s)).find((n) => n.getBoundingClientRect().height > 10);
+                  if (el) return el;
+                }
+                return null;
+              };
+              for (let i = 0; i < 32; i++) {
+                try { document.documentElement.setAttribute('data-adsops-cdp-busy', '1'); } catch {}
                 const href = String(location.href || '').toLowerCase();
                 if (href.includes('/login') || document.querySelector('input[name="email"], input[name="pass"]')) {
                   return JSON.stringify({ ready: false, needsLogin: true });
                 }
-                const box = document.querySelector('[role="textbox"][contenteditable="true"], div[contenteditable="true"]');
-                if (box && box.getBoundingClientRect().height > 10) {
+                if (i === 3 || i === 8) dismissTips();
+                if (findTextbox()) {
                   return JSON.stringify({ ready: true, needsLogin: false });
                 }
                 await sleep(500);
@@ -769,6 +839,7 @@ public static class ChromeCdpController
             })();
             """;
 
+            bool composerReady = false;
             var waitResp = await SendCdpCommandAsync(
                 ws, cmdId++, "Runtime.evaluate",
                 new { expression = waitJs, awaitPromise = true, returnByValue = true }, token).ConfigureAwait(false);
@@ -780,10 +851,75 @@ public static class ChromeCdpController
                 {
                     return new SilentPageContentResult(false, true, "post", false, "Chưa đăng nhập Facebook trong Chrome Cô lập (hãy lưu Cookie vào Két DPAPI hoặc bấm Thu Cookie).");
                 }
-                if (!(wDoc.RootElement.TryGetProperty("ready", out var rd) && rd.GetBoolean()))
+                composerReady = wDoc.RootElement.TryGetProperty("ready", out var rd) && rd.GetBoolean();
+            }
+
+            // Tier-2 Fallback: if MBS Composer failed to appear, navigate directly to the Fanpage Feed and open the inline Composer modal
+            if (!composerReady && !string.IsNullOrWhiteSpace(fallbackPageExternalId))
+            {
+                var fbPageUrl = $"https://www.facebook.com/{Uri.EscapeDataString(fallbackPageExternalId.Trim())}";
+                await SendCdpCommandAsync(ws, cmdId++, "Page.navigate", new { url = fbPageUrl }, token).ConfigureAwait(false);
+                var fallbackWaitJs = $$"""
+                (async () => {
+                  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+                  const SEL = {{selJson}};
+                  const reactClick = (el) => {
+                    if (!el) return;
+                    ['pointerdown','mousedown','pointerup','mouseup','click'].forEach((ev) => {
+                      try { el.dispatchEvent(new MouseEvent(ev, { bubbles: true, cancelable: true, view: window })); } catch {}
+                    });
+                  };
+                  const findDialogBox = () => {
+                    const dlg = document.querySelector('[role="dialog"]') || document;
+                    for (const s of (SEL.composerTextboxSelectors || ['[role="textbox"][contenteditable="true"]'])) {
+                      const el = Array.from(dlg.querySelectorAll(s)).find((n) => n.getBoundingClientRect().height > 12);
+                      if (el) return el;
+                    }
+                    return null;
+                  };
+                  for (let i = 0; i < 24; i++) {
+                    try { document.documentElement.setAttribute('data-adsops-cdp-busy', '1'); } catch {}
+                    const href = String(location.href || '').toLowerCase();
+                    if (href.includes('/login') || document.querySelector('input[name="email"], input[name="pass"]')) {
+                      return JSON.stringify({ ready: false, needsLogin: true });
+                    }
+                    if (i === 4) window.scrollBy(0, 260);
+                    const opener = Array.from(document.querySelectorAll('[role="button"], button')).find((el) => {
+                      const r = el.getBoundingClientRect();
+                      if (r.width < 60 || r.height < 18) return false;
+                      const txt = ((el.innerText || el.getAttribute('aria-label') || '')).trim().toLowerCase();
+                      return (SEL.pageFeedOpenComposerKeywords || []).some((k) => txt.includes(String(k).toLowerCase()));
+                    });
+                    if (opener && i >= 4) {
+                      reactClick(opener);
+                      for (let w = 0; w < 16; w++) {
+                        await sleep(500);
+                        if (findDialogBox()) return JSON.stringify({ ready: true, needsLogin: false });
+                      }
+                    }
+                    await sleep(500);
+                  }
+                  return JSON.stringify({ ready: false, needsLogin: false });
+                })();
+                """;
+                var fbWaitResp = await SendCdpCommandAsync(
+                    ws, cmdId++, "Runtime.evaluate",
+                    new { expression = fallbackWaitJs, awaitPromise = true, returnByValue = true }, token).ConfigureAwait(false);
+                var fbWaitJson = TryExtractEvalStringValue(fbWaitResp);
+                if (!string.IsNullOrWhiteSpace(fbWaitJson))
                 {
-                    return new SilentPageContentResult(false, false, "post", false, "Meta Business Suite Composer tải quá lâu hoặc chưa mở được khung soạn bài.");
+                    using var fwDoc = JsonDocument.Parse(fbWaitJson);
+                    if (fwDoc.RootElement.TryGetProperty("needsLogin", out var fnl) && fnl.GetBoolean())
+                    {
+                        return new SilentPageContentResult(false, true, "post", false, "Chưa đăng nhập Facebook trong Chrome Cô lập (hãy lưu Cookie vào Két DPAPI hoặc bấm Thu Cookie).");
+                    }
+                    composerReady = fwDoc.RootElement.TryGetProperty("ready", out var frd) && frd.GetBoolean();
                 }
+            }
+
+            if (!composerReady)
+            {
+                return new SilentPageContentResult(false, false, "post", false, "Meta Business Suite Composer & Fallback Fanpage tải quá lâu hoặc chưa mở được khung soạn bài.");
             }
 
             // 2. Attach unique image directly via CDP DOM.setFileInputFiles (no OS dialog!)
@@ -829,14 +965,19 @@ public static class ChromeCdpController
             }
 
             // 3. Focus textbox, insert caption via Input.insertText, then click Publish/Đăng
-            var focusJs = """
+            var focusJs = $$"""
             (() => {
-              const boxes = Array.from(document.querySelectorAll('[role="textbox"][contenteditable="true"], div[contenteditable="true"]'))
-                .filter((el) => el.getBoundingClientRect().height > 12);
-              if (boxes.length === 0) return false;
-              boxes[0].focus();
-              boxes[0].click();
-              return true;
+              const SEL = {{selJson}};
+              const root = document.querySelector('[role="dialog"]') || document;
+              for (const s of (SEL.composerTextboxSelectors || ['[role="textbox"][contenteditable="true"]'])) {
+                const boxes = Array.from(root.querySelectorAll(s)).filter((el) => el.getBoundingClientRect().height > 12);
+                if (boxes.length > 0) {
+                  boxes[0].focus();
+                  boxes[0].click();
+                  return true;
+                }
+              }
+              return false;
             })();
             """;
             await SendCdpCommandAsync(ws, cmdId++, "Runtime.evaluate", new { expression = focusJs, returnByValue = true }, token).ConfigureAwait(false);
@@ -847,23 +988,31 @@ public static class ChromeCdpController
                 await Task.Delay(900, token).ConfigureAwait(false);
             }
 
-            var publishJs = """
+            var publishJs = $$"""
             (async () => {
               const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+              const SEL = {{selJson}};
+              const reactClick = (el) => {
+                if (!el) return;
+                ['pointerdown','mousedown','pointerup','mouseup','click'].forEach((ev) => {
+                  try { el.dispatchEvent(new MouseEvent(ev, { bubbles: true, cancelable: true, view: window })); } catch {}
+                });
+              };
+              const pubLabels = (SEL.publishButtonLabels || ['đăng', 'publish', 'post']).map((k) => String(k).toLowerCase());
               for (let attempt = 0; attempt < 16; attempt++) {
                 const btns = Array.from(document.querySelectorAll('button,[role="button"]')).filter((el) => {
                   const r = el.getBoundingClientRect();
                   if (r.width < 20 || r.height < 18) return false;
-                  const t = (el.innerText || el.textContent || '').trim().toLowerCase();
-                  return t === 'đăng' || t === 'publish' || t === 'đăng ngay' || t === 'publish now' || t === 'post';
+                  const t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').trim().toLowerCase();
+                  return pubLabels.includes(t);
                 });
                 if (btns.length > 0) {
                   const btn = btns[btns.length - 1];
                   const disabled = btn.disabled || btn.getAttribute('aria-disabled') === 'true';
                   if (!disabled) {
-                    btn.click();
+                    reactClick(btn);
                     await sleep(2200);
-                    return JSON.stringify({ published: true, label: (btn.innerText || '').trim() });
+                    return JSON.stringify({ published: true, label: (btn.innerText || btn.getAttribute('aria-label') || '').trim() });
                   }
                 }
                 await sleep(600);
@@ -911,6 +1060,8 @@ public static class ChromeCdpController
 
         try
         {
+            var sel = MetaDomSelectorPack.LoadOrCreateDefault();
+            var selJson = JsonSerializer.Serialize(sel);
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             linkedCts.CancelAfter(TimeSpan.FromSeconds(48));
             var token = linkedCts.Token;
@@ -935,10 +1086,26 @@ public static class ChromeCdpController
             await ws.ConnectAsync(new Uri(pageWsUrl), token).ConfigureAwait(false);
             int cmdId = 1;
 
-            var shareOpenJs = """
+            var shareOpenJs = $$"""
             (async () => {
               const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+              const SEL = {{selJson}};
+              try { document.documentElement.setAttribute('data-adsops-cdp-busy', '1'); } catch {}
+              const reactClick = (el) => {
+                if (!el) return;
+                ['pointerdown','mousedown','pointerup','mouseup','click'].forEach((ev) => {
+                  try { el.dispatchEvent(new MouseEvent(ev, { bubbles: true, cancelable: true, view: window })); } catch {}
+                });
+              };
+              const trigLabels = (SEL.shareTriggerLabels || ['chia sẻ', 'share']).map((k) => String(k).toLowerCase());
+              const menuLabels = (SEL.shareMenuIntermediateLabels || ['viết bài', 'share to feed']).map((k) => String(k).toLowerCase());
+              const boxSels = SEL.composerTextboxSelectors || ['[role="textbox"][contenteditable="true"]'];
+              const findBox = () => {
+                const dlg = document.querySelector('[role="dialog"]') || document;
+                return boxSels.some((s) => Boolean(dlg.querySelector(s)));
+              };
               for (let i = 0; i < 22; i++) {
+                try { document.documentElement.setAttribute('data-adsops-cdp-busy', '1'); } catch {}
                 const href = String(location.href || '').toLowerCase();
                 if (href.includes('/login') || document.querySelector('input[name="email"], input[name="pass"]')) {
                   return JSON.stringify({ opened: false, needsLogin: true });
@@ -948,11 +1115,24 @@ public static class ChromeCdpController
                   const r = el.getBoundingClientRect();
                   if (r.width < 16 || r.height < 14) return false;
                   const t = (el.innerText || el.getAttribute('aria-label') || '').trim().toLowerCase();
-                  return t === 'chia sẻ' || t === 'share' || t.startsWith('gửi nội dung này');
+                  return trigLabels.some((k) => t === k || t.startsWith(k));
                 });
                 if (shareBtns.length > 0 && i >= 6) {
-                  shareBtns[0].click();
-                  await sleep(1400);
+                  reactClick(shareBtns[0]);
+                  await sleep(1300);
+                  if (!findBox()) {
+                    const menuRoot = document.querySelector('[role="menu"], [role="dialog"]') || document;
+                    const midOpt = Array.from(menuRoot.querySelectorAll('[role="menuitem"], [role="button"], button, span')).find((el) => {
+                      const r = el.getBoundingClientRect();
+                      if (r.width < 20 || r.height < 14) return false;
+                      const t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').trim().toLowerCase();
+                      return menuLabels.some((k) => t.includes(k));
+                    });
+                    if (midOpt) {
+                      reactClick(midOpt);
+                      await sleep(1300);
+                    }
+                  }
                   return JSON.stringify({ opened: true, needsLogin: false });
                 }
                 await sleep(500);
@@ -979,14 +1159,19 @@ public static class ChromeCdpController
             }
 
             // Insert caption if share dialog textbox is visible
-            var focusShareBoxJs = """
+            var focusShareBoxJs = $$"""
             (() => {
+              const SEL = {{selJson}};
               const dlg = document.querySelector('[role="dialog"]') || document;
-              const box = dlg.querySelector('[role="textbox"][contenteditable="true"], div[contenteditable="true"]');
-              if (!box) return false;
-              box.focus();
-              box.click();
-              return true;
+              for (const s of (SEL.composerTextboxSelectors || ['[role="textbox"][contenteditable="true"]'])) {
+                const box = dlg.querySelector(s);
+                if (box) {
+                  box.focus();
+                  box.click();
+                  return true;
+                }
+              }
+              return false;
             })();
             """;
             var fbResp = await SendCdpCommandAsync(ws, cmdId++, "Runtime.evaluate", new { expression = focusShareBoxJs, returnByValue = true }, token).ConfigureAwait(false);
@@ -997,21 +1182,29 @@ public static class ChromeCdpController
                 await Task.Delay(600, token).ConfigureAwait(false);
             }
 
-            var confirmShareJs = """
+            var confirmShareJs = $$"""
             (async () => {
               const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+              const SEL = {{selJson}};
+              const reactClick = (el) => {
+                if (!el) return;
+                ['pointerdown','mousedown','pointerup','mouseup','click'].forEach((ev) => {
+                  try { el.dispatchEvent(new MouseEvent(ev, { bubbles: true, cancelable: true, view: window })); } catch {}
+                });
+              };
+              const confLabels = (SEL.shareConfirmLabels || ['chia sẻ ngay', 'share now', 'chia sẻ', 'share']).map((k) => String(k).toLowerCase());
               for (let i = 0; i < 10; i++) {
                 const dlg = document.querySelector('[role="dialog"]') || document;
                 const btns = Array.from(dlg.querySelectorAll('[role="button"], button, [role="menuitem"]')).filter((el) => {
                   const r = el.getBoundingClientRect();
                   if (r.width < 18 || r.height < 16) return false;
-                  const t = (el.innerText || el.textContent || '').trim().toLowerCase();
-                  return t === 'chia sẻ ngay' || t === 'share now' || t === 'chia sẻ' || t === 'share';
+                  const t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').trim().toLowerCase();
+                  return confLabels.includes(t);
                 });
                 if (btns.length > 0) {
                   const btn = btns[btns.length - 1];
                   if (!btn.disabled && btn.getAttribute('aria-disabled') !== 'true') {
-                    btn.click();
+                    reactClick(btn);
                     await sleep(1800);
                     return JSON.stringify({ shared: true });
                   }

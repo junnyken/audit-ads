@@ -3416,9 +3416,9 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "4.0.1";
-    public const string DisplayVersion = "v4.0.1";
-    public const string ExtVersion = "2.10.3";
+    public const string Version = "4.0.2";
+    public const string DisplayVersion = "v4.0.2";
+    public const string ExtVersion = "2.10.4";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 
     /// <summary>
@@ -4966,4 +4966,162 @@ public static class QueueResumeStateStore
         skippedCompletedCount = items.Count - remaining.Count;
         return remaining;
     }
+}
+
+/// <summary>
+/// Hot-reloadable DOM selector &amp; keyword pack for Meta Business Suite / Facebook automation.
+/// Persists to %LocalAppData%\AdsOpsDesktop\dom_selectors_override.json so operators can adapt
+/// to Meta UI updates immediately without recompiling the desktop binary.
+/// </summary>
+public sealed class MetaDomSelectorPack
+{
+    private static readonly JsonSerializerOptions JsonOpts = new()
+    {
+        WriteIndented = true,
+        PropertyNameCaseInsensitive = true,
+    };
+
+    [JsonPropertyName("inviteCardKeywords")]
+    public string[] InviteCardKeywords { get; set; } =
+    {
+        "tiếp cận những người đã bày tỏ cảm xúc",
+        "reach people who reacted",
+        "mời những người bày tỏ cảm xúc",
+        "mời người tương tác",
+        "những người đã tương tác",
+        "invite people who reacted",
+        "people who reacted to your"
+    };
+
+    [JsonPropertyName("inviteButtonLabels")]
+    public string[] InviteButtonLabels { get; set; } =
+    {
+        "gửi lời mời",
+        "send invitations",
+        "send invite",
+        "mời",
+        "invite"
+    };
+
+    [JsonPropertyName("inviteExcludeSubstrings")]
+    public string[] InviteExcludeSubstrings { get; set; } =
+    {
+        "bạn bè",
+        "friends"
+    };
+
+    [JsonPropertyName("dismissOverlayLabels")]
+    public string[] DismissOverlayLabels { get; set; } =
+    {
+        "đóng",
+        "close",
+        "đã hiểu",
+        "got it",
+        "lúc khác",
+        "not now",
+        "bỏ qua",
+        "skip"
+    };
+
+    [JsonPropertyName("composerTextboxSelectors")]
+    public string[] ComposerTextboxSelectors { get; set; } =
+    {
+        "[role=\"textbox\"][contenteditable=\"true\"]",
+        "div[data-lexical-editor=\"true\"]",
+        "div[contenteditable=\"true\"]"
+    };
+
+    [JsonPropertyName("pageFeedOpenComposerKeywords")]
+    public string[] PageFeedOpenComposerKeywords { get; set; } =
+    {
+        "bạn đang nghĩ gì",
+        "what's on your mind",
+        "tạo bài viết",
+        "create post",
+        "viết gì đó",
+        "write something"
+    };
+
+    [JsonPropertyName("publishButtonLabels")]
+    public string[] PublishButtonLabels { get; set; } =
+    {
+        "đăng",
+        "publish",
+        "đăng ngay",
+        "publish now",
+        "post",
+        "chia sẻ ngay"
+    };
+
+    [JsonPropertyName("shareTriggerLabels")]
+    public string[] ShareTriggerLabels { get; set; } =
+    {
+        "chia sẻ",
+        "share",
+        "gửi nội dung này"
+    };
+
+    [JsonPropertyName("shareMenuIntermediateLabels")]
+    public string[] ShareMenuIntermediateLabels { get; set; } =
+    {
+        "viết bài",
+        "chia sẻ lên bảng tin",
+        "share to feed",
+        "chia sẻ lên trang",
+        "share to a page"
+    };
+
+    [JsonPropertyName("shareConfirmLabels")]
+    public string[] ShareConfirmLabels { get; set; } =
+    {
+        "chia sẻ ngay",
+        "share now",
+        "chia sẻ",
+        "share",
+        "đăng",
+        "post"
+    };
+
+    public static string DefaultFilePath => Path.Combine(DesktopConfig.AppDataRoot, "dom_selectors_override.json");
+
+    public static MetaDomSelectorPack LoadOrCreateDefault(string? customPath = null)
+    {
+        var path = string.IsNullOrWhiteSpace(customPath) ? DefaultFilePath : customPath;
+        var defaults = new MetaDomSelectorPack();
+        try
+        {
+            if (!File.Exists(path))
+            {
+                var dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                File.WriteAllText(path, JsonSerializer.Serialize(defaults, JsonOpts), new UTF8Encoding(false));
+                return defaults;
+            }
+
+            var raw = File.ReadAllText(path, Encoding.UTF8);
+            var parsed = JsonSerializer.Deserialize<MetaDomSelectorPack>(raw, JsonOpts);
+            if (parsed == null) return defaults;
+
+            parsed.InviteCardKeywords = CoalesceArray(parsed.InviteCardKeywords, defaults.InviteCardKeywords);
+            parsed.InviteButtonLabels = CoalesceArray(parsed.InviteButtonLabels, defaults.InviteButtonLabels);
+            parsed.InviteExcludeSubstrings = CoalesceArray(parsed.InviteExcludeSubstrings, defaults.InviteExcludeSubstrings);
+            parsed.DismissOverlayLabels = CoalesceArray(parsed.DismissOverlayLabels, defaults.DismissOverlayLabels);
+            parsed.ComposerTextboxSelectors = CoalesceArray(parsed.ComposerTextboxSelectors, defaults.ComposerTextboxSelectors);
+            parsed.PageFeedOpenComposerKeywords = CoalesceArray(parsed.PageFeedOpenComposerKeywords, defaults.PageFeedOpenComposerKeywords);
+            parsed.PublishButtonLabels = CoalesceArray(parsed.PublishButtonLabels, defaults.PublishButtonLabels);
+            parsed.ShareTriggerLabels = CoalesceArray(parsed.ShareTriggerLabels, defaults.ShareTriggerLabels);
+            parsed.ShareMenuIntermediateLabels = CoalesceArray(parsed.ShareMenuIntermediateLabels, defaults.ShareMenuIntermediateLabels);
+            parsed.ShareConfirmLabels = CoalesceArray(parsed.ShareConfirmLabels, defaults.ShareConfirmLabels);
+            return parsed;
+        }
+        catch
+        {
+            return defaults;
+        }
+    }
+
+    private static string[] CoalesceArray(string[]? candidate, string[] fallback)
+        => candidate != null && candidate.Length > 0
+            ? candidate.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).DefaultIfEmpty(fallback[0]).ToArray()
+            : fallback;
 }

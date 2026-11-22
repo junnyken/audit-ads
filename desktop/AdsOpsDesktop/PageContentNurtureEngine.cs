@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -183,8 +186,12 @@ public static class PageContentNurtureEngine
 
         using var fs = File.OpenRead(sourceImagePath);
         var decoder = BitmapDecoder.Create(fs, BitmapCreateOptions.IgnoreColorProfile, BitmapCacheOption.OnLoad);
-        var frame = decoder.Frames[0];
-        var converted = new FormatConvertedBitmap(frame, PixelFormats.Bgra32, null, 0);
+        return EncodeUniqueJpegWithCornerJitter(decoder.Frames[0], outPath, r);
+    }
+
+    private static string EncodeUniqueJpegWithCornerJitter(BitmapSource sourceFrame, string outPath, Random r)
+    {
+        var converted = new FormatConvertedBitmap(sourceFrame, PixelFormats.Bgra32, null, 0);
         var wb = new WriteableBitmap(converted);
 
         int w = wb.PixelWidth;
@@ -216,6 +223,191 @@ public static class PageContentNurtureEngine
         using var outStream = File.Create(outPath);
         encoder.Save(outStream);
         return outPath;
+    }
+
+    private static T RunOnStaThread<T>(Func<T> action)
+    {
+        if (Thread.CurrentThread.GetApartmentState() == ApartmentState.STA)
+        {
+            return action();
+        }
+        T result = default!;
+        Exception? captured = null;
+        var t = new Thread(() =>
+        {
+            try { result = action(); }
+            catch (Exception ex) { captured = ex; }
+        })
+        {
+            IsBackground = true,
+        };
+        t.SetApartmentState(ApartmentState.STA);
+        t.Start();
+        t.Join();
+        if (captured != null) ExceptionDispatchInfo.Capture(captured).Throw();
+        return result;
+    }
+
+    /// <summary>
+    /// Generates a crisp 1080x1080 visual social post card (niche gradient backdrop + card frame + spun headline + page footer)
+    /// when the user has not yet stocked images inside PageAssets. Automatically marshals to an STA thread.
+    /// </summary>
+    public static string GenerateFallbackPostCardImage(
+        string? pageName,
+        string? captionText,
+        string? nicheKey = "general",
+        string? outputDir = null,
+        Random? rng = null)
+    {
+        var r = rng ?? Random.Shared;
+        var outFolder = string.IsNullOrWhiteSpace(outputDir)
+            ? Path.Combine(Path.GetTempPath(), "AdsOpsNurtureMedia")
+            : outputDir;
+        Directory.CreateDirectory(outFolder);
+
+        var outPath = Path.Combine(
+            outFolder,
+            $"adsops_autocard_{DateTime.UtcNow:yyyyMMdd_HHmmss}_{Guid.NewGuid().ToString("N")[..8]}.jpg");
+
+        var nicheNorm = SanitizeFolderSegment(nicheKey);
+        (Color bg1, Color bg2, Color accent) = nicheNorm switch
+        {
+            var s when s.Contains("beauty") || s.Contains("spa") || s.Contains("cosmetic")
+                => (Color.FromRgb(131, 24, 67), Color.FromRgb(190, 24, 93), Color.FromRgb(251, 113, 133)),
+            var s when s.Contains("fashion") || s.Contains("shop") || s.Contains("clothing")
+                => (Color.FromRgb(30, 27, 75), Color.FromRgb(79, 70, 229), Color.FromRgb(129, 140, 248)),
+            var s when s.Contains("food") || s.Contains("cafe") || s.Contains("fnb")
+                => (Color.FromRgb(124, 45, 18), Color.FromRgb(194, 65, 12), Color.FromRgb(251, 146, 60)),
+            var s when s.Contains("real") || s.Contains("bds") || s.Contains("home")
+                => (Color.FromRgb(6, 78, 59), Color.FromRgb(4, 120, 87), Color.FromRgb(52, 211, 153)),
+            _ => (Color.FromRgb(15, 23, 42), Color.FromRgb(30, 64, 175), Color.FromRgb(56, 189, 248)),
+        };
+
+        var safePage = string.IsNullOrWhiteSpace(pageName) ? "Fanpage Chính Hãng" : pageName.Trim();
+        var cleanBody = Regex.Replace((captionText ?? "").Trim(), @"\s+", " ");
+        if (string.IsNullOrWhiteSpace(cleanBody))
+        {
+            cleanBody = SpinText(DefaultCaptionSpintax, safePage, nicheKey, r);
+        }
+        if (cleanBody.Length > 210) cleanBody = cleanBody[..207].TrimEnd() + "...";
+        var footerText = $"@ {safePage}  •  {DateTime.Now:dd/MM/yyyy}";
+        var badgeText = string.IsNullOrWhiteSpace(nicheKey) || nicheNorm == "general"
+            ? "TIN MỚI HÔM NAY"
+            : nicheNorm.Replace('_', ' ').ToUpperInvariant();
+
+        // Snapshot jitter values before entering STA thread so rng is never accessed concurrently.
+        double angle = 30 + r.NextDouble() * 35;
+        double e1x = 120 + r.NextDouble() * 240;
+        double e1y = 120 + r.NextDouble() * 220;
+        double e2x = 760 + r.NextDouble() * 220;
+        double e2y = 740 + r.NextDouble() * 220;
+
+        return RunOnStaThread(() =>
+        {
+            const int size = 1080;
+            var dv = new DrawingVisual();
+            using (var dc = dv.RenderOpen())
+            {
+                var bgBrush = new LinearGradientBrush(bg1, bg2, angle);
+                dc.DrawRectangle(bgBrush, null, new Rect(0, 0, size, size));
+
+                var glow1 = new SolidColorBrush(Color.FromArgb(34, 255, 255, 255));
+                var glow2 = new SolidColorBrush(Color.FromArgb(40, accent.R, accent.G, accent.B));
+                dc.DrawEllipse(glow1, null, new Point(e1x, e1y), 260, 260);
+                dc.DrawEllipse(glow2, null, new Point(e2x, e2y), 310, 310);
+
+                var cardBg = new SolidColorBrush(Color.FromArgb(236, 15, 23, 42));
+                var cardBorder = new Pen(new SolidColorBrush(Color.FromArgb(110, accent.R, accent.G, accent.B)), 3);
+                dc.DrawRoundedRectangle(cardBg, cardBorder, new Rect(92, 110, size - 184, size - 220), 40, 40);
+
+                var barBrush = new SolidColorBrush(accent);
+                dc.DrawRoundedRectangle(barBrush, null, new Rect(156, 182, 120, 8), 4, 4);
+
+                var badgeFt = new FormattedText(
+                    badgeText,
+                    CultureInfo.InvariantCulture,
+                    FlowDirection.LeftToRight,
+                    new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal),
+                    24,
+                    barBrush,
+                    1.0)
+                {
+                    MaxTextWidth = 760,
+                    MaxLineCount = 1,
+                };
+                dc.DrawText(badgeFt, new Point(156, 210));
+
+                var mainFt = new FormattedText(
+                    cleanBody,
+                    CultureInfo.InvariantCulture,
+                    FlowDirection.LeftToRight,
+                    new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal),
+                    42,
+                    Brushes.White,
+                    1.0)
+                {
+                    MaxTextWidth = 768,
+                    MaxTextHeight = 520,
+                    LineHeight = 58,
+                    Trimming = TextTrimming.WordEllipsis,
+                };
+                dc.DrawText(mainFt, new Point(156, 290));
+
+                var footerFt = new FormattedText(
+                    footerText,
+                    CultureInfo.InvariantCulture,
+                    FlowDirection.LeftToRight,
+                    new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Medium, FontStretches.Normal),
+                    26,
+                    new SolidColorBrush(Color.FromRgb(203, 213, 225)),
+                    1.0)
+                {
+                    MaxTextWidth = 768,
+                    MaxLineCount = 1,
+                    Trimming = TextTrimming.CharacterEllipsis,
+                };
+                dc.DrawText(footerFt, new Point(156, 868));
+            }
+
+            var rtb = new RenderTargetBitmap(size, size, 96, 96, PixelFormats.Pbgra32);
+            rtb.Render(dv);
+            return EncodeUniqueJpegWithCornerJitter(rtb, outPath, r);
+        });
+    }
+
+    /// <summary>
+    /// Resolves a random post photo from PageAssets (applying Hash Jitter if enabled),
+    /// or automatically generates a unique 1080x1080 visual post card when PageAssets is empty.
+    /// </summary>
+    public static (string ImagePath, bool IsTemporaryVariant) ResolveOrGeneratePostImage(
+        string? configuredBaseDir,
+        string? nicheKey,
+        string? pageName,
+        string? captionText,
+        bool enableHashJitter,
+        string? outputDir = null,
+        Random? rng = null)
+    {
+        var picked = PickRandomImageFromDir(configuredBaseDir, nicheKey, "posts", rng);
+        if (!string.IsNullOrWhiteSpace(picked))
+        {
+            if (enableHashJitter)
+            {
+                try
+                {
+                    var variant = CreateUniqueImageVariant(picked, outputDir, rng);
+                    return (variant, !string.Equals(variant, picked, StringComparison.OrdinalIgnoreCase));
+                }
+                catch
+                {
+                    return (picked, false);
+                }
+            }
+            return (picked, false);
+        }
+
+        var generated = GenerateFallbackPostCardImage(pageName, captionText, nicheKey, outputDir, rng);
+        return (generated, true);
     }
 
     public static string ComputeFileSha256Hex(string filePath)

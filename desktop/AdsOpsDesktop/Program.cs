@@ -2091,9 +2091,9 @@ internal static class Program
                 }
             }
 
-            // 35. v4.0.1 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
+            // 35. v4.0.2 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
             {
-                if (DesktopAppInfo.Version != "4.0.1" || DesktopAppInfo.ExtVersion != "2.10.3")
+                if (DesktopAppInfo.Version != "4.0.2" || DesktopAppInfo.ExtVersion != "2.10.4")
                 {
                     throw new InvalidOperationException(
                         $"DesktopAppInfo version mismatch: app={DesktopAppInfo.Version}, ext={DesktopAppInfo.ExtVersion}");
@@ -2143,8 +2143,8 @@ internal static class Program
                 foreach (var reqKey in new[]
                          {
                              "\"type\":\"full_state\"",
-                             "\"appVersion\":\"4.0.1\"",
-                             "\"extVersion\":\"2.10.3\"",
+                             "\"appVersion\":\"4.0.2\"",
+                             "\"extVersion\":\"2.10.4\"",
                              "\"activeView\":\"settings\"",
                              "\"totpMap\"",
                              "\"automationConfig\"",
@@ -2694,15 +2694,15 @@ internal static class Program
                 }
             }
 
-            // 44. v4.0.0 Facebook Companion v2.10.3 Hardening + Zero-Risk 2 MCC & 5 Standalone Google Ads 1:1 Silo Guard
+            // 44. v4.0.0 Facebook Companion v2.10.4 Hardening + Zero-Risk 2 MCC & 5 Standalone Google Ads 1:1 Silo Guard
             {
                 var tpl4 = ExtensionProvisioner.LoadTemplates();
-                if (tpl4.Version != "2.10.3" ||
+                if (tpl4.Version != DesktopAppInfo.ExtVersion ||
                     !tpl4.ContentJs.Contains("adsops_prepage_warmup", StringComparison.Ordinal) ||
                     !tpl4.ContentJs.Contains("page_auto_post_media", StringComparison.Ordinal) ||
                     !tpl4.ContentJs.Contains("page_auto_share_curated", StringComparison.Ordinal))
                 {
-                    throw new InvalidOperationException("Companion v2.10.3 hardening check failed (missing prepage or page_nurture stops).");
+                    throw new InvalidOperationException($"Companion {DesktopAppInfo.ExtVersion} hardening check failed (missing prepage or page_nurture stops).");
                 }
 
                 // 44a. Verify 0% Google script injection in Extension manifest.json
@@ -2874,6 +2874,95 @@ internal static class Program
                 if (afterVault.CookieRaw != "c_user=100; xs=fresh;" || afterVault.TwoFaSecret != "JBSWY3DPEHPK3PXP")
                 {
                     throw new InvalidOperationException("DPAPI cookie refresh must update cookie without losing existing 2FA secret.");
+                }
+            }
+
+            // 46. v4.0.2 Hot-Reload MetaDomSelectorPack, Pre-Flight Session Validator, Companion v2.10.4 Native Fallback & STA Card Generator
+            {
+                var selPath = Path.Combine(tempRoot, "dom_selectors_override.json");
+                var createdPack = MetaDomSelectorPack.LoadOrCreateDefault(selPath);
+                if (!File.Exists(selPath) || createdPack.InviteButtonLabels.Length == 0 || createdPack.PublishButtonLabels.Length == 0)
+                {
+                    throw new InvalidOperationException("MetaDomSelectorPack failed to auto-initialize defaults on disk.");
+                }
+
+                await File.WriteAllTextAsync(selPath, "{\"inviteButtonLabels\":[\"Mời Ngay Custom\"],\"publishButtonLabels\":[]}", Encoding.UTF8);
+                var reloadedPack = MetaDomSelectorPack.LoadOrCreateDefault(selPath);
+                if (!reloadedPack.InviteButtonLabels.Contains("Mời Ngay Custom") || reloadedPack.PublishButtonLabels.Length == 0)
+                {
+                    throw new InvalidOperationException("MetaDomSelectorPack must apply custom override and coalesce empty arrays safely back to defaults.");
+                }
+
+                await File.WriteAllTextAsync(selPath, "{broken_json", Encoding.UTF8);
+                var safeBroken = MetaDomSelectorPack.LoadOrCreateDefault(selPath);
+                if (safeBroken.ShareConfirmLabels.Length == 0)
+                {
+                    throw new InvalidOperationException("MetaDomSelectorPack must never throw or return empty arrays on malformed JSON.");
+                }
+
+                if (!ExtensionProvisioner.HasValidFacebookAuthCookieString("sb=abc; c_user=100012345; xs=42%3Asecret;") ||
+                    ExtensionProvisioner.HasValidFacebookAuthCookieString("sb=abc; c_user=100012345;") ||
+                    ExtensionProvisioner.HasValidFacebookAuthCookieString(""))
+                {
+                    throw new InvalidOperationException("HasValidFacebookAuthCookieString pair validation failed.");
+                }
+
+                var futureUnix = DateTimeOffset.UtcNow.AddDays(30).ToUnixTimeSeconds();
+                var jsonValid = $"[{{\"name\":\"c_user\",\"value\":\"1001\",\"expirationDate\":{futureUnix}}},{{\"name\":\"xs\",\"value\":\"tok\",\"expirationDate\":{futureUnix}}}]";
+                var jsonExpired = "[{\"name\":\"c_user\",\"value\":\"1001\",\"expirationDate\":1000},{\"name\":\"xs\",\"value\":\"tok\",\"expirationDate\":1000}]";
+                if (!ExtensionProvisioner.HasValidFacebookAuthCookieString(jsonValid) ||
+                    ExtensionProvisioner.HasValidFacebookAuthCookieString(jsonExpired))
+                {
+                    throw new InvalidOperationException("HasValidFacebookAuthCookieString JSON expiration validation failed.");
+                }
+
+                var isoTestRoot = Path.Combine(tempRoot, "iso_sess_test");
+                var safeIsoFolder = ExtensionProvisioner.ResolveIsolatedProfileDirectory("Via Disk", "Profile 55");
+                var isoTargetDir = Path.Combine(isoTestRoot, Path.GetFileName(safeIsoFolder), "Default", "Network");
+                Directory.CreateDirectory(isoTargetDir);
+                await File.WriteAllTextAsync(Path.Combine(isoTargetDir, "Cookies"), "c_user=1000888999", Encoding.ASCII);
+                if (!ExtensionProvisioner.HasUsableIsolatedFacebookSession("Via Disk", "Profile 55", "", isoTestRoot) ||
+                    ExtensionProvisioner.HasUsableIsolatedFacebookSession("Via Missing", "Profile 99", "", isoTestRoot))
+                {
+                    throw new InvalidOperationException("HasUsableIsolatedFacebookSession disk session check failed.");
+                }
+
+                var emptyAssetsDir = Path.Combine(tempRoot, "empty_assets");
+                var genOutDir = Path.Combine(tempRoot, "gen_cards");
+                var (card1, isTemp1, card2, isTemp2) = await Task.Run(() =>
+                {
+                    var r1 = PageContentNurtureEngine.ResolveOrGeneratePostImage(
+                        emptyAssetsDir, "beauty_spa", "Spa Thẩm Mỹ Ánh Dương", "Chăm sóc làn da khỏe đẹp mỗi ngày!", enableHashJitter: true, genOutDir);
+                    var r2 = PageContentNurtureEngine.ResolveOrGeneratePostImage(
+                        emptyAssetsDir, "beauty_spa", "Spa Thẩm Mỹ Ánh Dương", "Chăm sóc làn da khỏe đẹp mỗi ngày!", enableHashJitter: true, genOutDir);
+                    return (r1.ImagePath, r1.IsTemporaryVariant, r2.ImagePath, r2.IsTemporaryVariant);
+                });
+                if (!isTemp1 || !isTemp2 || !File.Exists(card1) || !File.Exists(card2) ||
+                    new FileInfo(card1).Length <= 10_000 || new FileInfo(card2).Length <= 10_000)
+                {
+                    throw new InvalidOperationException($"STA Visual Post Card generation failed from MTA Task.Run: c1={card1}, c2={card2}");
+                }
+                var h1 = PageContentNurtureEngine.ComputeFileSha256Hex(card1);
+                var h2 = PageContentNurtureEngine.ComputeFileSha256Hex(card2);
+                if (string.Equals(h1, h2, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException("Generated visual post cards must have distinct SHA-256 hashes.");
+                }
+                MainWindow.CleanupTempNurtureVariantFile(card1, null);
+                MainWindow.CleanupTempNurtureVariantFile(card2, null);
+                if (File.Exists(card1) || File.Exists(card2))
+                {
+                    throw new InvalidOperationException("CleanupTempNurtureVariantFile failed to clean up generated cards.");
+                }
+
+                var tpl46 = ExtensionProvisioner.LoadTemplates();
+                if (tpl46.Version != "2.10.4" ||
+                    !tpl46.ContentJs.Contains("performNativePagePostDomFallback", StringComparison.Ordinal) ||
+                    !tpl46.ContentJs.Contains("performNativePageShareDomFallback", StringComparison.Ordinal) ||
+                    !tpl46.ContentJs.Contains("data-adsops-cdp-busy", StringComparison.Ordinal) ||
+                    !tpl46.ContentJs.Contains("proactive_native_visit", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("Companion v2.10.4 Native DOM fallback / proactive cookie sync tokens missing.");
                 }
             }
 
