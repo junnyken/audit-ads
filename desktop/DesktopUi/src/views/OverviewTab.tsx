@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import {
   Activity,
   AlertTriangle,
@@ -52,6 +53,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { sendDesktopCommand } from '@/lib/bridge'
+import { isGoogleAdAccountId, isGoogleVia, useShellUi } from '@/lib/shell-context'
 import type {
   AppShellWebStateDto,
   OverviewAlertGroupDto,
@@ -64,16 +66,37 @@ function formatMb(mb: number): string {
 }
 
 export function OverviewTab({ state }: { state: AppShellWebStateDto }) {
+  const { platformScope } = useShellUi()
   const { kpi, workstation } = state
+
+  const scopedVias = useMemo(() => {
+    if (platformScope === 'all') return state.vias
+    return state.vias.filter((v) =>
+      platformScope === 'google_ads' ? isGoogleVia(v) : !isGoogleVia(v),
+    )
+  }, [state.vias, platformScope])
+
+  const scopedAdAccounts = useMemo(() => {
+    if (platformScope === 'all') return state.adAccounts
+    return state.adAccounts.filter((a) =>
+      platformScope === 'google_ads'
+        ? isGoogleAdAccountId(a.externalAccountId)
+        : !isGoogleAdAccountId(a.externalAccountId),
+    )
+  }, [state.adAccounts, platformScope])
+
+  const scopedTotalVias = platformScope === 'all' ? kpi.totalVias : scopedVias.length
+  const scopedTotalAds = platformScope === 'all' ? kpi.totalAdAccounts : scopedAdAccounts.length
+  const scopedActiveAds =
+    platformScope === 'all' ? kpi.activeAdAccounts : scopedAdAccounts.filter((a) => a.isActive).length
+
   const readyCount = Math.max(kpi.cookieVaultCount, kpi.nativeProfileReadyCount)
   const viaReadyPct =
     kpi.totalVias > 0 ? Math.max(12, Math.round((readyCount / kpi.totalVias) * 100)) : 100
   const pageReadyPct =
     kpi.totalPages > 0 ? Math.max(15, Math.round((kpi.adsReadyPages / kpi.totalPages) * 100)) : 85
   const adActivePct =
-    kpi.totalAdAccounts > 0
-      ? Math.max(12, Math.round((kpi.activeAdAccounts / kpi.totalAdAccounts) * 100))
-      : 80
+    scopedTotalAds > 0 ? Math.max(12, Math.round((scopedActiveAds / scopedTotalAds) * 100)) : 80
   const ramUsedPct = Math.max(0, Math.min(100, 100 - workstation.freePercent))
 
   const pipelineSteps = [
@@ -83,7 +106,7 @@ export function OverviewTab({ state }: { state: AppShellWebStateDto }) {
       desc: 'Thu hồi bộ nhớ Chrome Profile đang đóng',
       tone: 'success' as const,
       action: 'clean_ram',
-      tip: 'Bấm để dọn cache Chrome Profile không hoạt động ngay',
+      tip: 'Dọn cache Chrome Profile không hoạt động ngay',
     },
     {
       num: '02',
@@ -138,20 +161,16 @@ export function OverviewTab({ state }: { state: AppShellWebStateDto }) {
 
   return (
     <div className="space-y-4">
-      {/* Telemetry & Quick Actions Strip */}
-      <Card className="border-border/80 bg-card/90 backdrop-blur">
-        <div className="flex flex-wrap items-center justify-between gap-2.5 px-3.5 py-2.5">
+      {/* Workstation Status & Quick Tools Bar */}
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-2.5 px-4 py-2.5">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="info" className="gap-1 px-2.5 py-0.5">
-              <Sparkles className="h-3 w-3" />
-              Unified shadcn/ui v{state.appVersion}
-            </Badge>
             <Badge variant={kpi.bridgeOnline ? 'success' : 'destructive'} className="font-mono">
               <ShieldCheck className="h-3 w-3" />
               Bridge :{kpi.bridgePort} · Ext v{kpi.extVersion}
             </Badge>
             {kpi.activeBrowsers > 0 && (
-              <Badge variant="purple" className="animate-pulse font-mono">
+              <Badge variant="info" className="font-mono">
                 <Chrome className="h-3 w-3" />
                 {kpi.activeBrowsers} Chrome đang mở
               </Badge>
@@ -161,7 +180,7 @@ export function OverviewTab({ state }: { state: AppShellWebStateDto }) {
             )}
             <Tooltip>
               <TooltipTrigger asChild>
-                <div className="hidden xl:flex items-center gap-2 rounded-md border border-border bg-background/60 px-2.5 py-1 text-[11px] text-muted-foreground">
+                <div className="hidden items-center gap-2 rounded-md border border-border bg-background/60 px-2.5 py-1 text-[11px] text-muted-foreground xl:flex">
                   <Cpu className="h-3.5 w-3.5 text-primary" />
                   <span className="tabular-nums font-medium text-foreground">
                     RAM trống {formatMb(workstation.availableRamMb)} / {formatMb(workstation.totalRamMb)} MB
@@ -184,10 +203,10 @@ export function OverviewTab({ state }: { state: AppShellWebStateDto }) {
           </div>
 
           <div className="flex flex-wrap items-center gap-1.5">
-            {state.isLoggedIn && kpi.totalVias > 0 && (
+            {state.isLoggedIn && kpi.totalVias > 0 && platformScope !== 'google_ads' && (
               <Button size="sm" onClick={() => sendDesktopCommand('quick_test_first')}>
                 <FlaskConical className="h-3.5 w-3.5" />
-                Test Nhanh 1 Via (5s)
+                Test nhanh 1 Via (5s)
               </Button>
             )}
 
@@ -200,45 +219,45 @@ export function OverviewTab({ state }: { state: AppShellWebStateDto }) {
               <DropdownMenuTrigger asChild>
                 <Button variant="secondary" size="sm">
                   <Wrench className="h-3.5 w-3.5" />
-                  Công cụ Hệ thống
+                  Công cụ nhanh
                   <ChevronDown className="h-3 w-3 opacity-70" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-72">
-                <DropdownMenuLabel>Bộ công cụ Điều hành Desktop</DropdownMenuLabel>
+                <DropdownMenuLabel>Bộ công cụ điều hành</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => sendDesktopCommand('batch_proxy_check')}>
-                  <Globe className="h-3.5 w-3.5 text-emerald-400" />
+                  <Globe className="h-3.5 w-3.5 text-emerald-500" />
                   Quét kiểm tra Proxy hàng loạt (Live/Dead)
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => sendDesktopCommand('keepalive_due')}>
-                  <Coffee className="h-3.5 w-3.5 text-amber-400" />
-                  Đảo Ấm toàn bộ Via quá hạn ngay
+                  <Coffee className="h-3.5 w-3.5 text-amber-500" />
+                  Đảo ấm toàn bộ Via quá hạn ngay
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => sendDesktopCommand('batch_invite_followers')}>
-                  <UserPlus className="h-3.5 w-3.5 text-indigo-400" />
-                  Chạy lô Mời người tương tác Follow Page
+                  <UserPlus className="h-3.5 w-3.5 text-primary" />
+                  Chạy lô mời người tương tác Follow Page
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => sendDesktopCommand('sync_meta_pages')}>
-                  <RefreshCw className="h-3.5 w-3.5 text-sky-400" />
+                  <RefreshCw className="h-3.5 w-3.5 text-sky-500" />
                   Đồng bộ Fanpage từ Meta Graph API
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => sendDesktopCommand('provision_extensions')}>
-                  <Shield className="h-3.5 w-3.5 text-emerald-400" />
+                  <Shield className="h-3.5 w-3.5 text-emerald-500" />
                   Cấp lại Chrome Extension v{state.extVersion}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => sendDesktopCommand('benchmark_engines')}>
-                  <Gauge className="h-3.5 w-3.5 text-purple-400" />
+                  <Gauge className="h-3.5 w-3.5 text-violet-500" />
                   Benchmark tốc độ 5 Engine Antidetect
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => sendDesktopCommand('open_launch_audit')}>
-                  <Terminal className="h-3.5 w-3.5 text-slate-300" />
-                  Xem Nhật ký Mở Profile (Audit Log)
+                  <Terminal className="h-3.5 w-3.5 text-muted-foreground" />
+                  Xem nhật ký mở Profile (Audit Log)
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => sendDesktopCommand('apply_safe_preset')}>
                   <Sparkles className="h-3.5 w-3.5 text-primary" />
-                  Áp dụng Preset An Toàn Chuẩn (1-Click)
+                  Áp dụng cấu hình An toàn chuẩn (1-Click)
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -247,17 +266,17 @@ export function OverviewTab({ state }: { state: AppShellWebStateDto }) {
       </Card>
 
       {!state.isLoggedIn && (
-        <Card className="border-indigo-500/40 bg-indigo-950/20">
+        <Card className="border-primary/30 bg-primary/5">
           <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
             <div className="flex items-start gap-3">
-              <div className="rounded-lg border border-indigo-500/30 bg-indigo-500/10 p-2.5 text-indigo-300">
+              <div className="rounded-lg border border-primary/25 bg-primary/10 p-2.5 text-primary">
                 <Lock className="h-5 w-5" />
               </div>
               <div>
-                <h2 className="text-sm font-bold text-foreground">Kết nối tài khoản AdsOps Cloud</h2>
+                <h2 className="text-sm font-semibold text-foreground">Kết nối tài khoản AdsOps Cloud</h2>
                 <p className="mt-0.5 max-w-2xl text-xs text-muted-foreground">
-                  Đăng nhập tài khoản để đồng bộ danh sách Via, Business Manager, Fanpage, Tài khoản QC và bật Hàng
-                  đợi Tự động hóa trên Chrome Profile thật. Cookie &amp; 2FA luôn được mã hóa DPAPI tại máy Windows này.
+                  Đăng nhập tài khoản để đồng bộ Via, Business Manager, Fanpage và Tài khoản QC. Cookie &amp; 2FA luôn
+                  được mã hóa DPAPI tại máy Windows này.
                 </p>
               </div>
             </div>
@@ -269,47 +288,48 @@ export function OverviewTab({ state }: { state: AppShellWebStateDto }) {
         </Card>
       )}
 
-      {/* 4 Interactive Bento KPI Cards */}
+      {/* 4 Compact KPI Cards */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Card
           onClick={() => sendDesktopCommand('switch_view', { view: 'vias' })}
-          className="cursor-pointer transition-all hover:border-primary/60 hover:bg-card/80"
+          className="cursor-pointer transition-colors hover:border-primary/50"
         >
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-xs font-semibold text-muted-foreground">Dàn Via Đang Quản Lý</CardTitle>
-            <Users className="h-4 w-4 text-indigo-400" />
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1.5">
+            <CardTitle className="text-xs font-medium text-muted-foreground">
+              {platformScope === 'google_ads' ? 'Hồ sơ Google Ads' : 'Hồ sơ & Dàn Via'}
+            </CardTitle>
+            <Users className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent className="space-y-2">
             <div className="flex items-baseline justify-between">
               <span className="font-mono text-2xl font-bold tabular-nums">
-                {state.isLoggedIn ? kpi.totalVias : '—'}
+                {state.isLoggedIn ? scopedTotalVias : '—'}
               </span>
               <Badge variant={kpi.dueKeepAliveCount > 0 ? 'warning' : 'success'}>
-                {kpi.dueKeepAliveCount > 0 ? `${kpi.dueKeepAliveCount} cần Đảo Ấm` : 'Đang ấm'}
+                {kpi.dueKeepAliveCount > 0 ? `${kpi.dueKeepAliveCount} cần đảo ấm` : 'Ổn định'}
               </Badge>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              {kpi.nativeProfileReadyCount}/{kpi.totalVias} Profile Chrome sẵn • {kpi.cookieVaultCount} Két Cookie •{' '}
-              {kpi.twoFaReadyCount} 2FA
+              {kpi.nativeProfileReadyCount}/{kpi.totalVias} Profile sẵn sàng • {kpi.cookieVaultCount} Két Cookie
             </p>
-            <Progress value={viaReadyPct} indicatorClassName="bg-indigo-500" />
+            <Progress value={viaReadyPct} indicatorClassName="bg-primary" />
           </CardContent>
         </Card>
 
         <Card
           onClick={() => sendDesktopCommand('switch_view', { view: 'pages_bm' })}
-          className="cursor-pointer transition-all hover:border-emerald-500/60 hover:bg-card/80"
+          className="cursor-pointer transition-colors hover:border-emerald-500/50"
         >
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-xs font-semibold text-muted-foreground">Fanpage &amp; Tăng Trưởng</CardTitle>
-            <LayoutDashboard className="h-4 w-4 text-emerald-400" />
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1.5">
+            <CardTitle className="text-xs font-medium text-muted-foreground">Fanpage &amp; Tăng trưởng</CardTitle>
+            <LayoutDashboard className="h-4 w-4 text-emerald-500" />
           </CardHeader>
           <CardContent className="space-y-2">
             <div className="flex items-baseline justify-between">
               <span className="font-mono text-2xl font-bold tabular-nums">
                 {state.isLoggedIn ? kpi.totalPages : '—'}
               </span>
-              <Badge variant="success">+{kpi.totalFollowersInvited.toLocaleString('en-US')} mời Follow</Badge>
+              <Badge variant="success">+{kpi.totalFollowersInvited.toLocaleString('en-US')} mời</Badge>
             </div>
             <p className="text-[11px] text-muted-foreground">
               {kpi.adsReadyPages}/{kpi.totalPages} Fanpage sẵn sàng chạy Ads
@@ -320,23 +340,23 @@ export function OverviewTab({ state }: { state: AppShellWebStateDto }) {
 
         <Card
           onClick={() => sendDesktopCommand('switch_view', { view: 'ad_accounts' })}
-          className="cursor-pointer transition-all hover:border-amber-500/60 hover:bg-card/80"
+          className="cursor-pointer transition-colors hover:border-amber-500/50"
         >
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-xs font-semibold text-muted-foreground">Tài Khoản Quảng Cáo</CardTitle>
-            <Activity className="h-4 w-4 text-amber-400" />
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1.5">
+            <CardTitle className="text-xs font-medium text-muted-foreground">Tài khoản Quảng cáo</CardTitle>
+            <Activity className="h-4 w-4 text-amber-500" />
           </CardHeader>
           <CardContent className="space-y-2">
             <div className="flex items-baseline justify-between">
               <span className="font-mono text-2xl font-bold tabular-nums">
-                {state.isLoggedIn ? kpi.totalAdAccounts : '—'}
+                {state.isLoggedIn ? scopedTotalAds : '—'}
               </span>
               <Badge variant={kpi.openAlertCount > 0 ? 'warning' : 'success'}>
                 {kpi.openAlertCount} cảnh báo mở
               </Badge>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              {kpi.activeAdAccounts} TKQC Active • {kpi.criticalHealthCount} Critical Health
+              {scopedActiveAds} TKQC Active • {kpi.criticalHealthCount} Critical
             </p>
             <Progress
               value={adActivePct}
@@ -347,54 +367,54 @@ export function OverviewTab({ state }: { state: AppShellWebStateDto }) {
 
         <Card
           onClick={() => sendDesktopCommand('switch_view', { view: 'settings' })}
-          className="cursor-pointer transition-all hover:border-purple-500/60 hover:bg-card/80"
+          className="cursor-pointer transition-colors hover:border-primary/50"
         >
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-xs font-semibold text-muted-foreground">Khiên Bảo Vệ &amp; Két 2FA</CardTitle>
-            <ShieldCheck className="h-4 w-4 text-purple-400" />
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1.5">
+            <CardTitle className="text-xs font-medium text-muted-foreground">Khiên Bảo vệ &amp; 2FA</CardTitle>
+            <ShieldCheck className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent className="space-y-2">
             <div className="flex items-baseline justify-between">
               <span className="font-mono text-2xl font-bold tabular-nums">
                 {kpi.bridgeOnline ? `:${kpi.bridgePort}` : 'OFF'}
               </span>
-              <Badge variant="purple">Ext v{kpi.extVersion}</Badge>
+              <Badge variant="info">Ext v{kpi.extVersion}</Badge>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Zero-Trust DPAPI • {kpi.twoFaReadyCount} mã TOTP sẵn sàng
+              Zero-Trust DPAPI • {kpi.twoFaReadyCount} mã 2FA cục bộ
             </p>
-            <Progress value={kpi.bridgeOnline ? 100 : 15} indicatorClassName="bg-purple-500" />
+            <Progress value={kpi.bridgeOnline ? 100 : 15} indicatorClassName="bg-primary" />
           </CardContent>
         </Card>
       </div>
 
-      {/* 5-Step Auto-Pilot Pipeline + Fleet Health Segmented Bar */}
+      {/* 5-Step Pipeline */}
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="flex items-center gap-2">
-                <CardTitle className="flex items-center gap-1.5">
+                <CardTitle className="flex items-center gap-1.5 text-sm font-semibold">
                   <Zap className="h-4 w-4 text-primary" />
-                  Chu Trình Auto-Pilot 5 Bước Khép Kín
+                  Chu trình Auto-Pilot 5 Bước
                 </CardTitle>
                 <Badge variant={state.autoDailyPipeline ? 'success' : 'secondary'}>
-                  {state.autoDailyPipeline ? 'Tự động mỗi sáng: BẬT' : 'Kích hoạt 1-Chạm'}
+                  {state.autoDailyPipeline ? 'Lịch sáng tự động: BẬT' : 'Kích hoạt thủ công'}
                 </Badge>
               </div>
-              <CardDescription className="mt-1">
-                Bấm trực tiếp vào từng bước để chạy riêng lẻ, hoặc bấm Auto-Pilot để chạy tuần tự 1 → 5.
+              <CardDescription className="mt-0.5 text-xs">
+                Bấm từng bước để chạy riêng lẻ, hoặc bấm Auto-Pilot trên thanh tiêu đề để chạy tuần tự 01 → 05.
               </CardDescription>
             </div>
 
             <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] text-muted-foreground">
-              <span>Profile Chrome sẵn: {pctProfileReady}%</span>
+              <span>Chrome sẵn: {pctProfileReady}%</span>
               <Separator orientation="vertical" className="h-3.5" />
-              <span>Direct IP: {kpi.directIpVias} Via (Trần {kpi.maxDirectIpPerBatch}/ca)</span>
+              <span>Direct IP: {kpi.directIpVias} (max {kpi.maxDirectIpPerBatch})</span>
               <Separator orientation="vertical" className="h-3.5" />
               <span>Proxy LIVE: {pctProxyLive}%</span>
               <Separator orientation="vertical" className="h-3.5" />
-              <span>Cookie DPAPI: {pctCookie}%</span>
+              <span>DPAPI: {pctCookie}%</span>
             </div>
           </div>
         </CardHeader>
@@ -406,16 +426,16 @@ export function OverviewTab({ state }: { state: AppShellWebStateDto }) {
                   <button
                     type="button"
                     onClick={() => sendDesktopCommand(st.action)}
-                    className="group flex flex-col justify-between rounded-lg border border-border bg-background/55 p-3 text-left transition-all hover:border-primary/60 hover:bg-accent/50"
+                    className="group flex flex-col justify-between rounded-lg border border-border bg-background/60 p-3 text-left transition-colors hover:border-primary/50 hover:bg-accent/50"
                   >
                     <div className="flex items-center justify-between gap-1.5">
-                      <span className="font-mono text-[11px] font-bold text-primary">STEP {st.num}</span>
+                      <span className="font-mono text-[11px] font-semibold text-primary">STEP {st.num}</span>
                       <Badge variant={st.tone} className="px-1.5 py-0 text-[10px]">
                         Sẵn sàng
                       </Badge>
                     </div>
                     <div className="mt-1.5">
-                      <div className="text-xs font-bold text-foreground transition-colors group-hover:text-primary">
+                      <div className="text-xs font-semibold text-foreground transition-colors group-hover:text-primary">
                         {st.title}
                       </div>
                       <div className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">{st.desc}</div>
@@ -427,15 +447,15 @@ export function OverviewTab({ state }: { state: AppShellWebStateDto }) {
             ))}
           </div>
 
-          <div className="rounded-lg border border-border/70 bg-background/40 px-3 py-2">
-            <div className="flex h-2 w-full overflow-hidden rounded-full bg-secondary">
+          <div className="rounded-md border border-border/70 bg-muted/40 px-3 py-2">
+            <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-secondary">
               <div
                 className="bg-emerald-500 transition-all"
                 style={{ width: `${segProxy}%` }}
                 title={`Proxy LIVE: ${kpi.liveProxyVias} Via (${pctProxyLive}%)`}
               />
               <div
-                className="bg-indigo-500 transition-all"
+                className="bg-primary transition-all"
                 style={{ width: `${segCookie}%` }}
                 title={`Cookie DPAPI: ${kpi.cookieVaultCount} Via (${pctCookie}%)`}
               />
@@ -454,7 +474,7 @@ export function OverviewTab({ state }: { state: AppShellWebStateDto }) {
         </CardContent>
       </Card>
 
-      {/* Two-Column Bottom Bento: Alerts/Via Quick Table + Auto-Invite & Logs */}
+      {/* Alerts / Scoped Vias + Page Invite / Runtime Logs */}
       <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-12">
         <Card className="flex flex-col lg:col-span-7">
           <Tabs defaultValue="alerts" className="flex flex-1 flex-col">
@@ -462,17 +482,17 @@ export function OverviewTab({ state }: { state: AppShellWebStateDto }) {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <TabsList>
                   <TabsTrigger value="alerts">
-                    <Bell className="h-3.5 w-3.5" />
-                    Cảnh Báo Gom Nhóm
+                    <Bell className="mr-1.5 h-3.5 w-3.5" />
+                    Cảnh báo hệ thống
                     {state.groupedAlerts.length > 0 && (
-                      <Badge variant="warning" className="ml-1 px-1.5 py-0 text-[10px]">
+                      <Badge variant="warning" className="ml-1.5 px-1.5 py-0 text-[10px]">
                         {kpi.openAlertCount}
                       </Badge>
                     )}
                   </TabsTrigger>
                   <TabsTrigger value="vias">
-                    <Users className="h-3.5 w-3.5" />
-                    Dàn Via Trực Tiếp ({state.vias.length})
+                    <Users className="mr-1.5 h-3.5 w-3.5" />
+                    Hồ sơ nhanh ({scopedVias.length})
                   </TabsTrigger>
                 </TabsList>
 
@@ -484,7 +504,7 @@ export function OverviewTab({ state }: { state: AppShellWebStateDto }) {
                       onClick={() => sendDesktopCommand('ack_all_alerts')}
                     >
                       <CheckCheck className="h-3.5 w-3.5" />
-                      Ghi nhận tất cả ({kpi.openAlertCount})
+                      Ghi nhận tất cả
                     </Button>
                   )}
                   <Button
@@ -502,10 +522,10 @@ export function OverviewTab({ state }: { state: AppShellWebStateDto }) {
             <CardContent className="flex-1 pt-2">
               <TabsContent value="alerts" className="mt-0">
                 {state.groupedAlerts.length === 0 ? (
-                  <div className="flex items-center gap-2.5 rounded-lg border border-emerald-500/30 bg-emerald-950/20 px-3.5 py-4 text-xs text-emerald-300">
+                  <div className="flex items-center gap-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-4 text-xs text-emerald-700 dark:text-emerald-300">
                     <ShieldCheck className="h-4 w-4 shrink-0" />
                     <span>
-                      Không có cảnh báo nào đang mở. Toàn bộ TKQC và tiến trình vận hành ổn định.
+                      Không có cảnh báo đang mở. Toàn bộ tài khoản quảng cáo và tiến trình ổn định.
                     </span>
                   </div>
                 ) : (
@@ -520,23 +540,23 @@ export function OverviewTab({ state }: { state: AppShellWebStateDto }) {
               </TabsContent>
 
               <TabsContent value="vias" className="mt-0">
-                {state.vias.length === 0 ? (
+                {scopedVias.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-border p-6 text-center text-xs text-muted-foreground">
-                    Chưa có dữ liệu Via nào. Hãy đăng nhập hoặc bấm Đồng bộ.
+                    Chưa có hồ sơ phù hợp với bộ lọc kênh hiện tại.
                   </div>
                 ) : (
                   <ScrollArea className="h-[340px]">
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Via / Profile</TableHead>
+                          <TableHead>Hồ sơ / Profile</TableHead>
                           <TableHead>Proxy &amp; Trust</TableHead>
-                          <TableHead>Két Bảo Vệ</TableHead>
+                          <TableHead>Bảo mật</TableHead>
                           <TableHead className="text-right">Thao tác</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {state.vias.map((v) => (
+                        {scopedVias.map((v) => (
                           <ViaQuickRow key={v.viaId || v.label} via={v} />
                         ))}
                       </TableBody>
@@ -552,19 +572,19 @@ export function OverviewTab({ state }: { state: AppShellWebStateDto }) {
           <Card>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between gap-2">
-                <CardTitle className="flex items-center gap-1.5">
-                  <UserPlus className="h-4 w-4 text-emerald-400" />
-                  Auto-Invite Page Followers
+                <CardTitle className="flex items-center gap-1.5 text-sm font-semibold">
+                  <UserPlus className="h-4 w-4 text-emerald-500" />
+                  Mời theo dõi Fanpage nhanh
                 </CardTitle>
                 <Badge variant="success">Đã mời: {kpi.totalFollowersInvited.toLocaleString('en-US')}</Badge>
               </div>
-              <CardDescription>
-                Tự động bấm Gửi lời mời người đã bày tỏ cảm xúc trên Meta Business Suite.
+              <CardDescription className="text-xs">
+                Tự động mời người bày tỏ cảm xúc/bình luận theo dõi Fanpage.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
               {livePagesForInvite.length === 0 ? (
-                <p className="py-2 text-xs text-muted-foreground">Chưa có Fanpage LIVE nào được đồng bộ.</p>
+                <p className="py-2 text-xs text-muted-foreground">Chưa có Fanpage LIVE được đồng bộ.</p>
               ) : (
                 livePagesForInvite.map((pg) => <FanpageInviteRow key={pg.id} page={pg} />)
               )}
@@ -574,7 +594,7 @@ export function OverviewTab({ state }: { state: AppShellWebStateDto }) {
                 onClick={() => sendDesktopCommand('batch_invite_followers')}
               >
                 <Users className="h-3.5 w-3.5" />
-                Chạy Lô Mời Follow Tự Động ({kpi.totalPages} Fanpage)
+                Chạy lô mời hàng loạt ({kpi.totalPages} Fanpage)
               </Button>
             </CardContent>
           </Card>
@@ -583,9 +603,9 @@ export function OverviewTab({ state }: { state: AppShellWebStateDto }) {
             <Tabs defaultValue="runtime">
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between gap-2">
-                  <CardTitle className="flex items-center gap-1.5">
+                  <CardTitle className="flex items-center gap-1.5 text-sm font-semibold">
                     <Terminal className="h-4 w-4 text-primary" />
-                    Nhật Ký Hoạt Động
+                    Hoạt động gần đây
                   </CardTitle>
                   <TabsList>
                     <TabsTrigger value="runtime">Máy trạm</TabsTrigger>
@@ -642,17 +662,17 @@ function AlertGroupRow({ group }: { group: OverviewAlertGroupDto }) {
     group.severity === 'critical' ? 'destructive' : group.severity === 'warning' ? 'warning' : 'info'
 
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border bg-background/55 p-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-2 rounded-lg border border-border bg-background/60 p-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0 space-y-1">
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge variant={sevVariant}>
             <AlertTriangle className="h-3 w-3" />
-            {group.severity === 'critical' ? 'NGHIÊM TRỌNG' : 'CẢNH BÁO'}
+            {group.severity === 'critical' ? 'Nghiêm trọng' : 'Cảnh báo'}
             {group.count > 1 ? ` (${group.count})` : ''}
           </Badge>
-          <span className="text-xs font-bold text-foreground">{group.title}</span>
+          <span className="text-xs font-semibold text-foreground">{group.title}</span>
         </div>
-        <p className="truncate text-[11px] font-semibold text-primary">
+        <p className="truncate text-[11px] font-medium text-primary">
           TKQC: {group.accountNames.join(', ')}
           {group.count > group.accountNames.length
             ? ` (+${group.count - group.accountNames.length} khác)`
@@ -733,15 +753,17 @@ function ViaQuickRow({ via }: { via: WebViaItemDto }) {
       </TableCell>
       <TableCell className="py-2 text-right">
         <div className="inline-flex items-center gap-1">
-          <Button
-            variant="secondary"
-            size="sm"
-            className="h-7 px-2"
-            onClick={() => sendDesktopCommand('quick_test_via', { viaId: via.viaId })}
-          >
-            <FlaskConical className="h-3 w-3" />
-            Test 5s
-          </Button>
+          {!isGoogleVia(via) && (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-7 px-2"
+              onClick={() => sendDesktopCommand('quick_test_via', { viaId: via.viaId })}
+            >
+              <FlaskConical className="h-3 w-3" />
+              Test 5s
+            </Button>
+          )}
           <Button
             size="sm"
             className="h-7 px-2"
@@ -758,7 +780,7 @@ function ViaQuickRow({ via }: { via: WebViaItemDto }) {
 
 function FanpageInviteRow({ page }: { page: WebFanpageDto }) {
   return (
-    <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background/55 px-3 py-2">
+    <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background/60 px-3 py-2">
       <div className="min-w-0">
         <div className="flex items-center gap-1.5">
           <span className="truncate text-xs font-semibold text-foreground">{page.name}</span>

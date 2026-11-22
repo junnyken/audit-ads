@@ -1,23 +1,22 @@
 /*
- * Design tokens (U1a). Values come from docs/AUDIT_BEFORE_BUILD_U1_UI.md sections 10a-10b, stored
- * as space-separated RGB channels so Tailwind can add an alpha (rgb(var(--x) / <alpha-value>)).
- * Which tone a state gets is decided in src/lib/readiness.ts only; this file says what each tone
- * looks like in light and dark.
+ * Design tokens (v4.1.0 — Option A: Linear Graphite & Cobalt).
+ * Stored as space-separated RGB channels so Tailwind can add alpha (`rgb(var(--x) / <alpha-value>)`).
+ * Semantic palette tokens map identically across Light Slate-50 and Linear Graphite Dark.
  */
 :root {
-  --bg: 244 246 249;
+  --bg: 248 250 252;
   --surface: 255 255 255;
-  --surface-2: 238 241 245;
-  --border: 221 227 234;
-  --border-strong: 198 207 218;
-  --fg: 18 26 43;
-  --fg-muted: 75 87 103;
-  --fg-faint: 91 105 128;
-  --brand: 31 95 191;
-  --brand-hover: 24 79 159;
+  --surface-2: 241 245 249;
+  --border: 226 232 240;
+  --border-strong: 203 213 225;
+  --fg: 15 23 42;
+  --fg-muted: 71 85 105;
+  --fg-faint: 100 116 139;
+  --brand: 37 99 235;
+  --brand-hover: 29 78 216;
   --brand-fg: 255 255 255;
-  --brand-text: 26 79 158;
-  --brand-soft: 231 238 251;
+  --brand-text: 29 78 216;
+  --brand-soft: 239 246 255;
   --tone-positive-bg: 230 246 238;
   --tone-positive-fg: 15 107 67;
   --tone-positive-border: 169 223 194;
@@ -27,50 +26,50 @@
   --tone-attention-bg: 253 234 234;
   --tone-attention-fg: 155 28 28;
   --tone-attention-border: 243 180 180;
-  --tone-info-bg: 232 243 253;
-  --tone-info-fg: 11 79 134;
-  --tone-info-border: 168 207 240;
-  --tone-neutral-bg: 236 239 244;
-  --tone-neutral-fg: 59 70 86;
-  --tone-neutral-border: 205 213 223;
-  --tone-muted-bg: 244 246 249;
-  --tone-muted-fg: 92 104 120;
-  --tone-muted-border: 221 227 234;
+  --tone-info-bg: 239 246 255;
+  --tone-info-fg: 29 78 216;
+  --tone-info-border: 191 219 254;
+  --tone-neutral-bg: 241 245 249;
+  --tone-neutral-fg: 51 65 85;
+  --tone-neutral-border: 203 213 225;
+  --tone-muted-bg: 248 250 252;
+  --tone-muted-fg: 100 116 139;
+  --tone-muted-border: 226 232 240;
   color-scheme: light;
 }
 
 .dark {
-  --bg: 9 10 15;
-  --surface: 18 21 33;
-  --surface-2: 24 28 43;
-  --border: 35 41 62;
-  --border-strong: 49 57 84;
-  --fg: 248 250 252;
-  --fg-muted: 167 178 198;
-  --fg-faint: 128 142 168;
-  --brand: 99 102 241;
-  --brand-hover: 129 140 248;
+  --bg: 9 9 11;
+  --surface: 18 19 22;
+  --surface-2: 24 25 30;
+  --border: 39 39 42;
+  --border-strong: 63 63 70;
+  --fg: 250 250 250;
+  --fg-muted: 161 161 170;
+  --fg-faint: 113 113 122;
+  --brand: 59 130 246;
+  --brand-hover: 96 165 250;
   --brand-fg: 255 255 255;
-  --brand-text: 129 140 248;
-  --brand-soft: 24 26 62;
-  --tone-positive-bg: 11 43 35;
+  --brand-text: 96 165 250;
+  --brand-soft: 23 37 84;
+  --tone-positive-bg: 14 42 32;
   --tone-positive-fg: 52 211 153;
-  --tone-positive-border: 16 185 129;
-  --tone-caution-bg: 43 33 11;
+  --tone-positive-border: 22 101 52;
+  --tone-caution-bg: 42 32 12;
   --tone-caution-fg: 251 191 36;
-  --tone-caution-border: 217 119 6;
-  --tone-attention-bg: 45 21 25;
+  --tone-caution-border: 146 64 14;
+  --tone-attention-bg: 46 18 22;
   --tone-attention-fg: 248 113 113;
-  --tone-attention-border: 220 38 38;
-  --tone-info-bg: 22 24 56;
-  --tone-info-fg: 129 140 248;
-  --tone-info-border: 79 70 229;
-  --tone-neutral-bg: 24 28 43;
-  --tone-neutral-fg: 203 213 225;
-  --tone-neutral-border: 49 57 84;
-  --tone-muted-bg: 18 21 33;
-  --tone-muted-fg: 148 163 184;
-  --tone-muted-border: 35 41 62;
+  --tone-attention-border: 153 27 27;
+  --tone-info-bg: 23 37 84;
+  --tone-info-fg: 96 165 250;
+  --tone-info-border: 30 64 175;
+  --tone-neutral-bg: 24 25 30;
+  --tone-neutral-fg: 212 212 216;
+  --tone-neutral-border: 63 63 70;
+  --tone-muted-bg: 18 19 22;
+  --tone-muted-fg: 161 161 170;
+  --tone-muted-border: 39 39 42;
   color-scheme: dark;
 }
 
@@ -94,37 +93,37 @@
 /* No explicit choice yet: follow the operating system. */
 @media (prefers-color-scheme: dark) {
   :root:not(.light):not(.dark) {
-    --bg: 9 10 15;
-    --surface: 18 21 33;
-    --surface-2: 24 28 43;
-    --border: 35 41 62;
-    --border-strong: 49 57 84;
-    --fg: 248 250 252;
-    --fg-muted: 167 178 198;
-    --fg-faint: 128 142 168;
-    --brand: 99 102 241;
-    --brand-hover: 129 140 248;
+    --bg: 9 9 11;
+    --surface: 18 19 22;
+    --surface-2: 24 25 30;
+    --border: 39 39 42;
+    --border-strong: 63 63 70;
+    --fg: 250 250 250;
+    --fg-muted: 161 161 170;
+    --fg-faint: 113 113 122;
+    --brand: 59 130 246;
+    --brand-hover: 96 165 250;
     --brand-fg: 255 255 255;
-    --brand-text: 129 140 248;
-    --brand-soft: 24 26 62;
-    --tone-positive-bg: 15 43 34;
-    --tone-positive-fg: 111 211 163;
-    --tone-positive-border: 31 90 66;
-    --tone-caution-bg: 51 38 7;
-    --tone-caution-fg: 243 200 107;
-    --tone-caution-border: 107 82 19;
-    --tone-attention-bg: 58 21 24;
-    --tone-attention-fg: 242 154 154;
-    --tone-attention-border: 122 42 46;
-    --tone-info-bg: 15 39 64;
-    --tone-info-fg: 134 191 240;
-    --tone-info-border: 31 77 120;
-    --tone-neutral-bg: 31 42 61;
-    --tone-neutral-fg: 194 203 216;
-    --tone-neutral-border: 58 72 96;
-    --tone-muted-bg: 22 31 48;
-    --tone-muted-fg: 149 162 182;
-    --tone-muted-border: 39 50 70;
+    --brand-text: 96 165 250;
+    --brand-soft: 23 37 84;
+    --tone-positive-bg: 14 42 32;
+    --tone-positive-fg: 52 211 153;
+    --tone-positive-border: 22 101 52;
+    --tone-caution-bg: 42 32 12;
+    --tone-caution-fg: 251 191 36;
+    --tone-caution-border: 146 64 14;
+    --tone-attention-bg: 46 18 22;
+    --tone-attention-fg: 248 113 113;
+    --tone-attention-border: 153 27 27;
+    --tone-info-bg: 23 37 84;
+    --tone-info-fg: 96 165 250;
+    --tone-info-border: 30 64 175;
+    --tone-neutral-bg: 24 25 30;
+    --tone-neutral-fg: 212 212 216;
+    --tone-neutral-border: 63 63 70;
+    --tone-muted-bg: 18 19 22;
+    --tone-muted-fg: 161 161 170;
+    --tone-muted-border: 39 39 42;
     color-scheme: dark;
   }
 }

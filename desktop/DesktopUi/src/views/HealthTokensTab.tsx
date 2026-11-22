@@ -3,6 +3,7 @@ import {
   Activity,
   AlertTriangle,
   Bell,
+  Eye,
   FileSpreadsheet,
   KeyRound,
   Play,
@@ -16,9 +17,10 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { InspectorDrawer, InspectorSection } from '@/components/ui/inspector-drawer'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { sendDesktopCommand } from '@/lib/bridge'
-import type { AppShellWebStateDto } from '@/types'
+import type { AppShellWebStateDto, WebAccountHealthRowDto } from '@/types'
 
 function resolveHealthVariant(status: string): 'destructive' | 'warning' | 'success' | 'secondary' {
   const s = (status || '').trim().toLowerCase()
@@ -32,6 +34,7 @@ export function HealthTokensTab({ state }: { state: AppShellWebStateDto }) {
   const [healthSearch, setHealthSearch] = useState('')
   const [healthFilter, setHealthFilter] = useState('all')
   const [auditSearch, setAuditSearch] = useState('')
+  const [inspectedRow, setInspectedRow] = useState<WebAccountHealthRowDto | null>(null)
   const hk = state.healthKpi
 
   const filteredHealth = useMemo(() => {
@@ -74,15 +77,15 @@ export function HealthTokensTab({ state }: { state: AppShellWebStateDto }) {
 
   return (
     <div className="space-y-4">
-      {/* 4 KPI Strip */}
+      {/* 4 Compact KPI Strip */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-1.5">
-            <CardTitle className="text-xs font-semibold text-muted-foreground">Nguy kịch (Critical)</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-rose-400" />
+            <CardTitle className="text-xs font-medium text-muted-foreground">Nguy kịch (Critical)</CardTitle>
+            <AlertTriangle className="h-4 w-4 text-rose-500" />
           </CardHeader>
           <CardContent>
-            <div className="font-mono text-2xl font-bold text-foreground">{hk.critical}</div>
+            <div className="font-mono text-2xl font-bold tabular-nums text-foreground">{hk.critical}</div>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
               {hk.warning} Warning • {hk.attentionNeeded} cần chú ý
             </p>
@@ -91,22 +94,24 @@ export function HealthTokensTab({ state }: { state: AppShellWebStateDto }) {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-1.5">
-            <CardTitle className="text-xs font-semibold text-muted-foreground">TKQC Sạch Tín hiệu</CardTitle>
-            <ShieldCheck className="h-4 w-4 text-emerald-400" />
+            <CardTitle className="text-xs font-medium text-muted-foreground">TKQC Sạch Tín hiệu</CardTitle>
+            <ShieldCheck className="h-4 w-4 text-emerald-500" />
           </CardHeader>
           <CardContent>
-            <div className="font-mono text-2xl font-bold text-foreground">{hk.clearSignals}</div>
+            <div className="font-mono text-2xl font-bold tabular-nums text-foreground">{hk.clearSignals}</div>
             <p className="mt-0.5 text-[11px] text-muted-foreground">Tổng {hk.totalActive} TKQC đang theo dõi</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-1.5">
-            <CardTitle className="text-xs font-semibold text-muted-foreground">Meta Token Kết Nối</CardTitle>
-            <KeyRound className="h-4 w-4 text-indigo-400" />
+            <CardTitle className="text-xs font-medium text-muted-foreground">Meta Token Kết nối</CardTitle>
+            <KeyRound className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="font-mono text-2xl font-bold text-foreground">{hk.tokenConfiguredCount}</div>
+            <div className="font-mono text-2xl font-bold tabular-nums text-foreground">
+              {hk.tokenConfiguredCount}
+            </div>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
               {hk.metaConnectionCount} kết nối ({hk.staleData} dữ liệu cũ)
             </p>
@@ -115,24 +120,24 @@ export function HealthTokensTab({ state }: { state: AppShellWebStateDto }) {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-1.5">
-            <CardTitle className="text-xs font-semibold text-muted-foreground">Pre-flight Drafts</CardTitle>
-            <Stethoscope className="h-4 w-4 text-amber-400" />
+            <CardTitle className="text-xs font-medium text-muted-foreground">Pre-flight Drafts</CardTitle>
+            <Stethoscope className="h-4 w-4 text-amber-500" />
           </CardHeader>
           <CardContent>
-            <div className="font-mono text-2xl font-bold text-foreground">{hk.draftCount}</div>
+            <div className="font-mono text-2xl font-bold tabular-nums text-foreground">{hk.draftCount}</div>
             <p className="mt-0.5 text-[11px] text-muted-foreground">{hk.draftBlockingCount} nháp bị chặn</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Organized Sub-Tabs */}
+      {/* Horizontal Sub-Tabs */}
       <Tabs defaultValue="health" className="space-y-3">
         <TabsList className="flex-wrap">
           <TabsTrigger value="health">Sức khỏe TKQC ({state.accountHealthRows.length})</TabsTrigger>
           <TabsTrigger value="tokens">Meta Token ({state.metaConnections.length})</TabsTrigger>
-          <TabsTrigger value="readiness">Readiness Board ({state.readinessRows.length})</TabsTrigger>
+          <TabsTrigger value="readiness">Readiness ({state.readinessRows.length})</TabsTrigger>
           <TabsTrigger value="drafts">Pre-flight Drafts ({state.campaignDrafts.length})</TabsTrigger>
-          <TabsTrigger value="audit">Live Audit Log ({state.auditLogs.length})</TabsTrigger>
+          <TabsTrigger value="audit">Nhật ký Audit ({state.auditLogs.length})</TabsTrigger>
         </TabsList>
 
         {/* TAB A: Account Health */}
@@ -166,7 +171,7 @@ export function HealthTokensTab({ state }: { state: AppShellWebStateDto }) {
                   },
                   {
                     key: 'warning',
-                    label: `Warning/Attn (${
+                    label: `Warning (${
                       state.accountHealthRows.filter(
                         (x) =>
                           x.healthStatus.toLowerCase() === 'warning' ||
@@ -203,10 +208,16 @@ export function HealthTokensTab({ state }: { state: AppShellWebStateDto }) {
                 filteredHealth.map((r) => (
                   <div
                     key={r.adAccountId}
-                    className="grid grid-cols-1 items-center gap-2.5 rounded-lg border border-border bg-background/50 p-3 lg:grid-cols-[1.5fr_auto_auto_1.5fr_auto]"
+                    className="grid grid-cols-1 items-center gap-2.5 rounded-lg border border-border bg-background/60 p-3 lg:grid-cols-[1.5fr_auto_auto_1.5fr_auto]"
                   >
                     <div className="min-w-0">
-                      <div className="truncate text-xs font-semibold text-foreground">{r.displayName}</div>
+                      <button
+                        type="button"
+                        onClick={() => setInspectedRow(r)}
+                        className="truncate text-left text-xs font-semibold text-foreground hover:text-primary"
+                      >
+                        {r.displayName}
+                      </button>
                       <div className="truncate text-[11px] text-muted-foreground">
                         act_{r.externalAccountId} • BM: {r.businessManagerName} • Via: {r.viaLabel}
                       </div>
@@ -224,6 +235,15 @@ export function HealthTokensTab({ state }: { state: AppShellWebStateDto }) {
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 px-0"
+                        title="Xem chi tiết"
+                        onClick={() => setInspectedRow(r)}
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                      </Button>
                       <Button
                         variant="secondary"
                         size="sm"
@@ -267,9 +287,9 @@ export function HealthTokensTab({ state }: { state: AppShellWebStateDto }) {
             <CardHeader className="pb-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <CardTitle className="text-sm font-bold">Kết nối Meta Graph API &amp; Token Hệ thống</CardTitle>
-                  <CardDescription>
-                    Kiểm tra khả năng đọc của Meta Token và kích hoạt Quick Sync lấy số liệu TKQC/BM mới nhất.
+                  <CardTitle className="text-sm font-semibold">Kết nối Meta Graph API &amp; Token Hệ thống</CardTitle>
+                  <CardDescription className="text-xs">
+                    Kiểm tra khả năng đọc của Meta Token và kích hoạt Quick Sync lấy số liệu mới nhất.
                   </CardDescription>
                 </div>
                 <div className="flex gap-2">
@@ -277,7 +297,7 @@ export function HealthTokensTab({ state }: { state: AppShellWebStateDto }) {
                     <KeyRound className="h-3.5 w-3.5" /> Gắn Token EAAB
                   </Button>
                   <Button size="sm" onClick={() => sendDesktopCommand('quick_sync_meta')}>
-                    <RefreshCw className="h-3.5 w-3.5" /> Quick Sync Meta
+                    <RefreshCw className="h-3.5 w-3.5" /> Đồng bộ nhanh Meta
                   </Button>
                 </div>
               </div>
@@ -285,16 +305,16 @@ export function HealthTokensTab({ state }: { state: AppShellWebStateDto }) {
             <CardContent className="space-y-2">
               {state.metaConnections.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
-                  Chưa có Meta Connection hoặc tài khoản hiện tại chưa có quyền xem cấu hình Token (Owner).
+                  Chưa có Meta Connection hoặc tài khoản hiện tại chưa có quyền xem cấu hình Token.
                 </p>
               ) : (
                 state.metaConnections.map((conn) => (
                   <div
                     key={conn.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-background/50 p-3"
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-background/60 p-3"
                   >
                     <div className="min-w-0 space-y-0.5">
-                      <div className="text-xs font-bold text-foreground">{conn.label}</div>
+                      <div className="text-xs font-semibold text-foreground">{conn.label}</div>
                       <div className="text-[11px] text-muted-foreground">
                         Môi trường: {conn.environment} • Nguồn: {conn.readerSource} • BM: {conn.bmReference}
                       </div>
@@ -325,7 +345,7 @@ export function HealthTokensTab({ state }: { state: AppShellWebStateDto }) {
           <Card>
             <CardHeader className="pb-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <CardTitle className="text-sm font-bold">Readiness Board (Mức độ sẵn sàng lên Camp)</CardTitle>
+                <CardTitle className="text-sm font-semibold">Readiness Board (Mức độ sẵn sàng)</CardTitle>
                 <div className="flex flex-wrap gap-1.5">
                   <Badge variant="success">Sẵn sàng: {state.readinessSummary.operationallyReady}</Badge>
                   <Badge variant="warning">Cảnh báo: {state.readinessSummary.readyWithWarnings}</Badge>
@@ -336,7 +356,11 @@ export function HealthTokensTab({ state }: { state: AppShellWebStateDto }) {
               {state.readinessGroups.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 pt-2">
                   {state.readinessGroups.map((g, i) => (
-                    <Badge key={i} variant={g.severity === 'critical' ? 'destructive' : 'warning'} className="text-[11px]">
+                    <Badge
+                      key={i}
+                      variant={g.severity === 'critical' ? 'destructive' : 'warning'}
+                      className="text-[11px]"
+                    >
                       {g.message} ({g.accountCount} TKQC)
                     </Badge>
                   ))}
@@ -350,7 +374,7 @@ export function HealthTokensTab({ state }: { state: AppShellWebStateDto }) {
                 state.readinessRows.map((r) => (
                   <div
                     key={r.adAccountId}
-                    className="grid grid-cols-1 items-center gap-2 rounded-lg border border-border bg-background/50 p-2.5 lg:grid-cols-[1.3fr_auto_80px_1.6fr_auto]"
+                    className="grid grid-cols-1 items-center gap-2 rounded-lg border border-border bg-background/60 p-2.5 lg:grid-cols-[1.3fr_auto_80px_1.6fr_auto]"
                   >
                     <div className="min-w-0">
                       <div className="truncate text-xs font-semibold text-foreground">{r.displayName}</div>
@@ -389,9 +413,9 @@ export function HealthTokensTab({ state }: { state: AppShellWebStateDto }) {
         <TabsContent value="drafts" className="mt-0">
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-bold">Kiểm tra Pre-flight Chiến dịch Nháp</CardTitle>
-              <CardDescription>
-                Đánh giá nhanh rủi ro chặn/cảnh báo trước khi lên Camp trên Ads Manager.
+              <CardTitle className="text-sm font-semibold">Kiểm tra Pre-flight Chiến dịch Nháp</CardTitle>
+              <CardDescription className="text-xs">
+                Đánh giá rủi ro chặn hoặc cảnh báo trước khi chạy chiến dịch thực tế.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
@@ -403,7 +427,7 @@ export function HealthTokensTab({ state }: { state: AppShellWebStateDto }) {
                 state.campaignDrafts.map((d) => (
                   <div
                     key={d.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-background/50 p-3"
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-background/60 p-3"
                   >
                     <div className="min-w-0">
                       <div className="text-xs font-semibold text-foreground">{d.title}</div>
@@ -462,14 +486,14 @@ export function HealthTokensTab({ state }: { state: AppShellWebStateDto }) {
               {filteredAudits.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
                   {state.auditLogs.length === 0
-                    ? 'Không có nhật ký Audit (hoặc tài khoản hiện tại chưa được cấp quyền Owner/Admin).'
+                    ? 'Không có nhật ký Audit (hoặc tài khoản hiện tại chưa được cấp quyền Owner).'
                     : 'Không có dòng nhật ký nào khớp từ khóa.'}
                 </p>
               ) : (
                 filteredAudits.map((a) => (
                   <div
                     key={a.id}
-                    className="grid grid-cols-1 items-center gap-2 rounded-md border border-border/70 bg-background/45 px-3 py-2 text-xs lg:grid-cols-[150px_1.2fr_1fr_1.2fr]"
+                    className="grid grid-cols-1 items-center gap-2 rounded-md border border-border/70 bg-background/50 px-3 py-2 text-xs lg:grid-cols-[150px_1.2fr_1fr_1.2fr]"
                   >
                     <span className="font-mono text-[11px] text-muted-foreground">{a.createdAtLocal}</span>
                     <span className="truncate font-mono font-semibold text-primary">{a.action}</span>
@@ -484,6 +508,85 @@ export function HealthTokensTab({ state }: { state: AppShellWebStateDto }) {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Health Row Slide-Over Inspector */}
+      <InspectorDrawer
+        open={Boolean(inspectedRow)}
+        onOpenChange={(o) => !o && setInspectedRow(null)}
+        title={inspectedRow?.displayName || ''}
+        subtitle={inspectedRow ? `act_${inspectedRow.externalAccountId} • ${inspectedRow.businessManagerName}` : ''}
+        badge={
+          inspectedRow && (
+            <Badge variant={resolveHealthVariant(inspectedRow.healthStatus)}>
+              {inspectedRow.healthStatus}
+            </Badge>
+          )
+        }
+        footer={
+          inspectedRow && (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => sendDesktopCommand('open_health_signals', { adAccountId: inspectedRow.adAccountId })}
+              >
+                <Bell className="h-3.5 w-3.5" /> Tín hiệu
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => sendDesktopCommand('recalc_account_health', { adAccountId: inspectedRow.adAccountId })}
+              >
+                <RefreshCw className="h-3.5 w-3.5" /> Tính lại
+              </Button>
+              <Button
+                size="sm"
+                onClick={() =>
+                  sendDesktopCommand('open_ads_manager', {
+                    externalAccountId: inspectedRow.externalAccountId,
+                    viaHint: inspectedRow.viaLabel,
+                  })
+                }
+              >
+                <Rocket className="h-3.5 w-3.5" /> Ads Manager
+              </Button>
+            </div>
+          )
+        }
+      >
+        {inspectedRow && (
+          <div className="space-y-3 text-xs">
+            <InspectorSection title="Phân tích Sức khỏe">
+              <dl className="space-y-1.5">
+                <div className="flex justify-between gap-2">
+                  <dt className="text-muted-foreground">Trạng thái Health:</dt>
+                  <dd className="font-medium">{inspectedRow.healthStatus}</dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt className="text-muted-foreground">Mức sẵn sàng:</dt>
+                  <dd className="font-medium">{inspectedRow.readinessStatus}</dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt className="text-muted-foreground">Via liên kết:</dt>
+                  <dd className="font-medium">{inspectedRow.viaLabel || '—'}</dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt className="text-muted-foreground">Lỗi mở:</dt>
+                  <dd className="font-mono">
+                    Crit {inspectedRow.openCriticalCount} • Warn {inspectedRow.openWarningCount} • Attn{' '}
+                    {inspectedRow.openAttentionCount}
+                  </dd>
+                </div>
+              </dl>
+            </InspectorSection>
+            <InspectorSection title="Lý do chính">
+              <p className="leading-relaxed text-foreground">
+                {inspectedRow.topReasonText || 'Không có ghi chú bất thường.'}
+              </p>
+            </InspectorSection>
+          </div>
+        )}
+      </InspectorDrawer>
     </div>
   )
 }

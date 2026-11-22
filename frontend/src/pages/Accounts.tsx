@@ -1,7 +1,7 @@
 import { Fragment, useId, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Building2, Calendar, ChevronRight, Columns3, CreditCard, Download, ExternalLink, Gauge, ListFilter, Pencil, RotateCcw, Search, ShieldCheck, Trash2, X } from 'lucide-react'
+import { Building2, Calendar, ChevronRight, Columns3, CreditCard, Download, ExternalLink, Eye, Gauge, ListFilter, Pencil, RotateCcw, Search, ShieldCheck, Trash2, X } from 'lucide-react'
 import { prettyMoney } from '../lib/spend'
 import { api, query } from '../lib/api'
 import type { AdAccount, Paged, ReferenceRecord } from '../lib/types'
@@ -28,12 +28,14 @@ import {
   DropdownMenuTrigger,
 } from '../components/primitives/dropdown-menu'
 import { Skeleton } from '../components/primitives/skeleton'
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from '../components/primitives/sheet'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/primitives/table'
 import { EmptyState, ErrorState, LoadingRegion, PartialDataNote } from '../components/states'
 import { READINESS_META, accountStatusTone } from '../lib/readiness'
 import { formatCount, formatDateTime, formatRelative } from '../lib/format'
 import { columnsStorageKey, loadColumns, saveColumns } from '../lib/columnPrefs'
 import { useAuth } from '../hooks/useAuth'
+import { isGoogleAdAccount, usePlatformScope } from '../hooks/usePlatformScope'
 import { useI18n } from '../i18n'
 import { useEnumLabel } from '../i18n/labels'
 import type { TranslationKey } from '../i18n'
@@ -74,10 +76,12 @@ export default function Accounts() {
   const { t, language } = useI18n()
   const enumLabel = useEnumLabel()
   const { user } = useAuth()
+  const { platformScope } = usePlatformScope()
   /** Filters live in the URL so a filtered view can be bookmarked and shared. */
   const [params, setParams] = useSearchParams()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editingAccount, setEditingAccount] = useState<AdAccount | null>(null)
+  const [inspectedAccount, setInspectedAccount] = useState<AdAccount | null>(null)
   const [viewMode, setViewMode] = useState<'all' | 'bm' | 'via' | 'client'>('all')
 
   const filters = {
@@ -131,7 +135,12 @@ export default function Accounts() {
     queryFn: () => api.get<Paged<AdAccount>>(`/api/v1/ad-accounts${query(filters)}`),
   })
 
-  const baseRows = accounts.data?.items ?? []
+  const rawBaseRows = accounts.data?.items ?? []
+  const baseRows = rawBaseRows.filter((a) => {
+    if (platformScope === 'all') return true
+    const isG = isGoogleAdAccount(a)
+    return platformScope === 'google_ads' ? isG : !isG
+  })
   const [quickSlice, setQuickSlice] = useState<'all' | 'active' | 'has_debt' | 'restricted' | 'disabled' | 'has_card'>('all')
   const [cardFilter, setCardFilter] = useState<string | null>(null)
 
@@ -1320,6 +1329,17 @@ export default function Accounts() {
                           {shown.map((id) => renderCell(id, account))}
                           <TableCell className="whitespace-nowrap text-right">
                             <div className="inline-flex items-center justify-end gap-1.5">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-ink-muted hover:text-ink"
+                                aria-label={t('accounts.inspectBtn')}
+                                title={t('accounts.inspectBtn')}
+                                onClick={() => setInspectedAccount(account)}
+                              >
+                                <Eye className="h-4 w-4" aria-hidden="true" />
+                              </Button>
                               {!account.archived_at && (
                                 <Button
                                   type="button"
@@ -1421,6 +1441,184 @@ export default function Accounts() {
           void accounts.refetch()
         }}
       />
+
+      <Sheet
+        open={inspectedAccount !== null}
+        onOpenChange={(open) => {
+          if (!open) setInspectedAccount(null)
+        }}
+      >
+        <SheetContent
+          side="right"
+          closeLabel={t('accounts.inspector.close')}
+          className="w-[min(28rem,92vw)] overflow-y-auto p-5 sm:max-w-md"
+        >
+          {inspectedAccount && (() => {
+            const bm = inspectedAccount.billing_meta ?? {}
+            const sp = inspectedAccount.spend_periods
+            const curr = inspectedAccount.currency || inspectedAccount.spend?.observed_currency || 'VND'
+            const cardDisplay =
+              bm.payment_card_display ||
+              (inspectedAccount.payment_profile_labels ?? []).find((l) => !l.startsWith('VISA-QCT-')) ||
+              '—'
+            const isG = isGoogleAdAccount(inspectedAccount)
+            const rm = READINESS_META[inspectedAccount.readiness_status] ?? READINESS_META.unknown
+
+            return (
+              <div className="flex flex-col gap-4 pr-2">
+                <div className="space-y-1.5 pr-6">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge tone={isG ? 'info' : 'neutral'}>{isG ? 'Google Ads' : 'Meta Ads'}</Badge>
+                    <Badge tone={accountStatusTone(inspectedAccount.status)}>
+                      {enumLabel('accountStatus', inspectedAccount.status)}
+                    </Badge>
+                    <Badge tone={rm.tone}>{enumLabel('readiness', inspectedAccount.readiness_status)}</Badge>
+                  </div>
+                  <SheetTitle className="text-base font-bold text-ink">
+                    {inspectedAccount.display_name}
+                  </SheetTitle>
+                  <SheetDescription className="font-mono text-xs tabular-nums text-ink-muted">
+                    {inspectedAccount.external_account_id || 'Chưa gắn ID'} · {curr}
+                    {inspectedAccount.timezone ? ` · ${inspectedAccount.timezone}` : ''}
+                  </SheetDescription>
+                </div>
+
+                <div className="rounded-lg border border-line bg-surface-sunken/60 p-3 space-y-2">
+                  <div className="text-2xs font-semibold uppercase tracking-wider text-ink-faint">
+                    {language === 'vi' ? 'Chỉ số Chi tiêu & Dư nợ' : 'Spend & Balance'}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2.5 text-xs">
+                    <div className="rounded-md border border-line bg-surface p-2">
+                      <div className="text-[11px] text-ink-muted">{language === 'vi' ? 'Hôm nay' : 'Today'}</div>
+                      <div className="mt-0.5 font-mono font-semibold tabular-nums text-ink">
+                        {prettyMoney(sp?.today_partial_raw ?? null, curr) || '—'}
+                      </div>
+                    </div>
+                    <div className="rounded-md border border-line bg-surface p-2">
+                      <div className="text-[11px] text-ink-muted">{language === 'vi' ? '7 ngày qua' : 'Last 7 days'}</div>
+                      <div className="mt-0.5 font-mono font-semibold tabular-nums text-ink">
+                        {prettyMoney(sp?.last_7d_raw ?? null, curr) || '—'}
+                      </div>
+                    </div>
+                    <div className="rounded-md border border-line bg-surface p-2">
+                      <div className="text-[11px] text-ink-muted">{language === 'vi' ? 'Tháng này (MTD)' : 'Month to date'}</div>
+                      <div className="mt-0.5 font-mono font-semibold tabular-nums text-ink">
+                        {prettyMoney(sp?.mtd_raw ?? null, curr) || '—'}
+                      </div>
+                    </div>
+                    <div className="rounded-md border border-line bg-surface p-2">
+                      <div className="text-[11px] text-ink-muted">{language === 'vi' ? 'Tổng trọn đời' : 'Lifetime spent'}</div>
+                      <div className="mt-0.5 font-mono font-semibold tabular-nums text-ink">
+                        {prettyMoney(sp?.amount_spent_raw ?? null, curr) || '—'}
+                      </div>
+                    </div>
+                    <div className="rounded-md border border-line bg-surface p-2">
+                      <div className="text-[11px] text-ink-muted">{language === 'vi' ? 'Dư nợ hiện tại' : 'Current balance'}</div>
+                      <div className="mt-0.5 font-mono font-semibold tabular-nums text-brand-text">
+                        {prettyMoney(bm.balance_raw ?? sp?.balance_raw ?? null, curr) || '—'}
+                      </div>
+                    </div>
+                    <div className="rounded-md border border-line bg-surface p-2">
+                      <div className="text-[11px] text-ink-muted">{language === 'vi' ? 'Ngưỡng Billing' : 'Billing threshold'}</div>
+                      <div className="mt-0.5 font-mono font-semibold tabular-nums text-ink">
+                        {prettyMoney(bm.billing_threshold_raw ?? null, curr) || '—'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-line bg-surface-sunken/60 p-3 space-y-2 text-xs">
+                  <div className="text-2xs font-semibold uppercase tracking-wider text-ink-faint">
+                    {language === 'vi' ? 'Thanh toán & Cấu trúc sở hữu' : 'Billing & Ownership'}
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between gap-2">
+                      <span className="text-ink-muted">{language === 'vi' ? 'Phương thức TT' : 'Payment card'}:</span>
+                      <span className="font-mono font-medium text-ink">{cardDisplay}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-ink-muted">{language === 'vi' ? 'Ngày thanh toán kế' : 'Next bill date'}:</span>
+                      <span className="font-mono tabular-nums text-ink">{bm.next_bill_date || '—'}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-ink-muted">{language === 'vi' ? 'Giới hạn ngày Meta' : 'Daily spend limit'}:</span>
+                      <span className="font-mono tabular-nums text-ink">
+                        {prettyMoney(bm.meta_daily_limit_raw ?? null, curr) || '—'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-ink-muted">Business Manager:</span>
+                      <span className="font-medium text-ink">{inspectedAccount.business_manager_name || '—'}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-ink-muted">{language === 'vi' ? 'Khách hàng' : 'Client'}:</span>
+                      <span className="font-medium text-ink">{inspectedAccount.client_name || '—'}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-ink-muted">{language === 'vi' ? 'Cập nhật lúc' : 'Last updated'}:</span>
+                      <span className="tabular-nums text-ink">{formatDateTime(inspectedAccount.updated_at, language)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {inspectedAccount.facebook_identities && inspectedAccount.facebook_identities.length > 0 && (
+                  <div className="rounded-lg border border-line bg-surface-sunken/60 p-3 space-y-2 text-xs">
+                    <div className="text-2xs font-semibold uppercase tracking-wider text-ink-faint">
+                      {language === 'vi' ? 'Hồ sơ cầm tài khoản (VIA / MCC)' : 'Assigned Profiles'}
+                    </div>
+                    <ul className="space-y-1.5">
+                      {inspectedAccount.facebook_identities.map((id) => (
+                        <li
+                          key={id.id}
+                          className="flex items-center justify-between gap-2 rounded-md border border-line bg-surface px-2.5 py-1.5"
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate font-medium text-ink">{id.label}</div>
+                            {id.browser_profile_label && (
+                              <div className="truncate font-mono text-[11px] text-ink-muted">
+                                {id.browser_profile_label}
+                              </div>
+                            )}
+                          </div>
+                          {id.network_label && (
+                            <Badge tone="neutral" className="shrink-0 font-mono text-[10px]">
+                              {id.network_label}
+                            </Badge>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
+                  <Button asChild size="sm" className="flex-1">
+                    <Link to={`/accounts/${inspectedAccount.id}`}>
+                      {language === 'vi' ? 'Mở trang Chi tiết' : 'Open full page'}
+                      <ChevronRight className="ml-1 h-4 w-4" aria-hidden="true" />
+                    </Link>
+                  </Button>
+                  {!inspectedAccount.archived_at && (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        const target = inspectedAccount
+                        setInspectedAccount(null)
+                        setEditingAccount(target)
+                      }}
+                    >
+                      <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                      {t('pg.edit')}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

@@ -47,14 +47,17 @@ beforeEach(() => {
 })
 
 describe('AppShell navigation', () => {
-  it('renders seven labelled groups and sixteen links, in Vietnamese', () => {
+  it('renders four labelled groups and twenty links, in Vietnamese', () => {
     renderShell()
     const nav = screen.getByRole('navigation', { name: 'Điều hướng chính' })
-    expect(within(nav).getAllByRole('heading', { level: 2 })).toHaveLength(7)
-    expect(NAV_GROUPS).toHaveLength(7)
-    expect(within(nav).getAllByRole('link')).toHaveLength(16)
+    expect(within(nav).getAllByRole('heading', { level: 2 })).toHaveLength(4)
+    expect(NAV_GROUPS).toHaveLength(4)
+    expect(within(nav).getAllByRole('link')).toHaveLength(20)
     for (const label of [
       'Tài khoản quảng cáo',
+      'Trang Fanpage',
+      'Ngân sách & Quyết toán KH',
+      'Tiện ích Chrome & App',
       'Sức khoẻ tài khoản',
       'Mức sẵn sàng',
       'Kiểm tra trước khi chạy',
@@ -66,7 +69,7 @@ describe('AppShell navigation', () => {
     }
   })
 
-  it('links every route the app declares (the five A7-hidden routes included)', () => {
+  it('links every route the app declares (all twenty destinations)', () => {
     const app = readFileSync(join(process.cwd(), 'src/App.tsx'), 'utf8')
     const paths = [...app.matchAll(/path="([^"]+)"/g)].map((m) => `/${m[1]}`).filter((p) => p !== '/*')
     expect(paths.length).toBeGreaterThanOrEqual(20)
@@ -78,9 +81,23 @@ describe('AppShell navigation', () => {
     for (const to of targets.filter((t) => t !== '/')) {
       expect(paths, `${to} is a real route`).toContain(to)
     }
-    for (const hidden of ['/readiness', '/account-health', '/preflight', '/audit-log', '/system']) {
-      expect(targets).toContain(hidden)
+    for (const keyRoute of ['/pages', '/retainers', '/chrome-extension', '/readiness', '/account-health', '/preflight', '/audit-log', '/system']) {
+      expect(targets).toContain(keyRoute)
     }
+  })
+
+  it('persists top-of-sidebar Platform Scope selection and sidebar collapse state', async () => {
+    renderShell()
+    const scopeGroup = screen.getByRole('group', { name: 'Phạm vi nền tảng' })
+    const googleBtn = within(scopeGroup).getByRole('button', { name: 'Google' })
+    await userEvent.click(googleBtn)
+    expect(localStorage.getItem('adsops.platform_scope')).toBe('google_ads')
+    expect(googleBtn).toHaveAttribute('aria-pressed', 'true')
+
+    const collapseBtn = screen.getByRole('button', { name: 'Thu gọn thanh điều hướng' })
+    await userEvent.click(collapseBtn)
+    expect(localStorage.getItem('adsops.sidebar_collapsed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Mở rộng thanh điều hướng' })).toBeInTheDocument()
   })
 
   it('marks the current page with aria-current and keeps a parent highlighted on a detail route', () => {
@@ -109,7 +126,7 @@ describe('AppShell navigation', () => {
   it('switches the whole shell to English and remembers it', async () => {
     renderShell()
     await userEvent.click(screen.getByRole('button', { name: 'Ngôn ngữ' }))
-    await userEvent.click(await screen.findByRole('menuitemradio', { name: 'English' }))
+    await userEvent.click(await screen.findByRole('menuitemradio', { name: /English/ }))
     expect(screen.getByRole('navigation', { name: 'Main navigation' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Ad accounts' })).toBeInTheDocument()
     expect(localStorage.getItem('adsops.language')).toBe('en')
@@ -123,7 +140,7 @@ describe('AppShell mobile menu (Sheet)', () => {
     const opener = screen.getByRole('button', { name: 'Mở menu điều hướng' })
     await userEvent.click(opener)
     const dialog = await screen.findByRole('dialog', { name: 'Menu điều hướng' })
-    expect(within(dialog).getAllByRole('link')).toHaveLength(16)
+    expect(within(dialog).getAllByRole('link')).toHaveLength(20)
     await userEvent.keyboard('{Escape}')
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(opener).toHaveFocus()
@@ -160,7 +177,7 @@ describe('accessibility basics', () => {
         </I18nProvider>
       </ThemeProvider>,
     )
-    expect(screen.getByRole('heading', { name: 'Đăng nhập' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /Đăng nhập/i })).toBeInTheDocument()
     expect(screen.getByLabelText(/Mật khẩu/)).toBeInTheDocument()
     for (const button of screen.getAllByRole('button')) expect(button).toHaveAccessibleName()
     const results = await axe(container, { rules: { 'color-contrast': { enabled: false } } })

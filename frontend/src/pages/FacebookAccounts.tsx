@@ -12,6 +12,7 @@ import type {
   TeamMember,
 } from '../lib/types'
 import { useAuth } from '../hooks/useAuth'
+import { isGoogleIdentity, usePlatformScope } from '../hooks/usePlatformScope'
 import { useI18n } from '../i18n'
 import { useEnumLabel } from '../i18n/labels'
 import { PageHeader } from '../components/page/PageHeader'
@@ -357,6 +358,7 @@ export default function FacebookAccounts() {
   const { t, language } = useI18n()
   const enumLabel = useEnumLabel()
   const { user } = useAuth()
+  const { platformScope } = usePlatformScope()
   const queryClient = useQueryClient()
   const role = user?.role ?? 'owner'
   const canWrite = role !== 'viewer'
@@ -657,8 +659,19 @@ export default function FacebookAccounts() {
     return { total: enrichedRows.length, vault, camp, standby, risk }
   }, [enrichedRows])
 
+  useEffect(() => {
+    if (platformScope === 'google_ads') setPlaybookPlatform('google_ads')
+    else if (platformScope === 'meta') setPlaybookPlatform('meta')
+    else setPlaybookPlatform('all')
+  }, [platformScope])
+
   const filteredItems = useMemo(() => {
     return enrichedRows.filter((item) => {
+      if (platformScope !== 'all') {
+        const isG = isGoogleIdentity(item.row, String(item.row.notes ?? ''))
+        if (platformScope === 'google_ads' && !isG) return false
+        if (platformScope === 'meta' && isG) return false
+      }
       if (holder && item.row.owner_member_id !== holder) return false
       if (ownershipFilter && (item.row.ownership_type ?? 'agency_owned') !== ownershipFilter) return false
       if (engineFilter && item.adMeta.engine !== engineFilter) return false
@@ -670,7 +683,7 @@ export default function FacebookAccounts() {
       if (tierFilter === 'risk' && item.risks.length === 0) return false
       return true
     })
-  }, [enrichedRows, holder, ownershipFilter, engineFilter, proxyFilter, tierFilter])
+  }, [enrichedRows, platformScope, holder, ownershipFilter, engineFilter, proxyFilter, tierFilter])
 
   const chromeOptions = localChrome.data ?? WORKSTATION_REAL_CHROME_PROFILES
 

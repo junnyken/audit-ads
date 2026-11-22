@@ -1,13 +1,13 @@
 {
-    "version":  "4.0.2",
+    "version":  "4.1.0",
     "ext_version":  "2.10.4",
     "authenticode_signed":  true,
     "download_url":  "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
     "mirror_urls":  [
                         "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
                     ],
-    "sha256":  "a4f6b06896453ba84145a0968c8187f0b1aec1024f3e561dee4fa43b7049ad29",
-    "size_bytes":  67882250,
-    "published_at":  "2026-11-22T10:52:29.5816014+00:00",
-    "release_notes":  "AdsOps Desktop Pro v4.0.2 (Hot-Reload MetaDomSelectorPack + 2-Tier Composer \u0026 2-Step Share Fallbacks, Pre-Flight Session Validator + Scheduled Backoff, Companion v2.10.4 Native Chrome Post/Share \u0026 Proactive Cookie Sync, STA 1080x1080 Visual Post Card Generator \u0026 Smart Share Pivot)."
+    "sha256":  "9e37d2e98d83f6a49ed06ca2bd7f27679ecb8aefb9866f48c8cdda8192e6e44d",
+    "size_bytes":  67887549,
+    "published_at":  "2026-11-22T12:11:24.3557764Z",
+    "release_notes":  "AdsOps Desktop Pro v4.1.0 (Synchronized Option A Linear Graphite \u0026 Cobalt Light+Dark UX/UI across Desktop \u0026 Web, Top-of-Sidebar Platform Switcher Meta/Google, Collapsible 4-Group Sidebar, Slide-Over Inspector Drawer, 4-Tab Automation Console \u0026 Extension v2.10.4)."
 }

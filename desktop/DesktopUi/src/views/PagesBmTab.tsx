@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  Bot,
   Building2,
   CheckCircle2,
-  ChevronDown,
-  ChevronUp,
   Copy,
+  Eye,
   FileSpreadsheet,
   FolderOpen,
+  Ghost,
   Globe,
   Image as ImageIcon,
   MoreHorizontal,
@@ -32,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import { InspectorDrawer, InspectorSection } from '@/components/ui/inspector-drawer'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import {
@@ -42,6 +44,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { sendDesktopCommand } from '@/lib/bridge'
 import { cn } from '@/lib/utils'
@@ -57,8 +60,9 @@ export function PagesBmTab({ state }: { state: AppShellWebStateDto }) {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [customDomain, setCustomDomain] = useState(state.domainSeo.customDomain)
+  const [inspectedPage, setInspectedPage] = useState<WebFanpageDto | null>(null)
+
   const pn = state.pageNurture
-  const [nurtureOpen, setNurtureOpen] = useState(true)
   const [nurtureMode, setNurtureMode] = useState(pn?.mode || 'alternate')
   const [assetsDir, setAssetsDir] = useState(pn?.assetsDir || '')
   const [hashJitter, setHashJitter] = useState(pn?.enableImageHashJitter ?? true)
@@ -101,174 +105,213 @@ export function PagesBmTab({ state }: { state: AppShellWebStateDto }) {
     })
   }, [state.fanpages, search, statusFilter])
 
+  const liveInspected = useMemo(
+    () => (inspectedPage ? state.fanpages.find((p) => p.id === inspectedPage.id) ?? inspectedPage : null),
+    [inspectedPage, state.fanpages],
+  )
+
   const filterChips = [
     { key: 'all', label: `Tất cả (${state.fanpages.length})` },
-    { key: 'unsynced', label: `Nháp chưa khớp (${state.fanpages.filter((x) => x.isUnsyncedDraft).length})` },
+    { key: 'unsynced', label: `Nháp (${state.fanpages.filter((x) => x.isUnsyncedDraft).length})` },
     { key: 'need_claim', label: `Chưa kéo BM (${state.fanpages.filter((x) => !x.ownerBmId.trim()).length})` },
-    { key: 'need_warmup', label: `Cần Ngâm/Nuôi (${state.fanpages.filter((x) => !x.adsReady).length})` },
+    { key: 'need_warmup', label: `Cần nuôi (${state.fanpages.filter((x) => !x.adsReady).length})` },
     {
       key: 'restricted',
-      label: `Rủi ro/Hạn chế (${state.fanpages.filter((x) => x.healthStatus.toUpperCase() !== 'LIVE').length})`,
+      label: `Hạn chế (${state.fanpages.filter((x) => x.healthStatus.toUpperCase() !== 'LIVE').length})`,
     },
   ]
 
+  function saveNurtureConfig() {
+    sendDesktopCommand('save_page_nurture_config', {
+      mode: nurtureMode,
+      assetsDir,
+      enableImageHashJitter: hashJitter,
+      shareSourceUrls: shareUrls,
+      captionSpintax: captionSpin,
+    })
+  }
+
   return (
-    <div className="space-y-4">
-      {/* Business Managers Section */}
-      <div className="space-y-2.5">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm font-bold text-foreground">
-            Business Manager đang quản lý ({state.bms.length})
-          </h2>
+    <Tabs defaultValue="pages" className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <TabsList>
+          <TabsTrigger value="pages">Fanpage ({state.fanpages.length})</TabsTrigger>
+          <TabsTrigger value="content_nurture">Kho ảnh &amp; Nuôi bài 14 ngày</TabsTrigger>
+          <TabsTrigger value="bms_assets">
+            Business Manager ({state.bms.length}) &amp; Pixel ({state.pixels.length})
+          </TabsTrigger>
+        </TabsList>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="secondary" size="sm" onClick={() => sendDesktopCommand('export_pages_csv')}>
+            <FileSpreadsheet className="h-3.5 w-3.5" /> Xuất CSV
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => sendDesktopCommand('sync_meta_pages')}>
+            <RefreshCw className="h-3.5 w-3.5" /> Đồng bộ Page Meta
+          </Button>
           <Button size="sm" onClick={() => sendDesktopCommand('open_create_bm')}>
             <Plus className="h-3.5 w-3.5" /> Thêm BM
           </Button>
         </div>
-
-        {state.bms.length === 0 ? (
-          <Card>
-            <CardContent className="p-3.5 text-xs text-muted-foreground">
-              Chưa có Business Manager nào trên Workspace. Nhấn &apos;+ Thêm BM&apos; hoặc gắn Token EAAB để tự đồng bộ.
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-            {state.bms.map((bm) => (
-              <Card key={bm.id}>
-                <CardContent className="space-y-2 p-3">
-                  <div className="truncate text-xs font-bold text-foreground" title={bm.name}>
-                    {bm.name}
-                  </div>
-                  <div className="truncate font-mono text-[11px] text-muted-foreground">
-                    ID: {bm.externalId || '—'} • {bm.status}
-                  </div>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="h-7 w-full text-xs"
-                    onClick={() => sendDesktopCommand('open_bm_settings', { bmId: bm.id })}
-                  >
-                    <Globe className="h-3 w-3" /> Mở Cài đặt BM
-                  </Button>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
       </div>
 
-      {/* Meta Pixels + Domain & SEO Row */}
-      <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
+      {/* SUB-TAB 1: FANPAGES */}
+      <TabsContent value="pages" className="mt-0 space-y-3.5">
         <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between gap-2">
-              <CardTitle className="text-sm font-bold">Meta Pixels ({state.pixels.length})</CardTitle>
-              <Button size="sm" onClick={() => sendDesktopCommand('open_create_pixel')}>
-                <Plus className="h-3.5 w-3.5" /> Tạo Pixel
+          <CardContent className="space-y-3 p-3.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative min-w-[220px] flex-1">
+                <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Tìm tên Fanpage, ID Page, Via cầm..."
+                  className="pl-8"
+                />
+              </div>
+              <Button size="sm" onClick={() => sendDesktopCommand('batch_invite_followers')}>
+                <UserPlus className="h-3.5 w-3.5" /> Mời Follow lô
               </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {state.pixels.length === 0 ? (
-              <p className="text-xs text-muted-foreground">
-                Chưa có Meta Pixel nào trong Workspace. Nhấn &apos;+ Tạo Pixel&apos; để lưu Pixel ID.
-              </p>
-            ) : (
-              state.pixels.slice(0, 8).map((px) => (
-                <div
-                  key={px.id}
-                  className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background/50 px-3 py-2"
+              {state.automationConfig.isSilentInviteRunning ? (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => sendDesktopCommand('cancel_silent_invite')}
                 >
-                  <div className="min-w-0">
-                    <div className="truncate text-xs font-semibold text-foreground">{px.name}</div>
-                    <div className="truncate font-mono text-[11px] text-muted-foreground">
-                      Pixel ID: {px.externalPixelId || '—'} • {px.status}
-                    </div>
-                  </div>
-                  {px.externalPixelId && (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="h-7 shrink-0 px-2.5 text-xs"
-                      onClick={() =>
-                        sendDesktopCommand('copy_text', { text: px.externalPixelId, label: 'Pixel ID' })
-                      }
-                    >
-                      <Copy className="h-3 w-3" /> Copy ID
-                    </Button>
-                  )}
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-bold">Tên miền riêng &amp; SEO Readiness</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="font-mono text-[11px] text-primary">
-              URL hiệu lực: {state.domainSeo.effectivePublicUrl}
-            </div>
-            <div className="flex items-center gap-2">
-              <Input
-                value={customDomain}
-                onChange={(e) => setCustomDomain(e.target.value)}
-                placeholder="https://app.thuonghieu.vn (để trống = mặc định)"
-              />
-              <Button
-                variant="secondary"
-                size="sm"
-                className="shrink-0"
-                onClick={() => sendDesktopCommand('save_domain_seo', { customDomain })}
-              >
-                <CheckCircle2 className="h-3.5 w-3.5" /> Lưu Tên miền
+                  <Square className="h-3.5 w-3.5" /> Dừng mời ẩn
+                </Button>
+              ) : (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => sendDesktopCommand('silent_invite_batch_pages')}
+                  title="Chạy ẩn hoàn toàn ngoài màn hình, tự quét Cảm xúc & Bình luận"
+                >
+                  <Ghost className="h-3.5 w-3.5 text-emerald-500" /> Mời ẩn lô
+                </Button>
+              )}
+              <Button variant="secondary" size="sm" onClick={() => sendDesktopCommand('batch_warmup_pages')}>
+                <Sparkles className="h-3.5 w-3.5 text-primary" /> Nuôi lô (Max 10)
               </Button>
             </div>
-            <div className="flex flex-wrap gap-1.5">
-              {state.domainSeo.checklist.map((c) => (
-                <Badge key={c.key} variant={c.ready ? 'success' : 'secondary'} className="text-[11px]">
-                  {c.ready ? '✓ ' : '○ '}
-                  {c.label}
+
+            {/* Silent Background Auto-Invite Scheduler Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/5 px-3 py-2">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <Switch
+                  id="auto-silent-invite"
+                  checked={Boolean(state.automationConfig.autoSilentInviteEnabled)}
+                  onCheckedChange={(checked) =>
+                    sendDesktopCommand('save_silent_invite_config', {
+                      enabled: checked,
+                      intervalMinutes: state.automationConfig.autoSilentInviteIntervalMinutes ?? 60,
+                    })
+                  }
+                />
+                <Label htmlFor="auto-silent-invite" className="cursor-pointer text-xs font-medium text-foreground">
+                  Tự động quét &amp; mời Follow chạy ẩn định kỳ
+                </Label>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Select
+                  value={String(state.automationConfig.autoSilentInviteIntervalMinutes ?? 60)}
+                  onValueChange={(val) =>
+                    sendDesktopCommand('save_silent_invite_config', {
+                      enabled: Boolean(state.automationConfig.autoSilentInviteEnabled),
+                      intervalMinutes: Number(val) || 60,
+                    })
+                  }
+                >
+                  <SelectTrigger className="h-7 w-28 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="30">Mỗi 30 phút</SelectItem>
+                    <SelectItem value="60">Mỗi 60 phút</SelectItem>
+                    <SelectItem value="120">Mỗi 2 giờ</SelectItem>
+                    <SelectItem value="240">Mỗi 4 giờ</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Badge variant="secondary" className="font-mono text-[10px]">
+                  {state.automationConfig.isSilentInviteRunning
+                    ? 'Đang quét & mời ẩn...'
+                    : `Gần nhất: ${state.automationConfig.lastAutoSilentInviteLocal || 'Chưa chạy'}`}
                 </Badge>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-1.5">
+              {filterChips.map((ch) => (
+                <Button
+                  key={ch.key}
+                  type="button"
+                  size="sm"
+                  variant={statusFilter === ch.key ? 'default' : 'secondary'}
+                  className="h-7 px-2.5 text-xs"
+                  onClick={() => setStatusFilter(ch.key)}
+                >
+                  {ch.label}
+                </Button>
               ))}
             </div>
           </CardContent>
         </Card>
-      </div>
 
-      {/* Hybrid Page Content Nurture Center (v3.3.0: Auto-Post Media + Auto-Share 7-14 Days) */}
-      <Card className="border-emerald-500/30">
-        <CardHeader className="pb-2.5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <CardTitle className="flex items-center gap-2 text-sm font-bold text-emerald-300">
-                <Sparkles className="h-4 w-4" />
-                Trung tâm Tự Đăng Bài (Ảnh + Spin) &amp; Chia Sẻ Bài Nuôi Page (Chu trình 7–14 Ngày)
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Hỗ trợ nuôi cả Page mới chưa kéo BM (qua Chrome thật + RPA) lẫn Page đã có Token (Cloud Graph API).
-                Tự đổi mã băm (hash) ảnh mỗi bài để tránh bị Meta quét trùng lặp.
-              </CardDescription>
-            </div>
-            <div className="flex items-center gap-2">
-              <Badge variant="secondary" className="font-mono text-[11px]">
-                🖼️ {pn?.imagesFoundCount ?? 0} ảnh • 🔗 {pn?.shareSourceCount ?? 0} link nguồn
-              </Badge>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-xs"
-                onClick={() => setNurtureOpen((v) => !v)}
-              >
-                {nurtureOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        {state.fanpages.length === 0 ? (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center gap-3 py-10 text-center">
+              <Globe className="h-9 w-9 text-muted-foreground" />
+              <div>
+                <div className="text-sm font-semibold text-foreground">Chưa có Fanpage nào</div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Nhấn Đồng bộ Page Meta để nạp toàn bộ Fanpage từ Token / BM.
+                </p>
+              </div>
+              <Button onClick={() => sendDesktopCommand('sync_meta_pages')}>
+                <RefreshCw className="h-4 w-4" /> Đồng bộ Page Meta
               </Button>
-            </div>
+            </CardContent>
+          </Card>
+        ) : filteredPages.length === 0 ? (
+          <Card>
+            <CardContent className="py-8 text-center text-xs text-muted-foreground">
+              Không có Fanpage khớp bộ lọc hiện tại.
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-2">
+            {filteredPages.map((pg) => (
+              <FanpageRowCard
+                key={pg.id}
+                page={pg}
+                holderOptions={state.pageHolderOptions}
+                onInspect={() => setInspectedPage(pg)}
+              />
+            ))}
           </div>
-        </CardHeader>
-        {nurtureOpen && (
-          <CardContent className="space-y-3">
+        )}
+      </TabsContent>
+
+      {/* SUB-TAB 2: HYBRID CONTENT NURTURE CENTER */}
+      <TabsContent value="content_nurture" className="mt-0">
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+                  <Sparkles className="h-4 w-4 text-primary" />
+                  Trung tâm Nuôi Fanpage 14 Ngày (Ảnh + Caption Spin + Share)
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Tự đổi hash 1px ảnh nguồn hoặc tự vẽ ảnh Card 1080×1080 khi thư mục ảnh đang trống.
+                </CardDescription>
+              </div>
+              <Badge variant="secondary" className="font-mono text-[11px]">
+                {pn?.imagesFoundCount ?? 0} ảnh • {pn?.shareSourceCount ?? 0} link nguồn
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3.5">
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
               <div className="space-y-1.5">
                 <Label className="text-xs">Chế độ nuôi nội dung</Label>
@@ -279,13 +322,13 @@ export function PagesBmTab({ state }: { state: AppShellWebStateDto }) {
                   <SelectContent>
                     <SelectItem value="alternate">Xen kẽ Đăng Ảnh + Chia sẻ bài (Khuyên dùng)</SelectItem>
                     <SelectItem value="post">Chỉ Đăng bài (Text Spin + Ảnh đổi hash)</SelectItem>
-                    <SelectItem value="share">Chỉ Chia sẻ bài từ danh sách nguồn uy tín</SelectItem>
+                    <SelectItem value="share">Chỉ Chia sẻ bài (tự fallback đăng ảnh nếu trống)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               <div className="space-y-1.5 lg:col-span-2">
-                <Label className="text-xs">Thư mục Kho Ảnh nuôi Page (avatars / covers / posts)</Label>
+                <Label className="text-xs">Thư mục Kho Ảnh (avatars / covers / posts)</Label>
                 <div className="flex items-center gap-2">
                   <Input
                     value={assetsDir}
@@ -297,9 +340,11 @@ export function PagesBmTab({ state }: { state: AppShellWebStateDto }) {
                     variant="secondary"
                     size="sm"
                     className="h-8 shrink-0 text-xs"
-                    onClick={() => sendDesktopCommand('open_page_assets_dir', { nicheKey: state.automationConfig.batchNicheKey })}
+                    onClick={() =>
+                      sendDesktopCommand('open_page_assets_dir', { nicheKey: state.automationConfig.batchNicheKey })
+                    }
                   >
-                    <FolderOpen className="h-3.5 w-3.5" /> Mở thư mục Ảnh
+                    <FolderOpen className="h-3.5 w-3.5" /> Mở thư mục
                   </Button>
                 </div>
               </div>
@@ -307,19 +352,19 @@ export function PagesBmTab({ state }: { state: AppShellWebStateDto }) {
 
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
               <div className="space-y-1.5">
-                <Label className="text-xs">Danh sách URL bài viết / Page nguồn chia sẻ (mỗi dòng 1 link)</Label>
+                <Label className="text-xs">Danh sách URL nguồn chia sẻ (mỗi dòng 1 link)</Label>
                 <Textarea
-                  rows={3}
+                  rows={4}
                   value={shareUrls}
                   onChange={(e) => setShareUrls(e.target.value)}
-                  placeholder="https://www.facebook.com/page_uy_tin/posts/123456&#10;https://www.facebook.com/reel/987654"
+                  placeholder="https://www.facebook.com/page_uy_tin/posts/123456"
                   className="font-mono text-xs"
                 />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">Mẫu Caption Spintax ({'{A|B|C}'}, {'{page_name}'}, {'{niche}'})</Label>
                 <Textarea
-                  rows={3}
+                  rows={4}
                   value={captionSpin}
                   onChange={(e) => setCaptionSpin(e.target.value)}
                   placeholder="{Chào ngày mới|Góc chia sẻ hay} cùng {page_name}!"
@@ -328,29 +373,16 @@ export function PagesBmTab({ state }: { state: AppShellWebStateDto }) {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-background/40 px-3 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-background/50 px-3 py-2.5">
               <div className="flex items-center gap-2">
                 <Switch id="img-hash-jitter" checked={hashJitter} onCheckedChange={setHashJitter} />
                 <Label htmlFor="img-hash-jitter" className="cursor-pointer text-xs">
-                  Tự động xóa EXIF &amp; biến đổi 1px hash ảnh chống trùng MD5/SHA-256 trước khi đăng
+                  Xóa EXIF &amp; biến đổi 1px hash ảnh chống trùng MD5/SHA-256 trước khi đăng
                 </Label>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="h-8 text-xs"
-                  onClick={() =>
-                    sendDesktopCommand('save_page_nurture_config', {
-                      mode: nurtureMode,
-                      assetsDir,
-                      enableImageHashJitter: hashJitter,
-                      shareSourceUrls: shareUrls,
-                      captionSpintax: captionSpin,
-                    })
-                  }
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> Lưu cấu hình
+                <Button variant="secondary" size="sm" className="h-8 text-xs" onClick={saveNurtureConfig}>
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> Lưu cấu hình
                 </Button>
                 {pn?.isSilentPageNurtureRunning ? (
                   <Button
@@ -359,49 +391,35 @@ export function PagesBmTab({ state }: { state: AppShellWebStateDto }) {
                     className="h-8 text-xs"
                     onClick={() => sendDesktopCommand('cancel_silent_page_nurture')}
                   >
-                    <Square className="h-3.5 w-3.5" /> Dừng Nuôi Ẩn
+                    <Square className="h-3.5 w-3.5" /> Dừng nuôi ẩn
                   </Button>
                 ) : (
                   <Button
                     variant="secondary"
                     size="sm"
-                    className="h-8 border border-emerald-500/40 text-xs text-emerald-300 hover:bg-emerald-500/15"
+                    className="h-8 text-xs"
                     onClick={() => {
-                      sendDesktopCommand('save_page_nurture_config', {
-                        mode: nurtureMode,
-                        assetsDir,
-                        enableImageHashJitter: hashJitter,
-                        shareSourceUrls: shareUrls,
-                        captionSpintax: captionSpin,
-                      })
+                      saveNurtureConfig()
                       sendDesktopCommand('silent_page_nurture_batch', { mode: nurtureMode })
                     }}
-                    title="Chạy ẩn hoàn toàn ngoài màn hình qua CDP: tự đính kèm ảnh đổi hash (DOM.setFileInputFiles), tự điền Caption Spin và tự bấm Đăng / Chia sẻ"
                   >
-                    👻 Đăng/Share Ẩn Lô (100% Tự động)
+                    <Ghost className="h-3.5 w-3.5 text-emerald-500" /> Đăng/Share ẩn lô
                   </Button>
                 )}
                 <Button
                   size="sm"
                   className="h-8 text-xs"
                   onClick={() => {
-                    sendDesktopCommand('save_page_nurture_config', {
-                      mode: nurtureMode,
-                      assetsDir,
-                      enableImageHashJitter: hashJitter,
-                      shareSourceUrls: shareUrls,
-                      captionSpintax: captionSpin,
-                    })
+                    saveNurtureConfig()
                     sendDesktopCommand('page_nurture_batch_run', { mode: nurtureMode, viaBrowser: true })
                   }}
                 >
-                  <Play className="h-3.5 w-3.5" /> Chạy lô Mở Chrome
+                  <Play className="h-3.5 w-3.5" /> Chạy lô mở Chrome
                 </Button>
               </div>
             </div>
 
-            {/* Scheduled 14-Day Silent Page Nurture Bar (v3.7.0) */}
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/5 px-3 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2">
               <div className="flex items-center gap-2.5">
                 <Switch
                   id="auto-silent-page-nurture"
@@ -413,8 +431,9 @@ export function PagesBmTab({ state }: { state: AppShellWebStateDto }) {
                     })
                   }
                 />
-                <Label htmlFor="auto-silent-page-nurture" className="cursor-pointer text-xs font-medium text-indigo-200">
-                  🤖 Tự động Nuôi Page 14 ngày chạy ẩn định kỳ (tự đăng ảnh đổi hash / share nguồn, chỉ báo thông báo)
+                <Label htmlFor="auto-silent-page-nurture" className="cursor-pointer text-xs font-medium text-foreground">
+                  <Bot className="mr-1 inline h-3.5 w-3.5 text-primary" />
+                  Tự động Nuôi Page 14 ngày chạy ẩn định kỳ
                 </Label>
               </div>
               <div className="flex items-center gap-2">
@@ -438,169 +457,256 @@ export function PagesBmTab({ state }: { state: AppShellWebStateDto }) {
                 </Select>
                 <Badge variant="secondary" className="font-mono text-[10px]">
                   {pn?.isSilentPageNurtureRunning
-                    ? '⏳ Đang đăng/share ẩn...'
+                    ? 'Đang đăng/share ẩn...'
                     : `Gần nhất: ${pn?.lastAutoSilentPageNurtureLocal || 'Chưa chạy'}`}
                 </Badge>
               </div>
             </div>
           </CardContent>
-        )}
-      </Card>
+        </Card>
+      </TabsContent>
 
-      {/* Fanpage Search, Filter & Batch Toolbar */}
-      <Card>
-        <CardContent className="space-y-3 p-3.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative min-w-[220px] flex-1">
-              <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Tìm theo tên Page, ID Page, Via cầm..."
-                className="pl-8"
-              />
+      {/* SUB-TAB 3: BUSINESS MANAGERS, PIXELS & DOMAIN SEO */}
+      <TabsContent value="bms_assets" className="mt-0 space-y-4">
+        <div className="space-y-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-foreground">
+              Business Manager đang quản lý ({state.bms.length})
+            </h2>
+            <Button size="sm" onClick={() => sendDesktopCommand('open_create_bm')}>
+              <Plus className="h-3.5 w-3.5" /> Thêm BM
+            </Button>
+          </div>
+
+          {state.bms.length === 0 ? (
+            <Card>
+              <CardContent className="p-4 text-xs text-muted-foreground">
+                Chưa có Business Manager nào trên Workspace. Nhấn Thêm BM hoặc gắn Token EAAB để tự đồng bộ.
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+              {state.bms.map((bm) => (
+                <Card key={bm.id}>
+                  <CardContent className="space-y-2 p-3">
+                    <div className="truncate text-xs font-semibold text-foreground" title={bm.name}>
+                      {bm.name}
+                    </div>
+                    <div className="truncate font-mono text-[11px] text-muted-foreground">
+                      ID: {bm.externalId || '—'} • {bm.status}
+                    </div>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="h-7 w-full text-xs"
+                      onClick={() => sendDesktopCommand('open_bm_settings', { bmId: bm.id })}
+                    >
+                      <Globe className="h-3 w-3" /> Mở cài đặt BM
+                    </Button>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
-            <Button variant="secondary" size="sm" onClick={() => sendDesktopCommand('export_pages_csv')}>
-              <FileSpreadsheet className="h-3.5 w-3.5" /> Xuất CSV
-            </Button>
-            <Button variant="secondary" size="sm" onClick={() => sendDesktopCommand('sync_meta_pages')}>
-              <RefreshCw className="h-3.5 w-3.5" /> Đồng bộ Page Meta
-            </Button>
-            <Button size="sm" onClick={() => sendDesktopCommand('batch_invite_followers')}>
-              <UserPlus className="h-3.5 w-3.5" /> Mời Follow Lô
-            </Button>
-            {state.automationConfig.isSilentInviteRunning ? (
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => sendDesktopCommand('cancel_silent_invite')}
-              >
-                <Square className="h-3.5 w-3.5" /> Dừng Mời Ẩn
-              </Button>
-            ) : (
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-sm font-semibold">Meta Pixels ({state.pixels.length})</CardTitle>
+                <Button size="sm" onClick={() => sendDesktopCommand('open_create_pixel')}>
+                  <Plus className="h-3.5 w-3.5" /> Tạo Pixel
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {state.pixels.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  Chưa có Meta Pixel nào trong Workspace. Nhấn Tạo Pixel để lưu Pixel ID.
+                </p>
+              ) : (
+                state.pixels.slice(0, 8).map((px) => (
+                  <div
+                    key={px.id}
+                    className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background/60 px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-xs font-semibold text-foreground">{px.name}</div>
+                      <div className="truncate font-mono text-[11px] text-muted-foreground">
+                        Pixel ID: {px.externalPixelId || '—'} • {px.status}
+                      </div>
+                    </div>
+                    {px.externalPixelId && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="h-7 shrink-0 px-2.5 text-xs"
+                        onClick={() =>
+                          sendDesktopCommand('copy_text', { text: px.externalPixelId, label: 'Pixel ID' })
+                        }
+                      >
+                        <Copy className="h-3 w-3" /> Copy ID
+                      </Button>
+                    )}
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold">Tên miền riêng &amp; SEO Readiness</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="font-mono text-[11px] text-primary">
+                URL hiệu lực: {state.domainSeo.effectivePublicUrl}
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={customDomain}
+                  onChange={(e) => setCustomDomain(e.target.value)}
+                  placeholder="https://app.thuonghieu.vn (để trống = mặc định)"
+                />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => sendDesktopCommand('save_domain_seo', { customDomain })}
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Lưu tên miền
+                </Button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {state.domainSeo.checklist.map((c) => (
+                  <Badge key={c.key} variant={c.ready ? 'success' : 'secondary'} className="text-[11px]">
+                    {c.label}
+                  </Badge>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </TabsContent>
+
+      {/* FANPAGE RIGHT INSPECTOR DRAWER */}
+      <InspectorDrawer
+        open={Boolean(liveInspected)}
+        onOpenChange={(o) => !o && setInspectedPage(null)}
+        title={liveInspected?.name || ''}
+        subtitle={
+          liveInspected ? `ID: ${liveInspected.externalPageId || 'Chờ đồng bộ'} • ${liveInspected.category || 'Chung'}` : ''
+        }
+        badge={
+          liveInspected && (
+            <Badge variant={liveInspected.healthStatus.toUpperCase() === 'LIVE' ? 'success' : 'destructive'}>
+              {liveInspected.isUnsyncedDraft ? 'NHÁP' : liveInspected.healthStatus}
+            </Badge>
+          )
+        }
+        footer={
+          liveInspected && (
+            <div className="flex flex-wrap items-center justify-end gap-2">
               <Button
                 variant="secondary"
                 size="sm"
-                className="border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/15"
-                onClick={() => sendDesktopCommand('silent_invite_batch_pages')}
-                title="Chạy ẩn hoàn toàn ngoài màn hình (không bật Chrome che việc làm), tự quét cả 2 tab Cảm xúc & Bình luận rồi báo số người đã mời"
+                onClick={() => sendDesktopCommand('silent_invite_single_page', { pageId: liveInspected.id })}
               >
-                👻 Mời Ẩn Lô
+                <Ghost className="h-3.5 w-3.5 text-emerald-500" /> Mời ẩn
               </Button>
-            )}
-            <Button variant="secondary" size="sm" onClick={() => sendDesktopCommand('batch_warmup_pages')}>
-              <Sparkles className="h-3.5 w-3.5 text-emerald-400" /> Nuôi lô (Max 10)
-            </Button>
-          </div>
-
-          {/* Silent Background Auto-Invite Scheduler Bar (v3.6.0) */}
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <Switch
-                id="auto-silent-invite"
-                checked={Boolean(state.automationConfig.autoSilentInviteEnabled)}
-                onCheckedChange={(checked) =>
-                  sendDesktopCommand('save_silent_invite_config', {
-                    enabled: checked,
-                    intervalMinutes: state.automationConfig.autoSilentInviteIntervalMinutes ?? 60,
-                  })
-                }
-              />
-              <Label htmlFor="auto-silent-invite" className="cursor-pointer text-xs font-medium text-emerald-200">
-                🤖 Tự động Quét &amp; Mời Follow chạy ẩn định kỳ (không mở cửa sổ, chỉ báo thông báo số người mời được)
-              </Label>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Select
-                value={String(state.automationConfig.autoSilentInviteIntervalMinutes ?? 60)}
-                onValueChange={(val) =>
-                  sendDesktopCommand('save_silent_invite_config', {
-                    enabled: Boolean(state.automationConfig.autoSilentInviteEnabled),
-                    intervalMinutes: Number(val) || 60,
-                  })
-                }
-              >
-                <SelectTrigger className="h-7 w-28 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="30">Mỗi 30 phút</SelectItem>
-                  <SelectItem value="60">Mỗi 60 phút</SelectItem>
-                  <SelectItem value="120">Mỗi 2 giờ</SelectItem>
-                  <SelectItem value="240">Mỗi 4 giờ</SelectItem>
-                </SelectContent>
-              </Select>
-              <Badge variant="secondary" className="font-mono text-[10px]">
-                {state.automationConfig.isSilentInviteRunning
-                  ? '⏳ Đang quét & mời ẩn...'
-                  : `Gần nhất: ${state.automationConfig.lastAutoSilentInviteLocal || 'Chưa chạy'}`}
-              </Badge>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-1.5">
-            {filterChips.map((ch) => (
               <Button
-                key={ch.key}
-                type="button"
                 size="sm"
-                variant={statusFilter === ch.key ? 'default' : 'secondary'}
-                className="h-7 px-2.5 text-xs"
-                onClick={() => setStatusFilter(ch.key)}
+                onClick={() => sendDesktopCommand('open_page_browser', { pageId: liveInspected.id })}
               >
-                {ch.label}
+                <Globe className="h-3.5 w-3.5" /> Mở Page trên Chrome
               </Button>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Fanpage Rows */}
-      {state.fanpages.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center gap-3 py-10 text-center">
-            <Globe className="h-9 w-9 text-muted-foreground" />
-            <div>
-              <div className="text-sm font-bold text-foreground">Chưa có Fanpage nào được đồng bộ</div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Nhấn Đồng bộ Page từ Meta để quét toàn bộ Fanpage từ Token / BM hiện có.
-              </p>
             </div>
-            <Button onClick={() => sendDesktopCommand('sync_meta_pages')}>
-              <RefreshCw className="h-4 w-4" /> Đồng bộ Page từ Meta
-            </Button>
-          </CardContent>
-        </Card>
-      ) : filteredPages.length === 0 ? (
-        <Card>
-          <CardContent className="py-8 text-center text-xs text-muted-foreground">
-            Không có Fanpage nào khớp bộ lọc hiện tại.
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-2">
-          <div className="hidden grid-cols-[1.45fr_0.95fr_1.35fr_auto] items-center gap-3 px-3 text-[11px] font-bold uppercase tracking-wider text-muted-foreground lg:grid">
-            <div>FANPAGE &amp; TRẠNG THÁI ADS</div>
-            <div>TĂNG TRƯỞNG &amp; TIẾN ĐỘ NUÔI</div>
-            <div>CHỌN VIA &amp; CHROME PROFILE CẦM PAGE</div>
-            <div className="text-right">THAO TÁC NHANH</div>
-          </div>
+          )
+        }
+      >
+        {liveInspected && (
+          <div className="space-y-3 text-xs">
+            <InspectorSection title="Sức khỏe & Vòng đời nuôi 14 ngày">
+              <dl className="space-y-1.5">
+                <div className="flex justify-between gap-2">
+                  <dt className="text-muted-foreground">Theo dõi:</dt>
+                  <dd className="font-mono font-semibold">
+                    {liveInspected.followersCount != null ? liveInspected.followersCount.toLocaleString('en-US') : '—'}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt className="text-muted-foreground">Bài nuôi / Share:</dt>
+                  <dd className="font-mono">
+                    {liveInspected.warmupPostsCount} bài • {liveInspected.shareCount ?? 0} share
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt className="text-muted-foreground">BM &amp; TKQC:</dt>
+                  <dd>
+                    {liveInspected.ownerBmName || 'Chưa kéo BM'} ({liveInspected.linkedAdAccountCount} TKQC)
+                  </dd>
+                </div>
+                {liveInspected.lifecycleLabel && (
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-muted-foreground">Giai đoạn:</dt>
+                    <dd className="text-right font-medium text-primary">{liveInspected.lifecycleLabel}</dd>
+                  </div>
+                )}
+              </dl>
+            </InspectorSection>
 
-          {filteredPages.map((pg) => (
-            <FanpageRowCard key={pg.id} page={pg} holderOptions={state.pageHolderOptions} />
-          ))}
-        </div>
-      )}
-    </div>
+            <InspectorSection title="Thao tác Nuôi & Kéo BM nhanh">
+              <div className="grid grid-cols-1 gap-1.5">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="justify-start"
+                  onClick={() => sendDesktopCommand('silent_page_nurture_single', { pageId: liveInspected.id, mode: 'post' })}
+                >
+                  <ImageIcon className="h-3.5 w-3.5 text-emerald-500" /> Đăng bài Ảnh chạy ẩn
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="justify-start"
+                  onClick={() => sendDesktopCommand('silent_page_nurture_single', { pageId: liveInspected.id, mode: 'share' })}
+                >
+                  <Share2 className="h-3.5 w-3.5 text-primary" /> Chia sẻ bài nguồn chạy ẩn
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="justify-start"
+                  onClick={() => sendDesktopCommand('open_claim_bm_dialog', { pageId: liveInspected.id })}
+                >
+                  <Building2 className="h-3.5 w-3.5 text-primary" /> Kéo Fanpage vào Business Manager
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="justify-start"
+                  onClick={() => sendDesktopCommand('check_page_live', { pageId: liveInspected.id })}
+                >
+                  <RefreshCw className="h-3.5 w-3.5 text-emerald-500" /> Kiểm tra trạng thái LIVE (Check Live)
+                </Button>
+              </div>
+            </InspectorSection>
+          </div>
+        )}
+      </InspectorDrawer>
+    </Tabs>
   )
 }
 
 function FanpageRowCard({
   page,
   holderOptions,
+  onInspect,
 }: {
   page: WebFanpageDto
   holderOptions: AppShellWebStateDto['pageHolderOptions']
+  onInspect: () => void
 }) {
   const live = page.healthStatus.toUpperCase() === 'LIVE'
   const warmPct = page.adsReady ? 100 : Math.min(95, Math.max(18, page.warmupPostsCount * 33.3))
@@ -611,21 +717,26 @@ function FanpageRowCard({
   return (
     <Card className="transition-colors hover:border-primary/40">
       <CardContent className="grid grid-cols-1 items-center gap-3 p-3 lg:grid-cols-[1.45fr_0.95fr_1.35fr_auto]">
-        {/* Col 1: Identity */}
         <div className="flex min-w-0 items-center gap-2.5">
           <div
             className={cn(
-              'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border font-mono text-xs font-bold',
+              'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border font-mono text-xs font-semibold',
               live
-                ? 'border-emerald-500/40 bg-emerald-950/30 text-emerald-300'
-                : 'border-rose-500/40 bg-rose-950/30 text-rose-300',
+                ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                : 'border-rose-500/35 bg-rose-500/10 text-rose-700 dark:text-rose-300',
             )}
           >
             {getPageInitials(page.name)}
           </div>
           <div className="min-w-0 space-y-0.5">
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="truncate text-sm font-bold text-foreground">{page.name}</span>
+              <button
+                type="button"
+                onClick={onInspect}
+                className="truncate text-left text-sm font-semibold text-foreground hover:text-primary"
+              >
+                {page.name}
+              </button>
               <Badge variant={live ? 'success' : 'destructive'} className="px-1.5 py-0 text-[10px]">
                 {page.isUnsyncedDraft ? 'NHÁP' : page.healthStatus}
               </Badge>
@@ -645,38 +756,36 @@ function FanpageRowCard({
           </div>
         </div>
 
-        {/* Col 2: Growth & Pending Invites */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between gap-2 text-xs">
-            <span className="font-mono font-bold text-emerald-400">
+            <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">
               {page.followersCount != null ? `${page.followersCount.toLocaleString('en-US')} theo dõi` : '— theo dõi'}
             </span>
             <span
               className={cn(
-                'truncate text-[11px] font-semibold',
+                'truncate text-[11px] font-medium',
                 page.pendingInviteCount != null && page.pendingInviteCount > 0
-                  ? 'text-amber-400'
+                  ? 'text-amber-600 dark:text-amber-400'
                   : 'text-muted-foreground',
               )}
             >
               {page.pendingInviteCount != null
                 ? page.pendingInviteCount > 0
-                  ? `🔔 ${page.pendingInviteCount} người cần mời`
-                  : `✓ 0 cần mời • ${page.warmupPostsCount} bài nuôi`
-                : `Chưa quét cần mời • ${page.warmupPostsCount} bài nuôi`}
+                  ? `${page.pendingInviteCount} cần mời`
+                  : `0 cần mời • ${page.warmupPostsCount} bài`
+                : `${page.warmupPostsCount} bài nuôi`}
             </span>
           </div>
           <Progress
             value={warmPct}
             className="h-1.5"
-            indicatorClassName={page.adsReady ? 'bg-emerald-500' : 'bg-indigo-500'}
+            indicatorClassName={page.adsReady ? 'bg-emerald-500' : 'bg-primary'}
           />
           {page.lifecycleLabel && (
             <div className="truncate font-mono text-[10px] text-muted-foreground">{page.lifecycleLabel}</div>
           )}
         </div>
 
-        {/* Col 3: Direct Via & Chrome Profile Holder Selector */}
         <div className="min-w-0 space-y-1">
           {holderOptions.length > 0 ? (
             <Select
@@ -697,21 +806,18 @@ function FanpageRowCard({
               </SelectContent>
             </Select>
           ) : (
-            <div className="truncate text-xs font-semibold text-foreground">
-              Via: {page.effectiveHolderLabel}
-            </div>
+            <div className="truncate text-xs font-medium text-foreground">Via: {page.effectiveHolderLabel}</div>
           )}
           <div
             className={cn(
               'truncate px-0.5 text-[11px]',
-              page.ownerBmName ? 'text-muted-foreground' : 'text-amber-400',
+              page.ownerBmName ? 'text-muted-foreground' : 'text-amber-600 dark:text-amber-400',
             )}
           >
             BM: {page.ownerBmName || 'Chưa kéo BM'} • TKQC: {page.linkedAdAccountCount}
           </div>
         </div>
 
-        {/* Col 4: Fast Actions */}
         <div className="flex flex-wrap items-center justify-end gap-1.5">
           {page.isRunningInvite && (
             <Button
@@ -724,26 +830,35 @@ function FanpageRowCard({
             </Button>
           )}
           <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 px-0"
+            title="Xem chi tiết Page"
+            onClick={onInspect}
+          >
+            <Eye className="h-3.5 w-3.5" />
+          </Button>
+          <Button
             size="sm"
             className="h-7 px-2.5 text-xs"
             onClick={() => sendDesktopCommand('invite_single_page', { pageId: page.id })}
           >
             <UserPlus className="h-3 w-3" />
-            Mời Follow{page.pendingInviteCount ? ` (${page.pendingInviteCount})` : ''}
+            Mời{page.pendingInviteCount ? ` (${page.pendingInviteCount})` : ''}
           </Button>
           <Button
             variant="secondary"
             size="sm"
-            className="h-7 border border-emerald-500/35 px-2 text-xs text-emerald-300 hover:bg-emerald-500/15"
+            className="h-7 px-2 text-xs"
             onClick={() => sendDesktopCommand('silent_invite_single_page', { pageId: page.id })}
-            title="Chạy ẩn hoàn toàn không mở cửa sổ che màn hình — tự quét Cảm xúc & Bình luận, bấm gửi mời rồi báo kết quả"
+            title="Mời ẩn hoàn toàn ngoài màn hình"
           >
-            👻 Mời Ẩn
+            <Ghost className="h-3 w-3 text-emerald-500" /> Ẩn
           </Button>
           <Button
             variant="secondary"
             size="sm"
-            className="h-7 px-2.5 text-xs text-emerald-300"
+            className="h-7 px-2.5 text-xs"
             onClick={() => sendDesktopCommand('open_warmup_post_dialog', { pageId: page.id })}
           >
             Nuôi bài
@@ -764,45 +879,53 @@ function FanpageRowCard({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-72">
-              <DropdownMenuItem onClick={() => sendDesktopCommand('silent_page_nurture_single', { pageId: page.id, mode: 'post' })}>
-                <ImageIcon className="h-3.5 w-3.5 text-emerald-400" />
-                👻 Đăng bài Ảnh chạy ẩn (100% Tự động)
+              <DropdownMenuItem
+                onClick={() => sendDesktopCommand('silent_page_nurture_single', { pageId: page.id, mode: 'post' })}
+              >
+                <ImageIcon className="h-3.5 w-3.5 text-emerald-500" />
+                Đăng bài Ảnh chạy ẩn (100% Tự động)
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => sendDesktopCommand('silent_page_nurture_single', { pageId: page.id, mode: 'share' })}>
-                <Share2 className="h-3.5 w-3.5 text-sky-400" />
-                👻 Chia sẻ bài nguồn chạy ẩn (100% Tự động)
+              <DropdownMenuItem
+                onClick={() => sendDesktopCommand('silent_page_nurture_single', { pageId: page.id, mode: 'share' })}
+              >
+                <Share2 className="h-3.5 w-3.5 text-primary" />
+                Chia sẻ bài nguồn chạy ẩn (100% Tự động)
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => sendDesktopCommand('page_nurture_single_post', { pageId: page.id, viaBrowser: true })}>
-                <ImageIcon className="h-3.5 w-3.5 text-emerald-400" />
-                Đăng bài nuôi Page (Ảnh đổi hash + Caption Spin)
+              <DropdownMenuItem
+                onClick={() => sendDesktopCommand('page_nurture_single_post', { pageId: page.id, viaBrowser: true })}
+              >
+                <ImageIcon className="h-3.5 w-3.5 text-emerald-500" />
+                Đăng bài nuôi Page (Mở Chrome)
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => sendDesktopCommand('page_nurture_single_share', { pageId: page.id, viaBrowser: true })}>
-                <Share2 className="h-3.5 w-3.5 text-sky-400" />
-                Chia sẻ bài từ nguồn uy tín về Page
+              <DropdownMenuItem
+                onClick={() => sendDesktopCommand('page_nurture_single_share', { pageId: page.id, viaBrowser: true })}
+              >
+                <Share2 className="h-3.5 w-3.5 text-primary" />
+                Chia sẻ bài nguồn (Mở Chrome)
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => sendDesktopCommand('open_page_setup_assets', { pageId: page.id })}>
-                <FolderOpen className="h-3.5 w-3.5 text-amber-400" />
-                Hoàn thiện Hồ sơ (Mở thư mục Avatar/Cover + Page)
+                <FolderOpen className="h-3.5 w-3.5 text-amber-500" />
+                Hoàn thiện hồ sơ (Avatar/Cover + Page)
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => sendDesktopCommand('scan_mbs_invite_now', { pageId: page.id })}>
-                <Zap className="h-3.5 w-3.5 text-amber-400" />
-                Quét số người cần mời &amp; Gửi lời mời trên Chrome đang mở
+                <Zap className="h-3.5 w-3.5 text-amber-500" />
+                Quét &amp; gửi lời mời trên Chrome đang mở
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => sendDesktopCommand('open_claim_bm_dialog', { pageId: page.id })}>
-                <Building2 className="h-3.5 w-3.5 text-indigo-400" />
-                Kéo Fanpage vào Business Manager (Claim BM)
+                <Building2 className="h-3.5 w-3.5 text-primary" />
+                Kéo Fanpage vào Business Manager
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => sendDesktopCommand('check_page_live', { pageId: page.id })}>
-                <RefreshCw className="h-3.5 w-3.5 text-emerald-400" />
-                Kiểm tra trạng thái Live trên Facebook (Check Live)
+                <RefreshCw className="h-3.5 w-3.5 text-emerald-500" />
+                Kiểm tra trạng thái Live trên Facebook
               </DropdownMenuItem>
               {page.isUnsyncedDraft && (
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    className="text-rose-400 focus:text-rose-300"
+                    className="text-rose-500 focus:text-rose-500"
                     onClick={() => sendDesktopCommand('discard_page_draft', { pageId: page.id })}
                   >
                     <Trash2 className="h-3.5 w-3.5" />

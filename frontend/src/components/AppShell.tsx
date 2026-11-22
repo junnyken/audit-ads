@@ -1,30 +1,75 @@
 import { Suspense, useState } from 'react'
 import { Outlet } from 'react-router-dom'
-import { Menu } from 'lucide-react'
+import { Globe, Layers, Menu, PanelLeftClose, PanelLeftOpen, Sparkles } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
+import { PlatformScopeProvider, usePlatformScope, type PlatformScope } from '../hooks/usePlatformScope'
 import { useI18n } from '../i18n'
+import { cn } from '../lib/cn'
 import { Button } from './primitives/button'
 import { Skeleton } from './primitives/skeleton'
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from './primitives/sheet'
 import { TooltipProvider } from './primitives/tooltip'
 import { BrandMark } from './shell/BrandMark'
+import { DensityToggle } from './shell/DensityToggle'
 import { LanguageToggle } from './shell/LanguageToggle'
 import { SidebarNav } from './shell/SidebarNav'
-import { DensityToggle } from './shell/DensityToggle'
 import { ThemeToggle } from './shell/ThemeToggle'
 import { UserMenu } from './shell/UserMenu'
 
+function PlatformScopeSwitcher({ collapsed = false }: { collapsed?: boolean }) {
+  const { t } = useI18n()
+  const { platformScope, setPlatformScope } = usePlatformScope()
+
+  const options: { key: PlatformScope; label: string; shortLabel: string; icon: typeof Layers }[] = [
+    { key: 'all', label: t('shell.platformScope.all'), shortLabel: 'All', icon: Layers },
+    { key: 'meta', label: t('shell.platformScope.meta'), shortLabel: 'M', icon: Sparkles },
+    { key: 'google_ads', label: t('shell.platformScope.googleAds'), shortLabel: 'G', icon: Globe },
+  ]
+
+  return (
+    <div
+      role="group"
+      aria-label={t('shell.platformScope.label')}
+      className={cn(
+        'rounded-lg border border-line bg-surface-sunken/70 p-1',
+        collapsed ? 'flex flex-col gap-1' : 'grid grid-cols-3 gap-1',
+      )}
+    >
+      {options.map((opt) => {
+        const active = platformScope === opt.key
+        const Icon = opt.icon
+        return (
+          <button
+            key={opt.key}
+            type="button"
+            aria-pressed={active}
+            aria-label={opt.label}
+            title={opt.label}
+            onClick={() => setPlatformScope(opt.key)}
+            className={cn(
+              'inline-flex items-center justify-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors',
+              active
+                ? 'bg-brand text-brand-fg shadow-xs'
+                : 'text-ink-muted hover:bg-surface hover:text-ink',
+            )}
+          >
+            <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span className={cn(collapsed && 'sr-only')}>{opt.label}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 /**
- * App shell (U1a): 240px sidebar with seven navigation groups, 52px header, one disclaimer.
- * At 768px and below the sidebar is replaced by a Sheet (Radix Dialog: focus trap, Esc, focus
- * returns to the menu button). Routes are unchanged; see components/shell/nav.ts.
- *
- * The desktop/mobile switch is CSS only (`min-[769px]`), so jsdom tests see both trees' markup
- * exactly as a browser's DOM would, minus the closed Sheet which is not mounted until opened.
+ * Synchronized App shell (v4.1.0 — Option A):
+ * Collapsible sidebar (4 unified groups, 20 routes) + Top-of-Sidebar Platform Switcher + 52px header.
  */
-export default function AppShell() {
+function AppShellInner() {
   const { user } = useAuth()
   const { t, language } = useI18n()
+  const { sidebarCollapsed, toggleSidebar } = usePlatformScope()
   const [navOpen, setNavOpen] = useState(false)
 
   return (
@@ -37,12 +82,56 @@ export default function AppShell() {
       </a>
 
       <div className="min-h-screen min-[769px]:flex">
-        <aside className="hidden w-sidebar shrink-0 border-r border-line bg-surface min-[769px]:block">
+        <aside
+          className={cn(
+            'hidden shrink-0 border-r border-line bg-surface transition-[width] duration-200 min-[769px]:block',
+            sidebarCollapsed ? 'w-16' : 'w-sidebar',
+          )}
+        >
           <div className="sticky top-0 flex h-screen flex-col overflow-y-auto">
-            <div className="flex h-header shrink-0 items-center px-4">
-              <BrandMark />
+            <div
+              className={cn(
+                'flex h-header shrink-0 items-center border-b border-line/60',
+                sidebarCollapsed ? 'justify-center px-2' : 'justify-between px-3',
+              )}
+            >
+              <BrandMark collapsed={sidebarCollapsed} />
+              {!sidebarCollapsed && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 shrink-0 text-ink-muted hover:text-ink"
+                  aria-label={t('shell.collapseSidebar')}
+                  title={t('shell.collapseSidebar')}
+                  onClick={toggleSidebar}
+                >
+                  <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              )}
             </div>
-            <SidebarNav />
+
+            {sidebarCollapsed && (
+              <div className="flex justify-center pt-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-ink-muted hover:text-ink"
+                  aria-label={t('shell.expandSidebar')}
+                  title={t('shell.expandSidebar')}
+                  onClick={toggleSidebar}
+                >
+                  <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              </div>
+            )}
+
+            <div className={cn('py-2.5', sidebarCollapsed ? 'px-2' : 'px-3')}>
+              <PlatformScopeSwitcher collapsed={sidebarCollapsed} />
+            </div>
+
+            <SidebarNav collapsed={sidebarCollapsed} />
           </div>
         </aside>
 
@@ -58,8 +147,11 @@ export default function AppShell() {
                 <SheetContent side="left" closeLabel={t('shell.closeMenu')}>
                   <SheetTitle className="sr-only">{t('shell.menuTitle')}</SheetTitle>
                   <SheetDescription className="sr-only">{t('shell.mainNavLabel')}</SheetDescription>
-                  <div className="flex h-header shrink-0 items-center px-4">
+                  <div className="flex h-header shrink-0 items-center border-b border-line/60 px-4">
                     <BrandMark />
+                  </div>
+                  <div className="px-3 py-2.5">
+                    <PlatformScopeSwitcher />
                   </div>
                   <div className="min-h-0 flex-1 overflow-y-auto">
                     <SidebarNav onNavigate={() => setNavOpen(false)} />
@@ -68,7 +160,7 @@ export default function AppShell() {
               </Sheet>
             </div>
 
-            <div className="min-w-0 flex-1 truncate text-sm text-ink-muted" title={user?.workspace.name}>
+            <div className="min-w-0 flex-1 truncate text-sm font-medium text-ink-muted" title={user?.workspace.name}>
               <span className="sr-only">{t('shell.workspace')}: </span>
               {user?.workspace.name}
             </div>
@@ -105,5 +197,13 @@ export default function AppShell() {
         </div>
       </div>
     </TooltipProvider>
+  )
+}
+
+export default function AppShell() {
+  return (
+    <PlatformScopeProvider>
+      <AppShellInner />
+    </PlatformScopeProvider>
   )
 }

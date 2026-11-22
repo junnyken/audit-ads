@@ -3,31 +3,59 @@
 @tailwind utilities;
 
 @layer base {
+  /* Option A: Linear Graphite & Cobalt — Light Mode */
   :root,
-  [data-palette="obsidian"] {
-    --background: 230 25% 5%;
-    --foreground: 210 40% 98%;
-    --card: 227 29% 10%;
-    --card-foreground: 210 40% 98%;
-    --popover: 226 28% 12%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 239 84% 67%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 227 28% 15%;
-    --secondary-foreground: 214 32% 91%;
-    --muted: 226 27% 13%;
-    --muted-foreground: 215 20% 65%;
-    --accent: 227 29% 18%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 72% 45%;
+  .light {
+    --background: 210 40% 98%;
+    --foreground: 222.2 47.4% 11.2%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 47.4% 11.2%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 47.4% 11.2%;
+    --primary: 221.2 83.2% 53.3%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 44%;
+    --accent: 210 40% 94%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
-    --border: 227 28% 19%;
-    --input: 227 28% 21%;
-    --ring: 239 84% 67%;
-    --radius: 0.625rem;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 221.2 83.2% 53.3%;
+    --radius: 0.5rem;
+    color-scheme: light;
   }
 
-  [data-palette="emerald"] {
+  /* Option A: Linear Graphite & Cobalt — Dark Mode */
+  .dark,
+  .dark[data-palette="obsidian"] {
+    --background: 220 21% 5.5%;
+    --foreground: 210 40% 98%;
+    --card: 222 22% 9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 22% 10.5%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 21% 12%;
+    --secondary-foreground: 214 32% 91%;
+    --muted: 220 21% 11.5%;
+    --muted-foreground: 215 16% 62%;
+    --accent: 220 21% 14.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 222 21% 15.5%;
+    --input: 222 21% 16.5%;
+    --ring: 217.2 91.2% 59.8%;
+    --radius: 0.5rem;
+    color-scheme: dark;
+  }
+
+  .dark[data-palette="emerald"] {
     --background: 165 22% 4%;
     --foreground: 160 30% 98%;
     --card: 162 24% 8%;
@@ -47,7 +75,8 @@
     --border: 162 26% 17%;
     --input: 162 26% 19%;
     --ring: 160 84% 45%;
-    --radius: 0.625rem;
+    --radius: 0.5rem;
+    color-scheme: dark;
   }
 
   * {
@@ -61,7 +90,7 @@
   }
 
   body {
-    @apply bg-background text-foreground font-sans;
+    @apply bg-background text-foreground font-sans antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
     user-select: none;
   }
@@ -72,12 +101,12 @@
 }
 
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
 }
 
 ::-webkit-scrollbar-track {
-  background: hsl(var(--background));
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
@@ -86,5 +115,5 @@
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.5);
+  background: hsl(var(--muted-foreground) / 0.45);
 }

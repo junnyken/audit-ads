@@ -7,6 +7,7 @@ import {
   sendDesktopCommand,
   subscribeDesktopState,
 } from '@/lib/bridge'
+import { ShellUiProvider } from '@/lib/shell-context'
 import type { AppShellWebStateDto } from '@/types'
 import { AdAccountsTab } from '@/views/AdAccountsTab'
 import { AutomationTab } from '@/views/AutomationTab'
@@ -31,7 +32,6 @@ export default function App() {
 
   useEffect(() => {
     const root = document.documentElement
-    root.classList.add('dark')
     root.dataset.palette = state.palette || 'obsidian'
     root.style.background = ''
     document.body.style.background = ''
@@ -86,8 +86,10 @@ export default function App() {
   }
 
   return (
-    <TooltipProvider delayDuration={180}>
-      <AppShellLayout state={state}>{renderActiveView()}</AppShellLayout>
-    </TooltipProvider>
+    <ShellUiProvider>
+      <TooltipProvider delayDuration={180}>
+        <AppShellLayout state={state}>{renderActiveView()}</AppShellLayout>
+      </TooltipProvider>
+    </ShellUiProvider>
   )
 }

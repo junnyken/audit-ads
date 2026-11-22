@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
+import { BookOpen, Calculator, Download, Flag, Layers, ShieldCheck, Terminal, Zap } from 'lucide-react'
 import { api, query } from '../lib/api'
 import type {
   AdAccount,
@@ -87,7 +88,10 @@ export default function Overview() {
       <details open={registryEmpty} className="group rounded-xl border border-brand/30 bg-surface px-3.5 py-2.5 shadow-xs">
         <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge tone="info">⚡ Sơ đồ 4 Bước Vận hành &amp; Công cụ Chrome</Badge>
+            <Badge tone="info" className="gap-1">
+              <Zap className="h-3 w-3" aria-hidden="true" />
+              Sơ đồ 4 Bước Vận hành &amp; Công cụ Chrome
+            </Badge>
             <span className="text-xs font-medium text-ink-muted">
               Tải tiện ích Chrome (.bat/.zip), phân tầng Via 3 lớp, cô lập Fanpage/Thẻ &amp; Quyết toán khách hàng
             </span>
@@ -95,9 +99,10 @@ export default function Overview() {
           <div className="flex items-center gap-3">
             <Link
               to="/operations-guide"
-              className="text-xs font-bold text-brand-text hover:underline"
+              className="inline-flex items-center gap-1 text-xs font-bold text-brand-text hover:underline"
             >
-              📖 Cẩm nang Chống Die →
+              <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
+              Cẩm nang Chống Die →
             </Link>
             <span className="rounded bg-surface-muted px-2 py-0.5 text-[11px] font-semibold text-ink-muted group-open:hidden">
               Mở hướng dẫn ▾
@@ -112,29 +117,31 @@ export default function Overview() {
           <div className="rounded-lg border border-line bg-surface-muted/40 p-2.5 text-xs space-y-1.5">
             <div className="font-bold text-ink">Bước 1: Kích hoạt Mở Chrome &amp; Tiện ích (.zip)</div>
             <p className="text-[11px] text-ink-muted">
-              Chạy file <code>.bat</code> (1 lần) để mở đúng Hồ sơ Chrome từ Web &amp; cài gói Tiện ích v2.10.0 Pro (Tab Automatic, 2FA tự điền, khóa IP Leak/WebRTC).
+              Chạy file <code>.bat</code> (1 lần) để mở đúng Hồ sơ Chrome từ Web &amp; cài gói Tiện ích v2.10.4 Pro (Tab Automatic, 2FA tự điền, khóa IP Leak/WebRTC).
             </p>
             <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
               <a
                 href="/downloads/AdsOps-Desktop-Pro-v2.3.zip"
                 download
-                className="rounded border border-indigo-500/50 bg-indigo-600 px-2 py-1 text-[11px] font-bold text-white hover:bg-indigo-700"
+                className="inline-flex items-center gap-1 rounded border border-brand bg-brand px-2 py-1 text-[11px] font-bold text-brand-fg hover:bg-brand-dark"
               >
-                💻 App Win v3.0.3
+                <Download className="h-3 w-3" aria-hidden="true" />
+                App Win v4.1.0
               </a>
               <button
                 type="button"
                 onClick={downloadWindowsChromeLauncherBat}
-                className="rounded border border-brand bg-brand px-2 py-1 text-[11px] font-bold text-brand-fg hover:opacity-90"
+                className="inline-flex items-center gap-1 rounded border border-brand/40 bg-brand-light px-2 py-1 text-[11px] font-bold text-brand-text hover:opacity-90"
               >
-                ⚡ File .bat
+                <Terminal className="h-3 w-3" aria-hidden="true" />
+                File .bat
               </button>
               <button
                 type="button"
                 onClick={() => downloadChromeExtensionZip()}
                 className="rounded border border-line bg-surface px-2 py-1 text-[11px] font-semibold text-ink hover:bg-surface-muted"
               >
-                📦 Tải .zip
+                Tải .zip
               </button>
               <Link to="/chrome-extension" className="text-[11px] font-bold text-brand-text hover:underline ml-auto">
                 Chi tiết →
@@ -145,14 +152,15 @@ export default function Overview() {
           <div className="rounded-lg border border-line bg-surface-muted/40 p-2.5 text-xs space-y-1.5">
             <div className="font-bold text-ink">Bước 2: Phân tầng 3 Lớp Via &amp; Lấy mã 2FA</div>
             <p className="text-[11px] text-ink-muted">
-              Tách biệt <strong>🛡️ Via Tổng giữ BM</strong>, <strong>🚀 Via Lên Camp</strong> và <strong>🌱 Via Dự Phòng</strong> kèm mã 2FA 6 số trực tiếp.
+              Tách biệt <strong>Via Tổng giữ BM</strong>, <strong>Via Lên Camp</strong> và <strong>Via Dự Phòng</strong> kèm mã 2FA 6 số trực tiếp.
             </p>
             <div className="pt-0.5">
               <Link
                 to="/facebook-accounts"
-                className="inline-flex items-center rounded border border-brand/40 bg-brand-light px-2.5 py-1 text-[11px] font-bold text-brand-text hover:opacity-90"
+                className="inline-flex items-center gap-1 rounded border border-brand/40 bg-brand-light px-2.5 py-1 text-[11px] font-bold text-brand-text hover:opacity-90"
               >
-                🛡️ Mở Bảng Via &amp; 2FA →
+                <ShieldCheck className="h-3 w-3" aria-hidden="true" />
+                Mở Bảng Via &amp; 2FA →
               </Link>
             </div>
           </div>
@@ -165,20 +173,22 @@ export default function Overview() {
             <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
               <Link
                 to="/pages"
-                className="inline-flex items-center rounded border border-brand/40 bg-brand-light px-2 py-1 text-[11px] font-bold text-brand-text hover:opacity-90"
+                className="inline-flex items-center gap-1 rounded border border-brand/40 bg-brand-light px-2 py-1 text-[11px] font-bold text-brand-text hover:opacity-90"
               >
-                🚩 Fanpages (11) →
+                <Flag className="h-3 w-3" aria-hidden="true" />
+                Fanpages →
               </Link>
               <Link
                 to="/assets"
-                className="inline-flex items-center rounded border border-line bg-surface px-2 py-1 text-[11px] font-semibold text-ink hover:bg-surface-muted"
+                className="inline-flex items-center gap-1 rounded border border-line bg-surface px-2 py-1 text-[11px] font-semibold text-ink hover:bg-surface-muted"
               >
-                🧩 Tài sản →
+                <Layers className="h-3 w-3" aria-hidden="true" />
+                Tài sản →
               </Link>
             </div>
           </div>
 
-          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-2.5 text-xs space-y-1.5">
+          <div className="rounded-lg border border-tone-positive-border bg-tone-positive-bg/50 p-2.5 text-xs space-y-1.5">
             <div className="font-bold text-ink">Bước 4: Ngân sách Cam kết &amp; Quyết Toán KH</div>
             <p className="text-[11px] text-ink-muted">
               Gom nhiều TKQC vào 1 Hợp đồng Khách hàng, đo tiến độ Pacing &amp; tự động xuất <strong>Phiếu Quyết Toán (+Phí Agency &amp; Thuế Meta)</strong>.
@@ -186,15 +196,16 @@ export default function Overview() {
             <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
               <Link
                 to="/retainers"
-                className="inline-flex items-center rounded border border-emerald-500/40 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-bold text-emerald-400 hover:opacity-90"
+                className="inline-flex items-center gap-1 rounded border border-tone-positive-border bg-tone-positive-bg px-2.5 py-1 text-[11px] font-bold text-tone-positive-fg hover:opacity-90"
               >
-                📊 Mở Bảng Quyết Toán KH →
+                <Calculator className="h-3 w-3" aria-hidden="true" />
+                Mở Bảng Quyết Toán KH →
               </Link>
               <Link
                 to="/accounts"
                 className="text-[11px] font-bold text-brand-text hover:underline ml-auto"
               >
-                17 TKQC →
+                DS TKQC →
               </Link>
             </div>
           </div>
@@ -398,10 +409,10 @@ export default function Overview() {
                                 primaryVia.network_label,
                               )
                             }
-                            className="inline-flex items-center rounded border border-emerald-600/50 bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-bold text-emerald-800 hover:bg-emerald-500/25 dark:text-emerald-300"
+                            className="inline-flex items-center rounded border border-tone-positive-border bg-tone-positive-bg px-1.5 py-0.5 text-[11px] font-bold text-tone-positive-fg hover:opacity-90"
                             title={`Mở trang Kháng nghị bằng Chrome (${formatShortProfileBadge(primaryVia)})`}
                           >
-                            🚀 Mở Chrome
+                            Mở Chrome
                           </button>
                         )}
                       </div>
@@ -451,9 +462,9 @@ export default function Overview() {
                                 primaryVia.network_label,
                               )
                             }
-                            className="inline-flex items-center rounded border border-emerald-600/50 bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-bold text-emerald-800 hover:bg-emerald-500/25 dark:text-emerald-300"
+                            className="inline-flex items-center rounded border border-tone-positive-border bg-tone-positive-bg px-1.5 py-0.5 text-[11px] font-bold text-tone-positive-fg hover:opacity-90"
                           >
-                            🚀 Mở Chrome
+                            Mở Chrome
                           </button>
                         )}
                         <span className="text-xs font-medium text-ink-muted">

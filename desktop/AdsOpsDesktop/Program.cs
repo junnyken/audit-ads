@@ -2091,9 +2091,9 @@ internal static class Program
                 }
             }
 
-            // 35. v4.0.2 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
+            // 35. v4.1.0 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
             {
-                if (DesktopAppInfo.Version != "4.0.2" || DesktopAppInfo.ExtVersion != "2.10.4")
+                if (DesktopAppInfo.Version != "4.1.0" || DesktopAppInfo.ExtVersion != "2.10.4")
                 {
                     throw new InvalidOperationException(
                         $"DesktopAppInfo version mismatch: app={DesktopAppInfo.Version}, ext={DesktopAppInfo.ExtVersion}");
@@ -2143,7 +2143,7 @@ internal static class Program
                 foreach (var reqKey in new[]
                          {
                              "\"type\":\"full_state\"",
-                             "\"appVersion\":\"4.0.2\"",
+                             "\"appVersion\":\"4.1.0\"",
                              "\"extVersion\":\"2.10.4\"",
                              "\"activeView\":\"settings\"",
                              "\"totpMap\"",
@@ -2963,6 +2963,27 @@ internal static class Program
                     !tpl46.ContentJs.Contains("proactive_native_visit", StringComparison.Ordinal))
                 {
                     throw new InvalidOperationException("Companion v2.10.4 Native DOM fallback / proactive cookie sync tokens missing.");
+                }
+            }
+
+            // 47. v4.1.0 Option A Synchronized Linear Graphite & Cobalt WebUi Bundle Tokens Verification
+            {
+                var webUiDir47 = DesktopWebUiBridge.EnsureExtractedAssets();
+                var assetsDir47 = Path.Combine(webUiDir47, "assets");
+                var cssContent47 = string.Join("\n", Directory.EnumerateFiles(assetsDir47, "*.css").Select(File.ReadAllText));
+                var jsContent47 = string.Join("\n", Directory.EnumerateFiles(assetsDir47, "*.js").Select(File.ReadAllText));
+                if (!cssContent47.Contains(".light", StringComparison.Ordinal) ||
+                    !cssContent47.Contains(".dark", StringComparison.Ordinal) ||
+                    !cssContent47.Contains("221.2 83.2%", StringComparison.Ordinal) ||
+                    !cssContent47.Contains("217.2 91.2%", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("WebUi v4.1.0 CSS missing Option A Light/Dark Cobalt & Graphite tokens.");
+                }
+                if (!jsContent47.Contains("adsops.desktop.themeMode", StringComparison.Ordinal) ||
+                    !jsContent47.Contains("adsops.desktop.platformScope", StringComparison.Ordinal) ||
+                    !jsContent47.Contains("adsops.desktop.sidebarCollapsed", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("WebUi v4.1.0 JS missing Option A shell context keys (themeMode/platformScope/sidebarCollapsed).");
                 }
             }
 
