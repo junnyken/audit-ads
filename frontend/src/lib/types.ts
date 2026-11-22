@@ -1693,3 +1693,14 @@ export interface OperationalTelemetrySummary {
     spend_spikes: number
   }
 }
+
+export interface GoogleAdsScriptConfig {
+  workspace_id: string
+  ingest_url: string
+  key_configured: boolean
+  key_masked: string
+  mcc_script_code: string
+  single_account_script_code: string
+  synced_accounts_count: number
+  last_push_at: string | null
+}

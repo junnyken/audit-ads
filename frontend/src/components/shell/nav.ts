@@ -5,6 +5,7 @@ import {
   Building2,
   Calculator,
   ClipboardCheck,
+  Code2,
   Flag,
   LayoutDashboard,
   Link2,
@@ -24,7 +25,7 @@ import {
 import type { TranslationKey } from '../../i18n'
 
 /**
- * Synchronized 4-group navigation covering all 20 top-level destinations across Web & Desktop.
+ * Synchronized 4-group navigation covering all 21 top-level destinations across Web & Desktop.
  */
 export interface NavItem {
   to: string
@@ -76,6 +77,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/chrome-extension', labelKey: 'nav.item.chromeExtension', icon: Puzzle },
       { to: '/meta-connections', labelKey: 'nav.item.metaConnections', icon: Link2 },
+      { to: '/google-ads', labelKey: 'nav.item.googleAds', icon: Code2 },
       { to: '/team', labelKey: 'nav.item.team', icon: Users },
       { to: '/security-devices', labelKey: 'nav.item.securityDevices', icon: Smartphone },
       { to: '/audit-log', labelKey: 'nav.item.auditLog', icon: ScrollText },

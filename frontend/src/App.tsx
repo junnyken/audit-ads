@@ -23,6 +23,7 @@ const Operations = lazy(() => import('./pages/Operations'))
 const OperationsGuide = lazy(() => import('./pages/OperationsGuide'))
 const MetaConnections = lazy(() => import('./pages/MetaConnections'))
 const MetaConnectionWorkspace = lazy(() => import('./pages/MetaConnectionWorkspace'))
+const GoogleAdsConnections = lazy(() => import('./pages/GoogleAdsConnections'))
 const CreateAccountWizard = lazy(() => import('./pages/operations/CreateAccountWizard'))
 const ShareAccessWizard = lazy(() => import('./pages/operations/ShareAccessWizard'))
 const PixelShareWizard = lazy(() => import('./pages/operations/PixelShareWizard'))
@@ -90,6 +91,7 @@ export default function App() {
         <Route path="operations/pixel-share" element={<PixelShareWizard />} />
         <Route path="meta-connections" element={<MetaConnections />} />
         <Route path="meta-connections/:connectionId" element={<MetaConnectionWorkspace />} />
+        <Route path="google-ads" element={<GoogleAdsConnections />} />
         <Route path="team" element={<TeamSeats />} />
         <Route path="security-devices" element={<SecurityDevices />} />
         <Route path="audit-log" element={<AuditLog />} />

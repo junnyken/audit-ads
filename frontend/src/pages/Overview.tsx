@@ -87,9 +87,10 @@ export default function Overview() {
   const { summary, attention, recent, alertSummary, spend, opsTelemetry } = useOverview()
 
   const tel = opsTelemetry.data
-  const scopedRisks = (tel?.early_risks ?? []).filter((r) =>
+  const scopedRisks = (Array.isArray(tel?.early_risks) ? tel.early_risks : []).filter((r) =>
     platformScope === 'all' ? true : r.platform === platformScope,
   )
+  const proxyClusters = Array.isArray(tel?.proxy_clusters) ? tel.proxy_clusters : []
   const thresholdRiskCount = scopedRisks.filter(
     (r) => r.kind === 'billing_threshold_80' || r.kind === 'spend_cap_85',
   ).length
@@ -428,15 +429,15 @@ export default function Overview() {
                     </CardHeader>
                     <CardContent className="space-y-1.5">
                       <div className="text-2xl font-bold tabular-nums text-ink">
-                        {tel?.automation_health.success_rate_pct !== null &&
-                        tel?.automation_health.success_rate_pct !== undefined
+                        {tel?.automation_health?.success_rate_pct !== null &&
+                        tel?.automation_health?.success_rate_pct !== undefined
                           ? `${tel.automation_health.success_rate_pct.toFixed(1)}%`
                           : t('overview.telemetry.noRuns7d')}
                       </div>
                       <p className="text-xs text-ink-muted tabular-nums">
                         {t('overview.telemetry.opsBreakdown', {
-                          ok: formatCount(tel?.automation_health.ok_ops_7d ?? 0),
-                          fail: formatCount(tel?.automation_health.fail_ops_7d ?? 0),
+                          ok: formatCount(tel?.automation_health?.ok_ops_7d ?? 0),
+                          fail: formatCount(tel?.automation_health?.fail_ops_7d ?? 0),
                         })}
                       </p>
                     </CardContent>
@@ -451,13 +452,13 @@ export default function Overview() {
                     </CardHeader>
                     <CardContent className="space-y-1.5">
                       <div className="text-2xl font-bold tabular-nums text-ink">
-                        {formatCount(tel?.proxy_summary.total_clusters ?? 0)}
+                        {formatCount(tel?.proxy_summary?.total_clusters ?? 0)}
                       </div>
                       <p className="text-xs text-ink-muted tabular-nums">
                         {t('overview.telemetry.proxyBreakdown', {
-                          healthy: formatCount(tel?.proxy_summary.healthy_clusters ?? 0),
-                          crowded: formatCount(tel?.proxy_summary.crowded_clusters ?? 0),
-                          incident: formatCount(tel?.proxy_summary.incident_clusters ?? 0),
+                          healthy: formatCount(tel?.proxy_summary?.healthy_clusters ?? 0),
+                          crowded: formatCount(tel?.proxy_summary?.crowded_clusters ?? 0),
+                          incident: formatCount(tel?.proxy_summary?.incident_clusters ?? 0),
                         })}
                       </p>
                     </CardContent>
@@ -569,11 +570,11 @@ export default function Overview() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="text-sm">
-                      {(tel?.proxy_clusters.length ?? 0) === 0 ? (
+                      {proxyClusters.length === 0 ? (
                         <p className="text-xs text-ink-muted">{t('overview.telemetry.proxyEmpty')}</p>
                       ) : (
                         <ul className="divide-y divide-line">
-                          {tel!.proxy_clusters.slice(0, 6).map((cluster) => {
+                          {proxyClusters.slice(0, 6).map((cluster) => {
                             const tone =
                               cluster.status === 'incident'
                                 ? 'attention'
@@ -593,7 +594,7 @@ export default function Overview() {
                                     {cluster.proxy_key}
                                   </div>
                                   <div className="truncate text-[11px] text-ink-muted">
-                                    {cluster.via_labels.join(', ')}
+                                    {(cluster.via_labels ?? []).join(', ')}
                                   </div>
                                 </div>
                                 <div className="flex shrink-0 items-center gap-1.5">

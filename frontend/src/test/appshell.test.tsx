@@ -47,17 +47,18 @@ beforeEach(() => {
 })
 
 describe('AppShell navigation', () => {
-  it('renders four labelled groups and twenty links, in Vietnamese', () => {
+  it('renders four labelled groups and twenty-one links, in Vietnamese', () => {
     renderShell()
     const nav = screen.getByRole('navigation', { name: 'Điều hướng chính' })
     expect(within(nav).getAllByRole('heading', { level: 2 })).toHaveLength(4)
     expect(NAV_GROUPS).toHaveLength(4)
-    expect(within(nav).getAllByRole('link')).toHaveLength(20)
+    expect(within(nav).getAllByRole('link')).toHaveLength(21)
     for (const label of [
       'Tài khoản quảng cáo',
       'Trang Fanpage',
       'Ngân sách & Quyết toán KH',
       'Tiện ích Chrome & App',
+      'Kết nối Google Ads',
       'Sức khoẻ tài khoản',
       'Mức sẵn sàng',
       'Kiểm tra trước khi chạy',
@@ -69,10 +70,10 @@ describe('AppShell navigation', () => {
     }
   })
 
-  it('links every route the app declares (all twenty destinations)', () => {
+  it('links every route the app declares (all twenty-one destinations)', () => {
     const app = readFileSync(join(process.cwd(), 'src/App.tsx'), 'utf8')
     const paths = [...app.matchAll(/path="([^"]+)"/g)].map((m) => `/${m[1]}`).filter((p) => p !== '/*')
-    expect(paths.length).toBeGreaterThanOrEqual(20)
+    expect(paths.length).toBeGreaterThanOrEqual(21)
     const targets = NAV_ITEMS.map((item) => item.to)
     for (const path of paths) {
       const covered = targets.some((to) => to === path || (to !== '/' && path.startsWith(`${to}/`)))
@@ -81,7 +82,7 @@ describe('AppShell navigation', () => {
     for (const to of targets.filter((t) => t !== '/')) {
       expect(paths, `${to} is a real route`).toContain(to)
     }
-    for (const keyRoute of ['/pages', '/retainers', '/chrome-extension', '/readiness', '/account-health', '/preflight', '/audit-log', '/system']) {
+    for (const keyRoute of ['/pages', '/retainers', '/chrome-extension', '/google-ads', '/readiness', '/account-health', '/preflight', '/audit-log', '/system']) {
       expect(targets).toContain(keyRoute)
     }
   })
@@ -140,7 +141,7 @@ describe('AppShell mobile menu (Sheet)', () => {
     const opener = screen.getByRole('button', { name: 'Mở menu điều hướng' })
     await userEvent.click(opener)
     const dialog = await screen.findByRole('dialog', { name: 'Menu điều hướng' })
-    expect(within(dialog).getAllByRole('link')).toHaveLength(20)
+    expect(within(dialog).getAllByRole('link')).toHaveLength(21)
     await userEvent.keyboard('{Escape}')
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(opener).toHaveFocus()
