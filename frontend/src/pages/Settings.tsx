@@ -467,6 +467,8 @@ interface TelegramBotConfigResp {
   notify_billing_failed: boolean
   notify_page_restricted: boolean
   notify_retainer_overspend: boolean
+  notify_threshold_80?: boolean
+  notify_spend_spike?: boolean
   quiet_hours_respect: boolean
   quiet_hours_enabled: boolean
   quiet_hours_start: string
@@ -495,6 +497,8 @@ function TelegramInstantBotSection({ isOwner }: { isOwner: boolean }) {
   const [notifyBilling, setNotifyBilling] = useState(true)
   const [notifyPage, setNotifyPage] = useState(true)
   const [notifyRetainer, setNotifyRetainer] = useState(true)
+  const [notifyThreshold80, setNotifyThreshold80] = useState(true)
+  const [notifySpendSpike, setNotifySpendSpike] = useState(true)
   const [quietRespect, setQuietRespect] = useState(true)
   const [detectedChats, setDetectedChats] = useState<DetectedChatItem[]>([])
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null)
@@ -506,6 +510,8 @@ function TelegramInstantBotSection({ isOwner }: { isOwner: boolean }) {
     setNotifyBilling(cfgQ.data.notify_billing_failed)
     setNotifyPage(cfgQ.data.notify_page_restricted)
     setNotifyRetainer(cfgQ.data.notify_retainer_overspend)
+    setNotifyThreshold80(cfgQ.data.notify_threshold_80 ?? true)
+    setNotifySpendSpike(cfgQ.data.notify_spend_spike ?? true)
     setQuietRespect(cfgQ.data.quiet_hours_respect)
   }, [cfgQ.data])
 
@@ -519,6 +525,8 @@ function TelegramInstantBotSection({ isOwner }: { isOwner: boolean }) {
         notify_billing_failed: notifyBilling,
         notify_page_restricted: notifyPage,
         notify_retainer_overspend: notifyRetainer,
+        notify_threshold_80: notifyThreshold80,
+        notify_spend_spike: notifySpendSpike,
         quiet_hours_respect: quietRespect,
       }),
     onSuccess: (res) => {
@@ -693,6 +701,14 @@ function TelegramInstantBotSection({ isOwner }: { isOwner: boolean }) {
                   <input type="checkbox" className="h-4 w-4" checked={notifyRetainer} onChange={(e) => setNotifyRetainer(e.target.checked)} />
                   💰 Retainer sắp vượt / chạm trần (≥ 90%)
                 </label>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" className="h-4 w-4" checked={notifyThreshold80} onChange={(e) => setNotifyThreshold80(e.target.checked)} />
+                  Cảnh báo sớm dư nợ chạm ≥ 80% Ngưỡng thẻ / Spend Cap
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" className="h-4 w-4" checked={notifySpendSpike} onChange={(e) => setNotifySpendSpike(e.target.checked)} />
+                  Chi tiêu ngày tăng đột biến (Meta &amp; Google Ads)
+                </label>
               </div>
 
               <label className="flex items-center gap-2 text-xs text-ink-muted">
@@ -704,8 +720,8 @@ function TelegramInstantBotSection({ isOwner }: { isOwner: boolean }) {
                 <div
                   className={`rounded-md border px-3 py-2 text-xs font-medium ${
                     notice.ok
-                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
-                      : 'border-rose-500/40 bg-rose-500/10 text-rose-800 dark:text-rose-200'
+                      ? 'border-tone-positive-border bg-tone-positive-bg text-tone-positive-fg'
+                      : 'border-tone-attention-border bg-tone-attention-bg text-tone-attention-fg'
                   }`}
                 >
                   {notice.text}

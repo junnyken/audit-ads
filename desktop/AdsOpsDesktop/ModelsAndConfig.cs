@@ -2941,6 +2941,8 @@ public sealed class TelegramBotConfigDto
     [JsonPropertyName("notify_billing_failed")] public bool NotifyBillingFailed { get; set; } = true;
     [JsonPropertyName("notify_page_restricted")] public bool NotifyPageRestricted { get; set; } = true;
     [JsonPropertyName("notify_retainer_overspend")] public bool NotifyRetainerOverspend { get; set; } = true;
+    [JsonPropertyName("notify_threshold_80")] public bool NotifyThreshold80 { get; set; } = true;
+    [JsonPropertyName("notify_spend_spike")] public bool NotifySpendSpike { get; set; } = true;
     [JsonPropertyName("quiet_hours_respect")] public bool QuietHoursRespect { get; set; }
 }
 
@@ -3416,8 +3418,8 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "4.1.0";
-    public const string DisplayVersion = "v4.1.0";
+    public const string Version = "4.2.0";
+    public const string DisplayVersion = "v4.2.0";
     public const string ExtVersion = "2.10.4";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 

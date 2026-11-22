@@ -1,11 +1,27 @@
 import type { ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { BookOpen, Calculator, Download, Flag, Layers, ShieldCheck, Terminal, Zap } from 'lucide-react'
+import {
+  Activity,
+  AlertTriangle,
+  BookOpen,
+  Calculator,
+  CheckCircle2,
+  CreditCard,
+  Download,
+  Flag,
+  Globe,
+  Layers,
+  ShieldCheck,
+  Terminal,
+  TrendingUp,
+  Zap,
+} from 'lucide-react'
 import { api, query } from '../lib/api'
 import type {
   AdAccount,
   AlertSummary,
+  OperationalTelemetrySummary,
   Paged,
   ReadinessSummary,
   SpendSummary,
@@ -24,6 +40,7 @@ import {
 } from '../lib/chromeProfileLauncher'
 import { formatCount, formatDateTime, formatRelative } from '../lib/format'
 import { useAuth } from '../hooks/useAuth'
+import { usePlatformScope } from '../hooks/usePlatformScope'
 import { useI18n } from '../i18n'
 import { useEnumLabel } from '../i18n/labels'
 import SpendSummaryCard from '../components/SpendSummaryCard'
@@ -55,14 +72,28 @@ function useOverview() {
     queryKey: ['spend-summary'],
     queryFn: () => api.get<SpendSummary>('/api/v1/spend/summary'),
   })
-  return { summary, attention, recent, alertSummary, spend }
+  const opsTelemetry = useQuery({
+    queryKey: ['automation-operational-telemetry'],
+    queryFn: () => api.get<OperationalTelemetrySummary>('/api/v1/automation/operational-telemetry'),
+  })
+  return { summary, attention, recent, alertSummary, spend, opsTelemetry }
 }
 
 export default function Overview() {
   const { t, language } = useI18n()
   const enumLabel = useEnumLabel()
   const { user } = useAuth()
-  const { summary, attention, recent, alertSummary, spend } = useOverview()
+  const { platformScope } = usePlatformScope()
+  const { summary, attention, recent, alertSummary, spend, opsTelemetry } = useOverview()
+
+  const tel = opsTelemetry.data
+  const scopedRisks = (tel?.early_risks ?? []).filter((r) =>
+    platformScope === 'all' ? true : r.platform === platformScope,
+  )
+  const thresholdRiskCount = scopedRisks.filter(
+    (r) => r.kind === 'billing_threshold_80' || r.kind === 'spend_cap_85',
+  ).length
+  const spikeRiskCount = scopedRisks.filter((r) => r.kind === 'daily_spend_spike').length
 
   const readiness = summary.data
   const registryEmpty = readiness !== undefined && readiness.total_active === 0 && readiness.archived === 0
@@ -363,6 +394,230 @@ export default function Overview() {
 
           {/* Hàng 2: Tổng hợp chi tiêu */}
           <SpendSummaryCard />
+
+          {/* Hàng 2b: Đo lường Hiệu quả 7 Ngày, Sức khỏe Proxy & Cảnh báo Sớm Thẻ (>=80%) / Vọt Chi tiêu */}
+          <section aria-label={t('overview.telemetry.sectionTitle')} className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-bold text-ink">{t('overview.telemetry.sectionTitle')}</h2>
+              <div className="flex items-center gap-3 text-xs font-semibold">
+                <Link to="/facebook-accounts" className="text-brand-text hover:underline">
+                  {t('overview.telemetry.manageProxiesLink')}
+                </Link>
+                <Link to="/alerts?status=open" className="text-brand-text hover:underline">
+                  {t('overview.telemetry.openAlertsLink')}
+                </Link>
+              </div>
+            </div>
+
+            {opsTelemetry.isLoading ? (
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <Skeleton className="h-24 w-full" />
+                <Skeleton className="h-24 w-full" />
+                <Skeleton className="h-24 w-full" />
+                <Skeleton className="h-24 w-full" />
+              </div>
+            ) : (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <Card>
+                    <CardHeader className="pb-1.5">
+                      <CardTitle className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-ink-muted">
+                        <Activity className="h-3.5 w-3.5 text-brand-text" aria-hidden="true" />
+                        {t('overview.telemetry.opsRateTitle')}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-1.5">
+                      <div className="text-2xl font-bold tabular-nums text-ink">
+                        {tel?.automation_health.success_rate_pct !== null &&
+                        tel?.automation_health.success_rate_pct !== undefined
+                          ? `${tel.automation_health.success_rate_pct.toFixed(1)}%`
+                          : t('overview.telemetry.noRuns7d')}
+                      </div>
+                      <p className="text-xs text-ink-muted tabular-nums">
+                        {t('overview.telemetry.opsBreakdown', {
+                          ok: formatCount(tel?.automation_health.ok_ops_7d ?? 0),
+                          fail: formatCount(tel?.automation_health.fail_ops_7d ?? 0),
+                        })}
+                      </p>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-1.5">
+                      <CardTitle className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-ink-muted">
+                        <Globe className="h-3.5 w-3.5 text-tone-positive-fg" aria-hidden="true" />
+                        {t('overview.telemetry.proxyCardTitle')}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-1.5">
+                      <div className="text-2xl font-bold tabular-nums text-ink">
+                        {formatCount(tel?.proxy_summary.total_clusters ?? 0)}
+                      </div>
+                      <p className="text-xs text-ink-muted tabular-nums">
+                        {t('overview.telemetry.proxyBreakdown', {
+                          healthy: formatCount(tel?.proxy_summary.healthy_clusters ?? 0),
+                          crowded: formatCount(tel?.proxy_summary.crowded_clusters ?? 0),
+                          incident: formatCount(tel?.proxy_summary.incident_clusters ?? 0),
+                        })}
+                      </p>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-1.5">
+                      <CardTitle className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-ink-muted">
+                        <CreditCard className="h-3.5 w-3.5 text-tone-caution-fg" aria-hidden="true" />
+                        {t('overview.telemetry.threshCardTitle')}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-1.5">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-2xl font-bold tabular-nums text-ink">
+                          {formatCount(thresholdRiskCount)}
+                        </span>
+                        {thresholdRiskCount > 0 && (
+                          <Badge tone="caution">≥ 80%</Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-ink-muted">{t('overview.telemetry.threshSub')}</p>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-1.5">
+                      <CardTitle className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-ink-muted">
+                        <TrendingUp className="h-3.5 w-3.5 text-tone-attention-fg" aria-hidden="true" />
+                        {t('overview.telemetry.spikeCardTitle')}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-1.5">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-2xl font-bold tabular-nums text-ink">
+                          {formatCount(spikeRiskCount)}
+                        </span>
+                        {spikeRiskCount > 0 && (
+                          <Badge tone="attention">Spike</Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-ink-muted">{t('overview.telemetry.spikeSub')}</p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="grid gap-4 xl:grid-cols-2">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="flex items-center gap-2 text-sm font-bold text-ink">
+                        <AlertTriangle className="h-4 w-4 text-tone-caution-fg" aria-hidden="true" />
+                        {t('overview.telemetry.risksPanelTitle')}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="text-sm">
+                      {scopedRisks.length === 0 ? (
+                        <div className="flex items-center gap-2 rounded-lg border border-tone-positive-border bg-tone-positive-bg px-3 py-2.5 text-xs font-medium text-tone-positive-fg">
+                          <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+                          <span>{t('overview.telemetry.risksEmpty')}</span>
+                        </div>
+                      ) : (
+                        <ul className="divide-y divide-line">
+                          {scopedRisks.slice(0, 6).map((risk) => {
+                            const isCrit = risk.severity === 'critical'
+                            const barPct = Math.min(100, Math.max(8, Math.round(risk.ratio_pct)))
+                            return (
+                              <li key={`${risk.ad_account_id}-${risk.kind}`} className="space-y-1.5 py-2.5">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <div className="min-w-0 flex items-center gap-1.5">
+                                    <Badge tone={risk.platform === 'google_ads' ? 'info' : 'neutral'}>
+                                      {risk.platform === 'google_ads' ? 'Google' : 'Meta'}
+                                    </Badge>
+                                    <Link
+                                      to={`/accounts/${risk.ad_account_id}`}
+                                      className="truncate font-semibold text-brand-text hover:underline"
+                                    >
+                                      {risk.display_name}
+                                    </Link>
+                                  </div>
+                                  <Badge tone={isCrit ? 'attention' : 'caution'} className="font-mono tabular-nums">
+                                    {risk.ratio_pct.toFixed(0)}%
+                                  </Badge>
+                                </div>
+                                <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
+                                  <div
+                                    className={isCrit ? 'h-full bg-tone-attention-fg' : 'h-full bg-tone-caution-fg'}
+                                    style={{ width: `${barPct}%` }}
+                                  />
+                                </div>
+                                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink-muted">
+                                  <span className="truncate">{risk.summary}</span>
+                                  {risk.payment_card && (
+                                    <span className="shrink-0 font-mono text-[11px]">{risk.payment_card}</span>
+                                  )}
+                                </div>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="flex items-center gap-2 text-sm font-bold text-ink">
+                        <Globe className="h-4 w-4 text-brand-text" aria-hidden="true" />
+                        {t('overview.telemetry.proxyPanelTitle')}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="text-sm">
+                      {(tel?.proxy_clusters.length ?? 0) === 0 ? (
+                        <p className="text-xs text-ink-muted">{t('overview.telemetry.proxyEmpty')}</p>
+                      ) : (
+                        <ul className="divide-y divide-line">
+                          {tel!.proxy_clusters.slice(0, 6).map((cluster) => {
+                            const tone =
+                              cluster.status === 'incident'
+                                ? 'attention'
+                                : cluster.status === 'crowded'
+                                  ? 'caution'
+                                  : 'positive'
+                            const statusText =
+                              cluster.status === 'incident'
+                                ? t('overview.telemetry.proxyStatusIncident')
+                                : cluster.status === 'crowded'
+                                  ? t('overview.telemetry.proxyStatusCrowded')
+                                  : t('overview.telemetry.proxyStatusHealthy')
+                            return (
+                              <li key={cluster.proxy_key} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+                                <div className="min-w-0">
+                                  <div className="truncate font-mono text-xs font-semibold text-ink">
+                                    {cluster.proxy_key}
+                                  </div>
+                                  <div className="truncate text-[11px] text-ink-muted">
+                                    {cluster.via_labels.join(', ')}
+                                  </div>
+                                </div>
+                                <div className="flex shrink-0 items-center gap-1.5">
+                                  <Badge tone="neutral" className="font-mono tabular-nums">
+                                    {t('overview.telemetry.viaCountLabel', { count: cluster.via_count })}
+                                  </Badge>
+                                  {cluster.incident_count_7d > 0 && (
+                                    <Badge tone="attention" className="font-mono tabular-nums">
+                                      {t('overview.telemetry.incidents7dLabel', { count: cluster.incident_count_7d })}
+                                    </Badge>
+                                  )}
+                                  <Badge tone={tone}>{statusText}</Badge>
+                                </div>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              </>
+            )}
+          </section>
 
           {/* Hàng 3: 2 Bảng Hành động nhanh */}
           <section className="grid gap-4 xl:grid-cols-2">

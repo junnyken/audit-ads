@@ -1635,3 +1635,61 @@ export interface ProfileLaunchAuditRow {
   failover_from: string
   detail: string
 }
+
+export interface EarlyRiskItem {
+  ad_account_id: string
+  display_name: string
+  external_account_id: string | null
+  platform: 'meta' | 'google_ads'
+  kind: 'billing_threshold_80' | 'spend_cap_85' | 'daily_spend_spike'
+  severity: 'warning' | 'critical'
+  ratio_pct: number
+  current_raw: string
+  reference_raw: string
+  currency: string
+  payment_card: string | null
+  latest_day: string | null
+  title: string
+  summary: string
+}
+
+export interface ProxyClusterHealthItem {
+  proxy_key: string
+  is_direct_ip: boolean
+  via_count: number
+  active_via_count: number
+  restricted_via_count: number
+  incident_count_7d: number
+  via_labels: string[]
+  status: 'incident' | 'crowded' | 'healthy'
+}
+
+export interface OperationalTelemetrySummary {
+  generated_at: string
+  window_days: number
+  automation_health: {
+    total_ops_7d: number
+    ok_ops_7d: number
+    fail_ops_7d: number
+    success_rate_pct: number | null
+    warmup_posts_7d: number
+    pages_created_7d: number
+    keepalive_ok_7d: number
+    via_alerts_7d: number
+    failover_events_7d: number
+    cron_runs_7d: number
+  }
+  proxy_clusters: ProxyClusterHealthItem[]
+  proxy_summary: {
+    total_clusters: number
+    healthy_clusters: number
+    crowded_clusters: number
+    incident_clusters: number
+  }
+  early_risks: EarlyRiskItem[]
+  early_risk_summary: {
+    total: number
+    threshold_warnings: number
+    spend_spikes: number
+  }
+}

@@ -26,6 +26,7 @@ from app.services.automation_cron import (
     run_workspace_automation_cycle,
     save_workspace_cron_config,
 )
+from app.services.early_risk_detector import build_workspace_operational_telemetry
 from app.services.notification_transport import OutboundMessage
 from app.services.proxy_health_transport import (
     check_proxy_live,
@@ -96,6 +97,8 @@ def save_telegram_bot_settings(ctx: OwnerCtx, payload: dict[str, Any] | None = N
         notify_billing_failed=body.get("notify_billing_failed"),
         notify_page_restricted=body.get("notify_page_restricted"),
         notify_retainer_overspend=body.get("notify_retainer_overspend"),
+        notify_threshold_80=body.get("notify_threshold_80"),
+        notify_spend_spike=body.get("notify_spend_spike"),
         quiet_hours_respect=body.get("quiet_hours_respect"),
         bot_username=bot_username,
         bot_name=bot_name,
@@ -507,3 +510,8 @@ def save_domain_seo_config(ctx: OwnerCtx, payload: dict[str, Any] | None = None)
 
     invalidate_custom_domain_cache()
     return get_domain_seo_config(ctx)
+
+
+@router.get("/automation/operational-telemetry")
+def get_operational_telemetry(ctx: Ctx) -> dict[str, Any]:
+    return build_workspace_operational_telemetry(ctx.session, ctx.workspace_id)

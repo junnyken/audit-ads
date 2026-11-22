@@ -4522,8 +4522,28 @@ internal sealed partial class MainWindow : Window
                 ? await ChromeCdpController.RunSilentPageSharePostAsync(launch.CdpPort.Value, caption, ct).ConfigureAwait(false)
                 : await ChromeCdpController.RunSilentPagePublishPostAsync(launch.CdpPort.Value, caption, preparedImagePath, ct, page.ExternalPageId).ConfigureAwait(false);
 
-            if (res.Ok)
+            if (res.NeedsLogin)
             {
+                ViaStewardshipStore.Default.AppendEvent(
+                    "PAGE_NURTURE_NO_COOKIE",
+                    via.ViaId,
+                    via.Label,
+                    via.ClientGroup,
+                    $"Cần đăng nhập lại để {(isShare ? "chia sẻ" : "đăng bài")} Page '{page.Name}'");
+            }
+            else if (res.Ok)
+            {
+                var usedFallback = res.Detail.Contains("Tier 2", StringComparison.OrdinalIgnoreCase)
+                    || res.Detail.Contains("Fallback", StringComparison.OrdinalIgnoreCase)
+                    || res.Detail.Contains("Pivot", StringComparison.OrdinalIgnoreCase)
+                    || res.Detail.Contains("Native", StringComparison.OrdinalIgnoreCase);
+                ViaStewardshipStore.Default.AppendEvent(
+                    usedFallback ? "PAGE_NURTURE_FALLBACK_OK" : "PAGE_NURTURE_OK",
+                    via.ViaId,
+                    via.Label,
+                    via.ClientGroup,
+                    $"{(isShare ? "Chia sẻ" : "Đăng bài")} Page '{page.Name}': {res.Detail}");
+
                 await TryRefreshVaultCookieFromSilentCdpAsync(launch.CdpPort.Value, via, vaultSecret).ConfigureAwait(false);
                 if (isShare)
                 {
@@ -4538,6 +4558,15 @@ internal sealed partial class MainWindow : Window
                         postMode: "chrome_assist", contentType: isShare ? "share" : (res.MediaAttached ? "photo" : "post")).ConfigureAwait(false);
                 }
                 catch { }
+            }
+            else if (!res.NeedsLogin)
+            {
+                ViaStewardshipStore.Default.AppendEvent(
+                    "PAGE_NURTURE_FAIL",
+                    via.ViaId,
+                    via.Label,
+                    via.ClientGroup,
+                    $"{(isShare ? "Chia sẻ" : "Đăng bài")} chưa xong Page '{page.Name}': {res.Detail}");
             }
             return res;
         }

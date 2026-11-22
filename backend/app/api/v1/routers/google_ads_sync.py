@@ -896,6 +896,41 @@ def ingest_google_ads_script_report(
 
         synced_ids.append(str(account.id))
 
+    with contextlib.suppress(Exception):
+        from app.services.early_risk_detector import evaluate_and_reconcile_early_risks
+        from app.services.telegram_bot_helper import get_workspace_telegram_record
+
+        tg_cfg = get_workspace_telegram_record(session, ws.id)
+        early_res = evaluate_and_reconcile_early_risks(session, ws.id, reconcile_alerts=True)
+        if tg_cfg.get("notify_spend_spike", True):
+            synced_set = set(synced_ids)
+            since_24h = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            sent_rows = {
+                str(r)
+                for r in session.execute(
+                    sa.select(AuditLog.entity_id).where(
+                        AuditLog.workspace_id == ws.id,
+                        AuditLog.entity_type == "telegram_ops_alert",
+                        AuditLog.action == "telegram_ops_alert.sent",
+                        AuditLog.created_at >= since_24h,
+                    )
+                )
+                .scalars()
+                .all()
+            }
+            for item in early_res.get("items", []):
+                if item.get("kind") == "daily_spend_spike" and item.get("ad_account_id") in synced_set:
+                    dk = f"early_spike:{item['ad_account_id']}:{item.get('latest_day') or now.strftime('%Y-%m-%d')}"
+                    if dk not in sent_rows:
+                        alerts_triggered += 1
+                        telegram_bullets.append(f"• {item['title']}: {item['summary']}")
+                        audit.record(
+                            action="telegram_ops_alert.sent",
+                            entity_type="telegram_ops_alert",
+                            entity_id=dk,
+                            metadata={"critical": item.get("severity") == "critical"},
+                        )
+
     session.commit()
     telegram_sent = _send_gads_telegram_if_configured(session, ws.id, telegram_bullets)
     return {

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -669,6 +670,8 @@ public sealed class WebSettingsDto
     public bool NotifyBillingFailed { get; set; } = true;
     public bool NotifyPageRestricted { get; set; } = true;
     public bool NotifyRetainerOverspend { get; set; } = true;
+    public bool NotifyThreshold80 { get; set; } = true;
+    public bool NotifySpendSpike { get; set; } = true;
     public bool QuietHoursRespect { get; set; }
     public string TelegramStatusMessage { get; set; } = "";
     public bool TelegramStatusOk { get; set; }
@@ -780,7 +783,359 @@ public sealed class AppShellWebStateDto
 
     // Live Runner Step-by-Step Telemetry
     public WebLiveRunnerStatusDto LiveRunner { get; set; } = new();
+
+    // v4.2.0 Operational 7d Telemetry, Proxy Cluster Health & Early Financial Risks
+    public WebOperationalTelemetryDto OperationalTelemetry { get; set; } = new();
 }
+
+public sealed class WebProxyClusterHealthDto
+{
+    public string ProxyKey { get; set; } = "";
+    public bool IsDirectIp { get; set; }
+    public int ViaCount { get; set; }
+    public int LiveCount { get; set; }
+    public int DeadCount { get; set; }
+    public int IncidentCount7d { get; set; }
+    public string Status { get; set; } = "HEALTHY";
+    public string SampleViaLabels { get; set; } = "";
+}
+
+public sealed class WebEarlyAccountRiskDto
+{
+    public string AdAccountId { get; set; } = "";
+    public string DisplayName { get; set; } = "";
+    public string ExternalAccountId { get; set; } = "";
+    public string Platform { get; set; } = "meta";
+    public string Kind { get; set; } = "billing_threshold_80";
+    public string Severity { get; set; } = "warning";
+    public double RatioPct { get; set; }
+    public string CurrentText { get; set; } = "";
+    public string ReferenceText { get; set; } = "";
+    public string Currency { get; set; } = "VND";
+    public string PaymentCard { get; set; } = "";
+    public string Summary { get; set; } = "";
+}
+
+public sealed class WebOperationalTelemetryDto
+{
+    public int KeepAliveOk7d { get; set; }
+    public int KeepAliveFail7d { get; set; }
+    public double KeepAliveRatePct { get; set; } = -1;
+    public int PageNurtureOk7d { get; set; }
+    public int PageNurtureFallback7d { get; set; }
+    public int PageNurtureFail7d { get; set; }
+    public double PageNurtureRatePct { get; set; } = -1;
+    public int TotalHealthyProxies { get; set; }
+    public int TotalProblemProxies { get; set; }
+    public int ThresholdWarningsCount { get; set; }
+    public int SpendSpikesCount { get; set; }
+    public List<WebProxyClusterHealthDto> ProxyClusters { get; set; } = new();
+    public List<WebEarlyAccountRiskDto> EarlyAccountRisks { get; set; } = new();
+}
+
+public static class OperationalTelemetryCalculator
+{
+    private static bool TryParseDecimal(string? raw, out decimal value)
+    {
+        value = 0m;
+        if (string.IsNullOrWhiteSpace(raw)) return false;
+        var clean = raw.Trim().Replace(",", "");
+        return decimal.TryParse(clean, NumberStyles.Any, CultureInfo.InvariantCulture, out value);
+    }
+
+    private static string FormatMoney(decimal amount, string currency)
+    {
+        var cur = (currency ?? "VND").Trim().ToUpperInvariant();
+        if (cur == "VND") return $"{Math.Round(amount):N0} ₫";
+        return $"{amount:N2} {cur}";
+    }
+
+    public static WebOperationalTelemetryDto Compute(
+        IReadOnlyList<WebViaItemDto> vias,
+        IReadOnlyList<StewardshipSafetyEventDto> localEvents,
+        IReadOnlyList<ViaActivityLogDto> cloudLogs,
+        IReadOnlyList<AdAccountItemDto> adAccounts,
+        DateTimeOffset? nowUtc = null)
+    {
+        var now = nowUtc ?? DateTimeOffset.UtcNow;
+        var cutoff = now.AddDays(-7);
+
+        int kaOk = 0;
+        int kaFail = 0;
+        int pnOk = 0;
+        int pnFallback = 0;
+        int pnFail = 0;
+
+        var incidentsByViaKey = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var deadProxyEvents7d = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void BumpViaIncident(string? viaId, string? viaLabel)
+        {
+            if (!string.IsNullOrWhiteSpace(viaId))
+            {
+                var k = viaId.Trim();
+                incidentsByViaKey[k] = incidentsByViaKey.TryGetValue(k, out var cur) ? cur + 1 : 1;
+            }
+            if (!string.IsNullOrWhiteSpace(viaLabel))
+            {
+                var k = viaLabel.Trim();
+                incidentsByViaKey[k] = incidentsByViaKey.TryGetValue(k, out var cur) ? cur + 1 : 1;
+            }
+        }
+
+        foreach (var ev in localEvents)
+        {
+            if (DateTimeOffset.TryParse(ev.TimestampUtc, out var ts) && ts < cutoff) continue;
+            var et = (ev.EventType ?? "").Trim().ToUpperInvariant();
+            switch (et)
+            {
+                case "KEEPALIVE_OK":
+                    kaOk++;
+                    break;
+                case "COOLDOWN_IP_LEAK":
+                case "COOLDOWN_CHECKPOINT":
+                case "IP_LEAK_BLOCKED":
+                case "SAFETY_CHALLENGE":
+                case "COOKIE_LOGGED_OUT":
+                case "BROWSER_HANG_REAPED":
+                    kaFail++;
+                    BumpViaIncident(ev.ViaId, ev.ViaLabel);
+                    break;
+                case "PAGE_NURTURE_OK":
+                    pnOk++;
+                    break;
+                case "PAGE_NURTURE_FALLBACK_OK":
+                    pnOk++;
+                    pnFallback++;
+                    break;
+                case "PAGE_NURTURE_FAIL":
+                case "PAGE_NURTURE_NO_COOKIE":
+                    pnFail++;
+                    BumpViaIncident(ev.ViaId, ev.ViaLabel);
+                    break;
+                case "PROXY_CHECK_DEAD":
+                    if (!string.IsNullOrWhiteSpace(ev.ViaLabel))
+                        deadProxyEvents7d.Add(ev.ViaLabel.Trim());
+                    break;
+            }
+        }
+
+        // Supplement with Cloud logs if local event log has few/no cloud entries
+        foreach (var cl in cloudLogs)
+        {
+            if (DateTimeOffset.TryParse(cl.CreatedAt, out var cts) && cts < cutoff) continue;
+            var act = (cl.Action ?? "").Trim().ToLowerInvariant();
+            if (act == "page.via_keepalive" && kaOk == 0) kaOk++;
+            else if (act == "page.warmup_posted" && pnOk == 0) pnOk++;
+            else if (act == "page.via_alert")
+            {
+                if (localEvents.All(e => !e.EventType.Equals("COOLDOWN_IP_LEAK", StringComparison.OrdinalIgnoreCase) && !e.EventType.Equals("COOLDOWN_CHECKPOINT", StringComparison.OrdinalIgnoreCase)))
+                {
+                    kaFail++;
+                    BumpViaIncident(cl.ViaId, cl.ViaLabel);
+                }
+            }
+        }
+
+        var kaTotal = kaOk + kaFail;
+        var pnTotal = pnOk + pnFail;
+        double kaRate = kaTotal > 0 ? Math.Round((kaOk * 100.0) / kaTotal, 1) : -1;
+        double pnRate = pnTotal > 0 ? Math.Round((pnOk * 100.0) / pnTotal, 1) : -1;
+
+        var clusterDict = new Dictionary<string, (bool isDirect, int viaCnt, int liveCnt, int deadCnt, int inc7d, List<string> labels)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var v in vias)
+        {
+            var rawHp = string.IsNullOrWhiteSpace(v.ProxyHostPort) ? "Direct IP (Mạng gốc)" : v.ProxyHostPort.Trim();
+            var isDirect = string.IsNullOrWhiteSpace(v.ProxyHostPort);
+            if (!clusterDict.TryGetValue(rawHp, out var b))
+            {
+                b = (isDirect, 0, 0, 0, 0, new List<string>());
+            }
+            b.viaCnt++;
+            if (string.Equals(v.ProxyStatus, "LIVE", StringComparison.OrdinalIgnoreCase)) b.liveCnt++;
+            else if (string.Equals(v.ProxyStatus, "DEAD", StringComparison.OrdinalIgnoreCase)) b.deadCnt++;
+
+            int inc = 0;
+            if (!string.IsNullOrWhiteSpace(v.ViaId) && incidentsByViaKey.TryGetValue(v.ViaId.Trim(), out var c1)) inc += c1;
+            else if (!string.IsNullOrWhiteSpace(v.Label) && incidentsByViaKey.TryGetValue(v.Label.Trim(), out var c2)) inc += c2;
+            b.inc7d += inc;
+
+            if (b.labels.Count < 4 && !string.IsNullOrWhiteSpace(v.Label)) b.labels.Add(v.Label);
+            clusterDict[rawHp] = b;
+        }
+
+        var clusters = new List<WebProxyClusterHealthDto>();
+        int healthyProxies = 0;
+        int problemProxies = 0;
+        foreach (var kv in clusterDict)
+        {
+            var b = kv.Value;
+            var status = (b.deadCnt > 0 || deadProxyEvents7d.Contains(kv.Key))
+                ? "DEAD"
+                : b.inc7d > 0
+                ? "INCIDENT"
+                : ((b.isDirect && b.viaCnt > 3) || (!b.isDirect && b.viaCnt > 4))
+                ? "CROWDED"
+                : "HEALTHY";
+
+            if (status == "HEALTHY") healthyProxies++;
+            else problemProxies++;
+
+            clusters.Add(new WebProxyClusterHealthDto
+            {
+                ProxyKey = kv.Key,
+                IsDirectIp = b.isDirect,
+                ViaCount = b.viaCnt,
+                LiveCount = b.liveCnt,
+                DeadCount = b.deadCnt,
+                IncidentCount7d = b.inc7d,
+                Status = status,
+                SampleViaLabels = string.Join(", ", b.labels),
+            });
+        }
+
+        static int RankCluster(string s) => s switch { "DEAD" => 0, "INCIDENT" => 1, "CROWDED" => 2, _ => 3 };
+        clusters = clusters
+            .OrderBy(c => RankCluster(c.Status))
+            .ThenByDescending(c => c.DeadCount + c.IncidentCount7d)
+            .ThenByDescending(c => c.ViaCount)
+            .ToList();
+
+        var risks = new List<WebEarlyAccountRiskDto>();
+        foreach (var acc in adAccounts)
+        {
+            var extId = (acc.ExternalAccountId ?? "").Trim();
+            var isGoogle = extId.StartsWith("gads_", StringComparison.OrdinalIgnoreCase);
+            var plat = isGoogle ? "google_ads" : "meta";
+            var cur = string.IsNullOrWhiteSpace(acc.Currency) ? "VND" : acc.Currency.Trim().ToUpperInvariant();
+            var noiseFloor = cur == "VND" ? 50000m : 5m;
+            var card = acc.BillingMeta?.PaymentCardDisplay ?? "";
+
+            var balText = AdAccountBillingMetaDto.AsOptionalString(acc.BillingMeta?.BalanceRaw) ?? acc.SpendPeriods?.BalanceText;
+            var threshText = AdAccountBillingMetaDto.AsOptionalString(acc.BillingMeta?.BillingThresholdRaw);
+            if (TryParseDecimal(balText, out var bal) && TryParseDecimal(threshText, out var thresh) && thresh > 0m && bal > 0m)
+            {
+                var pct = Math.Round((double)(bal / thresh * 100m), 1);
+                if (pct >= 80.0)
+                {
+                    risks.Add(new WebEarlyAccountRiskDto
+                    {
+                        AdAccountId = acc.Id,
+                        DisplayName = acc.DisplayName,
+                        ExternalAccountId = extId,
+                        Platform = plat,
+                        Kind = "billing_threshold_80",
+                        Severity = pct >= 95.0 ? "critical" : "warning",
+                        RatioPct = pct,
+                        CurrentText = FormatMoney(bal, cur),
+                        ReferenceText = FormatMoney(thresh, cur),
+                        Currency = cur,
+                        PaymentCard = card,
+                        Summary = $"Dư nợ đạt {pct:0.0}% ngưỡng thanh toán ({FormatMoney(bal, cur)} / {FormatMoney(thresh, cur)}).",
+                    });
+                }
+            }
+
+            if (!isGoogle && TryParseDecimal(acc.SpendPeriods?.AmountSpentText, out var spent) && TryParseDecimal(acc.SpendPeriods?.SpendCapText, out var cap) && cap > 0m && spent > 0m)
+            {
+                var pct = Math.Round((double)(spent / cap * 100m), 1);
+                if (pct >= 85.0)
+                {
+                    risks.Add(new WebEarlyAccountRiskDto
+                    {
+                        AdAccountId = acc.Id,
+                        DisplayName = acc.DisplayName,
+                        ExternalAccountId = extId,
+                        Platform = plat,
+                        Kind = "spend_cap_85",
+                        Severity = pct >= 97.0 ? "critical" : "warning",
+                        RatioPct = pct,
+                        CurrentText = FormatMoney(spent, cur),
+                        ReferenceText = FormatMoney(cap, cur),
+                        Currency = cur,
+                        PaymentCard = card,
+                        Summary = $"Chi tiêu đạt {pct:0.0}% Spend Cap ({FormatMoney(spent, cur)} / {FormatMoney(cap, cur)}).",
+                    });
+                }
+            }
+
+            if (TryParseDecimal(acc.SpendPeriods?.TodayText, out var todayAmt) && todayAmt > 0m)
+            {
+                var dailyLimText = AdAccountBillingMetaDto.AsOptionalString(acc.BillingMeta?.MetaDailyLimitRaw);
+                bool spiked = false;
+                if (TryParseDecimal(dailyLimText, out var dailyLim) && dailyLim > 0m && todayAmt >= dailyLim * 1.25m && (todayAmt - dailyLim) >= noiseFloor)
+                {
+                    var pct = Math.Round((double)(todayAmt / dailyLim * 100m), 1);
+                    risks.Add(new WebEarlyAccountRiskDto
+                    {
+                        AdAccountId = acc.Id,
+                        DisplayName = acc.DisplayName,
+                        ExternalAccountId = extId,
+                        Platform = plat,
+                        Kind = "daily_spend_spike",
+                        Severity = pct >= 180.0 ? "critical" : "warning",
+                        RatioPct = pct,
+                        CurrentText = FormatMoney(todayAmt, cur),
+                        ReferenceText = FormatMoney(dailyLim, cur),
+                        Currency = cur,
+                        PaymentCard = card,
+                        Summary = $"Chi tiêu hôm nay ({FormatMoney(todayAmt, cur)}) vượt {pct:0}% giới hạn ngày ({FormatMoney(dailyLim, cur)}).",
+                    });
+                    spiked = true;
+                }
+
+                if (!spiked && TryParseDecimal(acc.SpendPeriods?.Last7dText, out var last7dAmt) && last7dAmt > 0m)
+                {
+                    var priorTotal = Math.Max(0m, last7dAmt - todayAmt);
+                    var avgPrior = priorTotal / 6m;
+                    if (avgPrior > 0m && todayAmt >= avgPrior * 1.8m && (todayAmt - avgPrior) >= noiseFloor)
+                    {
+                        var mult = todayAmt / avgPrior;
+                        var pct = Math.Round((double)(mult * 100m), 1);
+                        risks.Add(new WebEarlyAccountRiskDto
+                        {
+                            AdAccountId = acc.Id,
+                            DisplayName = acc.DisplayName,
+                            ExternalAccountId = extId,
+                            Platform = plat,
+                            Kind = "daily_spend_spike",
+                            Severity = mult >= 2.5m ? "critical" : "warning",
+                            RatioPct = pct,
+                            CurrentText = FormatMoney(todayAmt, cur),
+                            ReferenceText = FormatMoney(avgPrior, cur),
+                            Currency = cur,
+                            PaymentCard = card,
+                            Summary = $"Chi tiêu hôm nay đạt {FormatMoney(todayAmt, cur)} — gấp {mult:0.0}x TB ngày ({FormatMoney(avgPrior, cur)}).",
+                        });
+                    }
+                }
+            }
+        }
+
+        risks = risks
+            .OrderBy(r => r.Severity == "critical" ? 0 : 1)
+            .ThenByDescending(r => r.RatioPct)
+            .ToList();
+
+        return new WebOperationalTelemetryDto
+        {
+            KeepAliveOk7d = kaOk,
+            KeepAliveFail7d = kaFail,
+            KeepAliveRatePct = kaRate,
+            PageNurtureOk7d = pnOk,
+            PageNurtureFallback7d = pnFallback,
+            PageNurtureFail7d = pnFail,
+            PageNurtureRatePct = pnRate,
+            TotalHealthyProxies = healthyProxies,
+            TotalProblemProxies = problemProxies,
+            ThresholdWarningsCount = risks.Count(r => r.Kind is "billing_threshold_80" or "spend_cap_85"),
+            SpendSpikesCount = risks.Count(r => r.Kind == "daily_spend_spike"),
+            ProxyClusters = clusters,
+            EarlyAccountRisks = risks,
+        };
+    }
+}
+
 
 public sealed class WebLiveRunnerStepDto
 {

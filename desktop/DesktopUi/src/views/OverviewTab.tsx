@@ -8,6 +8,7 @@ import {
   Chrome,
   Coffee,
   Cpu,
+  CreditCard,
   ExternalLink,
   FlaskConical,
   Gauge,
@@ -23,6 +24,7 @@ import {
   Sparkles,
   Terminal,
   Trash2,
+  TrendingUp,
   UserPlus,
   Users,
   Wrench,
@@ -473,6 +475,221 @@ export function OverviewTab({ state }: { state: AppShellWebStateDto }) {
           </div>
         </CardContent>
       </Card>
+
+      {/* v4.2.0 Operational 7d Telemetry, Proxy Cluster Health & Early Threshold/Spike Monitor */}
+      {(() => {
+        const ot = state.operationalTelemetry
+        const scopedRisks = (ot?.earlyAccountRisks ?? []).filter((r) =>
+          platformScope === 'all' ? true : r.platform === platformScope,
+        )
+        const threshCnt = scopedRisks.filter(
+          (r) => r.kind === 'billing_threshold_80' || r.kind === 'spend_cap_85',
+        ).length
+        const spikeCnt = scopedRisks.filter((r) => r.kind === 'daily_spend_spike').length
+        const clusters = ot?.proxyClusters ?? []
+
+        return (
+          <Card>
+            <CardHeader className="pb-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <CardTitle className="flex items-center gap-1.5 text-sm font-semibold">
+                    <Activity className="h-4 w-4 text-primary" />
+                    Đo lường Vận hành 7 Ngày, Cụm Proxy &amp; Cảnh báo Sớm Thẻ (≥80%)
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Theo dõi tỷ lệ Đảo Ấm / Nuôi Page thành công, cụm Proxy rủi ro và cảnh báo TKQC chạm ngưỡng / vọt chi tiêu
+                  </CardDescription>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="h-7 px-2.5 text-xs"
+                    onClick={() => sendDesktopCommand('batch_proxy_check')}
+                  >
+                    <Globe className="h-3.5 w-3.5" /> Quét Proxy hàng loạt
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="h-7 px-2.5 text-xs"
+                    onClick={() => sendDesktopCommand('open_ad_accounts', { search: '', filter: 'all' })}
+                  >
+                    <CreditCard className="h-3.5 w-3.5" /> Kiểm tra TKQC
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-lg border border-border bg-background/60 p-3 space-y-1">
+                  <div className="text-[11px] font-medium text-muted-foreground">Đảo Ấm Keep-Alive (7N)</div>
+                  <div className="font-mono text-lg font-bold tabular-nums text-foreground">
+                    {ot && ot.keepAliveRatePct >= 0 ? `${ot.keepAliveRatePct.toFixed(1)}%` : 'Chưa có phiên 7N'}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground tabular-nums">
+                    {ot ? `${ot.keepAliveOk7d} đạt · ${ot.keepAliveFail7d} sự cố` : '0 đạt · 0 sự cố'}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-border bg-background/60 p-3 space-y-1">
+                  <div className="text-[11px] font-medium text-muted-foreground">Nuôi Page Tự động (7N)</div>
+                  <div className="font-mono text-lg font-bold tabular-nums text-foreground">
+                    {ot && ot.pageNurtureRatePct >= 0 ? `${ot.pageNurtureRatePct.toFixed(1)}%` : 'Chưa có phiên 7N'}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground tabular-nums">
+                    {ot
+                      ? `${ot.pageNurtureOk7d} xong (${ot.pageNurtureFallback7d} fallback) · ${ot.pageNurtureFail7d} lỗi`
+                      : '0 xong · 0 lỗi'}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-border bg-background/60 p-3 space-y-1">
+                  <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
+                    <span>Cụm Proxy (Sức khỏe)</span>
+                    <Globe className="h-3.5 w-3.5 text-emerald-500" />
+                  </div>
+                  <div className="font-mono text-lg font-bold tabular-nums text-foreground">
+                    {ot ? `${ot.totalHealthyProxies}/${ot.totalHealthyProxies + ot.totalProblemProxies}` : '0/0'} ổn định
+                  </div>
+                  <div className="text-[11px] text-muted-foreground tabular-nums">
+                    {ot ? `${ot.totalProblemProxies} cụm cần lưu ý (Dead / Đông Via / Sự cố)` : 'Chưa gán Proxy'}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-border bg-background/60 p-3 space-y-1">
+                  <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
+                    <span>Ngưỡng Thẻ ≥80% &amp; Spike</span>
+                    <TrendingUp className="h-3.5 w-3.5 text-amber-500" />
+                  </div>
+                  <div className="font-mono text-lg font-bold tabular-nums text-foreground">
+                    {threshCnt + spikeCnt} cảnh báo sớm
+                  </div>
+                  <div className="text-[11px] text-muted-foreground tabular-nums">
+                    {threshCnt} chạm ngưỡng · {spikeCnt} vọt chi tiêu
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                <div className="rounded-lg border border-border bg-background/50 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-foreground">
+                      TKQC Chạm Ngưỡng Thẻ (≥80%) &amp; Tăng Chi Tiêu Đột Biến
+                    </span>
+                    <Badge variant={scopedRisks.length > 0 ? 'warning' : 'success'}>
+                      {scopedRisks.length > 0 ? `${scopedRisks.length} TKQC` : 'An toàn'}
+                    </Badge>
+                  </div>
+                  {scopedRisks.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      Chưa ghi nhận TKQC nào chạm ≥80% ngưỡng thanh toán hoặc vọt chi tiêu hôm nay.
+                    </p>
+                  ) : (
+                    <div className="space-y-2 max-h-[190px] overflow-y-auto pr-1">
+                      {scopedRisks.slice(0, 6).map((risk) => (
+                        <div
+                          key={`${risk.adAccountId}-${risk.kind}`}
+                          className="rounded-md border border-border bg-card px-2.5 py-2 space-y-1"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-1.5">
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              <Badge variant={risk.platform === 'google_ads' ? 'info' : 'secondary'} className="text-[10px]">
+                                {risk.platform === 'google_ads' ? 'Google' : 'Meta'}
+                              </Badge>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  sendDesktopCommand('open_ad_accounts', {
+                                    search: risk.displayName,
+                                    filter: 'all',
+                                  })
+                                }
+                                className="truncate text-xs font-semibold text-primary hover:underline"
+                              >
+                                {risk.displayName}
+                              </button>
+                            </div>
+                            <Badge variant={risk.severity === 'critical' ? 'destructive' : 'warning'} className="font-mono text-[10px] tabular-nums">
+                              {risk.ratioPct.toFixed(0)}%
+                            </Badge>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground">{risk.summary}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-lg border border-border bg-background/50 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-foreground">
+                      Xếp hạng Sức khỏe Cụm Proxy &amp; Mật độ Via
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-[11px]"
+                      onClick={() => sendDesktopCommand('switch_view', { view: 'vias' })}
+                    >
+                      Mở Bảng Via →
+                    </Button>
+                  </div>
+                  {clusters.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">Chưa có hồ sơ Via để thống kê cụm Proxy.</p>
+                  ) : (
+                    <div className="space-y-1.5 max-h-[190px] overflow-y-auto pr-1">
+                      {clusters.slice(0, 6).map((c) => {
+                        const variant =
+                          c.status === 'DEAD'
+                            ? 'destructive'
+                            : c.status === 'INCIDENT' || c.status === 'CROWDED'
+                            ? 'warning'
+                            : 'success'
+                        const label =
+                          c.status === 'DEAD'
+                            ? 'DEAD'
+                            : c.status === 'INCIDENT'
+                            ? 'Sự cố 7N'
+                            : c.status === 'CROWDED'
+                            ? 'Đông Via'
+                            : 'Ổn định'
+                        return (
+                          <div
+                            key={c.proxyKey}
+                            className="flex items-center justify-between gap-2 rounded-md border border-border bg-card px-2.5 py-1.5"
+                          >
+                            <div className="min-w-0">
+                              <div className="truncate font-mono text-xs font-semibold text-foreground">
+                                {c.proxyKey}
+                              </div>
+                              <div className="truncate text-[10px] text-muted-foreground">{c.sampleViaLabels}</div>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              <Badge variant="secondary" className="font-mono text-[10px] tabular-nums">
+                                {c.viaCount} Via
+                              </Badge>
+                              {c.incidentCount7d > 0 && (
+                                <Badge variant="destructive" className="font-mono text-[10px] tabular-nums">
+                                  {c.incidentCount7d} lỗi
+                                </Badge>
+                              )}
+                              <Badge variant={variant} className="text-[10px]">
+                                {label}
+                              </Badge>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )
+      })()}
 
       {/* Alerts / Scoped Vias + Page Invite / Runtime Logs */}
       <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-12">

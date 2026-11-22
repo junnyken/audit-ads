@@ -74,6 +74,8 @@ export function SettingsTab({ state }: { state: AppShellWebStateDto }) {
   const [notifyBilling, setNotifyBilling] = useState(s.notifyBillingFailed)
   const [notifyPage, setNotifyPage] = useState(s.notifyPageRestricted)
   const [notifyRetainer, setNotifyRetainer] = useState(s.notifyRetainerOverspend)
+  const [notifyThreshold80, setNotifyThreshold80] = useState(s.notifyThreshold80 ?? true)
+  const [notifySpendSpike, setNotifySpendSpike] = useState(s.notifySpendSpike ?? true)
   const [quietHours, setQuietHours] = useState(s.quietHoursRespect)
 
   useEffect(() => {
@@ -97,6 +99,8 @@ export function SettingsTab({ state }: { state: AppShellWebStateDto }) {
     setNotifyBilling(s.notifyBillingFailed)
     setNotifyPage(s.notifyPageRestricted)
     setNotifyRetainer(s.notifyRetainerOverspend)
+    setNotifyThreshold80(s.notifyThreshold80 ?? true)
+    setNotifySpendSpike(s.notifySpendSpike ?? true)
     setQuietHours(s.quietHoursRespect)
   }, [state.configRev])
 
@@ -822,6 +826,14 @@ export function SettingsTab({ state }: { state: AppShellWebStateDto }) {
                 <span>Cảnh báo Vượt ngân sách</span>
                 <Switch checked={notifyRetainer} onCheckedChange={setNotifyRetainer} />
               </label>
+              <label className="flex items-center justify-between rounded-lg border border-border bg-background/50 px-2.5 py-1.5 text-xs">
+                <span>Chạm ≥ 80% Ngưỡng thẻ / Spend Cap</span>
+                <Switch checked={notifyThreshold80} onCheckedChange={setNotifyThreshold80} />
+              </label>
+              <label className="flex items-center justify-between rounded-lg border border-border bg-background/50 px-2.5 py-1.5 text-xs">
+                <span>Chi tiêu ngày tăng đột biến (Meta/GG)</span>
+                <Switch checked={notifySpendSpike} onCheckedChange={setNotifySpendSpike} />
+              </label>
             </div>
 
             {s.telegramStatusMessage && (
@@ -855,6 +867,8 @@ export function SettingsTab({ state }: { state: AppShellWebStateDto }) {
                     notifyBillingFailed: notifyBilling,
                     notifyPageRestricted: notifyPage,
                     notifyRetainerOverspend: notifyRetainer,
+                    notifyThreshold80,
+                    notifySpendSpike,
                     quietHoursRespect: quietHours,
                   })
                 }

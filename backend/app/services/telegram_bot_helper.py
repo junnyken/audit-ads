@@ -121,6 +121,8 @@ def get_workspace_telegram_record(session: Session, workspace_id: uuid.UUID) -> 
         "notify_billing_failed": bool(meta.get("notify_billing_failed", True)),
         "notify_page_restricted": bool(meta.get("notify_page_restricted", True)),
         "notify_retainer_overspend": bool(meta.get("notify_retainer_overspend", True)),
+        "notify_threshold_80": bool(meta.get("notify_threshold_80", True)),
+        "notify_spend_spike": bool(meta.get("notify_spend_spike", True)),
         "quiet_hours_respect": bool(meta.get("quiet_hours_respect", True)),
         "quiet_hours_start": (policy.quiet_hours_start.strftime("%H:%M") if policy and policy.quiet_hours_start else "23:00"),
         "quiet_hours_end": (policy.quiet_hours_end.strftime("%H:%M") if policy and policy.quiet_hours_end else "07:00"),
@@ -148,6 +150,8 @@ def serialize_workspace_telegram_config(
         "notify_billing_failed": rec["notify_billing_failed"],
         "notify_page_restricted": rec["notify_page_restricted"],
         "notify_retainer_overspend": rec["notify_retainer_overspend"],
+        "notify_threshold_80": rec["notify_threshold_80"],
+        "notify_spend_spike": rec["notify_spend_spike"],
         "quiet_hours_respect": rec["quiet_hours_respect"],
         "quiet_hours_enabled": rec["quiet_hours_enabled"],
         "quiet_hours_start": rec["quiet_hours_start"],
@@ -208,6 +212,8 @@ def save_workspace_telegram_config(
     notify_billing_failed: bool | None = None,
     notify_page_restricted: bool | None = None,
     notify_retainer_overspend: bool | None = None,
+    notify_threshold_80: bool | None = None,
+    notify_spend_spike: bool | None = None,
     quiet_hours_respect: bool | None = None,
     bot_username: str | None = None,
     bot_name: str | None = None,
@@ -261,6 +267,16 @@ def save_workspace_telegram_config(
             cur["notify_retainer_overspend"]
             if notify_retainer_overspend is None
             else bool(notify_retainer_overspend)
+        ),
+        "notify_threshold_80": (
+            cur["notify_threshold_80"]
+            if notify_threshold_80 is None
+            else bool(notify_threshold_80)
+        ),
+        "notify_spend_spike": (
+            cur["notify_spend_spike"]
+            if notify_spend_spike is None
+            else bool(notify_spend_spike)
         ),
         "quiet_hours_respect": (
             cur["quiet_hours_respect"]
@@ -534,6 +550,42 @@ def dispatch_operational_telegram_alerts(
                 findings.append((dk, True, f"• Cảnh báo Via {vlog.get('via_label')}: {detail_msg}"))
     except Exception:
         logger.exception("telegram_via_keepalive_scan_failed")
+
+    if cfg.get("notify_threshold_80", True) or cfg.get("notify_spend_spike", True):
+        try:
+            from app.services.early_risk_detector import evaluate_and_reconcile_early_risks
+
+            risk_res = evaluate_and_reconcile_early_risks(session, workspace_id, reconcile_alerts=True)
+            for item in risk_res.get("items", []):
+                kind = str(item.get("kind") or "")
+                acc_id = str(item.get("ad_account_id") or "")
+                is_crit = item.get("severity") == "critical"
+                if kind in ("billing_threshold_80", "spend_cap_85") and cfg.get("notify_threshold_80", True):
+                    dk = f"early_thresh80:{acc_id}:{now.strftime('%Y-%m-%d')}"
+                    if dk not in already_sent:
+                        ratio = float(item.get("ratio_pct") or 0.0)
+                        lbl = "ngưỡng thẻ" if kind == "billing_threshold_80" else "trần chi tiêu"
+                        card_txt = f" ({item['payment_card']})" if item.get("payment_card") else ""
+                        findings.append(
+                            (
+                                dk,
+                                is_crit,
+                                f"• Sắp chạm {lbl} ({ratio:.0f}%): TKQC {item.get('display_name')}{card_txt} ({item.get('current_raw')} / {item.get('reference_raw')} {item.get('currency')})",
+                            )
+                        )
+                elif kind == "daily_spend_spike" and cfg.get("notify_spend_spike", True):
+                    latest_day = str(item.get("latest_day") or now.strftime("%Y-%m-%d"))
+                    dk = f"early_spike:{acc_id}:{latest_day}"
+                    if dk not in already_sent:
+                        findings.append(
+                            (
+                                dk,
+                                is_crit,
+                                f"• Chi tiêu tăng đột biến: TKQC {item.get('display_name')} — {item.get('summary')}",
+                            )
+                        )
+        except Exception:
+            logger.exception("telegram_early_risk_scan_failed")
 
     if not findings:
         return {"sent": 0, "skipped_reason": "no_new_incidents"}

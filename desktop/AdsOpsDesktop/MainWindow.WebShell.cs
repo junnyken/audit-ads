@@ -1013,6 +1013,8 @@ internal sealed partial class MainWindow
                 NotifyBillingFailed = tgCfg.NotifyBillingFailed,
                 NotifyPageRestricted = tgCfg.NotifyPageRestricted,
                 NotifyRetainerOverspend = tgCfg.NotifyRetainerOverspend,
+                NotifyThreshold80 = tgCfg.NotifyThreshold80,
+                NotifySpendSpike = tgCfg.NotifySpendSpike,
                 QuietHoursRespect = tgCfg.QuietHoursRespect,
                 TelegramStatusMessage = _telegramStatusMessage,
                 TelegramStatusOk = _telegramStatusOk,
@@ -1031,6 +1033,11 @@ internal sealed partial class MainWindow
                 IsNewerUpdate = _latestUpdateManifest != null && SelfUpdateService.IsNewerVersion(_latestUpdateManifest.Version, DesktopAppInfo.Version),
             },
             LiveRunner = BuildLiveRunnerStatusDto(),
+            OperationalTelemetry = OperationalTelemetryCalculator.Compute(
+                viaItems,
+                stewSnap.Events,
+                _pagesSummary?.ViaActivityLogs ?? new(),
+                _adAccounts),
         };
     }
 
@@ -3139,6 +3146,8 @@ internal sealed partial class MainWindow
                                 ["notify_billing_failed"] = GetBool(root, "notifyBillingFailed", true),
                                 ["notify_page_restricted"] = GetBool(root, "notifyPageRestricted", true),
                                 ["notify_retainer_overspend"] = GetBool(root, "notifyRetainerOverspend", true),
+                                ["notify_threshold_80"] = GetBool(root, "notifyThreshold80", true),
+                                ["notify_spend_spike"] = GetBool(root, "notifySpendSpike", true),
                                 ["quiet_hours_respect"] = GetBool(root, "quietHoursRespect", false),
                             };
                             var tok = GetStr(root, "botToken").Trim();

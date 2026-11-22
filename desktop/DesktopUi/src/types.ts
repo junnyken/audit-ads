@@ -575,6 +575,8 @@ export interface WebSettingsDto {
   notifyBillingFailed: boolean
   notifyPageRestricted: boolean
   notifyRetainerOverspend: boolean
+  notifyThreshold80?: boolean
+  notifySpendSpike?: boolean
   quietHoursRespect: boolean
   telegramStatusMessage: string
   telegramStatusOk: boolean
@@ -659,6 +661,49 @@ export interface AppShellWebStateDto {
   teamInvitations: WebTeamInvitationDto[]
   settings: WebSettingsDto
   liveRunner?: WebLiveRunnerStatusDto
+  operationalTelemetry?: WebOperationalTelemetryDto
+}
+
+export interface WebProxyClusterHealthDto {
+  proxyKey: string
+  isDirectIp: boolean
+  viaCount: number
+  liveCount: number
+  deadCount: number
+  incidentCount7d: number
+  status: 'DEAD' | 'INCIDENT' | 'CROWDED' | 'HEALTHY' | string
+  sampleViaLabels: string
+}
+
+export interface WebEarlyAccountRiskDto {
+  adAccountId: string
+  displayName: string
+  externalAccountId: string
+  platform: 'meta' | 'google_ads' | string
+  kind: 'billing_threshold_80' | 'spend_cap_85' | 'daily_spend_spike' | string
+  severity: 'warning' | 'critical' | string
+  ratioPct: number
+  currentText: string
+  referenceText: string
+  currency: string
+  paymentCard: string
+  summary: string
+}
+
+export interface WebOperationalTelemetryDto {
+  keepAliveOk7d: number
+  keepAliveFail7d: number
+  keepAliveRatePct: number
+  pageNurtureOk7d: number
+  pageNurtureFallback7d: number
+  pageNurtureFail7d: number
+  pageNurtureRatePct: number
+  totalHealthyProxies: number
+  totalProblemProxies: number
+  thresholdWarningsCount: number
+  spendSpikesCount: number
+  proxyClusters: WebProxyClusterHealthDto[]
+  earlyAccountRisks: WebEarlyAccountRiskDto[]
 }
 
 export interface WebLiveRunnerStepDto {

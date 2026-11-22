@@ -308,6 +308,8 @@ export const PREVIEW_FALLBACK_STATE: AppShellWebStateDto = {
     notifyBillingFailed: true,
     notifyPageRestricted: true,
     notifyRetainerOverspend: true,
+    notifyThreshold80: true,
+    notifySpendSpike: true,
     quietHoursRespect: false,
     telegramStatusMessage: '',
     telegramStatusOk: true,

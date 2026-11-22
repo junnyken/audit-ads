@@ -5209,6 +5209,21 @@ internal sealed partial class MainWindow
             SetBusy(true);
             var res = await _api.CheckProxyBatchAsync();
             ApplyProxyHealthMapToVias(res.HealthMap);
+            var recordedProxies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in res.HealthMap)
+            {
+                var hp = AutomationQueueEngine.ExtractProxyHostPort(kv.Value.NormalizedKey ?? kv.Key);
+                if (string.IsNullOrWhiteSpace(hp) || !recordedProxies.Add(hp)) continue;
+                var isLive = string.Equals(kv.Value.Status, "LIVE", StringComparison.OrdinalIgnoreCase);
+                ViaStewardshipStore.Default.AppendEvent(
+                    isLive ? "PROXY_CHECK_OK" : "PROXY_CHECK_DEAD",
+                    "",
+                    hp,
+                    "",
+                    isLive
+                        ? $"Proxy {hp} phản hồi LIVE ({kv.Value.LatencyMs ?? 0}ms)"
+                        : $"Proxy {hp} DEAD / không kết nối ({kv.Value.ErrorSummary ?? kv.Value.Message ?? "timeout"})");
+            }
             AppendLog($"Kiểm tra Proxy hàng loạt hoàn tất: {res.LiveCount} Live / {res.DeadCount} Dead (Tổng {res.CheckedCount}).");
         }
         catch (Exception ex)

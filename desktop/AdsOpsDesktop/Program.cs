@@ -2091,9 +2091,9 @@ internal static class Program
                 }
             }
 
-            // 35. v4.1.0 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
+            // 35. v4.2.0 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
             {
-                if (DesktopAppInfo.Version != "4.1.0" || DesktopAppInfo.ExtVersion != "2.10.4")
+                if (DesktopAppInfo.Version != "4.2.0" || DesktopAppInfo.ExtVersion != "2.10.4")
                 {
                     throw new InvalidOperationException(
                         $"DesktopAppInfo version mismatch: app={DesktopAppInfo.Version}, ext={DesktopAppInfo.ExtVersion}");
@@ -2143,7 +2143,7 @@ internal static class Program
                 foreach (var reqKey in new[]
                          {
                              "\"type\":\"full_state\"",
-                             "\"appVersion\":\"4.1.0\"",
+                             "\"appVersion\":\"4.2.0\"",
                              "\"extVersion\":\"2.10.4\"",
                              "\"activeView\":\"settings\"",
                              "\"totpMap\"",
@@ -2984,6 +2984,81 @@ internal static class Program
                     !jsContent47.Contains("adsops.desktop.sidebarCollapsed", StringComparison.Ordinal))
                 {
                     throw new InvalidOperationException("WebUi v4.1.0 JS missing Option A shell context keys (themeMode/platformScope/sidebarCollapsed).");
+                }
+            }
+
+            // 48. v4.2.0 Operational 7d Telemetry, Proxy Cluster Health Ranking & Early >=80% Threshold / Spend Spike Detector
+            {
+                var emptyTel = OperationalTelemetryCalculator.Compute(
+                    Array.Empty<WebViaItemDto>(),
+                    Array.Empty<StewardshipSafetyEventDto>(),
+                    Array.Empty<ViaActivityLogDto>(),
+                    Array.Empty<AdAccountItemDto>());
+                if (emptyTel.KeepAliveRatePct != -1 || emptyTel.PageNurtureRatePct != -1 || emptyTel.EarlyAccountRisks.Count != 0)
+                {
+                    throw new InvalidOperationException("OperationalTelemetryCalculator empty state must yield -1 rates and 0 risks.");
+                }
+
+                var testVias = new List<WebViaItemDto>
+                {
+                    new() { ViaId = "v1", Label = "Via Incident", ProxyHostPort = "103.11.22.33:8080", ProxyStatus = "LIVE" },
+                    new() { ViaId = "v2", Label = "Via Dead", ProxyHostPort = "45.77.11.22:9000", ProxyStatus = "DEAD" },
+                    new() { ViaId = "v3", Label = "Via Healthy", ProxyHostPort = "104.22.33.44:7000", ProxyStatus = "LIVE" },
+                };
+                var testEvents = new List<StewardshipSafetyEventDto>
+                {
+                    new() { TimestampUtc = DateTimeOffset.UtcNow.ToString("O"), EventType = "KEEPALIVE_OK", ViaId = "v3", ViaLabel = "Via Healthy" },
+                    new() { TimestampUtc = DateTimeOffset.UtcNow.ToString("O"), EventType = "COOKIE_LOGGED_OUT", ViaId = "v1", ViaLabel = "Via Incident" },
+                    new() { TimestampUtc = DateTimeOffset.UtcNow.ToString("O"), EventType = "PAGE_NURTURE_FALLBACK_OK", ViaId = "v3", ViaLabel = "Via Healthy" },
+                };
+                var testAccounts = new List<AdAccountItemDto>
+                {
+                    new()
+                    {
+                        Id = "a1",
+                        DisplayName = "Meta Threshold 85%",
+                        ExternalAccountId = "act_111",
+                        Currency = "VND",
+                        BillingMeta = new AdAccountBillingMetaDto
+                        {
+                            BalanceRaw = JsonSerializer.SerializeToElement("1700000"),
+                            BillingThresholdRaw = JsonSerializer.SerializeToElement("2000000"),
+                            PaymentCardDisplay = "Visa 4242",
+                        },
+                    },
+                    new()
+                    {
+                        Id = "a2",
+                        DisplayName = "Google Ads Spike",
+                        ExternalAccountId = "gads_9998887777",
+                        Currency = "VND",
+                        BillingMeta = new AdAccountBillingMetaDto
+                        {
+                            MetaDailyLimitRaw = JsonSerializer.SerializeToElement("500000"),
+                        },
+                        SpendPeriods = new AdAccountSpendPeriodsDto
+                        {
+                            AmountSpentRaw = JsonSerializer.SerializeToElement("12000000"),
+                            SpendCapRaw = JsonSerializer.SerializeToElement("500000"),
+                            TodayPartialRaw = JsonSerializer.SerializeToElement("1250000"),
+                            Last7dRaw = JsonSerializer.SerializeToElement("3500000"),
+                        },
+                    },
+                };
+
+                var calc = OperationalTelemetryCalculator.Compute(testVias, testEvents, Array.Empty<ViaActivityLogDto>(), testAccounts);
+                if (calc.KeepAliveRatePct != 50.0 || calc.PageNurtureRatePct != 100.0 || calc.PageNurtureFallback7d != 1)
+                {
+                    throw new InvalidOperationException($"Unexpected telemetry rates: ka={calc.KeepAliveRatePct}, pn={calc.PageNurtureRatePct}, fb={calc.PageNurtureFallback7d}");
+                }
+                if (calc.ProxyClusters.Count != 3 || calc.ProxyClusters[0].Status != "DEAD" || calc.ProxyClusters[1].Status != "INCIDENT" || calc.ProxyClusters[2].Status != "HEALTHY")
+                {
+                    throw new InvalidOperationException("Proxy cluster worst-first health ranking failed.");
+                }
+                if (calc.ThresholdWarningsCount != 1 || calc.SpendSpikesCount != 1 ||
+                    calc.EarlyAccountRisks.Any(r => r.AdAccountId == "a2" && r.Kind == "spend_cap_85"))
+                {
+                    throw new InvalidOperationException("EarlyAccountRisks threshold/spike detection or Google Ads cap exclusion failed.");
                 }
             }
 

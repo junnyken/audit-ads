@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import uuid
 from typing import Any
 
@@ -621,12 +622,7 @@ def sync_billing_from_extension(ctx: WriteCtx, payload: dict[str, Any]) -> dict[
     raw_ext = canonical_external_id(str(payload.get("external_account_id") or ""))
     if not raw_ext:
         return {"status": "ignored", "reason": "missing_external_account_id"}
-    accounts = session.execute(
-        sa.select(AdAccount).where(
-            AdAccount.workspace_id == ctx.workspace_id,
-            AdAccount.archived_at.is_(None),
-        )
-    ).scalars().all() if False else ctx.session.execute(
+    accounts = ctx.session.execute(
         sa.select(AdAccount).where(
             AdAccount.workspace_id == ctx.workspace_id,
             AdAccount.archived_at.is_(None),
@@ -665,5 +661,9 @@ def sync_billing_from_extension(ctx: WriteCtx, payload: dict[str, Any]) -> dict[
             after=clean_meta,
             metadata={"source": "chrome_extension_billing_hub"},
         )
+        with contextlib.suppress(Exception):
+            from app.services.early_risk_detector import evaluate_and_reconcile_early_risks
+
+            evaluate_and_reconcile_early_risks(ctx.session, ctx.workspace_id, reconcile_alerts=True)
         ctx.commit()
     return {"status": "synced", "ad_account_id": str(matched.id), "updated_fields": list(clean_meta.keys())}
