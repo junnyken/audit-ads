@@ -1,13 +1,13 @@
 {
-    "version":  "4.0.0",
+    "version":  "4.0.1",
     "ext_version":  "2.10.3",
     "authenticode_signed":  true,
     "download_url":  "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
     "mirror_urls":  [
                         "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
                     ],
-    "sha256":  "e36633448eabed057f73199039e0e2c298a3ea7560c906122f1c6afef031d593",
-    "size_bytes":  67861707,
-    "published_at":  "2026-11-22T08:38:13.8413580Z",
-    "release_notes":  "AdsOps Desktop Pro v4.0.0 (Zero-Risk Google Ads 2 MCC + 5 Standalone 1:1 Silo Hub, Official Google Ads Script Webhook \u0026 Alerts Sync + Hardened Facebook Companion v2.10.3 with Pre-Page Warmup, Page Nurture Stops \u0026 CDP External Cookie Robot Route)."
+    "sha256":  "f84c091a3754a6a392921894dc6e1cf31009d5074041439ddce15ff65b118049",
+    "size_bytes":  67867446,
+    "published_at":  "2026-11-22T09:19:59.7782047+00:00",
+    "release_notes":  "AdsOps Desktop Pro v4.0.1 (Hardened 24/7 Facebook Nurturing: Offline Scheduler Resilience, Continuous DPAPI Cookie Refresh preserving 2FA, External Cookie Robot Queue Completion, Strict Google Ads Fallback Exclusion, Open-Profile Lock \u0026 Proxy Guards, Temp Variant Cleanup \u0026 Hybrid CDP Page Post/Share Bridge)."
 }

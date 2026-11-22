@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -1064,7 +1065,7 @@ internal sealed partial class MainWindow : Window
                 try { _config.Save(); } catch { }
                 MaybeNotifyReadyEmbryo(matched, nextBakeCnt, 0);
             }
-            if (_config.AutoRefreshCookieAfterKeepAlive)
+            if (_config.AutoRefreshCookieAfterKeepAlive && matched?.IsGoogleAdsAccount != true)
             {
                 var cdpMatch = ChromeSessionTracker.Default.GetSnapshot().FirstOrDefault(s =>
                     s.CdpPort is > 0 &&
@@ -1072,20 +1073,38 @@ internal sealed partial class MainWindow : Window
                      (!string.IsNullOrWhiteSpace(resolvedViaLabel) && string.Equals(s.ViaLabel, resolvedViaLabel, StringComparison.OrdinalIgnoreCase))));
                 if (cdpMatch?.CdpPort is int cdpPortVal && cdpPortVal > 0)
                 {
-                    var curSecret = LocalSecretVaultStore.Default.Find(resolvedViaId, matched?.ProfileDir ?? payload.BrowserProfile, resolvedViaLabel);
-                    if (string.IsNullOrWhiteSpace(curSecret.CookieRaw))
+                    var targetViaId = resolvedViaId ?? cdpMatch.ViaId;
+                    var targetViaLabel = resolvedViaLabel ?? cdpMatch.ViaLabel;
+                    var targetProfileDir = matched?.ProfileDir ?? payload.BrowserProfile ?? cdpMatch.ProfileDir;
+                    var curSecret = LocalSecretVaultStore.Default.Find(targetViaId, targetProfileDir, targetViaLabel);
+                    var harvested = await ChromeCdpController.TryHarvestFacebookCookieHeaderAsync(cdpPortVal, 1800).ConfigureAwait(false);
+                    if (!string.IsNullOrWhiteSpace(harvested))
                     {
-                        var harvested = await ChromeCdpController.TryHarvestFacebookCookieHeaderAsync(cdpPortVal, 1800).ConfigureAwait(false);
-                        if (!string.IsNullOrWhiteSpace(harvested))
+                        bool hasAuthPair = harvested.Contains("c_user=", StringComparison.OrdinalIgnoreCase) &&
+                                           harvested.Contains("xs=", StringComparison.OrdinalIgnoreCase);
+                        bool shouldPersist = string.IsNullOrWhiteSpace(curSecret.CookieRaw) || hasAuthPair;
+                        if (shouldPersist)
                         {
-                            LocalSecretVaultStore.Default.Upsert(
-                                resolvedViaId ?? cdpMatch.ViaId,
-                                resolvedViaLabel ?? cdpMatch.ViaLabel,
-                                matched?.ProfileDir ?? payload.BrowserProfile ?? cdpMatch.ProfileDir,
-                                harvested,
-                                "");
-                            if (matched != null) matched.HasVaultCookie = true;
-                            AppendLog($"🔑 [Auto-Vault CDP] Đã trích xuất & lưu Cookie FB mới cho '{resolvedViaLabel ?? "Via"}' vào Két DPAPI.");
+                            bool changed = !string.Equals(harvested.Trim(), (curSecret.CookieRaw ?? "").Trim(), StringComparison.Ordinal);
+                            if (changed)
+                            {
+                                LocalSecretVaultStore.Default.Upsert(
+                                    targetViaId,
+                                    targetViaLabel,
+                                    targetProfileDir,
+                                    harvested,
+                                    curSecret.TwoFaSecret ?? "");
+                                AppendLog($"🔑 [Auto-Vault CDP] Đã {(string.IsNullOrWhiteSpace(curSecret.CookieRaw) ? "trích xuất & lưu" : "làm mới")} Cookie FB cho '{targetViaLabel ?? "Via"}' vào Két DPAPI.");
+                            }
+                            if (matched != null)
+                            {
+                                _ = Dispatcher.BeginInvoke(() =>
+                                {
+                                    matched.HasVaultCookie = true;
+                                    matched.LastCookieRefreshUtc = DateTimeOffset.UtcNow;
+                                });
+                            }
+                            ViaStewardshipStore.Default.RecordCookieRefresh(targetViaId, targetViaLabel, matched?.ClientGroup);
                         }
                     }
                 }
@@ -1167,6 +1186,7 @@ internal sealed partial class MainWindow : Window
             _liveActionProgressDetail = $"Via: {resolvedViaLabel ?? "Via"} • ☕ {stepDesc} ({waitSec}s)";
             _liveActionProgressAt = DateTimeOffset.UtcNow;
             _ = Dispatcher.BeginInvoke(UpdateLiveQueueWidgets);
+            TryDispatchHybridCdpPageActionFromStep(cleanTitle, stepIdx, matched, resolvedViaId, resolvedViaLabel, payload.BrowserProfile);
             return new BrowserEventResponseDto { Ok = true, EventType = payload.EventType };
         }
         else if (isPendingInvitesCount)
@@ -2185,12 +2205,36 @@ internal sealed partial class MainWindow : Window
                         : 15;
                     _liveActionProgressDetail = (res.Ok ? "✓ " : "⚠️ ") + res.Detail;
                     _liveActionProgressAt = DateTimeOffset.UtcNow;
-                    if (!res.Ok)
+                    if (res.Ok)
+                    {
+                        _queue.MarkItemCompleted(via.ViaId, via.Label);
+                        ViaStewardshipStore.Default.RecordKeepAliveSuccess(
+                            via.ViaId,
+                            via.Label,
+                            via.ClientGroup,
+                            res.Detail);
+                        via.KeepAliveSuccessCount++;
+                        if (!string.IsNullOrWhiteSpace(via.ViaId))
+                        {
+                            _config.ViaPreBakeSessionCounts ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                            _config.ViaLastPreBakeAtUtc ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                            var nextBakeCnt = (_config.ViaPreBakeSessionCounts.TryGetValue(via.ViaId, out var pbc) ? pbc : 0) + 1;
+                            _config.ViaPreBakeSessionCounts[via.ViaId] = nextBakeCnt;
+                            _config.ViaLastPreBakeAtUtc[via.ViaId] = DateTimeOffset.UtcNow.ToString("O");
+                            try { _config.Save(); } catch { }
+                            MaybeNotifyReadyEmbryo(via, nextBakeCnt, res.PersistedCookiesCount);
+                        }
+                    }
+                    else
                     {
                         lock (_keepAliveFailedVias)
                         {
                             if (!string.IsNullOrWhiteSpace(via.ViaId)) _keepAliveFailedVias.Add(via.ViaId.Trim());
                         }
+                    }
+                    if (autoClose)
+                    {
+                        ChromeSessionTracker.Default.MarkKeepAliveClosed(via.ViaId, via.Label, via.ProfileDir);
                     }
                     UpdateLiveQueueWidgets();
                 }
@@ -2903,6 +2947,34 @@ internal sealed partial class MainWindow : Window
             ? string.Join(",", WarmupCarePresets.ParseCookieRobotUrls(_config.CookieRobotUrls).Take(10))
             : "";
 
+        bool hasPagePostStop = fbStops.Any(s => string.Equals(s, "page_auto_post_media", StringComparison.OrdinalIgnoreCase));
+        bool hasPageShareStop = fbStops.Any(s => string.Equals(s, "page_auto_share_curated", StringComparison.OrdinalIgnoreCase));
+        FanpageItemDto? owningPage = null;
+        string composerUrl = "";
+        string shareUrl = "";
+        if (hasPagePostStop || hasPageShareStop)
+        {
+            owningPage = ResolvePrimaryLivePageForVia(v.ViaId);
+            if (hasPagePostStop)
+            {
+                composerUrl = owningPage != null && !string.IsNullOrWhiteSpace(owningPage.ExternalPageId)
+                    ? $"https://business.facebook.com/latest/composer?asset_id={Uri.EscapeDataString(owningPage.ExternalPageId!)}"
+                    : "https://business.facebook.com/latest/composer";
+            }
+            if (hasPageShareStop)
+            {
+                var shareUrls = PageContentNurtureEngine.ParseShareUrls(_config.PageShareSourceUrls);
+                if (shareUrls.Count > 0)
+                {
+                    var pageKey = owningPage != null && !string.IsNullOrWhiteSpace(owningPage.ExternalPageId)
+                        ? owningPage.ExternalPageId!
+                        : (owningPage?.Id ?? v.ViaId);
+                    _config.PageSharedUrlHistory ??= new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+                    shareUrl = PageContentNurtureEngine.PickNextShareUrl(pageKey, shareUrls, _config.PageSharedUrlHistory) ?? shareUrls[0];
+                }
+            }
+        }
+
         string? BuildFbRouteUrl(List<string> stopsToRun)
         {
             if (stopsToRun.Count == 0) return null;
@@ -2917,7 +2989,8 @@ internal sealed partial class MainWindow : Window
                 "browse_marketplace" => "https://www.facebook.com/marketplace/",
                 "browse_groups" => "https://www.facebook.com/groups/feed/",
                 "mbs_like_comments_and_invite" => "https://business.facebook.com/latest/home?adsops_auto_invite_followers=1&adsops_like_comments=1",
-                "page_auto_post_media" => "https://business.facebook.com/latest/composer",
+                "page_auto_post_media" => !string.IsNullOrWhiteSpace(composerUrl) ? composerUrl : "https://business.facebook.com/latest/composer",
+                "page_auto_share_curated" => !string.IsNullOrWhiteSpace(shareUrl) ? shareUrl : "https://www.facebook.com/",
                 _ => "https://www.facebook.com/",
             };
             var sepChar = fbBase.Contains('?') ? "&" : "?";
@@ -2928,6 +3001,8 @@ internal sealed partial class MainWindow : Window
                    "&adsops_ka_route=" + Uri.EscapeDataString(string.Join(",", stopsToRun)) +
                    (!string.IsNullOrEmpty(crossPageUrl) ? "&adsops_cross_page_url=" + Uri.EscapeDataString(crossPageUrl) : "") +
                    (!string.IsNullOrEmpty(cookieUrlsCsv) ? "&adsops_cookie_urls=" + Uri.EscapeDataString(cookieUrlsCsv) : "") +
+                   (!string.IsNullOrEmpty(composerUrl) ? "&adsops_composer_url=" + Uri.EscapeDataString(composerUrl) : "") +
+                   (!string.IsNullOrEmpty(shareUrl) ? "&adsops_share_url=" + Uri.EscapeDataString(shareUrl) : "") +
                    (fastTest ? "&adsops_fast_test=1" : "");
         }
 
@@ -3285,47 +3360,41 @@ internal sealed partial class MainWindow : Window
         }
     }
 
-    internal ViaWorkspaceEntry? ResolveEffectiveViaForPage(FanpageItemDto page)
+    internal static List<ViaWorkspaceEntry> ExcludeGoogleAdsVias(IEnumerable<ViaWorkspaceEntry>? vias)
+        => vias?.Where(v => v != null && !v.IsGoogleAdsAccount).ToList() ?? new List<ViaWorkspaceEntry>();
+
+    internal static ViaWorkspaceEntry? SelectMetaViaForPage(
+        IEnumerable<ViaWorkspaceEntry>? vias,
+        FanpageItemDto? page,
+        string? overrideRaw = null)
     {
-        if (page == null) return _vias.FirstOrDefault();
+        var allVias = vias?.Where(v => v != null).ToList() ?? new List<ViaWorkspaceEntry>();
+        var metaVias = ExcludeGoogleAdsVias(allVias);
+        if (metaVias.Count == 0) return null;
+        if (page == null) return metaVias[0];
 
-        _config.PageHolderViaOverrides ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        string? ovRaw = null;
-        if (!string.IsNullOrWhiteSpace(page.Id) && _config.PageHolderViaOverrides.TryGetValue(page.Id.Trim(), out var v1))
+        if (!string.IsNullOrWhiteSpace(overrideRaw))
         {
-            ovRaw = v1;
-        }
-        else if (!string.IsNullOrWhiteSpace(page.ExternalPageId) && _config.PageHolderViaOverrides.TryGetValue(page.ExternalPageId.Trim(), out var v2))
-        {
-            ovRaw = v2;
-        }
-
-        if (!string.IsNullOrWhiteSpace(ovRaw))
-        {
-            var parts = ovRaw.Split('|');
+            var parts = overrideRaw.Split('|');
             var viaId = parts.Length > 0 ? parts[0].Trim() : "";
             var profDir = parts.Length > 1 ? parts[1].Trim() : "";
             var viaLbl = parts.Length > 2 ? parts[2].Trim() : "";
 
-            var matchedVia = _vias.FirstOrDefault(v =>
+            var matchedVia = metaVias.FirstOrDefault(v =>
                 (!string.IsNullOrEmpty(viaId) && string.Equals(v.ViaId, viaId, StringComparison.OrdinalIgnoreCase)) ||
                 (!string.IsNullOrEmpty(profDir) && string.Equals(v.ProfileDir, profDir, StringComparison.OrdinalIgnoreCase)) ||
                 (!string.IsNullOrEmpty(viaLbl) && string.Equals(v.Label, viaLbl, StringComparison.OrdinalIgnoreCase)));
 
-            if (matchedVia != null)
-            {
-                page.HolderIdentityId = matchedVia.ViaId;
-                page.HolderBrowserProfile = matchedVia.ProfileDir;
-                page.HolderLabel = matchedVia.Label;
-                return matchedVia;
-            }
+            if (matchedVia != null) return matchedVia;
 
-            if (!string.IsNullOrEmpty(profDir))
+            bool pointsToGoogleAds = allVias.Any(v =>
+                v.IsGoogleAdsAccount &&
+                ((!string.IsNullOrEmpty(viaId) && string.Equals(v.ViaId, viaId, StringComparison.OrdinalIgnoreCase)) ||
+                 (!string.IsNullOrEmpty(profDir) && string.Equals(v.ProfileDir, profDir, StringComparison.OrdinalIgnoreCase)) ||
+                 (!string.IsNullOrEmpty(viaLbl) && string.Equals(v.Label, viaLbl, StringComparison.OrdinalIgnoreCase))));
+            if (!pointsToGoogleAds && !string.IsNullOrEmpty(profDir))
             {
                 var dispLbl = !string.IsNullOrEmpty(viaLbl) ? viaLbl : $"Chrome ({profDir})";
-                page.HolderIdentityId = viaId;
-                page.HolderBrowserProfile = profDir;
-                page.HolderLabel = dispLbl;
                 return new ViaWorkspaceEntry
                 {
                     ViaId = string.IsNullOrEmpty(viaId) ? $"profile-{profDir}" : viaId,
@@ -3337,18 +3406,69 @@ internal sealed partial class MainWindow : Window
             }
         }
 
-        var byHolder = _vias.FirstOrDefault(v => !string.IsNullOrWhiteSpace(page.HolderIdentityId) && string.Equals(v.ViaId, page.HolderIdentityId.Trim(), StringComparison.OrdinalIgnoreCase))
-                       ?? _vias.FirstOrDefault(v => !string.IsNullOrWhiteSpace(page.HolderBrowserProfile) && string.Equals(v.ProfileDir, ExtensionProvisioner.ResolveProfileDirectory(page.HolderBrowserProfile, page.HolderLabel), StringComparison.OrdinalIgnoreCase))
-                       ?? _vias.FirstOrDefault(v => !string.IsNullOrWhiteSpace(page.HolderLabel) && string.Equals(v.Label, page.HolderLabel.Trim(), StringComparison.OrdinalIgnoreCase))
-                       ?? _vias.FirstOrDefault();
+        return metaVias.FirstOrDefault(v => !string.IsNullOrWhiteSpace(page.HolderIdentityId) && string.Equals(v.ViaId, page.HolderIdentityId.Trim(), StringComparison.OrdinalIgnoreCase))
+               ?? metaVias.FirstOrDefault(v => !string.IsNullOrWhiteSpace(page.HolderBrowserProfile) && string.Equals(v.ProfileDir, ExtensionProvisioner.ResolveProfileDirectory(page.HolderBrowserProfile, page.HolderLabel), StringComparison.OrdinalIgnoreCase))
+               ?? metaVias.FirstOrDefault(v => !string.IsNullOrWhiteSpace(page.HolderLabel) && string.Equals(v.Label, page.HolderLabel.Trim(), StringComparison.OrdinalIgnoreCase))
+               ?? metaVias[0];
+    }
 
-        if (byHolder != null)
+    internal static ViaWorkspaceEntry? SelectMetaViaForAdAccount(
+        IEnumerable<ViaWorkspaceEntry>? vias,
+        AdAccountItemDto? account,
+        string? overrideRaw = null)
+    {
+        var metaVias = ExcludeGoogleAdsVias(vias);
+        if (metaVias.Count == 0) return null;
+        if (account == null) return metaVias[0];
+
+        if (!string.IsNullOrWhiteSpace(overrideRaw))
         {
-            page.HolderIdentityId = byHolder.ViaId;
-            page.HolderBrowserProfile = byHolder.ProfileDir;
-            page.HolderLabel = byHolder.Label;
+            var parts = overrideRaw.Split('|');
+            var vid = parts.Length > 0 ? parts[0].Trim() : "";
+            var pdir = parts.Length > 1 ? parts[1].Trim() : "";
+            var matchedOv = metaVias.FirstOrDefault(v =>
+                (!string.IsNullOrEmpty(vid) && string.Equals(v.ViaId, vid, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(pdir) && string.Equals(v.ProfileDir, pdir, StringComparison.OrdinalIgnoreCase)));
+            if (matchedOv != null) return matchedOv;
         }
-        return byHolder;
+
+        foreach (var ident in account.FacebookIdentities)
+        {
+            var m = metaVias.FirstOrDefault(v =>
+                (!string.IsNullOrWhiteSpace(ident.Id) && string.Equals(v.ViaId, ident.Id.Trim(), StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(ident.Label) && string.Equals(v.Label, ident.Label.Trim(), StringComparison.OrdinalIgnoreCase)));
+            if (m != null) return m;
+        }
+        return metaVias[0];
+    }
+
+    internal ViaWorkspaceEntry? ResolveEffectiveViaForPage(FanpageItemDto page)
+    {
+        _config.PageHolderViaOverrides ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        string? ovRaw = null;
+        if (page != null)
+        {
+            if (!string.IsNullOrWhiteSpace(page.Id) && _config.PageHolderViaOverrides.TryGetValue(page.Id.Trim(), out var v1))
+            {
+                ovRaw = v1;
+            }
+            else if (!string.IsNullOrWhiteSpace(page.ExternalPageId) && _config.PageHolderViaOverrides.TryGetValue(page.ExternalPageId.Trim(), out var v2))
+            {
+                ovRaw = v2;
+            }
+        }
+
+        var chosen = SelectMetaViaForPage(_vias, page, ovRaw);
+        if (chosen != null && page != null)
+        {
+            page.HolderIdentityId = chosen.ViaId;
+            page.HolderBrowserProfile = chosen.ProfileDir;
+            if (!string.IsNullOrWhiteSpace(chosen.Label))
+            {
+                page.HolderLabel = chosen.Label;
+            }
+        }
+        return chosen;
     }
 
     internal void AssignViaOrProfileToPage(FanpageItemDto page, string selectionTag)
@@ -3407,27 +3527,13 @@ internal sealed partial class MainWindow : Window
 
     internal ViaWorkspaceEntry? ResolveEffectiveViaForAdAccount(AdAccountItemDto a)
     {
-        if (a == null) return _vias.FirstOrDefault();
         _config.AdAccountViaOverrides ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        if (!string.IsNullOrWhiteSpace(a.Id) && _config.AdAccountViaOverrides.TryGetValue(a.Id.Trim(), out var ov) && !string.IsNullOrWhiteSpace(ov))
+        string? ov = null;
+        if (a != null && !string.IsNullOrWhiteSpace(a.Id) && _config.AdAccountViaOverrides.TryGetValue(a.Id.Trim(), out var mappedOv))
         {
-            var parts = ov.Split('|');
-            var vid = parts.Length > 0 ? parts[0].Trim() : "";
-            var pdir = parts.Length > 1 ? parts[1].Trim() : "";
-            var matchedOv = _vias.FirstOrDefault(v =>
-                (!string.IsNullOrEmpty(vid) && string.Equals(v.ViaId, vid, StringComparison.OrdinalIgnoreCase)) ||
-                (!string.IsNullOrEmpty(pdir) && string.Equals(v.ProfileDir, pdir, StringComparison.OrdinalIgnoreCase)));
-            if (matchedOv != null) return matchedOv;
+            ov = mappedOv;
         }
-
-        foreach (var ident in a.FacebookIdentities)
-        {
-            var m = _vias.FirstOrDefault(v =>
-                (!string.IsNullOrWhiteSpace(ident.Id) && string.Equals(v.ViaId, ident.Id.Trim(), StringComparison.OrdinalIgnoreCase)) ||
-                (!string.IsNullOrWhiteSpace(ident.Label) && string.Equals(v.Label, ident.Label.Trim(), StringComparison.OrdinalIgnoreCase)));
-            if (m != null) return m;
-        }
-        return _vias.FirstOrDefault();
+        return SelectMetaViaForAdAccount(_vias, a, ov);
     }
 
     internal int? GetPagePendingInviteCount(FanpageItemDto? page)
@@ -3447,7 +3553,235 @@ internal sealed partial class MainWindow : Window
 
     private volatile bool _isSilentInviteRunning;
     private CancellationTokenSource? _silentInviteCts;
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _recentCdpStepActions = new(StringComparer.OrdinalIgnoreCase);
     internal bool IsSilentInviteRunning => _isSilentInviteRunning;
+
+    internal static bool IsIsolatedProfileLockFileHeld(string? isoDir)
+    {
+        if (string.IsNullOrWhiteSpace(isoDir) || !Directory.Exists(isoDir)) return false;
+        var winLock = Path.Combine(isoDir, "lockfile");
+        if (File.Exists(winLock))
+        {
+            try
+            {
+                using var fs = new FileStream(winLock, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    internal static bool IsViaProfileCurrentlyOpen(
+        IEnumerable<TrackedChromeSessionDto>? sessions,
+        ViaWorkspaceEntry? via,
+        Func<string, bool>? lockHeldProbe = null)
+    {
+        if (via == null) return false;
+        var safeProfile = ExtensionProvisioner.ResolveProfileDirectory(via.ProfileDir, via.Label);
+        if (sessions != null)
+        {
+            bool hasTracked = sessions.Any(s =>
+                s != null &&
+                s.Alive &&
+                !s.ClosedAt.HasValue &&
+                !s.KeepAliveClosed &&
+                ((!string.IsNullOrWhiteSpace(via.ViaId) && string.Equals(s.ViaId, via.ViaId, StringComparison.OrdinalIgnoreCase)) ||
+                 (!string.IsNullOrWhiteSpace(via.Label) && string.Equals(s.ViaLabel, via.Label, StringComparison.OrdinalIgnoreCase)) ||
+                 (!string.IsNullOrWhiteSpace(safeProfile) && string.Equals(s.ProfileDir, safeProfile, StringComparison.OrdinalIgnoreCase))));
+            if (hasTracked) return true;
+        }
+
+        var isoDir = ExtensionProvisioner.ResolveIsolatedProfileDirectory(via.Label, safeProfile);
+        return (lockHeldProbe ?? IsIsolatedProfileLockFileHeld)(isoDir);
+    }
+
+    internal static async Task<(bool Ok, string Reason)> PreCheckViaProxyTcpQuickAsync(
+        ViaWorkspaceEntry? via,
+        bool preCheckEnabled,
+        CancellationToken ct)
+    {
+        if (via == null) return (false, "Không tìm thấy hồ sơ Via.");
+        if (via.IsInCooldown)
+        {
+            return (false, $"Via '{via.Label}' đang trong thời gian Cooldown ({via.CooldownUntilUtc:HH:mm}).");
+        }
+        if (!preCheckEnabled || string.IsNullOrWhiteSpace(via.NetworkLabel))
+        {
+            return (true, "Direct/OK");
+        }
+        var parsedPx = ExtensionProvisioner.ParseProxy(via.NetworkLabel);
+        if (parsedPx == null)
+        {
+            return (false, $"Cấu hình Proxy của '{via.Label}' không hợp lệ.");
+        }
+        try
+        {
+            using var tcp = new System.Net.Sockets.TcpClient();
+            using var pxCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            pxCts.CancelAfter(TimeSpan.FromSeconds(4));
+            await tcp.ConnectAsync(parsedPx.Host, parsedPx.Port, pxCts.Token).ConfigureAwait(false);
+            return (true, $"Proxy {parsedPx.Host}:{parsedPx.Port} LIVE");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            return (false, $"Proxy {parsedPx.Host}:{parsedPx.Port} không phản hồi ({ex.Message}).");
+        }
+    }
+
+    internal static void CleanupTempNurtureVariantFile(string? variantPath, string? sourcePath)
+    {
+        if (string.IsNullOrWhiteSpace(variantPath)) return;
+        if (!string.IsNullOrWhiteSpace(sourcePath) &&
+            string.Equals(variantPath, sourcePath, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+        try
+        {
+            if (File.Exists(variantPath))
+            {
+                File.Delete(variantPath);
+            }
+        }
+        catch { }
+    }
+
+    private FanpageItemDto? ResolvePrimaryLivePageForVia(string? viaId)
+    {
+        var availPages = _pagesSummary?.Items ?? new List<FanpageItemDto>();
+        return availPages.FirstOrDefault(p =>
+                   !string.IsNullOrWhiteSpace(p.ExternalPageId) &&
+                   !string.IsNullOrWhiteSpace(viaId) &&
+                   string.Equals(ResolveEffectiveViaForPage(p)?.ViaId, viaId, StringComparison.OrdinalIgnoreCase))
+               ?? availPages.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p.ExternalPageId));
+    }
+
+    private void TryDispatchHybridCdpPageActionFromStep(
+        string stepTitle,
+        int stepIdx,
+        ViaWorkspaceEntry? matched,
+        string? resolvedViaId,
+        string? resolvedViaLabel,
+        string? browserProfile)
+    {
+        if (matched?.IsGoogleAdsAccount == true) return;
+        bool isPostStep = stepTitle.Contains("Đăng bài nuôi Fanpage", StringComparison.OrdinalIgnoreCase);
+        bool isShareStep = stepTitle.Contains("Chia sẻ bài nguồn về Page", StringComparison.OrdinalIgnoreCase);
+        if (!isPostStep && !isShareStep) return;
+
+        var cdpMatch = ChromeSessionTracker.Default.GetSnapshot().FirstOrDefault(s =>
+            s.CdpPort is > 0 &&
+            s.Alive &&
+            !s.ClosedAt.HasValue &&
+            ((!string.IsNullOrWhiteSpace(resolvedViaId) && string.Equals(s.ViaId, resolvedViaId, StringComparison.OrdinalIgnoreCase)) ||
+             (!string.IsNullOrWhiteSpace(resolvedViaLabel) && string.Equals(s.ViaLabel, resolvedViaLabel, StringComparison.OrdinalIgnoreCase)) ||
+             (!string.IsNullOrWhiteSpace(browserProfile) && string.Equals(s.ProfileDir, browserProfile, StringComparison.OrdinalIgnoreCase))));
+        if (cdpMatch?.CdpPort is not int cdpPort || cdpPort <= 0)
+        {
+            return;
+        }
+
+        var actionKey = $"{resolvedViaId ?? resolvedViaLabel ?? cdpPort.ToString()}:{(isShareStep ? "share" : "post")}:{stepIdx}";
+        var nowUtc = DateTimeOffset.UtcNow;
+        if (_recentCdpStepActions.TryGetValue(actionKey, out var prevAt) && (nowUtc - prevAt).TotalSeconds < 90)
+        {
+            return;
+        }
+        _recentCdpStepActions[actionKey] = nowUtc;
+
+        var viaIdCopy = resolvedViaId ?? matched?.ViaId ?? "";
+        var viaLblCopy = resolvedViaLabel ?? matched?.Label ?? "Via";
+        var profileDirCopy = matched?.ProfileDir ?? browserProfile ?? cdpMatch.ProfileDir;
+        var owningPage = ResolvePrimaryLivePageForVia(viaIdCopy);
+        var pageName = owningPage?.Name ?? viaLblCopy;
+        var nicheKey = owningPage?.Category ?? _batchNicheKey;
+        var pageKey = owningPage != null && !string.IsNullOrWhiteSpace(owningPage.ExternalPageId)
+            ? owningPage.ExternalPageId!
+            : (owningPage?.Id ?? viaIdCopy);
+
+        _ = Task.Run(async () =>
+        {
+            string? tempVariantPath = null;
+            try
+            {
+                using var stepCts = new CancellationTokenSource(TimeSpan.FromSeconds(22));
+                await Task.Delay(2500, stepCts.Token).ConfigureAwait(false);
+                var caption = PageContentNurtureEngine.SpinText(_config.PageCaptionSpintax, pageName, nicheKey);
+
+                ChromeCdpController.SilentPageContentResult res;
+                if (isShareStep)
+                {
+                    res = await ChromeCdpController.RunSilentPageSharePostAsync(cdpPort, caption, stepCts.Token).ConfigureAwait(false);
+                    if (res.Ok && !string.IsNullOrWhiteSpace(pageKey))
+                    {
+                        _ = Dispatcher.BeginInvoke(() =>
+                        {
+                            _config.PageLocalShareCounts ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                            _config.PageLocalShareCounts[pageKey] = (_config.PageLocalShareCounts.TryGetValue(pageKey, out var cur) ? cur : 0) + 1;
+                            try { _config.Save(); } catch { }
+                        });
+                    }
+                }
+                else
+                {
+                    string? imgPath = null;
+                    var pickedImg = PageContentNurtureEngine.PickRandomImageFromDir(_config.PageAssetsDir, nicheKey, "posts");
+                    if (!string.IsNullOrWhiteSpace(pickedImg))
+                    {
+                        if (_config.EnableImageHashJitter)
+                        {
+                            try
+                            {
+                                imgPath = PageContentNurtureEngine.CreateUniqueImageVariant(pickedImg);
+                                if (!string.Equals(imgPath, pickedImg, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    tempVariantPath = imgPath;
+                                }
+                            }
+                            catch
+                            {
+                                imgPath = pickedImg;
+                            }
+                        }
+                        else
+                        {
+                            imgPath = pickedImg;
+                        }
+                    }
+                    res = await ChromeCdpController.RunSilentPagePublishPostAsync(cdpPort, caption, imgPath, stepCts.Token).ConfigureAwait(false);
+                }
+
+                if (res.Ok && owningPage != null && !string.IsNullOrWhiteSpace(owningPage.Id))
+                {
+                    try
+                    {
+                        await _api.PublishWarmupPostAsync(
+                            owningPage.Id, caption, viaIdCopy, viaLblCopy, profileDirCopy,
+                            postMode: "chrome_assist", contentType: isShareStep ? "share" : (res.MediaAttached ? "photo" : "post")).ConfigureAwait(false);
+                    }
+                    catch { }
+                }
+                _ = Dispatcher.BeginInvoke(() =>
+                    AppendLog($"{(isShareStep ? "🔗" : "📸")} [CDP Hybrid • {viaLblCopy}] {(res.Ok ? "✓" : "⚠️")} {res.Detail}"));
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                _ = Dispatcher.BeginInvoke(() => AppendLog($"⚠️ [CDP Hybrid • {viaLblCopy}] {ex.Message}"));
+            }
+            finally
+            {
+                CleanupTempNurtureVariantFile(tempVariantPath, null);
+            }
+        });
+    }
 
     internal void CancelSilentInviteIfRunning()
     {
@@ -3461,11 +3795,20 @@ internal sealed partial class MainWindow : Window
         var via = ResolveEffectiveViaForPage(page);
         if (via == null)
         {
-            return new ChromeCdpController.SilentMbsInviteResult(false, false, 0, 0, $"Không tìm thấy Via cầm Page '{page.Name}'.");
+            return new ChromeCdpController.SilentMbsInviteResult(false, false, 0, 0, $"Không tìm thấy Via Meta cầm Page '{page.Name}' (hồ sơ Google Ads luôn được cách ly).");
         }
         if (string.IsNullOrWhiteSpace(page.ExternalPageId))
         {
             return new ChromeCdpController.SilentMbsInviteResult(false, false, 0, 0, $"Page '{page.Name}' chưa có ID Facebook.");
+        }
+        if (IsViaProfileCurrentlyOpen(ChromeSessionTracker.Default.GetSnapshot(), via))
+        {
+            return new ChromeCdpController.SilentMbsInviteResult(false, false, 0, 0, $"Chrome Profile '{via.ProfileDir}' ({via.Label}) đang mở -> bỏ qua Mời Ẩn để tránh xung đột Profile Lock.");
+        }
+        var (pxOk, pxReason) = await PreCheckViaProxyTcpQuickAsync(via, _config.PreCheckProxyBeforeLaunch, ct).ConfigureAwait(false);
+        if (!pxOk)
+        {
+            return new ChromeCdpController.SilentMbsInviteResult(false, false, 0, 0, pxReason);
         }
 
         var mbsUrl = $"https://business.facebook.com/latest/home?asset_id={Uri.EscapeDataString(page.ExternalPageId)}";
@@ -3879,26 +4222,16 @@ internal sealed partial class MainWindow : Window
         int? launchedCdpPort = null;
         try
         {
-            if (_config.PreCheckProxyBeforeLaunch && !string.IsNullOrWhiteSpace(via.NetworkLabel))
+            if (IsViaProfileCurrentlyOpen(ChromeSessionTracker.Default.GetSnapshot(), via))
             {
-                var parsedPx = ExtensionProvisioner.ParseProxy(via.NetworkLabel);
-                if (parsedPx == null)
-                {
-                    _ = Dispatcher.BeginInvoke(() => AppendLog($"🛑 [Ủ Phôi Ẩn] Bỏ qua '{via.Label}': Cấu hình Proxy không hợp lệ."));
-                    return false;
-                }
-                try
-                {
-                    using var tcp = new System.Net.Sockets.TcpClient();
-                    using var pxCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                    pxCts.CancelAfter(TimeSpan.FromSeconds(4));
-                    await tcp.ConnectAsync(parsedPx.Host, parsedPx.Port, pxCts.Token).ConfigureAwait(false);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
-                {
-                    _ = Dispatcher.BeginInvoke(() => AppendLog($"🛑 [Ủ Phôi Ẩn] Bỏ qua '{via.Label}': Proxy {parsedPx.Host}:{parsedPx.Port} không phản hồi ({ex.Message})."));
-                    return false;
-                }
+                _ = Dispatcher.BeginInvoke(() => AppendLog($"🛑 [Ủ Phôi Ẩn] Bỏ qua '{via.Label}': Chrome Profile '{via.ProfileDir}' đang mở thủ công."));
+                return false;
+            }
+            var (pxOk, pxReason) = await PreCheckViaProxyTcpQuickAsync(via, _config.PreCheckProxyBeforeLaunch, ct).ConfigureAwait(false);
+            if (!pxOk)
+            {
+                _ = Dispatcher.BeginInvoke(() => AppendLog($"🛑 [Ủ Phôi Ẩn] Bỏ qua '{via.Label}': {pxReason}"));
+                return false;
             }
 
             try { via.ExtensionFolder = ExtensionProvisioner.ProvisionForVia(via, config: _config); } catch { }
@@ -4032,7 +4365,16 @@ internal sealed partial class MainWindow : Window
         var via = ResolveEffectiveViaForPage(page);
         if (via == null)
         {
-            return new ChromeCdpController.SilentPageContentResult(false, false, actionMode, false, $"Không tìm thấy Via cầm Page '{page.Name}'.");
+            return new ChromeCdpController.SilentPageContentResult(false, false, actionMode, false, $"Không tìm thấy Via Meta cầm Page '{page.Name}' (hồ sơ Google Ads luôn được cách ly).");
+        }
+        if (IsViaProfileCurrentlyOpen(ChromeSessionTracker.Default.GetSnapshot(), via))
+        {
+            return new ChromeCdpController.SilentPageContentResult(false, false, actionMode, false, $"Chrome Profile '{via.ProfileDir}' ({via.Label}) đang mở -> bỏ qua Nuôi Page Ẩn để tránh xung đột Profile Lock.");
+        }
+        var (pxOk, pxReason) = await PreCheckViaProxyTcpQuickAsync(via, _config.PreCheckProxyBeforeLaunch, ct).ConfigureAwait(false);
+        if (!pxOk)
+        {
+            return new ChromeCdpController.SilentPageContentResult(false, false, actionMode, false, pxReason);
         }
 
         var pageKey = !string.IsNullOrWhiteSpace(page.ExternalPageId) ? page.ExternalPageId! : page.Id;
@@ -4042,11 +4384,13 @@ internal sealed partial class MainWindow : Window
 
         string targetUrl;
         string? preparedImagePath = null;
+        string? tempCreatedVariantPath = null;
         bool isShare = string.Equals(actionMode, "share", StringComparison.OrdinalIgnoreCase);
 
         if (isShare)
         {
             var shareUrls = PageContentNurtureEngine.ParseShareUrls(_config.PageShareSourceUrls);
+            _config.PageSharedUrlHistory ??= new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
             var nextUrl = PageContentNurtureEngine.PickNextShareUrl(pageKey, shareUrls, _config.PageSharedUrlHistory);
             if (string.IsNullOrWhiteSpace(nextUrl))
             {
@@ -4064,7 +4408,14 @@ internal sealed partial class MainWindow : Window
             {
                 if (_config.EnableImageHashJitter)
                 {
-                    try { preparedImagePath = PageContentNurtureEngine.CreateUniqueImageVariant(pickedImg); }
+                    try
+                    {
+                        preparedImagePath = PageContentNurtureEngine.CreateUniqueImageVariant(pickedImg);
+                        if (!string.Equals(preparedImagePath, pickedImg, StringComparison.OrdinalIgnoreCase))
+                        {
+                            tempCreatedVariantPath = preparedImagePath;
+                        }
+                    }
                     catch { preparedImagePath = pickedImg; }
                 }
                 else
@@ -4105,6 +4456,7 @@ internal sealed partial class MainWindow : Window
             {
                 if (isShare)
                 {
+                    _config.PageLocalShareCounts ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                     _config.PageLocalShareCounts[pageKey] = (_config.PageLocalShareCounts.TryGetValue(pageKey, out var cur) ? cur : 0) + 1;
                     _config.Save();
                 }
@@ -4133,6 +4485,7 @@ internal sealed partial class MainWindow : Window
                 }
                 catch { }
             }
+            CleanupTempNurtureVariantFile(tempCreatedVariantPath, null);
         }
     }
 
@@ -4989,12 +5342,13 @@ internal sealed partial class MainWindow : Window
         // #7 Daily Automatic DPAPI Vault Backup (.adsopsvault)
         RunDailyAutoVaultBackupIfNeeded(force: false);
 
-        if (string.IsNullOrWhiteSpace(_config.GetJwt())) return;
-        if (_isOfflineSnapshotMode || _isAuthExpired || _autoPipelineRunning) return;
+        if (_autoPipelineRunning) return;
         if (_queue.Current.Phase != QueuePhase.Idle && _queue.Current.Phase != QueuePhase.Completed) return;
 
-        // #6 Multi-Time Specific Schedule (e.g. "08:30, 20:00")
-        if (_config.AutoDailyFullPipeline)
+        bool hasLiveCloud = !string.IsNullOrWhiteSpace(_config.GetJwt()) && !_isOfflineSnapshotMode && !_isAuthExpired;
+
+        // #6 Multi-Time Specific Schedule (e.g. "08:30, 20:00") — requires active Cloud link
+        if (hasLiveCloud && _config.AutoDailyFullPipeline)
         {
             var matchedSlot = DesktopConfig.FindMatchingScheduleSlot(_config.AutoPilotScheduleTimesCsv, now, _config.LastTriggeredScheduleSlotKey);
             if (!string.IsNullOrWhiteSpace(matchedSlot))
@@ -5084,7 +5438,7 @@ internal sealed partial class MainWindow : Window
             }
         }
 
-        if (_config.AutoDailyFullPipeline && string.IsNullOrWhiteSpace(_config.AutoPilotScheduleTimesCsv))
+        if (hasLiveCloud && _config.AutoDailyFullPipeline && string.IsNullOrWhiteSpace(_config.AutoPilotScheduleTimesCsv))
         {
             var todayKey = now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             if (!string.Equals(_config.LastAutoPipelineDateLocal, todayKey, StringComparison.Ordinal))

@@ -2091,9 +2091,9 @@ internal static class Program
                 }
             }
 
-            // 35. v4.0.0 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
+            // 35. v4.0.1 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
             {
-                if (DesktopAppInfo.Version != "4.0.0" || DesktopAppInfo.ExtVersion != "2.10.3")
+                if (DesktopAppInfo.Version != "4.0.1" || DesktopAppInfo.ExtVersion != "2.10.3")
                 {
                     throw new InvalidOperationException(
                         $"DesktopAppInfo version mismatch: app={DesktopAppInfo.Version}, ext={DesktopAppInfo.ExtVersion}");
@@ -2143,7 +2143,7 @@ internal static class Program
                 foreach (var reqKey in new[]
                          {
                              "\"type\":\"full_state\"",
-                             "\"appVersion\":\"4.0.0\"",
+                             "\"appVersion\":\"4.0.1\"",
                              "\"extVersion\":\"2.10.3\"",
                              "\"activeView\":\"settings\"",
                              "\"totpMap\"",
@@ -2772,6 +2772,108 @@ internal static class Program
                 if (gadsClean7.Any(x => x.HasSiloConflict))
                 {
                     throw new InvalidOperationException("Clean 2 MCC + 5 Standalone Google Ads profiles with 1:1 proxies must have 0 silo conflicts!");
+                }
+            }
+
+            // 45. v4.0.1 24/7 Facebook Nurturing Stability Hardening Verification
+            {
+                var mixedPool = new List<ViaWorkspaceEntry>
+                {
+                    new() { ViaId = "mcc-1", Label = "MCC Chinh", ProfileDir = "Profile 91", AccountPlatform = "google_ads_mcc", GoogleAdsCustomerId = "900-111-0001" },
+                    new() { ViaId = "gads-1", Label = "Client Ads 1", ProfileDir = "Profile 92", AccountPlatform = "google_ads_standalone", GoogleAdsCustomerId = "555-000-0001" },
+                    new() { ViaId = "meta-1", Label = "Via FB Nuoi 1", ProfileDir = "Profile 12", AccountPlatform = "meta" },
+                };
+
+                var pageNoHolder = new FanpageItemDto { Id = "pg-orphan", Name = "Orphan Page", ExternalPageId = "1000999" };
+                var resolvedForPage = MainWindow.SelectMetaViaForPage(mixedPool, pageNoHolder, overrideRaw: "mcc-1|Profile 91|MCC Chinh");
+                if (resolvedForPage == null || resolvedForPage.IsGoogleAdsAccount || resolvedForPage.ViaId != "meta-1")
+                {
+                    throw new InvalidOperationException($"Meta page fallback leaked into Google Ads profile: picked={resolvedForPage?.ViaId}");
+                }
+
+                var adAccNoMatch = new AdAccountItemDto { Id = "act_888" };
+                var resolvedForAd = MainWindow.SelectMetaViaForAdAccount(mixedPool, adAccNoMatch, overrideRaw: "gads-1|Profile 92");
+                if (resolvedForAd == null || resolvedForAd.IsGoogleAdsAccount || resolvedForAd.ViaId != "meta-1")
+                {
+                    throw new InvalidOperationException($"Meta AdAccount fallback leaked into Google Ads profile: picked={resolvedForAd?.ViaId}");
+                }
+
+                var gadsOnlyPool = mixedPool.Where(v => v.IsGoogleAdsAccount).ToList();
+                if (MainWindow.SelectMetaViaForPage(gadsOnlyPool, pageNoHolder) != null ||
+                    MainWindow.SelectMetaViaForAdAccount(gadsOnlyPool, adAccNoMatch) != null)
+                {
+                    throw new InvalidOperationException("Google-Ads-only pool must NEVER return a profile for Meta Page/AdAccount fallback.");
+                }
+
+                var fbVia = mixedPool[2];
+                var openSessions = new List<TrackedChromeSessionDto>
+                {
+                    new() { SessionId = "s-open-1", ViaId = "meta-1", ViaLabel = "Via FB Nuoi 1", ProfileDir = "Profile 12", Alive = true, KeepAliveClosed = false }
+                };
+                if (!MainWindow.IsViaProfileCurrentlyOpen(openSessions, fbVia, _ => false))
+                {
+                    throw new InvalidOperationException("Active TrackedChromeSession must block silent runner launch.");
+                }
+                var closedSessions = new List<TrackedChromeSessionDto>
+                {
+                    new() { SessionId = "s-closed-1", ViaId = "meta-1", ViaLabel = "Via FB Nuoi 1", ProfileDir = "Profile 12", Alive = false, KeepAliveClosed = true }
+                };
+                if (MainWindow.IsViaProfileCurrentlyOpen(closedSessions, fbVia, _ => false))
+                {
+                    throw new InvalidOperationException("Closed Chrome session without lockfile must allow silent runner launch.");
+                }
+                if (!MainWindow.IsViaProfileCurrentlyOpen(closedSessions, fbVia, _ => true))
+                {
+                    throw new InvalidOperationException("Live Chrome lockfile probe must block silent runner launch.");
+                }
+
+                var cooldownVia = new ViaWorkspaceEntry
+                {
+                    ViaId = "meta-cd",
+                    Label = "Via Cooldown",
+                    CooldownUntilUtc = DateTimeOffset.UtcNow.AddMinutes(25),
+                };
+                var cdCheck = await MainWindow.PreCheckViaProxyTcpQuickAsync(cooldownVia, preCheckEnabled: true, CancellationToken.None);
+                if (cdCheck.Ok)
+                {
+                    throw new InvalidOperationException("PreCheckViaProxyTcpQuickAsync must reject Cooldown Via.");
+                }
+                var badProxyVia = new ViaWorkspaceEntry { ViaId = "meta-badpx", Label = "Via Bad Proxy", NetworkLabel = "invalid_proxy_format" };
+                var badPxCheck = await MainWindow.PreCheckViaProxyTcpQuickAsync(badProxyVia, preCheckEnabled: true, CancellationToken.None);
+                if (badPxCheck.Ok)
+                {
+                    throw new InvalidOperationException("PreCheckViaProxyTcpQuickAsync must reject invalid proxy syntax.");
+                }
+                var directOk = await MainWindow.PreCheckViaProxyTcpQuickAsync(fbVia, preCheckEnabled: true, CancellationToken.None);
+                if (!directOk.Ok)
+                {
+                    throw new InvalidOperationException($"Direct IP pre-check unexpectedly failed: {directOk.Reason}");
+                }
+
+                var cleanSrcImg = Path.Combine(tempRoot, "source_nurture.jpg");
+                var cleanVarImg = Path.Combine(tempRoot, "variant_nurture.jpg");
+                await File.WriteAllBytesAsync(cleanSrcImg, new byte[] { 1, 2, 3 });
+                await File.WriteAllBytesAsync(cleanVarImg, new byte[] { 4, 5, 6 });
+                MainWindow.CleanupTempNurtureVariantFile(cleanSrcImg, cleanSrcImg);
+                if (!File.Exists(cleanSrcImg))
+                {
+                    throw new InvalidOperationException("CleanupTempNurtureVariantFile must NEVER delete original source asset.");
+                }
+                MainWindow.CleanupTempNurtureVariantFile(cleanVarImg, cleanSrcImg);
+                if (File.Exists(cleanVarImg) || !File.Exists(cleanSrcImg))
+                {
+                    throw new InvalidOperationException("CleanupTempNurtureVariantFile failed to remove temporary variant cleanly.");
+                }
+
+                var vaultSecDir = Path.Combine(tempRoot, "vault45");
+                Directory.CreateDirectory(vaultSecDir);
+                var vStore = new LocalSecretVaultStore(Path.Combine(vaultSecDir, "secrets.json"));
+                vStore.Upsert("meta-1", "Via FB Nuoi 1", "Profile 12", "c_user=100; xs=old;", "JBSWY3DPEHPK3PXP");
+                vStore.Upsert("meta-1", "Via FB Nuoi 1", "Profile 12", "c_user=100; xs=fresh;", "JBSWY3DPEHPK3PXP");
+                var afterVault = vStore.Find("meta-1", "Profile 12", "Via FB Nuoi 1");
+                if (afterVault.CookieRaw != "c_user=100; xs=fresh;" || afterVault.TwoFaSecret != "JBSWY3DPEHPK3PXP")
+                {
+                    throw new InvalidOperationException("DPAPI cookie refresh must update cookie without losing existing 2FA secret.");
                 }
             }
 

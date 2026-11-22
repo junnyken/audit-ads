@@ -1413,8 +1413,10 @@ internal sealed partial class MainWindow
 
                     case "quick_test_first":
                         {
-                            var picked = _vias.FirstOrDefault(v => !v.IsInCooldown && CanCurrentUserLaunchVia(v, out _)) ?? _vias.FirstOrDefault();
-                            if (picked == null) MessageBox.Show(this, "Chưa có Via nào trong Workspace để chạy test.", "Thiếu Via", MessageBoxButton.OK, MessageBoxImage.Information);
+                            var metaPool = MainWindow.ExcludeGoogleAdsVias(_vias);
+                            var picked = metaPool.FirstOrDefault(v => !v.IsInCooldown && CanCurrentUserLaunchVia(v, out _))
+                                         ?? metaPool.FirstOrDefault();
+                            if (picked == null) MessageBox.Show(this, "Chưa có Via Facebook/Meta nào trong Workspace để chạy test (hồ sơ Google Ads luôn được cách ly 100%).", "Thiếu Via Meta", MessageBoxButton.OK, MessageBoxImage.Information);
                             else StartNaturalFlowForVias(new[] { picked }, fastTest: true, requireConfirm: false);
                             break;
                         }
@@ -1962,11 +1964,13 @@ internal sealed partial class MainWindow
                                 break;
                             }
                             var sel = ResolveSelectedViasFromPayload(root);
+                            bool isMetaPlaybook = activePb.Platform.Equals("meta", StringComparison.OrdinalIgnoreCase);
+                            var eligiblePool = isMetaPlaybook ? MainWindow.ExcludeGoogleAdsVias(_vias) : _vias;
                             var targets = sel.Count > 0
-                                ? sel.Where(v => CanCurrentUserLaunchVia(v, out _)).ToList()
+                                ? sel.Where(v => (!isMetaPlaybook || !v.IsGoogleAdsAccount) && CanCurrentUserLaunchVia(v, out _)).ToList()
                                 : (_selectedViaIds.Count > 0
-                                    ? _vias.Where(v => _selectedViaIds.Contains(v.ViaId) && CanCurrentUserLaunchVia(v, out _)).ToList()
-                                    : _vias.Where(v => !v.IsInCooldown && CanCurrentUserLaunchVia(v, out _)).Take(10).ToList());
+                                    ? eligiblePool.Where(v => _selectedViaIds.Contains(v.ViaId) && CanCurrentUserLaunchVia(v, out _)).ToList()
+                                    : eligiblePool.Where(v => !v.IsInCooldown && CanCurrentUserLaunchVia(v, out _)).Take(10).ToList());
                             if (targets.Count == 0)
                             {
                                 MessageBox.Show(this, "Không có Via hợp lệ để chạy kịch bản.", "Không thể chạy", MessageBoxButton.OK, MessageBoxImage.Information);
