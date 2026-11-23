@@ -1783,6 +1783,37 @@ function CommunitySuperAdminSection() {
     },
   })
 
+  const [canaryText, setCanaryText] = useState('')
+  const [canaryResult, setCanaryResult] = useState<{
+    found: boolean
+    canary_id?: string | null
+    hmac_verified?: boolean
+    workspace_id?: string
+    workspace_name?: string
+    user_email?: string
+    action?: string
+    created_at?: string | null
+    message?: string
+  } | null>(null)
+
+  const verifyCanaryMut = useMutation({
+    mutationFn: () =>
+      api.post<{
+        found: boolean
+        canary_id?: string | null
+        hmac_verified?: boolean
+        workspace_id?: string
+        workspace_name?: string
+        user_email?: string
+        action?: string
+        created_at?: string | null
+        message?: string
+      }>('/api/v1/community/admin/verify-canary', {
+        text: canaryText.trim(),
+      }),
+    onSuccess: (res) => setCanaryResult(res),
+  })
+
   const policyMut = useMutation({
     mutationFn: (requireCode: boolean) =>
       api.put<{ require_invite_code: boolean }>('/api/v1/community/admin/policy', {
@@ -1969,6 +2000,55 @@ function CommunitySuperAdminSection() {
             )}
           </div>
 
+          <div className="rounded-md border border-line p-3 space-y-2.5">
+            <div className="text-xs font-semibold text-ink">
+              Truy vết Rò rỉ Bộ cài (Canary Leak Forensics)
+            </div>
+            <p className="text-[11px] text-ink-muted">
+              Dán mã định danh (ví dụ CNRY-...) hoặc toàn bộ nội dung tệp manifest.json / _release_integrity.json bị phát tán để xác minh chính xác Workspace &amp; Email đã xuất bản gói đó.
+            </p>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <textarea
+                rows={2}
+                className="input flex-1 font-mono text-xs"
+                value={canaryText}
+                onChange={(e) => setCanaryText(e.target.value)}
+                placeholder="Dán mã CNRY-... hoặc nội dung manifest.json"
+                aria-label="Nội dung hoặc mã Canary cần truy vết"
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={verifyCanaryMut.isPending || canaryText.trim().length < 4}
+                onClick={() => verifyCanaryMut.mutate()}
+              >
+                {verifyCanaryMut.isPending ? 'Đang tra cứu...' : 'Tra cứu Thủ phạm'}
+              </Button>
+            </div>
+            {canaryResult && (
+              <div
+                role="status"
+                className={`rounded-md border px-3 py-2 text-xs space-y-1 ${
+                  canaryResult.found && canaryResult.hmac_verified ? 'tone-positive' : 'tone-attention'
+                }`}
+              >
+                <div className="font-semibold">{canaryResult.message}</div>
+                {canaryResult.found && (
+                  <div className="text-[11px] space-y-0.5">
+                    <div>
+                      Mã Canary: <span className="font-mono font-bold">{canaryResult.canary_id}</span> · Chữ ký HMAC:{' '}
+                      <strong>{canaryResult.hmac_verified ? 'Hợp lệ' : 'Không khớp'}</strong>
+                    </div>
+                    <div>
+                      Workspace: <strong>{canaryResult.workspace_name || canaryResult.workspace_id}</strong> · Tài khoản:{' '}
+                      <strong className="font-mono">{canaryResult.user_email}</strong>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           <div className="rounded-md border border-line p-3 space-y-2">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-ink">
               <Plus className="h-3.5 w-3.5 text-ink-muted" />
@@ -1983,6 +2063,7 @@ function CommunitySuperAdminSection() {
               />
               <select
                 className="input text-xs"
+                aria-label="Chọn gói dịch vụ cho mã mời"
                 value={newTier}
                 onChange={(e) => {
                   const tVal = e.target.value as 'community_free' | 'pro' | 'agency'

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buildExtensionFilesForVia,
   buildViaKeepAliveUrl,
   planHumanKeepAliveRoute,
   type WarmupMode,
 } from '../lib/chromeProfileLauncher';
+import { buildExtensionFilesForVia } from '../../scripts/extensionBuilderOffline';
 import {
   DEFAULT_MAX_VIAS_PER_PROXY,
   getMaxViasPerProxy,
@@ -43,7 +43,7 @@ describe('AdsOps Companion v2.9.7 Zero-Trust, anti-checkpoint & stewardship buil
     expect(manifestRaw).toBeTruthy();
 
     const manifest = JSON.parse(manifestRaw!);
-    expect(manifest.version).toBe('2.10.2');
+    expect(manifest.version).toBe('2.11.0');
     expect(Array.isArray(manifest.permissions)).toBe(true);
     expect(manifest.permissions).toContain('alarms');
 

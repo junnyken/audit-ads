@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { axe } from 'vitest-axe'
-import { scanAdPolicyLocal } from '../lib/policyScanner'
+import * as policyScanner from '../lib/policyScanner'
+import { aiStudioApi, clearPolicyScanCache } from '../lib/policyScanner'
 import {
   evaluateViaActionGuardrail,
   getValidOwnerOverrideGrant,
@@ -25,6 +26,7 @@ vi.mock('../lib/api', async (orig) => ({
 
 beforeEach(() => {
   sessionStorage.clear()
+  clearPolicyScanCache()
   apiMock.get.mockImplementation((path: string) => {
     if (path.includes('/ai-studio/config')) {
       return Promise.resolve({
@@ -52,42 +54,98 @@ afterEach(() => {
 })
 
 describe('v5.1 Hybrid AI Policy & Role Guardrail', () => {
-  it('scans all 7 Meta policy categories deterministically and raises score with sanitized_text', () => {
-    const riskyAd =
-      'THONG BAO KHAN CAP GIAM GIA Cam kết 100% bạn đang béo giảm 5kg trong 7 ngày!!! Hàng rep 1:1 bao đậu nợ xấu share ngay để nhận https://bit.ly/uu-dai'
-    const res = scanAdPolicyLocal(riskyAd, { mode: 'ad_copy' })
-    const categories = new Set(res.findings.map((f) => f.category))
+  it('strips local regex rules from client bundle and delegates policy scans to server API with caching', async () => {
+    const exported = policyScanner as Record<string, unknown>
+    expect(exported.LOCAL_RULES).toBeUndefined()
+    expect(exported.scanAdPolicyLocal).toBeUndefined()
 
-    expect(categories.has('medical_exaggeration')).toBe(true)
-    expect(categories.has('personal_attributes')).toBe(true)
-    expect(categories.has('before_after_rapid')).toBe(true)
-    expect(categories.has('financial_claims')).toBe(true)
-    expect(categories.has('restricted_products_trademark')).toBe(true)
-    expect(categories.has('engagement_spam_format')).toBe(true)
-    expect(res.verdict).toBe('high_risk')
-    expect(res.score).toBeLessThan(60)
-
-    const warmupRisky = scanAdPolicyLocal('Mua hàng giá chỉ 99k gọi ngay 0912345678', {
-      mode: 'page_warmup',
-      isNewPage: true,
+    apiMock.post.mockResolvedValue({
+      score: 38,
+      verdict: 'high_risk',
+      mode: 'ad_copy',
+      findings_count: 2,
+      findings: [
+        {
+          id: 'medical_1',
+          category: 'medical_exaggeration',
+          category_label: 'Cam kết y khoa quá mức',
+          severity: 'high',
+          matched_text: 'Cam kết 100%',
+          reason: 'Khẳng định tuyệt đối dễ vi phạm chính sách Meta.',
+          safe_replacement: 'Hỗ trợ cải thiện',
+        },
+        {
+          id: 'personal_1',
+          category: 'personal_attributes',
+          category_label: 'Thuộc tính cá nhân',
+          severity: 'high',
+          matched_text: 'bạn đang béo',
+          reason: 'Nhắm trực tiếp khuyết điểm ngoại hình.',
+          safe_replacement: 'vóc dáng cân đối',
+        },
+      ],
+      sanitized_text: 'Hỗ trợ cải thiện vóc dáng cân đối an toàn',
+      sanitized_headline: '',
     })
-    expect(warmupRisky.findings.some((f) => f.category === 'new_page_hard_sell')).toBe(true)
-    const cleanedWarmup = scanAdPolicyLocal(warmupRisky.sanitized_text, {
-      mode: 'page_warmup',
-      isNewPage: true,
-    })
-    expect(cleanedWarmup.score).toBeGreaterThanOrEqual(85)
 
-    const cleanableAd = scanAdPolicyLocal(
-      'Cam kết 100% bạn đang béo giảm 5kg trong 7 ngày!!! Hàng rep 1:1 bao đậu nợ xấu share ngay để nhận',
-      { mode: 'ad_copy' },
-    )
-    const rescannedClean = scanAdPolicyLocal(cleanableAd.sanitized_text, { mode: 'ad_copy' })
-    expect(rescannedClean.score).toBeGreaterThanOrEqual(85)
-    expect(rescannedClean.verdict).toBe('safe')
+    const first = await aiStudioApi.checkPolicyServer({
+      text: 'Cam kết 100% bạn đang béo giảm 5kg trong 7 ngày!!!',
+      mode: 'ad_copy',
+    })
+    const second = await aiStudioApi.checkPolicyServer({
+      text: 'Cam kết 100% bạn đang béo giảm 5kg trong 7 ngày!!!',
+      mode: 'ad_copy',
+    })
+
+    expect(apiMock.post).toHaveBeenCalledTimes(1)
+    expect(apiMock.post).toHaveBeenCalledWith('/api/v1/ai-studio/policy-check', {
+      text: 'Cam kết 100% bạn đang béo giảm 5kg trong 7 ngày!!!',
+      headline: '',
+      mode: 'ad_copy',
+      is_new_page: false,
+    })
+    expect(first.verdict).toBe('high_risk')
+    expect(second.score).toBe(38)
   })
 
-  it('renders PolicyPreCheckStudio, cleans text on 1-click, and passes axe accessibility', async () => {
+  it('renders PolicyPreCheckStudio, cleans text via server scan on 1-click, and passes axe accessibility', async () => {
+    apiMock.post.mockImplementation((path: string, payload: { text?: string }) => {
+      if (path === '/api/v1/ai-studio/policy-check') {
+        const text = payload?.text ?? ''
+        if (text.includes('Cam kết 100%')) {
+          return Promise.resolve({
+            score: 42,
+            verdict: 'high_risk',
+            mode: 'ad_copy',
+            findings_count: 1,
+            findings: [
+              {
+                id: 'medical_exaggeration',
+                category: 'medical_exaggeration',
+                category_label: 'Cam kết y khoa quá mức',
+                severity: 'high',
+                matched_text: 'Cam kết 100%',
+                reason: 'Vi phạm khẳng định tuyệt đối.',
+                safe_replacement: 'Hỗ trợ cải thiện',
+              },
+            ],
+            sanitized_text: 'Hỗ trợ cải thiện vóc dáng an toàn',
+            sanitized_headline: '',
+          })
+        }
+        return Promise.resolve({
+          score: 100,
+          verdict: 'safe',
+          mode: 'ad_copy',
+          findings_count: 0,
+          findings: [],
+          sanitized_text: text,
+          sanitized_headline: '',
+        })
+      }
+      return Promise.resolve({})
+    })
+
     const onApplyText = vi.fn()
     const { container } = wrap(
       <PolicyPreCheckStudio
@@ -97,16 +155,18 @@ describe('v5.1 Hybrid AI Policy & Role Guardrail', () => {
       />,
     )
 
-    expect(await screen.findByText(/Phát hiện \d+ điểm có nguy cơ vi phạm chính sách Meta/)).toBeInTheDocument()
+    expect(await screen.findByText(/Phát hiện 1 điểm có nguy cơ vi phạm chính sách Meta/)).toBeInTheDocument()
     expect(screen.getByText(/Nguy cơ cao khóa TKQC \/ Page/)).toBeInTheDocument()
 
     const cleanBtn = screen.getByRole('button', { name: /Làm sạch nhanh \(Luật 0đ\)/ })
     fireEvent.click(cleanBtn)
 
     await waitFor(() => {
-      expect(onApplyText).toHaveBeenCalled()
+      expect(onApplyText).toHaveBeenCalledWith('Hỗ trợ cải thiện vóc dáng an toàn', '')
     })
-    expect(screen.getByText(/Điểm An toàn: 100\/100/)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText(/Điểm An toàn: 100\/100/)).toBeInTheDocument()
+    })
     expect((await axe(container, axeOptions)).violations).toEqual([])
   })
 

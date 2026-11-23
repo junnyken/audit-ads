@@ -31,6 +31,7 @@ import {
   ANTIDETECT_ENGINE_OPTIONS,
   WORKSTATION_REAL_CHROME_PROFILES,
   canMemberLaunchVia,
+  downloadDesktopProSecure,
   downloadSwitchyOmegaConfig,
   downloadWindowsChromeLauncherBat,
   evaluateViaActionGuardrail,
@@ -764,14 +765,14 @@ export default function FacebookAccounts() {
                 <span>App Windows v{bridgeProbe.version || '5.1.0'} Đang Chạy</span>
               </span>
             )}
-            <a
-              href="/downloads/AdsOps-Desktop-Pro-latest.zip"
-              download
+            <button
+              type="button"
+              onClick={() => void downloadDesktopProSecure()}
               className="inline-flex h-9 items-center gap-1.5 rounded-md border border-line bg-surface px-3 text-xs font-semibold text-ink transition hover:border-line-strong hover:bg-surface-muted"
               title="Tải App Windows AdsOps Desktop Pro v5.1.0 (Tự gia hạn phiên 24/7 DPAPI, Khiên Bảo Vệ Via Lớp 1 / Ngâm 72h, Broker PID Tracking, Chia Proxy 1:4, 5 Engine Antidetect & Extension v2.11.0)"
             >
               Tải App Windows v5.1 (.zip)
-            </a>
+            </button>
             <Button
               type="button"
               variant="secondary"

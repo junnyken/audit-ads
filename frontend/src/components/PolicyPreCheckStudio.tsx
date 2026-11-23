@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
@@ -13,7 +13,12 @@ import {
 } from 'lucide-react'
 import { Badge } from './primitives/badge'
 import { Button } from './primitives/button'
-import { aiStudioApi, scanAdPolicyLocal, type PolicyMode } from '../lib/policyScanner'
+import {
+  aiStudioApi,
+  emptyPolicyScanResult,
+  type PolicyMode,
+  type PolicyScanResult,
+} from '../lib/policyScanner'
 
 export interface PolicyPreCheckStudioProps {
   compact?: boolean
@@ -60,15 +65,50 @@ export function PolicyPreCheckStudio({
     retry: false,
   })
 
-  const scan = useMemo(
-    () =>
-      scanAdPolicyLocal(text, {
-        headline: mode === 'ad_copy' ? headline : '',
-        mode,
-        isNewPage: isNewPage || mode === 'page_warmup',
-      }),
-    [text, headline, mode, isNewPage],
+  const [scan, setScan] = useState<PolicyScanResult>(() =>
+    emptyPolicyScanResult(initialMode, initialText, initialHeadline),
   )
+  const [scanning, setScanning] = useState(false)
+  const didInitRef = useRef(false)
+
+  useEffect(() => {
+    let cancelled = false
+    const targetHeadline = mode === 'ad_copy' ? headline : ''
+    if (!text.trim() && !targetHeadline.trim()) {
+      setScan(emptyPolicyScanResult(mode, text, targetHeadline))
+      setScanning(false)
+      didInitRef.current = true
+      return
+    }
+    const runScan = async () => {
+      setScanning(true)
+      try {
+        const res = await aiStudioApi.checkPolicyServer({
+          text,
+          headline: targetHeadline,
+          mode,
+          is_new_page: isNewPage || mode === 'page_warmup',
+        })
+        if (!cancelled) setScan(res)
+      } catch {
+        /* keep latest server verdict cleanly */
+      } finally {
+        if (!cancelled) setScanning(false)
+      }
+    }
+    if (!didInitRef.current) {
+      didInitRef.current = true
+      void runScan()
+      return () => {
+        cancelled = true
+      }
+    }
+    const timer = window.setTimeout(() => void runScan(), 280)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [text, headline, mode, isNewPage])
 
   const rewriteMut = useMutation({
     mutationFn: () =>
@@ -169,7 +209,7 @@ export function PolicyPreCheckStudio({
 
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone={scoreTone}>
-            Điểm An toàn: {scan.score}/100 · {verdictLabel}
+            Điểm An toàn: {scan.score}/100 · {verdictLabel}{scanning ? ' · Đang quét...' : ''}
           </Badge>
           {aiCfg?.key_configured && aiCfg.enabled ? (
             <Badge tone="info">

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -9,6 +10,38 @@ from starlette.responses import JSONResponse, Response
 
 from app.core.context import set_request_id
 from app.core.errors import error_payload
+
+_AI_SCRAPER_UA_RE = re.compile(
+    r"(gptbot|oai-searchbot|chatgpt-user|claudebot|claude-web|anthropic-ai|"
+    r"perplexitybot|ccbot|google-extended|bytespider|firecrawl|jinabot|diffbot|"
+    r"cohere-ai|scrapy|httrack|headlesschrome|phantomjs)",
+    re.IGNORECASE,
+)
+
+
+class AntiScraperBotMiddleware:
+    """Block known AI training crawlers, LLM scrapers, and headless browsers with 403."""
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] == "http":
+            path = str(scope.get("path") or "")
+            if not path.startswith("/health/"):
+                headers = dict(scope.get("headers") or [])
+                ua = (headers.get(b"user-agent") or b"").decode("latin-1", errors="ignore")
+                if ua and _AI_SCRAPER_UA_RE.search(ua):
+                    resp = JSONResponse(
+                        status_code=403,
+                        content=error_payload(
+                            "bot_access_denied",
+                            "Automated AI scraping and headless harvesting are prohibited.",
+                        ),
+                    )
+                    await resp(scope, _empty_receive, send)
+                    return
+        await self.app(scope, receive, send)
 
 logger = logging.getLogger("app.request")
 
@@ -129,6 +162,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
         response.headers.setdefault("X-Permitted-Cross-Domain-Policies", "none")
+        response.headers.setdefault("X-Robots-Tag", "noindex, nofollow, noai, noimageai")
         response.headers.setdefault(
             "Content-Security-Policy",
             "default-src 'none'; frame-ancestors 'none'",

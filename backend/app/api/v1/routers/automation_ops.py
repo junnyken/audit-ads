@@ -649,6 +649,25 @@ def test_ai_studio_connection(ctx: OwnerCtx, payload: dict[str, Any] | None = No
 
 @router.post("/ai-studio/policy-check")
 def check_ad_policy_compliance_route(ctx: Ctx, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    from app.services.ip_shield import check_anti_harvesting_velocity, enforce_daily_ip_quota
+
+    settings = get_settings()
+    check_anti_harvesting_velocity(
+        ctx.session,
+        workspace_id=ctx.workspace_id,
+        user_id=ctx.actor_id,
+        bucket_name="policy_check",
+        settings=settings,
+    )
+    enforce_daily_ip_quota(
+        ctx.session,
+        workspace=ctx.workspace,
+        user=ctx.user,
+        action_key="policy_scan",
+        settings=settings,
+        record_scan=True,
+    )
+    ctx.commit()
     body = payload or {}
     text = str(body.get("text") or "")
     headline = str(body.get("headline") or "")

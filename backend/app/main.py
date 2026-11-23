@@ -11,7 +11,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.middleware import MaxBodySizeMiddleware, RequestContextMiddleware, SecurityHeadersMiddleware
+from app.api.middleware import (
+    AntiScraperBotMiddleware,
+    MaxBodySizeMiddleware,
+    RequestContextMiddleware,
+    SecurityHeadersMiddleware,
+)
 from app.api.rate_limit_middleware import RateLimitMiddleware
 from app.api.v1 import api_router
 from app.bootstrap import bootstrap_owner
@@ -177,6 +182,7 @@ def create_app() -> FastAPI:
     # still short-circuits before any route, session or database work.
     app.add_middleware(RateLimitMiddleware, settings=settings)
     app.add_middleware(MaxBodySizeMiddleware, max_body_bytes=settings.max_request_body_bytes)
+    app.add_middleware(AntiScraperBotMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(
         DynamicDomainCORSMiddleware,

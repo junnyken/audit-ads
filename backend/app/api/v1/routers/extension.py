@@ -16,8 +16,11 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.deps import AnyCtx, Ctx, ExtCtx, WriteCtx
+from app.core.config import get_settings
 from app.core.enums import ExtensionContextStatus
 from app.core.errors import NotFoundError
 from app.models.entities import AdAccount
@@ -26,6 +29,15 @@ from app.services.extension_context import ExtensionContextResolver
 from app.services.extension_events import ExtensionEventIngestService, build_source_context
 from app.services.extension_session import ExtensionInstallationService, ExtensionSessionService
 from app.services.extension_summary import ExtensionSummaryService
+from app.services.ip_shield import (
+    check_anti_harvesting_velocity,
+    consume_desktop_download_ticket,
+    enforce_daily_ip_quota,
+    get_desktop_release_manifest,
+    get_desktop_release_zip_path,
+    issue_desktop_download_ticket,
+    render_watermarked_extension_bundle,
+)
 
 router = APIRouter(prefix="/extension", tags=["extension"])
 
@@ -231,6 +243,138 @@ def _installation_payload(installation) -> dict[str, Any]:
         "created_at": installation.created_at,
         "is_active": installation.is_active,
     }
+
+
+class _BundledAccountItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(default="", max_length=200)
+    external_account_id: str = Field(default="", max_length=120)
+    status: str = Field(default="", max_length=40)
+    currency: str = Field(default="", max_length=12)
+    balance_raw: str | None = Field(default=None, max_length=64)
+    billing_threshold_raw: str | None = Field(default=None, max_length=64)
+    next_bill_date: str | None = Field(default=None, max_length=64)
+    meta_daily_limit_raw: str | None = Field(default=None, max_length=64)
+    payment_card_display: str | None = Field(default=None, max_length=120)
+    business_legal_name: str | None = Field(default=None, max_length=200)
+    bm_name: str | None = Field(default=None, max_length=200)
+
+
+class _StewardshipMetaIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    client_group: str | None = Field(default=None, max_length=120)
+    warmup_phase: str | None = Field(default=None, max_length=40)
+    warmup_start_iso: str | None = Field(default=None, max_length=64)
+    soak_hours_remaining: float | None = Field(default=None, ge=0, le=1000)
+    default_warmup_mode: str | None = Field(default=None, max_length=40)
+    soak_quarantine_enabled: bool = True
+    ip_kill_switch: bool = True
+    auto_vault_cookie_refresh: bool = True
+    cooldown_until_ms: int | None = Field(default=None, ge=0)
+    cooldown_reason: str | None = Field(default=None, max_length=240)
+    trust_score: float | None = Field(default=None, ge=0, le=100)
+
+
+class ExtensionPackageBundleRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    folder_root: str = Field(default="AdsOps-Chrome-Extension", max_length=80)
+    via_name: str = Field(default="Via Facebook", max_length=120)
+    profile_dir: str = Field(default="Default", max_length=80)
+    via_tier: str = Field(default="camp", max_length=20)
+    via_id: str = Field(default="", max_length=80)
+    bundled_accounts: list[_BundledAccountItem] = Field(default_factory=list, max_length=250)
+    stewardship_meta: _StewardshipMetaIn | None = None
+
+
+@router.post("/package-bundle")
+def package_extension_bundle(ctx: Ctx, payload: ExtensionPackageBundleRequest) -> dict[str, Any]:
+    """Assemble Extension files server-side with Canary Watermark (never accepts proxy/2FA secrets)."""
+    settings = get_settings()
+    check_anti_harvesting_velocity(
+        ctx.session,
+        workspace_id=ctx.workspace_id,
+        user_id=ctx.actor_id,
+        bucket_name="extension_package",
+        settings=settings,
+    )
+    enforce_daily_ip_quota(
+        ctx.session,
+        workspace=ctx.workspace,
+        user=ctx.user,
+        action_key="extension_bundle",
+        settings=settings,
+    )
+    res = render_watermarked_extension_bundle(
+        ctx.session,
+        workspace=ctx.workspace,
+        user=ctx.user,
+        audit=ctx.audit,
+        settings=settings,
+        folder_root=payload.folder_root,
+        via_name=payload.via_name,
+        profile_dir=payload.profile_dir,
+        via_tier=payload.via_tier,
+        via_id=payload.via_id,
+        bundled_accounts=[item.model_dump() for item in payload.bundled_accounts],
+        stewardship_meta=payload.stewardship_meta.model_dump() if payload.stewardship_meta else None,
+    )
+    ctx.commit()
+    return res
+
+
+@router.post("/desktop-download-ticket")
+def create_desktop_download_ticket(ctx: Ctx) -> dict[str, Any]:
+    """Issue a 120s single-use HMAC ticket + Canary ID for authenticated Desktop Pro download."""
+    settings = get_settings()
+    check_anti_harvesting_velocity(
+        ctx.session,
+        workspace_id=ctx.workspace_id,
+        user_id=ctx.actor_id,
+        bucket_name="desktop_ticket",
+        settings=settings,
+    )
+    enforce_daily_ip_quota(
+        ctx.session,
+        workspace=ctx.workspace,
+        user=ctx.user,
+        action_key="desktop_ticket",
+        settings=settings,
+    )
+    res = issue_desktop_download_ticket(
+        ctx.session,
+        workspace=ctx.workspace,
+        user=ctx.user,
+        audit=ctx.audit,
+        settings=settings,
+    )
+    ctx.commit()
+    return res
+
+
+@router.get("/desktop-release-meta")
+def desktop_release_meta(ctx: Ctx) -> dict[str, Any]:
+    """Authenticated version metadata replacing unauthenticated /downloads/*.json."""
+    _ = ctx
+    return get_desktop_release_manifest()
+
+
+@router.get("/desktop-release")
+def download_desktop_release(ticket: str | None = None):
+    """Stream the private Desktop Pro archive only after verifying a single-use 120s ticket."""
+    settings = get_settings()
+    consume_desktop_download_ticket(ticket or "", settings)
+    zip_path = get_desktop_release_zip_path()
+    if not zip_path.is_file():
+        raise NotFoundError("Desktop release package is not available on this server.")
+    return FileResponse(
+        path=zip_path,
+        media_type="application/zip",
+        filename="AdsOps-Desktop-Pro-latest.zip",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Robots-Tag": "noindex, nofollow, noai, noimageai",
+        },
+    )
 
 
 __all__ = ["router", "account_router"]

@@ -15,7 +15,7 @@ import { DL_CLASS, Note, Panel, Row } from './account/parts'
 import { FacebookAccountFormSheet } from '../components/facebook/FacebookAccountFormSheet'
 import { RevealEmailDialog } from '../components/facebook/RevealEmailDialog'
 import { twoFactorTone } from '../lib/readiness'
-import { downloadChromeExtensionZip, launchInAssignedChromeProfile } from '../lib/chromeProfileLauncher'
+import { downloadChromeExtensionZip, downloadDesktopProSecure, launchInAssignedChromeProfile } from '../lib/chromeProfileLauncher'
 
 export function isHttpsLink(value: string): boolean {
   return value.startsWith('https://')
@@ -163,18 +163,19 @@ export default function FacebookAccountDetail() {
               onClick={() => {
                 const prof = String(r.browser_profile_label || 'Default')
                 const shortDir = prof.includes('Profile ') ? (prof.match(/Profile\s+\d+/i)?.[0] ?? 'Default') : 'Default'
-                downloadChromeExtensionZip(String(r.label || 'Via'), shortDir, cleanNet, [], validTwoFa, 'camp', String(r.id || ''))
+                void downloadChromeExtensionZip(String(r.label || 'Via'), shortDir, cleanNet, [], validTwoFa, 'camp', String(r.id || ''))
               }}
             >
-              📦 Tải Tiện Ích v2.10.0 (.zip)
+              Tải Tiện Ích v2.11.0 (.zip)
             </Button>
-            <a
-              href="/downloads/AdsOps-Desktop-Pro-v2.3.zip"
-              download
-              className="inline-flex h-8 items-center rounded-md border border-indigo-500/45 bg-indigo-500/15 px-2.5 text-xs font-bold text-indigo-700 hover:bg-indigo-500/25 dark:text-indigo-300"
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => void downloadDesktopProSecure()}
             >
-              💻 App Win v3.0.3 (.zip)
-            </a>
+              App Win v5.1 (.zip)
+            </Button>
             {canWrite && (
               <>
                 <Button type="button" variant="secondary" size="sm" onClick={() => setEditing(true)}>

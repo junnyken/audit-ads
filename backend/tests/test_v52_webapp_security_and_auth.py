@@ -119,7 +119,7 @@ def sec_env(monkeypatch):
     with _temp_env(
         JWT_SECRET="test-v52-secret-not-for-production-use",
         CREDENTIAL_VAULT_KEY=vault_key,
-        REQUIRE_INVITE_CODE="false",
+        COMMUNITY_REQUIRE_INVITE_CODE="false",
         RATE_LIMIT_ENABLED="false",
         BOOTSTRAP_OWNER_EMAIL="admin-a@gmail.com",
     ):

@@ -28,6 +28,7 @@ import {
   type ExtensionBundledAccount,
   downloadAllViasExtensionsBundleZip,
   downloadChromeExtensionZip,
+  downloadDesktopProSecure,
   resolveChromeProfileDirectory,
   downloadSwitchyOmegaConfig,
   downloadWindowsChromeLauncherBat,
@@ -315,14 +316,14 @@ export default function ChromeExtension() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <a
-              href="/downloads/AdsOps-Desktop-Pro-v2.3.zip"
-              download
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-indigo-500/50 bg-indigo-600 px-3.5 text-xs font-extrabold text-white shadow-xs hover:bg-indigo-700"
-              title="Tải App Windows AdsOps Desktop Pro v3.2.0 (.exe chạy ngầm 24/7 ở khay hệ thống)"
+            <button
+              type="button"
+              onClick={() => void downloadDesktopProSecure()}
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-brand bg-brand px-3.5 text-xs font-extrabold text-brand-fg shadow-xs hover:bg-brand-dark"
+              title="Tải App Windows AdsOps Desktop Pro v5.1 (.exe chạy ngầm 24/7 ở khay hệ thống)"
             >
-              <span>💻 Tải App Windows AdsOps Desktop Pro v3.2.0 (.zip)</span>
-            </a>
+              <span>Tải App Windows AdsOps Desktop Pro v5.1 (.zip)</span>
+            </button>
             <Button
               type="button"
               onClick={() =>
@@ -435,13 +436,13 @@ export default function ChromeExtension() {
               Chạy ngầm System Tray 24/7, tự gia hạn JWT khi hết hạn qua đêm, tự đóng gói &amp; cập nhật Extension v2.10.2 cho toàn bộ Dàn Via, thông minh mở đúng Chrome Profile gốc có sẵn Facebook hoặc Cô lập (<code>--user-data-dir</code>), theo dõi chính xác cửa sổ Chrome thực, Watchdog chống treo hàng đợi, khóa Tạo Page 72h khi mới thêm/đổi Proxy, phát hiện xung đột Silo Khách hàng &amp; trùng Profile, Cầu nối 2 chiều tự bắt Page ID + báo Telegram khi văng Cookie/Rò IP, kèm sao lưu trọn gói 5 lớp <code>.adsopsvault</code> AES-256-GCM sang máy khác.
             </p>
           </div>
-          <a
-            href="/downloads/AdsOps-Desktop-Pro-v2.3.zip"
-            download
-            className="shrink-0 rounded-lg border border-indigo-500/50 bg-indigo-600 px-3 py-1.5 font-bold text-white hover:bg-indigo-700"
+          <button
+            type="button"
+            onClick={() => void downloadDesktopProSecure()}
+            className="shrink-0 rounded-lg border border-brand bg-brand px-3 py-1.5 font-bold text-brand-fg hover:bg-brand-dark"
           >
-            📥 Tải AdsOps Desktop Pro v3.2.0 (.zip)
-          </a>
+            Tải AdsOps Desktop Pro v5.1 (.zip)
+          </button>
         </div>
 
         {/* 4 CORE CAPABILITIES */}

@@ -266,11 +266,16 @@ class Settings(BaseSettings):
     #: turns it on for one approved verification.
     allow_test_send: bool = False
 
-    # ---- Community SaaS quotas & invite governance (v2.5.0) -------------------------
-    community_require_invite_code: bool = False
+    # ---- Community SaaS quotas & invite governance (v2.5.0 / v5.3) -------------------
+    community_require_invite_code: bool = True
     community_free_max_vias: int = 10
     community_free_max_ad_accounts: int = 5
     community_free_max_members: int = 2
+    free_daily_policy_scans: int = 30
+    free_daily_extension_bundles: int = 3
+    free_daily_desktop_downloads: int = 3
+    anti_harvest_burst_limit: int = 12
+    anti_harvest_burst_window_seconds: int = 30
 
     # ---- Transactional SMTP (password reset & verification links) -------------------
     smtp_host: str = ""

@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
-  buildExtensionFilesForVia,
   getLocalBridgeToken,
   setLocalBridgeToken,
 } from '../lib/chromeProfileLauncher'
+import { buildExtensionFilesForVia } from '../../scripts/extensionBuilderOffline'
 
 describe('v2.5.0 Zero-Trust Bridge Token & Community Readiness helpers', () => {
   it('persists and attaches X-AdsOps-Bridge-Token cleanly for extension bundles', () => {

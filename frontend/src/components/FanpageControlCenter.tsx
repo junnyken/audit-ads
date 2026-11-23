@@ -37,6 +37,7 @@ import {
   buildViaKeepAliveUrl,
   computeSafeViaRestSeconds,
   downloadBatchPageCreationBat,
+  downloadDesktopProSecure,
   downloadUniquePageMediaZip,
   downloadWindowsChromeLauncherBat,
   launchInAssignedChromeProfile,
@@ -1528,14 +1529,14 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                     Cầu nối .bat Đang Chạy (:{bridgeProbe.port || 17890})
                   </span>
                 ) : null}
-                <a
-                  href="/downloads/AdsOps-Desktop-Pro-latest.zip"
-                  download
+                <button
+                  type="button"
+                  onClick={() => void downloadDesktopProSecure()}
                   className="rounded border border-line bg-surface px-2 py-1 font-semibold text-ink transition hover:border-line-strong hover:bg-surface-muted"
                   title="Tải App Windows AdsOps Desktop Pro v5.1.0 (.exe chạy ngầm System Tray 24/7, tự gia hạn phiên DPAPI 24/7, nhận diện thông minh Chrome Profile gốc & cô lập, Extension v2.11.0)"
                 >
                   Tải App Windows v5.1 (.zip)
-                </a>
+                </button>
                 <button
                   type="button"
                   onClick={downloadWindowsChromeLauncherBat}

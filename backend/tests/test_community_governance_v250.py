@@ -9,6 +9,7 @@ os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("NOTIFICATION_TRANSPORT", "fake")
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "")
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
+os.environ.setdefault("COMMUNITY_REQUIRE_INVITE_CODE", "false")
 os.environ["META_ACCESS_TOKEN"] = ""
 os.environ["META_ACCESS_TOKENS_BY_BUSINESS"] = "{}"
 for _k in (
@@ -60,6 +61,11 @@ def community_client():
             if isinstance(val, datetime) and val.tzinfo is None:
                 set_committed_value(target, attr, val.replace(tzinfo=UTC))
 
+    from app.core.config import get_settings
+
+    old_req = os.environ.get("COMMUNITY_REQUIRE_INVITE_CODE")
+    os.environ["COMMUNITY_REQUIRE_INVITE_CODE"] = "false"
+    get_settings.cache_clear()
     app = create_app()
     app.dependency_overrides[get_db] = _override_get_db
     models_with_dt = (DeviceSession, CommunityInviteCode, User, Workspace)
@@ -70,6 +76,11 @@ def community_client():
         with TestClient(app) as client, TestingSession() as inspect_db:
             yield client, inspect_db
     finally:
+        if old_req is None:
+            os.environ.pop("COMMUNITY_REQUIRE_INVITE_CODE", None)
+        else:
+            os.environ["COMMUNITY_REQUIRE_INVITE_CODE"] = old_req
+        get_settings.cache_clear()
         for cls in models_with_dt:
             sa.event.remove(cls, "load", _normalize_naive_dt)
             sa.event.remove(cls, "refresh", _normalize_naive_dt)

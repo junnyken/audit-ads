@@ -540,3 +540,17 @@ def admin_remove_email_allowlist(ctx: Ctx, payload: AllowlistRemoveRequest) -> d
     )
     ctx.commit()
     return {"removed": clean}
+
+
+class VerifyCanaryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(min_length=4, max_length=20000)
+
+
+@router.post("/admin/verify-canary")
+def admin_verify_canary(ctx: Ctx, payload: VerifyCanaryRequest) -> dict[str, Any]:
+    """Super-Admin Canary Leak Forensics: trace a leaked CNRY-... manifest back to its issuer."""
+    _require_platform_admin(ctx)
+    from app.services.ip_shield import verify_and_lookup_canary
+
+    return verify_and_lookup_canary(ctx.session, get_settings(), payload.text)

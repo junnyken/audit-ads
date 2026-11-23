@@ -23,6 +23,10 @@ const BASE =
     : ((import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:8000')
 const TOKEN_KEY = 'adsops.token'
 
+export function resolveApiUrl(path: string): string {
+  return `${BASE}${path}`
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,

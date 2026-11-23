@@ -56,8 +56,8 @@ const PHRASE_PAIRS: Array<[string, string]> = [
   ["Quán ăn", "Restaurant"],
   ["Đồng bộ từ BM", "Synced from BM"],
   [
-    "🚫 Khiên Chặn Passkey Tự Động (passkey_shield.js): Tiện ích AdsOps Companion v2.10.2 Pro khóa thẳng hàm WebAuthn (PublicKeyCredential) ngay trước khi trang Facebook tải xong — bảng Windows Hello / QR Passkey sẽ KHÔNG BAO GIỜ nhảy lên nữa, ép Facebook chuyển thẳng về ô nhập mã 2FA 6 số.",
-    "🚫 Automatic Passkey Shield (passkey_shield.js): AdsOps Companion v2.10.2 Pro overrides WebAuthn (PublicKeyCredential) before Facebook finishes loading — Windows Hello / QR Passkey dialogs NEVER appear, forcing Facebook directly to 6-digit 2FA."
+    "🚫 Khiên Chặn Passkey Tự Động: Tiện ích AdsOps Companion Pro v2.11 tự động vô hiệu hóa hộp thoại Windows Hello / QR Passkey ngay trước khi tải trang — ép tài khoản chuyển thẳng về bước nhập mã xác thực 2FA 6 số.",
+    "🚫 Automatic Passkey Shield: AdsOps Companion Pro v2.11 disables Windows Hello / QR Passkey prompts before page load — forcing authentication directly to 6-digit 2FA."
   ],
   [
     "🗑️ Nút 1 Chạm «🚫 Quét & Xoá Passkey» trên bảng Via: Bấm 1 nút trên bảng Tài khoản Facebook (hoặc trong Popup tiện ích), trình duyệt sẽ mở thẳng trang Quản lý Passkey của Meta và tự động phát hiện + bấm Xoá sạch Passkey đang lưu.",

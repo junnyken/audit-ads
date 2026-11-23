@@ -34,6 +34,7 @@ import { EmptyState, ErrorState, LoadingRegion } from '../components/states'
 import { accountStatusTone } from '../lib/readiness'
 import {
   downloadChromeExtensionZip,
+  downloadDesktopProSecure,
   downloadWindowsChromeLauncherBat,
   formatShortProfileBadge,
   launchInAssignedChromeProfile,
@@ -152,14 +153,14 @@ export default function Overview() {
               Chạy file <code>.bat</code> (1 lần) để mở đúng Hồ sơ Chrome từ Web &amp; cài gói Tiện ích v2.11.0 Pro (Tab Automatic, 2FA tự điền, Khiên khóa Via Lớp 1 / 72h, khóa IP Leak/WebRTC).
             </p>
             <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-              <a
-                href="/downloads/AdsOps-Desktop-Pro-latest.zip"
-                download
+              <button
+                type="button"
+                onClick={() => void downloadDesktopProSecure()}
                 className="inline-flex items-center gap-1 rounded border border-brand bg-brand px-2 py-1 text-[11px] font-bold text-brand-fg hover:bg-brand-dark"
               >
                 <Download className="h-3 w-3" aria-hidden="true" />
                 App Win v5.1
-              </a>
+              </button>
               <button
                 type="button"
                 onClick={downloadWindowsChromeLauncherBat}
@@ -170,7 +171,7 @@ export default function Overview() {
               </button>
               <button
                 type="button"
-                onClick={() => downloadChromeExtensionZip()}
+                onClick={() => void downloadChromeExtensionZip()}
                 className="rounded border border-line bg-surface px-2 py-1 text-[11px] font-semibold text-ink hover:bg-surface-muted"
               >
                 Tải .zip

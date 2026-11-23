@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  buildExtensionFilesForVia,
   canMemberLaunchVia,
   getAntidetectEngineLabel,
   parseAntidetectFromNotes,
@@ -8,6 +7,7 @@ import {
   resetLocalBridgePortCache,
   resolveLocalBridgeBaseUrl,
 } from '../lib/chromeProfileLauncher'
+import { buildExtensionFilesForVia } from '../../scripts/extensionBuilderOffline'
 
 afterEach(() => {
   resetLocalBridgePortCache()
@@ -38,7 +38,7 @@ describe('v2.6.0 Multi-Engine Antidetect Hub & Team Launch RBAC', () => {
   it('generates v2.10.2 manifest metadata cleanly', () => {
     const files = buildExtensionFilesForVia('AdsOps', 'Via Test', 'Profile 1', '')
     const manifest = JSON.parse(files.find((f) => f.name.endsWith('/manifest.json'))!.content) as { version: string }
-    expect(manifest.version).toBe('2.10.2')
+    expect(manifest.version).toBe('2.11.0')
   })
 
   it('auto-discovers AdsOpsDesktop on fallback port 17891 when 17890 is occupied by another app', async () => {

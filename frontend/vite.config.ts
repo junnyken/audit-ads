@@ -7,13 +7,19 @@ import react from '@vitejs/plugin-react'
  */
 export default defineConfig({
   plugins: [react()],
+  esbuild: {
+    legalComments: 'none',
+  },
   build: {
     sourcemap: false,
     rollupOptions: {
       output: {
+        entryFileNames: 'assets/e-[hash].js',
+        chunkFileNames: 'assets/c-[hash].js',
+        assetFileNames: 'assets/a-[hash].[ext]',
         manualChunks(id) {
           if (id.includes('/src/i18n/') || id.includes('\\src\\i18n\\')) {
-            return 'i18n-dict'
+            return 'v0'
           }
           if (!id.includes('node_modules')) return undefined
           if (
@@ -22,13 +28,13 @@ export default defineConfig({
             id.includes('/react-router') ||
             id.includes('/scheduler/')
           ) {
-            return 'vendor-react'
+            return 'v1'
           }
           if (id.includes('/@tanstack/')) {
-            return 'vendor-query'
+            return 'v2'
           }
           if (id.includes('/lucide-react/') || id.includes('/@radix-ui/')) {
-            return 'vendor-ui'
+            return 'v3'
           }
           return undefined
         },
