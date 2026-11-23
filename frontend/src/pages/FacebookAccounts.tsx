@@ -140,7 +140,7 @@ function computeWarmupStatus(warmupStartIso: string): {
       hoursElapsed,
       daysElapsed,
       phase: '72h_lock',
-      label: `⏳ Ngâm 72h vàng (${hoursElapsed}/72h)`,
+      label: `Ngâm 72h vàng (${hoursElapsed}/72h)`,
       hint: 'Đang trong 72h đầu: CẤM vào Ads Manager, CẤM đổi mật khẩu, CẤM đá thiết bị cũ. Chỉ lướt Newsfeed/Watch 5–10p.',
       tone: 'caution',
     }
@@ -150,7 +150,7 @@ function computeWarmupStatus(warmupStartIso: string): {
       hoursElapsed,
       daysElapsed,
       phase: '7d_warmup',
-      label: `🟡 Ngâm ngày ${daysElapsed}/7`,
+      label: `Ngâm ngày ${daysElapsed}/7`,
       hint: 'Từ ngày 4–7: Có thể nhận link mời BM qua email nhưng chưa nên đá thiết bị cũ hoặc lên camp nặng.',
       tone: 'info',
     }
@@ -159,7 +159,7 @@ function computeWarmupStatus(warmupStartIso: string): {
     hoursElapsed,
     daysElapsed,
     phase: 'trusted',
-    label: `✅ Đã ngâm > 7 ngày (Đã Trust)`,
+    label: `Đã ngâm > 7 ngày (Đã Trust)`,
     hint: 'Thiết bị Chrome & IP của Via này đã đủ độ tin cậy (Trusted Device). Có thể vận hành ổn định.',
     tone: 'positive',
   }
@@ -295,8 +295,8 @@ function TwoFactorOtpCell({
   if (secret) {
     return (
       <div className="space-y-1">
-        <div className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-1">
-          <span className="font-mono text-xs font-extrabold tracking-wider text-emerald-700 dark:text-emerald-300 tabular-nums">
+        <div className="inline-flex items-center gap-1.5 rounded-md border border-tone-positive-border bg-tone-positive-bg px-2 py-1">
+          <span className="font-mono text-xs font-extrabold tracking-wider text-tone-positive-fg tabular-nums">
             {otp.slice(0, 3)} {otp.slice(3)}
           </span>
           <span className="font-mono text-[10px] text-ink-muted tabular-nums">({secLeft}s)</span>
@@ -307,7 +307,7 @@ function TwoFactorOtpCell({
               setCopied(true)
               setTimeout(() => setCopied(false), 1500)
             }}
-            className="rounded bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold text-white hover:bg-emerald-500"
+            className="rounded bg-brand px-1.5 py-0.5 text-[10px] font-semibold text-brand-fg hover:opacity-90"
             title="Sao chép mã OTP 2FA 6 số"
           >
             {copied ? 'Đã chép' : 'Copy'}
@@ -323,7 +323,7 @@ function TwoFactorOtpCell({
               }}
               className="text-[10px] text-ink-muted hover:text-brand-text hover:underline"
             >
-              ✎ Đổi khóa 2FA
+              Đổi khóa 2FA
             </button>
           </div>
         )}
@@ -487,8 +487,8 @@ export default function FacebookAccounts() {
       void queryClient.invalidateQueries({ queryKey: ['proxy-health-map'] })
       setSyncNotice(
         res.status === 'LIVE'
-          ? `🟢 Proxy ${res.normalized_key} SỐNG — IP ra: ${res.exit_ip ?? '—'} (${res.country_code ?? '—'}${res.timezone ? ` · ${res.timezone}` : ''} · ${res.latency_ms ?? 0}ms)${res.timezone_warning ? ` — ⚠️ ${res.timezone_warning}` : ''}`
-          : `🔴 Proxy ${res.normalized_key || ''} LỖI/CHẾT: ${res.error_summary ?? 'Không phản hồi'}`,
+          ? `Proxy ${res.normalized_key} SỐNG — IP ra: ${res.exit_ip ?? '—'} (${res.country_code ?? '—'}${res.timezone ? ` · ${res.timezone}` : ''} · ${res.latency_ms ?? 0}ms)${res.timezone_warning ? ` — ${res.timezone_warning}` : ''}`
+          : `Proxy ${res.normalized_key || ''} LỖI/CHẾT: ${res.error_summary ?? 'Không phản hồi'}`,
       )
     },
   })
@@ -498,7 +498,7 @@ export default function FacebookAccounts() {
     onSuccess: (res) => {
       void queryClient.invalidateQueries({ queryKey: ['proxy-health-map'] })
       setSyncNotice(
-        `🩺 Đã kiểm tra ${res.checked_count} Proxy: 🟢 ${res.live_count} Sống · 🔴 ${res.dead_count} Chết/Lỗi.`,
+        `Đã kiểm tra ${res.checked_count} Proxy: ${res.live_count} Sống · ${res.dead_count} Chết/Lỗi.`,
       )
     },
   })
@@ -705,12 +705,14 @@ export default function FacebookAccounts() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {chromeOptions.length > 0 ? (
-              <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
-                🟢 Đã kết nối {chromeOptions.length} Hồ sơ Chrome thật trên máy
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-tone-positive-border bg-tone-positive-bg px-2.5 py-1.5 text-xs font-medium text-tone-positive-fg">
+                <span className="h-1.5 w-1.5 rounded-full bg-tone-positive-fg" aria-hidden="true" />
+                <span>Đã kết nối {chromeOptions.length} Hồ sơ Chrome thật trên máy</span>
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface-muted px-2.5 py-1.5 text-xs font-medium text-ink-muted">
-                ⚪ Cầu nối Desktop (:17890) chưa bật — mở AdsOps Desktop Pro để đọc Hồ sơ Chrome thật
+                <span className="h-1.5 w-1.5 rounded-full bg-ink-faint" aria-hidden="true" />
+                <span>Cầu nối Desktop (:17890) chưa bật — mở AdsOps Desktop Pro để đọc Hồ sơ Chrome thật</span>
               </span>
             )}
             {canWrite && (
@@ -733,24 +735,25 @@ export default function FacebookAccounts() {
                 onClick={() => checkBatchProxies.mutate()}
                 title="Kiểm tra hàng loạt xem Proxy gắn cho từng Via còn sống hay đã chết, IP ra & Quốc gia nào"
               >
-                {checkBatchProxies.isPending ? '🩺 Đang kiểm tra Proxy...' : '🩺 Kiểm tra tất cả Proxy'}
+                {checkBatchProxies.isPending ? 'Đang kiểm tra Proxy...' : 'Kiểm tra tất cả Proxy'}
               </Button>
             )}
             {bridgeProbe?.isDesktopApp && (
               <span
-                className="inline-flex items-center gap-1 rounded-md border border-emerald-500/50 bg-emerald-500/15 px-2.5 py-1.5 text-xs font-extrabold text-emerald-700 dark:text-emerald-300"
+                className="inline-flex items-center gap-1.5 rounded-md border border-tone-positive-border bg-tone-positive-bg px-2.5 py-1.5 text-xs font-semibold text-tone-positive-fg"
                 title={`AdsOps Desktop Pro đang chạy ngầm tại 127.0.0.1:${bridgeProbe.port || 17890}`}
               >
-                💻 App Windows v{bridgeProbe.version || '3.0.3'} Đang Chạy
+                <span className="h-1.5 w-1.5 rounded-full bg-tone-positive-fg" aria-hidden="true" />
+                <span>App Windows v{bridgeProbe.version || '5.0.0'} Đang Chạy</span>
               </span>
             )}
             <a
-              href="/downloads/AdsOps-Desktop-Pro-v2.3.zip"
+              href="/downloads/AdsOps-Desktop-Pro-latest.zip"
               download
-              className="inline-flex h-9 items-center gap-1 rounded-md border border-indigo-500/45 bg-indigo-500/15 px-3 text-xs font-bold text-indigo-700 hover:bg-indigo-500/25 dark:text-indigo-300"
-              title="Tải App Windows AdsOps Desktop Pro v3.0.3 (Tự gia hạn phiên 24/7 DPAPI, Chrome Profile gốc & Cô lập, Broker PID Tracking, Chia Proxy 1:4, Watchdog, 5 Engine Antidetect & Extension v2.10.0)"
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-line bg-surface px-3 text-xs font-semibold text-ink transition hover:border-line-strong hover:bg-surface-muted"
+              title="Tải App Windows AdsOps Desktop Pro v5.0.0 (Tự gia hạn phiên 24/7 DPAPI, Chrome Profile gốc & Cô lập, Broker PID Tracking, Chia Proxy 1:4, Watchdog, 5 Engine Antidetect & Extension v2.10.4)"
             >
-              💻 Tải App Windows v3.0.3 (.zip)
+              Tải App Windows v5.0 (.zip)
             </a>
             <Button
               type="button"
@@ -758,7 +761,7 @@ export default function FacebookAccounts() {
               onClick={() => setShowHubPanel((p) => (p === 'playbooks' ? 'none' : 'playbooks'))}
               title="Mở Chợ Kịch bản Team (Meta / Google Ads / TikTok) & chạy lô lệch pha Jitter"
             >
-              📚 Kịch bản Team ({playbooksQ.data?.length ?? 0})
+              Kịch bản Team ({playbooksQ.data?.length ?? 0})
             </Button>
             <Button
               type="button"
@@ -766,7 +769,7 @@ export default function FacebookAccounts() {
               onClick={() => setShowHubPanel((p) => (p === 'audit' ? 'none' : 'audit'))}
               title="Xem Nhật ký Team: Ai đã mở Profile nào, bằng Engine gì, lúc nào"
             >
-              🕵️ Nhật ký Mở Profile
+              Nhật ký Mở Profile
             </Button>
             <Button
               type="button"
@@ -774,7 +777,7 @@ export default function FacebookAccounts() {
               onClick={() => setShowHubPanel((p) => (p === 'onboarding' ? 'none' : 'onboarding'))}
               title="Hướng dẫn Thiết lập An toàn 5 bước cho người mới"
             >
-              🛡️ Hướng dẫn 5 Bước
+              Hướng dẫn 5 Bước
             </Button>
             <Button
               type="button"
@@ -783,7 +786,7 @@ export default function FacebookAccounts() {
               title="Tải file .bat dự phòng cho máy Windows khác"
               data-testid="fb-chrome-launcher-setup"
             >
-              ⚡ Tải .bat dự phòng
+              Tải .bat dự phòng
             </Button>
             {canWrite && (
               <Button type="button" onClick={() => setCreating(true)}>
@@ -795,8 +798,8 @@ export default function FacebookAccounts() {
       />
 
       {syncNotice && (
-        <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3.5 py-2 text-xs font-medium text-emerald-800 dark:text-emerald-300">
-          ✓ {syncNotice}
+        <div className="rounded-md border border-tone-positive-border bg-tone-positive-bg px-3.5 py-2 text-xs font-medium text-tone-positive-fg">
+          {syncNotice}
         </div>
       )}
 
@@ -804,8 +807,8 @@ export default function FacebookAccounts() {
       {bridgeProbe?.isDesktopApp && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-surface px-3.5 py-2 text-xs">
           <div className="flex flex-wrap items-center gap-3">
-            <span className="font-bold text-ink">
-              💻 RAM máy trạm:{' '}
+            <span className="font-semibold text-ink">
+              RAM máy trạm:{' '}
               {workstationQ.data?.workstation_memory
                 ? `${workstationQ.data.workstation_memory.available_physical_mb.toLocaleString()}/${workstationQ.data.workstation_memory.total_physical_mb.toLocaleString()} MB trống (Khuyên tối đa ${workstationQ.data.workstation_memory.recommended_max_concurrent} luồng)`
                 : 'Đang đọc...'}
@@ -814,8 +817,8 @@ export default function FacebookAccounts() {
               • Phiên đang chạy: <strong className="text-ink">{workstationQ.data?.active_count ?? 0}</strong>
             </span>
             {benchmarkQ.data && (
-              <span className="font-semibold text-emerald-700 dark:text-emerald-300">
-                ⚡ Engine nhanh nhất: {getAntidetectEngineLabel(benchmarkQ.data.recommended_engine)} (
+              <span className="font-semibold text-tone-positive-fg">
+                Engine nhanh nhất: {getAntidetectEngineLabel(benchmarkQ.data.recommended_engine)} (
                 {benchmarkQ.data.probes
                   .filter((p) => p.Online)
                   .map((p) => `${getAntidetectEngineLabel(p.Engine)} ${p.LatencyMs}ms`)
@@ -831,7 +834,7 @@ export default function FacebookAccounts() {
             disabled={benchmarkQ.isPending}
             onClick={() => benchmarkQ.mutate()}
           >
-            {benchmarkQ.isPending ? '⏱️ Đang đo tốc độ...' : '⏱️ Benchmark 5 Engine'}
+            {benchmarkQ.isPending ? 'Đang đo tốc độ...' : 'Benchmark 5 Engine'}
           </Button>
         </div>
       )}
@@ -840,26 +843,26 @@ export default function FacebookAccounts() {
       {showHubPanel === 'onboarding' && (
         <Card className="p-4 space-y-2">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-ink">🛡️ Lộ trình Thiết lập An toàn 5 Bước cho Người mới</h3>
+            <h3 className="text-sm font-bold text-ink">Lộ trình Thiết lập An toàn 5 Bước cho Người mới</h3>
             <button type="button" onClick={() => setShowHubPanel('none')} className="text-xs text-ink-muted hover:underline">
-              Đóng ✕
+              Đóng
             </button>
           </div>
           <div className="grid gap-2 sm:grid-cols-5 text-xs">
             <div className="rounded-lg border border-line bg-surface-muted p-2.5">
               <div className="font-bold">1. Cầu nối Desktop</div>
-              <div className="text-ink-muted mt-0.5">{bridgeProbe?.isDesktopApp ? `✓ Đã bật Zero-Trust :${bridgeProbe.port || 17890}` : '○ Tải & bật AdsOps Desktop Pro'}</div>
+              <div className="text-ink-muted mt-0.5">{bridgeProbe?.isDesktopApp ? `Đã bật Zero-Trust :${bridgeProbe.port || 17890}` : 'Tải & bật AdsOps Desktop Pro'}</div>
             </div>
             <div className="rounded-lg border border-line bg-surface-muted p-2.5">
               <div className="font-bold">2. Phân tầng 3 lớp</div>
-              <div className="text-ink-muted mt-0.5">{tierStats.vault > 0 ? `✓ Có ${tierStats.vault} Via Hold BM` : '○ Gắn ít nhất 1 Via Tổng Hold BM'}</div>
+              <div className="text-ink-muted mt-0.5">{tierStats.vault > 0 ? `Có ${tierStats.vault} Via Hold BM` : 'Gắn ít nhất 1 Via Tổng Hold BM'}</div>
             </div>
             <div className="rounded-lg border border-line bg-surface-muted p-2.5">
               <div className="font-bold">3. Cách ly Profile</div>
-              <div className="text-ink-muted mt-0.5">{tierStats.risk === 0 && tierStats.total > 0 ? '✓ Sạch 0 trùng Silo' : `⚠ ${tierStats.risk} Via cần tách Profile/Proxy`}</div>
+              <div className="text-ink-muted mt-0.5">{tierStats.risk === 0 && tierStats.total > 0 ? 'Sạch 0 trùng Silo' : `${tierStats.risk} Via cần tách Profile/Proxy`}</div>
             </div>
             <div className="rounded-lg border border-line bg-surface-muted p-2.5">
-              <div className="font-bold">4. Proxy & Múi giờ</div>
+              <div className="font-bold">4. Proxy &amp; Múi giờ</div>
               <div className="text-ink-muted mt-0.5">Bấm «Kiểm tra tất cả Proxy» để xác nhận IP khớp Múi giờ Via.</div>
             </div>
             <div className="rounded-lg border border-line bg-surface-muted p-2.5">
@@ -874,17 +877,17 @@ export default function FacebookAccounts() {
         <Card className="p-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h3 className="text-sm font-bold text-ink">📚 Chợ Kịch Bản Team (Meta / Google Ads / TikTok) &amp; Chạy Lô Lệch Pha (Jitter)</h3>
+              <h3 className="text-sm font-bold text-ink">Chợ Kịch Bản Team (Meta / Google Ads / TikTok) &amp; Chạy Lô Lệch Pha (Jitter)</h3>
               <p className="text-xs text-ink-muted">Thay vì nhân bản chuột đồng thời dễ dính Checkpoint chùm, hệ thống chạy tuần tự có nghỉ lệch pha ±35% và ghi lịch sử nhóm.</p>
             </div>
             <div className="flex items-center gap-2">
               {canWrite && (
                 <Button type="button" size="sm" variant="secondary" onClick={() => setCreatingPlaybook((v) => !v)}>
-                  {creatingPlaybook ? 'Hủy tạo' : '➕ Tạo Kịch bản Team'}
+                  {creatingPlaybook ? 'Hủy tạo' : 'Tạo Kịch bản Team'}
                 </Button>
               )}
               <button type="button" onClick={() => setShowHubPanel('none')} className="text-xs text-ink-muted hover:underline">
-                Đóng ✕
+                Đóng
               </button>
             </div>
           </div>
@@ -980,7 +983,7 @@ export default function FacebookAccounts() {
                     <span className="font-mono text-[10px] text-ink-muted">v{pb.version_tag}</span>
                   </div>
                   <span className="shrink-0 font-mono text-[11px] text-ink-muted">
-                    {pb.rating_count > 0 && pb.avg_rating != null ? `★${pb.avg_rating.toFixed(1)} (${pb.rating_count})` : 'Chưa chấm sao'} • {pb.run_count} lượt
+                    {pb.rating_count > 0 && pb.avg_rating != null ? `${pb.avg_rating.toFixed(1)}/5 (${pb.rating_count})` : 'Chưa chấm sao'} • {pb.run_count} lượt
                   </span>
                 </div>
                 <div className="text-ink-muted">{pb.description}</div>
@@ -992,11 +995,11 @@ export default function FacebookAccounts() {
                         type="button"
                         onClick={() => ratePlaybookMut.mutate({ id: pb.id, stars: st })}
                         className={`rounded px-1.5 py-0.5 text-[11px] ${
-                          pb.my_rating === st ? 'bg-amber-500/20 font-bold text-amber-600' : 'text-ink-muted hover:text-amber-500'
+                          pb.my_rating === st ? 'bg-tone-caution-bg font-semibold text-tone-caution-fg' : 'text-ink-muted hover:text-ink'
                         }`}
                         title={`Chấm ${st} sao`}
                       >
-                        {pb.my_rating === st ? `★${st}` : `☆${st}`}
+                        {st}★
                       </button>
                     ))}
                     <span className="ml-1 text-[10px] text-ink-muted">Tác giả: {pb.author_name}</span>
@@ -1035,10 +1038,10 @@ export default function FacebookAccounts() {
                             })
                           }, delayMs)
                         })
-                        setSyncNotice(`🚀 Đang chạy kịch bản "${pb.title}" với Jitter ±${pb.jitter_pct}% cho ${targetList.length} Via đã lọc.`)
+                        setSyncNotice(`Đang chạy kịch bản "${pb.title}" với Jitter ±${pb.jitter_pct}% cho ${targetList.length} Via đã lọc.`)
                       }}
                     >
-                      🚀 Chạy Jitter ({Math.min(6, filteredItems.length)} Via)
+                      Chạy Jitter ({Math.min(6, filteredItems.length)} Via)
                     </Button>
                   )}
                 </div>
@@ -1051,9 +1054,9 @@ export default function FacebookAccounts() {
       {showHubPanel === 'audit' && (
         <Card className="p-4 space-y-2">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-ink">🕵️ Nhật ký Team Mở Profile, Chạy Kịch bản &amp; Failover (Audit)</h3>
+            <h3 className="text-sm font-bold text-ink">Nhật ký Team Mở Profile, Chạy Kịch bản &amp; Failover (Audit)</h3>
             <button type="button" onClick={() => setShowHubPanel('none')} className="text-xs text-ink-muted hover:underline">
-              Đóng ✕
+              Đóng
             </button>
           </div>
           {launchAuditQ.isLoading ? (
@@ -1086,37 +1089,46 @@ export default function FacebookAccounts() {
       {/* THANH LỌC 1 CHẠM THEO LỚP VẬN HÀNH + NÚT MỞ TRANG HƯỚNG DẪN & CÔNG THỨC */}
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-surface px-3.5 py-2.5">
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-xs font-bold text-ink-muted mr-1">Lọc theo Lớp vận hành:</span>
+          <span className="mr-1 text-xs font-semibold text-ink-muted">Lọc theo Lớp vận hành:</span>
           {(
             [
-              ['all', `Tất cả Via (${tierStats.total})`],
-              ['vault', `🛡️ Lớp 1: Via Tổng Giữ BM (${tierStats.vault})`],
-              ['camp', `🚀 Lớp 2: Via Lên Camp (${tierStats.camp})`],
-              ['standby', `🌱 Lớp 3: Via Dự Phòng Ngâm Sẵn (${tierStats.standby})`],
-              ['risk', `⚠️ Cần tối ưu cách ly (${tierStats.risk})`],
+              { key: 'all', label: `Tất cả Via (${tierStats.total})`, dotCls: null },
+              { key: 'vault', label: `Lớp 1: Via Tổng Giữ BM (${tierStats.vault})`, dotCls: 'bg-tone-positive-fg' },
+              { key: 'camp', label: `Lớp 2: Via Lên Camp (${tierStats.camp})`, dotCls: 'bg-brand' },
+              { key: 'standby', label: `Lớp 3: Via Dự Phòng Ngâm Sẵn (${tierStats.standby})`, dotCls: 'bg-tone-caution-fg' },
+              { key: 'risk', label: `Cần tối ưu cách ly (${tierStats.risk})`, dotCls: 'bg-tone-attention-fg' },
             ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setTierFilter(key)}
-              className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
-                tierFilter === key
-                  ? 'border-brand bg-brand text-brand-fg'
-                  : 'border-line bg-surface hover:bg-surface-muted text-ink'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+          ).map(({ key, label, dotCls }) => {
+            const active = tierFilter === key
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setTierFilter(key)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition ${
+                  active
+                    ? 'border-brand bg-brand text-brand-fg'
+                    : 'border-line bg-surface hover:bg-surface-muted text-ink'
+                }`}
+              >
+                {dotCls && (
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${active ? 'bg-current opacity-85' : dotCls}`}
+                    aria-hidden="true"
+                  />
+                )}
+                <span>{label}</span>
+              </button>
+            )
+          })}
         </div>
 
         <Link
           to="/operations-guide"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-brand/40 bg-brand-light px-3 py-1.5 text-xs font-bold text-brand-text hover:opacity-90"
+          className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-brand-text transition hover:border-line-strong hover:bg-surface-muted"
         >
           <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-          <span>📖 Xem Hướng dẫn &amp; Công thức Vận hành →</span>
+          <span>Xem Hướng dẫn &amp; Công thức Vận hành →</span>
         </Link>
       </div>
 
@@ -1199,12 +1211,12 @@ export default function FacebookAccounts() {
                 )
                 const safeLaunchChrome = (targetUrl: string) => {
                   if (!launchPerm.allowed) {
-                    setSyncNotice(`🔒 ${launchPerm.reason}`)
+                    setSyncNotice(launchPerm.reason)
                     return
                   }
                   if (proxyHealth?.status === 'DEAD') {
                     const proceed = window.confirm(
-                      '⚠️ CẢNH BÁO PROXY ĐÃ CHẾT / LỖI: Lần kiểm tra gần nhất cho thấy Proxy của Via này không phản hồi. Mở Chrome lúc này có thể lộ IP thật hoặc gây Checkpoint! Bạn vẫn muốn mở?',
+                      'CẢNH BÁO PROXY ĐÃ CHẾT / LỖI: Lần kiểm tra gần nhất cho thấy Proxy của Via này không phản hồi. Mở Chrome lúc này có thể lộ IP thật hoặc gây Checkpoint! Bạn vẫn muốn mở?',
                     )
                     if (!proceed) return
                   }
@@ -1248,11 +1260,11 @@ export default function FacebookAccounts() {
                           <Badge tone={adMeta.engine === 'chrome_native' ? 'muted' : 'info'}>
                             {adMeta.engine === 'chrome_native'
                               ? 'Chrome Gốc'
-                              : `🎭 ${getAntidetectEngineLabel(adMeta.engine)}${adMeta.profileId ? ` #${adMeta.profileId}` : ''}`}
+                              : `${getAntidetectEngineLabel(adMeta.engine)}${adMeta.profileId ? ` #${adMeta.profileId}` : ''}`}
                           </Badge>
                           {activeSess && (
                             <Badge tone="positive" title={activeSess.status_text}>
-                              ⚡ {Math.round(activeSess.ram_mb)}MB · {(activeSess.cpu_percent ?? 0).toFixed(1)}%
+                              {Math.round(activeSess.ram_mb)}MB · {(activeSess.cpu_percent ?? 0).toFixed(1)}%
                             </Badge>
                           )}
                           {clientName && <span className="text-xs text-ink-muted">{clientName}</span>}
@@ -1262,7 +1274,7 @@ export default function FacebookAccounts() {
                           {Boolean(row.external_reference_id) && (
                             <span className="font-mono">ID: {String(row.external_reference_id)}</span>
                           )}
-                          {emailHint && <span className="font-mono text-[11px]">· ✉️ {emailHint}</span>}
+                          {emailHint && <span className="font-mono text-[11px]">· {emailHint}</span>}
                         </div>
 
                         {/* Bộ chọn nhanh Phân tầng 3 lớp Via ngay trên dòng */}
@@ -1276,32 +1288,32 @@ export default function FacebookAccounts() {
                                 const updatedNotes = buildUpdatedNotes(meta.cleanNotes, nextTier, meta.warmupStartIso)
                                 quickUpdateNotes.mutate({ id: row.id, notes: updatedNotes })
                               }}
-                              className={`rounded-md border px-2 py-1 text-[11px] font-bold focus:outline-none ${
+                              className={`rounded-md border px-2 py-1 text-[11px] font-semibold focus:outline-none ${
                                 meta.tier === 'vault'
-                                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                                  ? 'border-tone-positive-border bg-tone-positive-bg text-tone-positive-fg'
                                   : meta.tier === 'camp'
                                     ? 'border-brand/40 bg-brand-light text-brand-text'
-                                    : 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                                    : 'border-tone-caution-border bg-tone-caution-bg text-tone-caution-fg'
                               }`}
                             >
-                              <option value="vault">🛡️ Lớp 1: Via Tổng (Giữ BM - Cấm lên camp)</option>
-                              <option value="camp">🚀 Lớp 2: Via Lên Camp (Chạy Ads khách)</option>
-                              <option value="standby">🌱 Lớp 3: Via Dự Phòng (Ngâm sẵn)</option>
+                              <option value="vault">Lớp 1: Via Tổng (Giữ BM - Cấm lên camp)</option>
+                              <option value="camp">Lớp 2: Via Lên Camp (Chạy Ads khách)</option>
+                              <option value="standby">Lớp 3: Via Dự Phòng (Ngâm sẵn)</option>
                             </select>
                           ) : (
                             <Badge tone={meta.tier === 'vault' ? 'positive' : meta.tier === 'camp' ? 'info' : 'caution'}>
                               {meta.tier === 'vault'
-                                ? '🛡️ Lớp 1: Via Tổng (Giữ BM)'
+                                ? 'Lớp 1: Via Tổng (Giữ BM)'
                                 : meta.tier === 'camp'
-                                  ? '🚀 Lớp 2: Via Lên Camp'
-                                  : '🌱 Lớp 3: Via Dự Phòng'}
+                                  ? 'Lớp 2: Via Lên Camp'
+                                  : 'Lớp 3: Via Dự Phòng'}
                             </Badge>
                           )}
                         </div>
 
                         {meta.tier === 'vault' && (
-                          <div data-detail-only="true" className="rounded border border-emerald-500/30 bg-emerald-500/5 px-2 py-1 text-[10.5px] font-medium text-emerald-700 dark:text-emerald-300">
-                            🔒 Bảo vệ Via Tổng: Chỉ giữ BM & Share quyền, tuyệt đối không bấm tạo camp.
+                          <div data-detail-only="true" className="rounded border border-tone-positive-border bg-tone-positive-bg px-2 py-1 text-[10.5px] font-medium text-tone-positive-fg">
+                            Bảo vệ Via Tổng: Chỉ giữ BM &amp; Share quyền, tuyệt đối không bấm tạo camp.
                           </div>
                         )}
 
@@ -1351,9 +1363,9 @@ export default function FacebookAccounts() {
                                 type="button"
                                 disabled={!launchPerm.allowed}
                                 onClick={() => safeLaunchChrome('https://business.facebook.com/overview')}
-                                className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-semibold ${
+                                className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-semibold transition ${
                                   launchPerm.allowed
-                                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300'
+                                    ? 'border-line bg-surface text-ink hover:border-line-strong hover:bg-surface-muted'
                                     : 'cursor-not-allowed border-line bg-surface-muted text-ink-muted'
                                 }`}
                                 title={
@@ -1362,7 +1374,7 @@ export default function FacebookAccounts() {
                                     : launchPerm.reason
                                 }
                               >
-                                {launchPerm.allowed ? `🚀 Mở ${getAntidetectEngineLabel(adMeta.engine)}` : '🔒 Phân quyền khác'}
+                                {launchPerm.allowed ? `Mở ${getAntidetectEngineLabel(adMeta.engine)}` : 'Phân quyền khác'}
                               </button>
                               <button
                                 type="button"
@@ -1371,19 +1383,19 @@ export default function FacebookAccounts() {
                                   const kaUrl = `https://www.facebook.com/?adsops_keepalive_session=1&adsops_auto_close=0&adsops_via_tier=${kaTier}&adsops_via_id=${encodeURIComponent(row.id)}&adsops_via_label=${encodeURIComponent(String(row.label || ''))}`
                                   safeLaunchChrome(kaUrl)
                                 }}
-                                className="inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-500/20 dark:text-amber-300"
+                                className="inline-flex items-center gap-1 rounded border border-tone-caution-border bg-tone-caution-bg px-2 py-0.5 text-[11px] font-semibold text-tone-caution-fg hover:opacity-90"
                                 title="Chạy phiên Đảo Ấm Cookie sinh học an toàn ngay trên Chrome của Via này"
                               >
-                                ☕ Đảo Ấm
+                                Đảo Ấm
                               </button>
                               <button
                                 type="button"
                                 onClick={() => safeLaunchChrome('https://accountscenter.facebook.com/password_and_security/passkeys?adsops_auto_delete_passkey=1')}
-                                className="inline-flex items-center gap-1 rounded border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-500/20 dark:text-rose-300"
+                                className="inline-flex items-center gap-1 rounded border border-tone-attention-border bg-tone-attention-bg px-2 py-0.5 text-[11px] font-semibold text-tone-attention-fg hover:opacity-90"
                                 data-detail-only="true"
                                 title="Mở thẳng trang Khóa truy cập (Passkey) trên Chrome của Via này để Tiện ích tự động phát hiện & xóa sạch Passkey chỉ với 1 chạm"
                               >
-                                🚫 Quét &amp; Xoá Passkey
+                                Quét &amp; Xoá Passkey
                               </button>
                             </>
                           )}
@@ -1400,7 +1412,7 @@ export default function FacebookAccounts() {
                                 className="font-mono text-xs font-semibold text-brand-text hover:underline"
                                 title="Bấm để đổi Proxy IP:Port:User:Pass"
                               >
-                                {networkLabel} ✎
+                                {networkLabel}
                               </button>
                               <Badge
                                 tone={
@@ -1421,14 +1433,14 @@ export default function FacebookAccounts() {
                                 <>
                                   <Badge tone={proxyHealth?.status === 'LIVE' ? 'positive' : proxyHealth?.status === 'DEAD' ? 'attention' : 'neutral'}>
                                     {proxyHealth?.status === 'LIVE'
-                                      ? `🟢 Sống · ${proxyHealth.country_code ?? '—'}${proxyHealth.timezone ? ` (${proxyHealth.timezone})` : ''} · ${proxyHealth.latency_ms ?? 0}ms (${proxyHealth.exit_ip ?? '—'})`
+                                      ? `Sống · ${proxyHealth.country_code ?? '—'}${proxyHealth.timezone ? ` (${proxyHealth.timezone})` : ''} · ${proxyHealth.latency_ms ?? 0}ms (${proxyHealth.exit_ip ?? '—'})`
                                       : proxyHealth?.status === 'DEAD'
-                                        ? '🔴 Proxy Chết / Lỗi'
-                                        : '⚪ Chưa kiểm tra'}
+                                        ? 'Proxy Chết / Lỗi'
+                                        : 'Chưa kiểm tra'}
                                   </Badge>
                                   {proxyHealth?.timezone_match === false && (
                                     <Badge tone="caution" title={proxyHealth.timezone_warning || 'Lệch múi giờ IP Proxy'}>
-                                      🕒 Lệch múi giờ IP
+                                      Lệch múi giờ IP
                                     </Badge>
                                   )}
                                   {canWrite && (
@@ -1442,17 +1454,17 @@ export default function FacebookAccounts() {
                                           via_label: String(row.label),
                                         })
                                       }
-                                      className="inline-flex items-center gap-1 rounded border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+                                      className="inline-flex items-center gap-1 rounded border border-tone-positive-border bg-tone-positive-bg px-1.5 py-0.5 text-[10px] font-semibold text-tone-positive-fg hover:opacity-90"
                                     >
-                                      🩺 Test Proxy
+                                      Test Proxy
                                     </button>
                                   )}
                                   <button
                                     type="button"
                                     onClick={() => downloadSwitchyOmegaConfig(networkLabel, String(row.label))}
-                                    className="inline-flex items-center gap-1 rounded border border-blue-500/40 bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-500/20 dark:text-blue-300"
+                                    className="inline-flex items-center gap-1 rounded border border-tone-info-border bg-tone-info-bg px-1.5 py-0.5 text-[10px] font-semibold text-tone-info-fg hover:opacity-90"
                                   >
-                                    🛡️ Tải cấu hình Proxy (.bak)
+                                    Tải cấu hình Proxy (.bak)
                                   </button>
                                 </>
                               )}
@@ -1460,7 +1472,7 @@ export default function FacebookAccounts() {
                           ) : (
                             <>
                               <span className="inline-flex items-center gap-1 rounded border border-line bg-surface-muted px-2 py-0.5 text-[11px] text-ink-muted">
-                                🌐 Mạng gốc (Chưa gắn Proxy riêng)
+                                Mạng gốc (Chưa gắn Proxy riêng)
                               </span>
                               {canWrite && (
                                 <button
@@ -1489,10 +1501,10 @@ export default function FacebookAccounts() {
                                     const updatedNotes = `[TIER:${meta.tier}]${meta.cleanNotes ? ` ${meta.cleanNotes}` : ''}`
                                     quickUpdateNotes.mutate({ id: row.id, notes: updatedNotes })
                                   }}
-                                  className="text-[10.5px] font-semibold text-emerald-600 hover:underline dark:text-emerald-400"
+                                  className="text-[10.5px] font-semibold text-tone-positive-fg hover:underline"
                                   title="Tắt đồng hồ ngâm 72h khi Via đã hoạt động ổn định"
                                 >
-                                  ✓ Hoàn tất ngâm
+                                  Hoàn tất ngâm
                                 </button>
                               )}
                             </>
@@ -1509,7 +1521,7 @@ export default function FacebookAccounts() {
                                 data-detail-only="true"
                                 title="Bấm khi bạn vừa đăng nhập Via mới vào Chrome để bật đồng hồ đếm ngược 72h ngâm an toàn"
                               >
-                                ⏳ Bật hẹn giờ ngâm 72h (cho Via mới)
+                                Bật hẹn giờ ngâm 72h (cho Via mới)
                               </button>
                             )
                           )}
@@ -1521,7 +1533,7 @@ export default function FacebookAccounts() {
                             {risks.map((r, idx) => (
                               <div
                                 key={idx}
-                                className="flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10.5px] font-medium text-amber-800 dark:text-amber-300"
+                                className="flex items-center gap-1 rounded border border-tone-caution-border bg-tone-caution-bg px-2 py-0.5 text-[10.5px] font-medium text-tone-caution-fg"
                               >
                                 <ShieldAlert className="h-3 w-3 shrink-0" aria-hidden="true" />
                                 <span>{r}</span>
@@ -1529,7 +1541,7 @@ export default function FacebookAccounts() {
                             ))}
                           </div>
                         ) : (
-                          <div data-detail-only="true" className="inline-flex items-center gap-1 text-[10.5px] font-medium text-emerald-600 dark:text-emerald-400">
+                          <div data-detail-only="true" className="inline-flex items-center gap-1 text-[10.5px] font-medium text-tone-positive-fg">
                             <ShieldCheck className="h-3 w-3" aria-hidden="true" />
                             <span>Cách ly chuẩn (1 Chrome riêng · Không xung đột)</span>
                           </div>

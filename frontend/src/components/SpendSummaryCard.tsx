@@ -69,25 +69,25 @@ export function SpendSummaryView({ data }: { data: SpendSummary }) {
             <dl className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
               <div>
                 <dt className="font-semibold text-ink-muted">{t('overview.spend.periodToday')}</dt>
-                <dd className="mt-0.5 font-mono text-sm font-bold tabular-nums text-teal-700 dark:text-teal-300">
+                <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-ink">
                   {formatCleanMoney(group.today_partial_raw, group.currency)}
                 </dd>
               </div>
               <div>
                 <dt className="font-semibold text-ink-muted">Ngày ({latestDayLabel})</dt>
-                <dd className="mt-0.5 font-mono text-sm font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
+                <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-ink">
                   {formatCleanMoney(group.total_raw, group.currency)}
                 </dd>
               </div>
               <div>
                 <dt className="font-semibold text-ink-muted">{t('overview.spend.period7d')}</dt>
-                <dd className="mt-0.5 font-mono text-sm font-bold tabular-nums text-sky-700 dark:text-sky-300">
+                <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-brand-text">
                   {formatCleanMoney(group.last_7d_raw, group.currency)}
                 </dd>
               </div>
               <div>
                 <dt className="font-semibold text-ink-muted">{t('overview.spend.periodMtd')}</dt>
-                <dd className="mt-0.5 font-mono text-sm font-bold tabular-nums text-amber-700 dark:text-amber-300">
+                <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-tone-caution-fg">
                   {formatCleanMoney(group.mtd_raw, group.currency)}
                 </dd>
               </div>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Bell, Building2, Crown, Globe, KeyRound, Plus, Save, SlidersHorizontal, Zap } from 'lucide-react'
 import { api } from '../lib/api'
 import type { CurrentUser, ExtensionInstallation, NotificationPolicy, WorkspaceLicenseInfo } from '../lib/types'
 import { Badge } from '../components/primitives/badge'
@@ -42,100 +43,143 @@ export default function Settings() {
     )
   }
   const isOwner = me.data.role === 'owner'
+  const navItemCls =
+    'flex items-center gap-2 rounded-md px-2.5 py-2 text-xs font-medium text-ink-muted transition-colors hover:bg-surface-sunken hover:text-ink'
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <header className="space-y-1">
         <h1 className="text-xl font-semibold leading-7">{t('set.title')}</h1>
         <p className="text-sm text-ink-muted">{t('set.intro')}</p>
       </header>
 
-      <div className="grid items-start gap-4 xl:grid-cols-2">
-        <Panel title={t('set.me.title')}>
-          <dl className={DL_CLASS}>
-            <Row label={t('set.me.email')}>{me.data.email}</Row>
-            <Row label={t('set.me.name')}>{me.data.full_name || '—'}</Row>
-            <Row label={t('set.me.role')}>{enumLabel('role', me.data.role)}</Row>
-            <Row label={t('set.me.workspace')}>
-              {me.data.workspace.name}{' '}
-              <span className="font-mono text-xs text-ink-faint">({me.data.workspace.slug})</span>
-            </Row>
-          </dl>
-        </Panel>
+      <div className="grid items-start gap-6 lg:grid-cols-[216px_1fr]">
+        <nav
+          aria-label="Danh mục cài đặt"
+          className="flex flex-wrap gap-1 rounded-lg border border-line bg-surface p-2 lg:sticky lg:top-16 lg:flex-col"
+        >
+          <a href="#sec-workspace" className={navItemCls}>
+            <Building2 className="h-3.5 w-3.5 shrink-0 text-ink-muted" />
+            <span>Workspace &amp; Hạn mức</span>
+          </a>
+          <a href="#sec-security" className={navItemCls}>
+            <KeyRound className="h-3.5 w-3.5 shrink-0 text-ink-muted" />
+            <span>Bảo mật &amp; Phiên</span>
+          </a>
+          <a href="#sec-integrations" className={navItemCls}>
+            <Globe className="h-3.5 w-3.5 shrink-0 text-ink-muted" />
+            <span>Meta, Domain &amp; Proxy</span>
+          </a>
+          <a href="#sec-automation" className={navItemCls}>
+            <Bell className="h-3.5 w-3.5 shrink-0 text-ink-muted" />
+            <span>Tự động &amp; Cảnh báo</span>
+          </a>
+          {me.data.is_platform_admin && (
+            <a href="#sec-superadmin" className={navItemCls}>
+              <Crown className="h-3.5 w-3.5 shrink-0 text-ink-muted" />
+              <span>Super-Admin Cộng đồng</span>
+            </a>
+          )}
+        </nav>
 
-        <Panel title={t('set.team.title')}>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {isOwner && (
-              <Link to="/team" className={LINK_CARD}>
-                <p className="text-sm font-medium">{t('set.team.seats')}</p>
-                <p className="mt-0.5 text-xs text-ink-muted">{t('set.team.seatsBody')}</p>
-              </Link>
-            )}
-            <Link to="/security-devices" className={LINK_CARD}>
-              <p className="text-sm font-medium">{t('set.team.security')}</p>
-              <p className="mt-0.5 text-xs text-ink-muted">{t('set.team.securityBody')}</p>
-            </Link>
-          </div>
-        </Panel>
-      </div>
+        <div className="min-w-0 space-y-6">
+          <section id="sec-workspace" className="scroll-mt-20 space-y-4">
+            <div className="grid items-start gap-4 xl:grid-cols-2">
+              <Panel title={t('set.me.title')}>
+                <dl className={DL_CLASS}>
+                  <Row label={t('set.me.email')}>{me.data.email}</Row>
+                  <Row label={t('set.me.name')}>{me.data.full_name || '—'}</Row>
+                  <Row label={t('set.me.role')}>{enumLabel('role', me.data.role)}</Row>
+                  <Row label={t('set.me.workspace')}>
+                    {me.data.workspace.name}{' '}
+                    <span className="font-mono text-xs text-ink-faint">({me.data.workspace.slug})</span>
+                  </Row>
+                </dl>
+              </Panel>
 
-      <RevealPinSection />
+              <Panel title={t('set.team.title')}>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {isOwner && (
+                    <Link to="/team" className={LINK_CARD}>
+                      <p className="text-sm font-medium">{t('set.team.seats')}</p>
+                      <p className="mt-0.5 text-xs text-ink-muted">{t('set.team.seatsBody')}</p>
+                    </Link>
+                  )}
+                  <Link to="/security-devices" className={LINK_CARD}>
+                    <p className="text-sm font-medium">{t('set.team.security')}</p>
+                    <p className="mt-0.5 text-xs text-ink-muted">{t('set.team.securityBody')}</p>
+                  </Link>
+                </div>
+              </Panel>
+            </div>
 
-      <ReaderCredentialsSection isOwner={isOwner} />
+            <CommunityQuotaSection isOwner={isOwner} />
+          </section>
 
-      <div className="grid items-start gap-4 xl:grid-cols-2">
-        <Panel title={t('set.meta.title')}>
-          <Link to="/meta-connections" className={LINK_CARD}>
-            <p className="text-sm font-medium">{t('set.meta.link')}</p>
-            <p className="mt-0.5 text-xs text-ink-muted">{t('set.meta.body')}</p>
-          </Link>
-        </Panel>
+          <section id="sec-security" className="scroll-mt-20 space-y-4">
+            <RevealPinSection />
+            <ReaderCredentialsSection isOwner={isOwner} />
+            <ConnectedBrowsersSection />
+          </section>
 
-        <Panel title={t('set.system.title')}>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <Link to="/system" className={LINK_CARD}>
-              <p className="text-sm font-medium">{t('set.system.link')}</p>
-              <p className="mt-0.5 text-xs text-ink-muted">{t('set.system.body')}</p>
-            </Link>
-            <Link to="/audit-log" className={LINK_CARD}>
-              <p className="text-sm font-medium">{t('nav.item.auditLog')}</p>
-              <p className="mt-0.5 text-xs text-ink-muted">Tra cứu lịch sử thay đổi &amp; thao tác hệ thống</p>
-            </Link>
-          </div>
-        </Panel>
-      </div>
+          <section id="sec-integrations" className="scroll-mt-20 space-y-4">
+            <div className="grid items-start gap-4 xl:grid-cols-2">
+              <Panel title={t('set.meta.title')}>
+                <Link to="/meta-connections" className={LINK_CARD}>
+                  <p className="text-sm font-medium">{t('set.meta.link')}</p>
+                  <p className="mt-0.5 text-xs text-ink-muted">{t('set.meta.body')}</p>
+                </Link>
+              </Panel>
 
-      <TelegramInstantBotSection isOwner={isOwner} />
+              <Panel title={t('set.system.title')}>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Link to="/system" className={LINK_CARD}>
+                    <p className="text-sm font-medium">{t('set.system.link')}</p>
+                    <p className="mt-0.5 text-xs text-ink-muted">{t('set.system.body')}</p>
+                  </Link>
+                  <Link to="/audit-log" className={LINK_CARD}>
+                    <p className="text-sm font-medium">{t('nav.item.auditLog')}</p>
+                    <p className="mt-0.5 text-xs text-ink-muted">Tra cứu lịch sử thay đổi &amp; thao tác hệ thống</p>
+                  </Link>
+                </div>
+              </Panel>
+            </div>
 
-      <AutomationCronSection isOwner={isOwner} />
+            <DomainSeoSection isOwner={isOwner} />
+            <ProxyClusterCapacitySection />
+          </section>
 
-      <ProxyClusterCapacitySection />
+          <section id="sec-automation" className="scroll-mt-20 space-y-4">
+            <TelegramInstantBotSection isOwner={isOwner} />
+            <AutomationCronSection isOwner={isOwner} />
 
-      <CommunityQuotaSection isOwner={isOwner} />
+            <details className="rounded-lg border border-line bg-surface p-3.5">
+              <summary className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-ink hover:text-brand-text">
+                <SlidersHorizontal className="h-4 w-4 shrink-0 text-ink-muted" />
+                <span>Cấu hình nâng cao: Khung giờ yên lặng (Quiet Hours) &amp; Tần suất nhắc lại</span>
+              </summary>
+              <div className="mt-3">
+                <NotificationPolicySection isOwner={isOwner} />
+              </div>
+            </details>
 
-      {me.data.is_platform_admin && <CommunitySuperAdminSection />}
+            <Panel title={t('set.limits.title')}>
+              <ul className="list-disc space-y-1 pl-5 text-sm text-ink-muted">
+                {(['1', '2', '3', '4', '5', '6', '7'] as const).map((n) => (
+                  <li key={n}>{t(`set.limits.${n}`)}</li>
+                ))}
+              </ul>
+              <Note role="note">{t('set.limits.roles')}</Note>
+            </Panel>
+          </section>
 
-      <DomainSeoSection isOwner={isOwner} />
-
-      <details className="rounded-md border border-line bg-surface p-3">
-        <summary className="cursor-pointer text-sm font-semibold text-ink hover:text-brand-text">
-          ⚙️ Cấu hình nâng cao: Khung giờ yên lặng (Quiet Hours) &amp; Tần suất nhắc lại
-        </summary>
-        <div className="mt-3">
-          <NotificationPolicySection isOwner={isOwner} />
+          {me.data.is_platform_admin && (
+            <section id="sec-superadmin" className="scroll-mt-20 space-y-4">
+              <CommunitySuperAdminSection />
+            </section>
+          )}
         </div>
-      </details>
-
-      <ConnectedBrowsersSection />
-
-      <Panel title={t('set.limits.title')}>
-        <ul className="list-disc space-y-1 pl-5 text-sm text-ink-muted">
-          {(['1', '2', '3', '4', '5', '6', '7'] as const).map((n) => (
-            <li key={n}>{t(`set.limits.${n}`)}</li>
-          ))}
-        </ul>
-        <Note role="note">{t('set.limits.roles')}</Note>
-      </Panel>
+      </div>
     </div>
   )
 }
@@ -578,7 +622,14 @@ function TelegramInstantBotSection({ isOwner }: { isOwner: boolean }) {
   const cfg = cfgQ.data
 
   return (
-    <Panel title="🤖 Cảnh Báo Tức Thời Qua Telegram Bot">
+    <Panel
+      title={
+        <span className="inline-flex items-center gap-2">
+          <Bell className="h-4 w-4 shrink-0 text-ink-muted" />
+          <span>Cảnh Báo Tức Thời Qua Telegram Bot</span>
+        </span>
+      }
+    >
       {cfgQ.isLoading ? (
         <Skeleton className="h-24 w-full" />
       ) : cfgQ.isError ? (
@@ -588,11 +639,11 @@ function TelegramInstantBotSection({ isOwner }: { isOwner: boolean }) {
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone={cfg?.bot_configured ? 'positive' : 'caution'}>
               {cfg?.bot_configured
-                ? `🟢 Đã kết nối Bot${cfg.bot_username ? ` (@${cfg.bot_username})` : ` (${cfg.bot_mask})`}`
-                : '⚪ Chưa gắn Bot Token'}
+                ? `Đã kết nối Bot${cfg.bot_username ? ` (@${cfg.bot_username})` : ` (${cfg.bot_mask})`}`
+                : 'Chưa gắn Bot Token'}
             </Badge>
             <Badge tone={cfg?.chat_configured ? 'positive' : 'caution'}>
-              {cfg?.chat_configured ? `🟢 Nhóm nhận: ${cfg.chat_id_masked}` : '⚪ Chưa chọn nhóm / Chat ID'}
+              {cfg?.chat_configured ? `Nhóm nhận: ${cfg.chat_id_masked}` : 'Chưa chọn nhóm / Chat ID'}
             </Badge>
             <Badge tone={cfg?.enabled ? 'info' : 'neutral'}>
               {cfg?.enabled ? 'Đang bật báo động' : 'Đang tạm tắt'}
@@ -602,8 +653,8 @@ function TelegramInstantBotSection({ isOwner }: { isOwner: boolean }) {
           <div className="rounded-md border border-line bg-surface-sunken px-3 py-2 text-xs text-ink-muted">
             <strong>3 bước gắn nhanh:</strong> B1: Mở <code className="font-mono">@BotFather</code> trên Telegram gõ{' '}
             <code className="font-mono">/newbot</code> lấy Token · B2: Thêm Bot vào nhóm Telegram của bạn &amp; nhắn{' '}
-            <code className="font-mono">/start</code> · B3: Bấm <strong>🔍 Tự lấy ID nhóm</strong> rồi bấm{' '}
-            <strong>📨 Gửi Tin Nhắn Test Ngay</strong>.
+            <code className="font-mono">/start</code> · B3: Bấm <strong>Tự lấy ID nhóm</strong> rồi bấm{' '}
+            <strong>Gửi Tin Nhắn Test Ngay</strong>.
           </div>
 
           {!isOwner ? (
@@ -658,7 +709,7 @@ function TelegramInstantBotSection({ isOwner }: { isOwner: boolean }) {
                         detectMut.mutate()
                       }}
                     >
-                      {detectMut.isPending ? 'Đang quét...' : '🔍 Tự lấy ID nhóm'}
+                      {detectMut.isPending ? 'Đang quét...' : 'Tự lấy ID nhóm'}
                     </Button>
                   </div>
                 </Field>
@@ -687,19 +738,19 @@ function TelegramInstantBotSection({ isOwner }: { isOwner: boolean }) {
               <div className="grid gap-2 sm:grid-cols-2 text-xs">
                 <label className="flex items-center gap-2">
                   <input type="checkbox" className="h-4 w-4" checked={notifyDisabled} onChange={(e) => setNotifyDisabled(e.target.checked)} />
-                  🔴 TKQC bị Vô hiệu hóa / Hạn chế QC
+                  TKQC bị Vô hiệu hóa / Hạn chế QC
                 </label>
                 <label className="flex items-center gap-2">
                   <input type="checkbox" className="h-4 w-4" checked={notifyBilling} onChange={(e) => setNotifyBilling(e.target.checked)} />
-                  💳 Lỗi Thẻ thanh toán / Dư nợ quá hạn
+                  Lỗi Thẻ thanh toán / Dư nợ quá hạn
                 </label>
                 <label className="flex items-center gap-2">
                   <input type="checkbox" className="h-4 w-4" checked={notifyPage} onChange={(e) => setNotifyPage(e.target.checked)} />
-                  🚩 Fanpage bị Hạn chế / Hủy đăng
+                  Fanpage bị Hạn chế / Hủy đăng
                 </label>
                 <label className="flex items-center gap-2">
                   <input type="checkbox" className="h-4 w-4" checked={notifyRetainer} onChange={(e) => setNotifyRetainer(e.target.checked)} />
-                  💰 Retainer sắp vượt / chạm trần (≥ 90%)
+                  Retainer sắp vượt / chạm trần (≥ 90%)
                 </label>
                 <label className="flex items-center gap-2">
                   <input type="checkbox" className="h-4 w-4" checked={notifyThreshold80} onChange={(e) => setNotifyThreshold80(e.target.checked)} />
@@ -737,7 +788,10 @@ function TelegramInstantBotSection({ isOwner }: { isOwner: boolean }) {
                     saveMut.mutate()
                   }}
                 >
-                  {saveMut.isPending ? 'Đang lưu...' : '💾 Lưu Cấu Hình Telegram'}
+                  <span className="inline-flex items-center gap-1.5">
+                    <Save className="h-3.5 w-3.5" />
+                    <span>{saveMut.isPending ? 'Đang lưu...' : 'Lưu Cấu Hình Telegram'}</span>
+                  </span>
                 </Button>
                 <Button
                   type="button"
@@ -748,7 +802,7 @@ function TelegramInstantBotSection({ isOwner }: { isOwner: boolean }) {
                     testMut.mutate()
                   }}
                 >
-                  {testMut.isPending ? 'Đang gửi thử...' : '📨 Gửi Tin Nhắn Test Ngay'}
+                  {testMut.isPending ? 'Đang gửi thử...' : 'Gửi Tin Nhắn Test Ngay'}
                 </Button>
               </div>
             </div>
@@ -833,7 +887,14 @@ function AutomationCronSection({ isOwner }: { isOwner: boolean }) {
   const st = cronQ.data
 
   return (
-    <Panel title="⏱️ Tự Động Hóa Chạy Ngầm (Auto-Cron Meta & Nuôi Page 48h)">
+    <Panel
+      title={
+        <span className="inline-flex items-center gap-2">
+          <Zap className="h-4 w-4 shrink-0 text-ink-muted" />
+          <span>Tự Động Hóa Chạy Ngầm (Auto-Cron Meta &amp; Nuôi Page 48h)</span>
+        </span>
+      }
+    >
       {cronQ.isLoading ? (
         <Skeleton className="h-24 w-full" />
       ) : cronQ.isError ? (
@@ -842,10 +903,10 @@ function AutomationCronSection({ isOwner }: { isOwner: boolean }) {
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <Badge tone={st?.auto_meta_sync_enabled ? 'positive' : 'neutral'}>
-              {st?.auto_meta_sync_enabled ? `🟢 Auto Sync: mỗi ${st.sync_interval_minutes} phút` : '⚪ Auto Sync: Tắt'}
+              {st?.auto_meta_sync_enabled ? `Auto Sync: mỗi ${st.sync_interval_minutes} phút` : 'Auto Sync: Tắt'}
             </Badge>
             <Badge tone={st?.auto_page_warmup_enabled ? 'positive' : 'neutral'}>
-              {st?.auto_page_warmup_enabled ? `🟢 Tự rải bài nuôi Page: cách ${st.warmup_min_gap_hours}h` : '⚪ Auto Nuôi Page: Tắt'}
+              {st?.auto_page_warmup_enabled ? `Tự rải bài nuôi Page: cách ${st.warmup_min_gap_hours}h` : 'Auto Nuôi Page: Tắt'}
             </Badge>
             <span className="text-ink-muted">
               Chạy gần nhất: <strong>{st?.last_run_at ? formatRelative(st.last_run_at, language) : 'Chưa chạy'}</strong>
@@ -907,19 +968,25 @@ function AutomationCronSection({ isOwner }: { isOwner: boolean }) {
           </div>
 
           {notice && (
-            <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-800 dark:text-emerald-200">
-              ✓ {notice}
+            <div className="rounded-md border border-tone-positive-border bg-tone-positive-bg px-3 py-2 text-xs font-medium text-tone-positive-fg">
+              {notice}
             </div>
           )}
 
           <div className="flex flex-wrap items-center gap-2">
             {isOwner && (
               <Button type="button" disabled={saveMut.isPending} onClick={() => saveMut.mutate()}>
-                {saveMut.isPending ? 'Đang lưu...' : '💾 Lưu Lịch Tự Động'}
+                <span className="inline-flex items-center gap-1.5">
+                  <Save className="h-3.5 w-3.5" />
+                  <span>{saveMut.isPending ? 'Đang lưu...' : 'Lưu Lịch Tự Động'}</span>
+                </span>
               </Button>
             )}
             <Button type="button" variant="secondary" disabled={runNowMut.isPending} onClick={() => runNowMut.mutate()}>
-              {runNowMut.isPending ? 'Đang chạy chu kỳ...' : '⚡ Chạy Chu Kỳ Ngay'}
+              <span className="inline-flex items-center gap-1.5">
+                <Zap className="h-3.5 w-3.5" />
+                <span>{runNowMut.isPending ? 'Đang chạy chu kỳ...' : 'Chạy Chu Kỳ Ngay'}</span>
+              </span>
             </Button>
           </div>
         </div>
@@ -967,7 +1034,14 @@ function DomainSeoSection({ isOwner }: { isOwner: boolean }) {
   const data = seoQ.data
 
   return (
-    <Panel title="🌐 Tên Miền Chính Thức & Chuẩn Hóa SEO">
+    <Panel
+      title={
+        <span className="inline-flex items-center gap-2">
+          <Globe className="h-4 w-4 shrink-0 text-ink-muted" />
+          <span>Tên Miền Chính Thức &amp; Chuẩn Hóa SEO</span>
+        </span>
+      }
+    >
       {seoQ.isLoading ? (
         <Skeleton className="h-20 w-full" />
       ) : seoQ.isError ? (
@@ -990,7 +1064,7 @@ function DomainSeoSection({ isOwner }: { isOwner: boolean }) {
           <div className="flex flex-wrap gap-1.5">
             {(data?.seo_checklist ?? []).map((item) => (
               <Badge key={item.key} tone={item.ready ? 'positive' : 'caution'}>
-                {item.ready ? '✓' : '•'} {item.label}
+                {item.label}
               </Badge>
             ))}
           </div>
@@ -1010,7 +1084,10 @@ function DomainSeoSection({ isOwner }: { isOwner: boolean }) {
                     maxLength={160}
                   />
                   <Button type="button" disabled={saveMut.isPending} onClick={() => saveMut.mutate()}>
-                    {saveMut.isPending ? 'Đang lưu...' : '💾 Lưu Tên Miền'}
+                    <span className="inline-flex items-center gap-1.5">
+                      <Save className="h-3.5 w-3.5" />
+                      <span>{saveMut.isPending ? 'Đang lưu...' : 'Lưu Tên Miền'}</span>
+                    </span>
                   </Button>
                 </div>
               </Field>
@@ -1018,8 +1095,8 @@ function DomainSeoSection({ isOwner }: { isOwner: boolean }) {
                 <div
                   className={`rounded-md border px-3 py-2 text-xs font-medium ${
                     notice.ok
-                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
-                      : 'border-rose-500/40 bg-rose-500/10 text-rose-800 dark:text-rose-200'
+                      ? 'border-tone-positive-border bg-tone-positive-bg text-tone-positive-fg'
+                      : 'border-tone-attention-border bg-tone-attention-bg text-tone-attention-fg'
                   }`}
                 >
                   {notice.text}
@@ -1049,11 +1126,18 @@ function ProxyClusterCapacitySection() {
   }
 
   return (
-    <Panel title="🌐 Hạn mức Cụm Proxy (Max Via / 1 Proxy — Mặc định 4, tùy chỉnh 1–50)">
+    <Panel
+      title={
+        <span className="inline-flex items-center gap-2">
+          <Globe className="h-4 w-4 shrink-0 text-ink-muted" />
+          <span>Hạn mức Cụm Proxy (Max Via / 1 Proxy — Mặc định 4, tùy chỉnh 1–50)</span>
+        </span>
+      }
+    >
       <div className="space-y-3">
         <p className="text-xs leading-relaxed text-ink-muted">
           Tùy chỉnh số tài khoản Via tối đa dùng chung 1 Proxy trước khi Web UI hiển thị cảnh báo quá tải (mặc định{' '}
-          <strong className="text-ink">{DEFAULT_MAX_VIAS_PER_PROXY} Via/Proxy</strong> cho Proxy Dân cư; bạn có thể nâng lên tới 50 nếu vận hành proxy xoay hoặc dải đặc biệt). Trên App Windows Desktop v2.5.0, bạn có thể chỉnh thêm thông số Antidetect / RAM &amp; xuất Full Backup <code>.adsopsvault</code>.
+          <strong className="text-ink">{DEFAULT_MAX_VIAS_PER_PROXY} Via/Proxy</strong> cho Proxy Dân cư; bạn có thể nâng lên tới 50 nếu vận hành proxy xoay hoặc dải đặc biệt). Trên App Windows Desktop v5.0, bạn có thể chỉnh thêm thông số Antidetect / RAM &amp; xuất Full Backup <code>.adsopsvault</code>.
         </p>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -1070,7 +1154,10 @@ function ProxyClusterCapacitySection() {
             type="button"
             onClick={() => applyValue(Number.parseInt(draft, 10))}
           >
-            💾 Lưu Ngưỡng Proxy ({draft || limit}/IP)
+            <span className="inline-flex items-center gap-1.5">
+              <Save className="h-3.5 w-3.5" />
+              <span>Lưu Ngưỡng Proxy ({draft || limit}/IP)</span>
+            </span>
           </Button>
           <div className="flex flex-wrap items-center gap-1.5">
             {[2, 4, 6, 8, 10, 20].map((preset) => (
@@ -1091,7 +1178,7 @@ function ProxyClusterCapacitySection() {
         </div>
 
         {savedNotice && (
-          <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-800 dark:text-emerald-200">
+          <div className="rounded-md border border-tone-positive-border bg-tone-positive-bg px-3 py-2 text-xs font-medium text-tone-positive-fg">
             {savedNotice}
           </div>
         )}
@@ -1154,13 +1241,13 @@ function CommunityQuotaSection({ isOwner }: { isOwner: boolean }) {
   const licSummary = formatLicenseSummary(d?.license)
   const tierLabel =
     d?.plan_tier === 'agency'
-      ? '🏢 GÓI AGENCY (FULL)'
+      ? 'GÓI AGENCY (FULL)'
       : d?.plan_tier === 'pro'
-        ? '⚡ GÓI PRO CỘNG ĐỒNG'
-        : '🌱 GÓI CỘNG ĐỒNG FREE'
+        ? 'GÓI PRO CỘNG ĐỒNG'
+        : 'GÓI CỘNG ĐỒNG FREE'
 
   return (
-    <Panel title="🎟️ Gói Thành Viên Cộng Đồng & Hạn Mức Tài Nguyên (Quota)">
+    <Panel title="Gói Thành Viên Cộng Đồng & Hạn Mức Tài Nguyên (Quota)">
       {q.isLoading ? (
         <Skeleton className="h-20 w-full" />
       ) : q.isError ? (
@@ -1223,7 +1310,10 @@ function CommunityQuotaSection({ isOwner }: { isOwner: boolean }) {
                   disabled={redeemMut.isPending || codeInput.trim().length < 3}
                   onClick={() => redeemMut.mutate()}
                 >
-                  {redeemMut.isPending ? 'Đang kích hoạt...' : '🎟️ Nạp Mã Nâng Cấp'}
+                  <span className="inline-flex items-center gap-1.5">
+                    <Zap className="h-3.5 w-3.5" />
+                    <span>{redeemMut.isPending ? 'Đang kích hoạt...' : 'Nạp Mã Nâng Cấp'}</span>
+                  </span>
                 </Button>
               </div>
               {notice && (
@@ -1391,7 +1481,14 @@ function CommunitySuperAdminSection() {
   const codes = codesQ.data ?? []
 
   return (
-    <Panel title="👑 Bảng Điều Khiển Super-Admin Cộng Đồng (Mã Mời, Quota & Kiểm Soát Thành Viên)">
+    <Panel
+      title={
+        <span className="inline-flex items-center gap-2">
+          <Crown className="h-4 w-4 shrink-0 text-ink-muted" />
+          <span>Bảng Điều Khiển Super-Admin Cộng Đồng (Mã Mời, Quota &amp; Kiểm Soát Thành Viên)</span>
+        </span>
+      }
+    >
       {ovQ.isLoading ? (
         <Skeleton className="h-32 w-full" />
       ) : ovQ.isError ? (
@@ -1403,7 +1500,7 @@ function CommunitySuperAdminSection() {
               <div className="font-semibold text-ink">
                 Chế độ Đăng ký:{' '}
                 <Badge tone={ov.require_invite_code ? 'caution' : 'positive'}>
-                  {ov.require_invite_code ? '🔒 Bắt buộc có Mã mời (Invite-Only)' : '🌐 Mở đăng ký Free Cộng đồng'}
+                  {ov.require_invite_code ? 'Bắt buộc có Mã mời (Invite-Only)' : 'Mở đăng ký Free Cộng đồng'}
                 </Badge>
               </div>
               <div className="text-ink-muted">
@@ -1418,12 +1515,15 @@ function CommunitySuperAdminSection() {
               disabled={policyMut.isPending}
               onClick={() => policyMut.mutate(!ov.require_invite_code)}
             >
-              {ov.require_invite_code ? '🌐 Chuyển sang Mở tự do' : '🔒 Bật khóa Invite-Only'}
+              {ov.require_invite_code ? 'Chuyển sang Mở tự do' : 'Bật khóa Invite-Only'}
             </Button>
           </div>
 
           <div className="rounded-md border border-line p-3 space-y-2">
-            <div className="text-xs font-semibold text-ink">➕ Phát hành Mã Mời / Mã Nâng Cấp Nhanh</div>
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-ink">
+              <Plus className="h-3.5 w-3.5 text-ink-muted" />
+              <span>Phát hành Mã Mời / Mã Nâng Cấp Nhanh</span>
+            </div>
             <div className="grid gap-2 sm:grid-cols-5">
               <input
                 className="input text-xs sm:col-span-2"

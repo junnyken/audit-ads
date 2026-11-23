@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react'
 import {
   Activity,
-  AlertTriangle,
   Bell,
   Eye,
   FileSpreadsheet,
@@ -10,27 +9,33 @@ import {
   RefreshCw,
   Rocket,
   Search,
-  ShieldCheck,
-  Stethoscope,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { InspectorDrawer, InspectorSection } from '@/components/ui/inspector-drawer'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { SegmentedTabs, StatusDot, type StudioTone } from '@/components/ui/studio-primitives'
 import { sendDesktopCommand } from '@/lib/bridge'
 import type { AppShellWebStateDto, WebAccountHealthRowDto } from '@/types'
 
-function resolveHealthVariant(status: string): 'destructive' | 'warning' | 'success' | 'secondary' {
+function resolveHealthTone(status: string): StudioTone {
   const s = (status || '').trim().toLowerCase()
-  if (s === 'critical' || s === 'blocked' || s === 'fail' || s === 'failed' || s === 'not_ready') return 'destructive'
+  if (s === 'critical' || s === 'blocked' || s === 'fail' || s === 'failed' || s === 'not_ready') return 'critical'
   if (s === 'warning' || s === 'attention' || s === 'attention_needed' || s === 'ready_with_warnings') return 'warning'
-  if (s === 'healthy' || s === 'clear' || s === 'ready' || s === 'operationally_ready' || s === 'ok') return 'success'
+  if (s === 'healthy' || s === 'clear' || s === 'ready' || s === 'operationally_ready' || s === 'ok') return 'live'
+  return 'muted'
+}
+
+function resolveHealthVariant(status: string): 'destructive' | 'warning' | 'success' | 'secondary' {
+  const t = resolveHealthTone(status)
+  if (t === 'critical') return 'destructive'
+  if (t === 'warning') return 'warning'
+  if (t === 'live') return 'success'
   return 'secondary'
 }
 
 export function HealthTokensTab({ state }: { state: AppShellWebStateDto }) {
+  const [activeTab, setActiveTab] = useState<'health' | 'tokens' | 'readiness' | 'drafts' | 'audit'>('health')
   const [healthSearch, setHealthSearch] = useState('')
   const [healthFilter, setHealthFilter] = useState('all')
   const [auditSearch, setAuditSearch] = useState('')
@@ -76,139 +81,142 @@ export function HealthTokensTab({ state }: { state: AppShellWebStateDto }) {
   }, [state.auditLogs, auditSearch])
 
   return (
-    <div className="space-y-4">
-      {/* 4 Compact KPI Strip */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-1.5">
-            <CardTitle className="text-xs font-medium text-muted-foreground">Nguy kịch (Critical)</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-rose-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="font-mono text-2xl font-bold tabular-nums text-foreground">{hk.critical}</div>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">
-              {hk.warning} Warning • {hk.attentionNeeded} cần chú ý
-            </p>
-          </CardContent>
-        </Card>
+    <div className="space-y-5">
+      {/* Unified 4-Metric Telemetry Strip */}
+      <section className="studio-panel grid grid-cols-1 divide-y divide-border/75 sm:grid-cols-2 sm:divide-x xl:grid-cols-4 xl:divide-y-0">
+        <div className="p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+              Nguy kịch (Critical)
+            </span>
+            <StatusDot tone={hk.critical > 0 ? 'critical' : 'live'} />
+          </div>
+          <div className="mt-2 font-mono text-2xl font-semibold tabular-nums text-foreground">{hk.critical}</div>
+          <div className="mt-1 text-[11px] text-muted-foreground tabular-nums">
+            {hk.warning} Warning · {hk.attentionNeeded} cần chú ý
+          </div>
+        </div>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-1.5">
-            <CardTitle className="text-xs font-medium text-muted-foreground">TKQC Sạch Tín hiệu</CardTitle>
-            <ShieldCheck className="h-4 w-4 text-emerald-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="font-mono text-2xl font-bold tabular-nums text-foreground">{hk.clearSignals}</div>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">Tổng {hk.totalActive} TKQC đang theo dõi</p>
-          </CardContent>
-        </Card>
+        <div className="p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+              TKQC Sạch Tín hiệu
+            </span>
+            <StatusDot tone="live" />
+          </div>
+          <div className="mt-2 font-mono text-2xl font-semibold tabular-nums text-foreground">{hk.clearSignals}</div>
+          <div className="mt-1 text-[11px] text-muted-foreground tabular-nums">
+            Tổng {hk.totalActive} TKQC đang theo dõi
+          </div>
+        </div>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-1.5">
-            <CardTitle className="text-xs font-medium text-muted-foreground">Meta Token Kết nối</CardTitle>
-            <KeyRound className="h-4 w-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="font-mono text-2xl font-bold tabular-nums text-foreground">
-              {hk.tokenConfiguredCount}
-            </div>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">
-              {hk.metaConnectionCount} kết nối ({hk.staleData} dữ liệu cũ)
-            </p>
-          </CardContent>
-        </Card>
+        <div className="p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+              Meta Token Kết nối
+            </span>
+            <StatusDot tone={hk.tokenConfiguredCount > 0 ? 'info' : 'warning'} />
+          </div>
+          <div className="mt-2 font-mono text-2xl font-semibold tabular-nums text-foreground">
+            {hk.tokenConfiguredCount}
+          </div>
+          <div className="mt-1 text-[11px] text-muted-foreground tabular-nums">
+            {hk.metaConnectionCount} kết nối · {hk.staleData} dữ liệu cũ
+          </div>
+        </div>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-1.5">
-            <CardTitle className="text-xs font-medium text-muted-foreground">Pre-flight Drafts</CardTitle>
-            <Stethoscope className="h-4 w-4 text-amber-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="font-mono text-2xl font-bold tabular-nums text-foreground">{hk.draftCount}</div>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">{hk.draftBlockingCount} nháp bị chặn</p>
-          </CardContent>
-        </Card>
-      </div>
+        <div className="p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+              Pre-flight Drafts
+            </span>
+            <StatusDot tone={hk.draftBlockingCount > 0 ? 'warning' : 'muted'} />
+          </div>
+          <div className="mt-2 font-mono text-2xl font-semibold tabular-nums text-foreground">{hk.draftCount}</div>
+          <div className="mt-1 text-[11px] text-muted-foreground tabular-nums">
+            {hk.draftBlockingCount} nháp bị chặn
+          </div>
+        </div>
+      </section>
 
       {/* Horizontal Sub-Tabs */}
-      <Tabs defaultValue="health" className="space-y-3">
-        <TabsList className="flex-wrap">
-          <TabsTrigger value="health">Sức khỏe TKQC ({state.accountHealthRows.length})</TabsTrigger>
-          <TabsTrigger value="tokens">Meta Token ({state.metaConnections.length})</TabsTrigger>
-          <TabsTrigger value="readiness">Readiness ({state.readinessRows.length})</TabsTrigger>
-          <TabsTrigger value="drafts">Pre-flight Drafts ({state.campaignDrafts.length})</TabsTrigger>
-          <TabsTrigger value="audit">Nhật ký Audit ({state.auditLogs.length})</TabsTrigger>
-        </TabsList>
+      <div className="flex flex-wrap items-center justify-between gap-2.5">
+        <SegmentedTabs
+          value={activeTab}
+          onChange={setActiveTab}
+          items={[
+            { value: 'health', label: 'Sức khỏe TKQC', count: state.accountHealthRows.length },
+            { value: 'tokens', label: 'Meta Token', count: state.metaConnections.length },
+            { value: 'readiness', label: 'Readiness', count: state.readinessRows.length },
+            { value: 'drafts', label: 'Pre-flight Drafts', count: state.campaignDrafts.length },
+            { value: 'audit', label: 'Nhật ký Audit', count: state.auditLogs.length },
+          ]}
+        />
+      </div>
 
-        {/* TAB A: Account Health */}
-        <TabsContent value="health" className="mt-0">
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="relative min-w-[240px] flex-1">
-                  <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    value={healthSearch}
-                    onChange={(e) => setHealthSearch(e.target.value)}
-                    placeholder="Tìm tên TKQC, act_ID, BM, Via hoặc lý do cảnh báo..."
-                    className="pl-8"
-                  />
-                </div>
-                <Button variant="secondary" size="sm" onClick={() => sendDesktopCommand('export_health_csv')}>
-                  <FileSpreadsheet className="h-3.5 w-3.5" /> Xuất CSV Sức khỏe
-                </Button>
+      {/* TAB A: Account Health */}
+      {activeTab === 'health' && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
+            <SegmentedTabs
+              value={healthFilter}
+              onChange={setHealthFilter}
+              items={[
+                { value: 'all', label: 'Tất cả', count: state.accountHealthRows.length },
+                {
+                  value: 'critical',
+                  label: 'Critical',
+                  count: state.accountHealthRows.filter(
+                    (x) => x.healthStatus.toLowerCase() === 'critical' || x.openCriticalCount > 0,
+                  ).length,
+                },
+                {
+                  value: 'warning',
+                  label: 'Warning',
+                  count: state.accountHealthRows.filter(
+                    (x) =>
+                      x.healthStatus.toLowerCase() === 'warning' ||
+                      x.healthStatus.toLowerCase() === 'attention_needed' ||
+                      x.openWarningCount > 0 ||
+                      x.openAttentionCount > 0,
+                  ).length,
+                },
+                {
+                  value: 'healthy',
+                  label: 'Sạch',
+                  count: state.accountHealthRows.filter((x) => ['healthy', 'clear'].includes(x.healthStatus.toLowerCase()))
+                    .length,
+                },
+              ]}
+            />
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative w-56 sm:w-64">
+                <Search className="pointer-events-none absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  value={healthSearch}
+                  onChange={(e) => setHealthSearch(e.target.value)}
+                  placeholder="Tìm TKQC, act_ID, BM, lý do..."
+                  className="h-8 pl-8 text-xs"
+                />
               </div>
-              <div className="flex flex-wrap gap-1.5 pt-2">
-                {[
-                  { key: 'all', label: `Tất cả (${state.accountHealthRows.length})` },
-                  {
-                    key: 'critical',
-                    label: `Critical (${
-                      state.accountHealthRows.filter(
-                        (x) => x.healthStatus.toLowerCase() === 'critical' || x.openCriticalCount > 0,
-                      ).length
-                    })`,
-                  },
-                  {
-                    key: 'warning',
-                    label: `Warning (${
-                      state.accountHealthRows.filter(
-                        (x) =>
-                          x.healthStatus.toLowerCase() === 'warning' ||
-                          x.healthStatus.toLowerCase() === 'attention_needed' ||
-                          x.openWarningCount > 0 ||
-                          x.openAttentionCount > 0,
-                      ).length
-                    })`,
-                  },
-                  {
-                    key: 'healthy',
-                    label: `Sạch (${
-                      state.accountHealthRows.filter((x) => ['healthy', 'clear'].includes(x.healthStatus.toLowerCase()))
-                        .length
-                    })`,
-                  },
-                ].map((c) => (
-                  <Button
-                    key={c.key}
-                    size="sm"
-                    variant={healthFilter === c.key ? 'default' : 'secondary'}
-                    className="h-7 px-2.5 text-xs"
-                    onClick={() => setHealthFilter(c.key)}
-                  >
-                    {c.label}
-                  </Button>
-                ))}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {filteredHealth.length === 0 ? (
-                <p className="text-xs text-muted-foreground">Không có báo cáo sức khỏe TKQC khớp bộ lọc.</p>
-              ) : (
-                filteredHealth.map((r) => (
+              <Button variant="secondary" size="sm" className="h-8 text-xs" onClick={() => sendDesktopCommand('export_health_csv')}>
+                <FileSpreadsheet className="h-3.5 w-3.5" /> Xuất CSV
+              </Button>
+            </div>
+          </div>
+
+          <div className="studio-panel overflow-hidden">
+            {filteredHealth.length === 0 ? (
+              <p className="p-8 text-center text-xs text-muted-foreground">
+                Không có báo cáo sức khỏe TKQC khớp bộ lọc.
+              </p>
+            ) : (
+              <div className="divide-y divide-border/60">
+                {filteredHealth.map((r) => (
                   <div
                     key={r.adAccountId}
-                    className="grid grid-cols-1 items-center gap-2.5 rounded-lg border border-border bg-background/60 p-3 lg:grid-cols-[1.5fr_auto_auto_1.5fr_auto]"
+                    className="group grid grid-cols-1 items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/30 lg:grid-cols-[1.45fr_115px_130px_1.4fr_auto]"
                   >
                     <div className="min-w-0">
                       <button
@@ -218,52 +226,59 @@ export function HealthTokensTab({ state }: { state: AppShellWebStateDto }) {
                       >
                         {r.displayName}
                       </button>
-                      <div className="truncate text-[11px] text-muted-foreground">
-                        act_{r.externalAccountId} • BM: {r.businessManagerName} • Via: {r.viaLabel}
+                      <div className="truncate font-mono text-[11px] text-muted-foreground">
+                        act_{r.externalAccountId} · BM: {r.businessManagerName} · Via: {r.viaLabel}
                       </div>
                     </div>
-                    <Badge variant={resolveHealthVariant(r.healthStatus)} className="w-fit text-[10px]">
-                      {r.healthStatus}
-                    </Badge>
-                    <Badge variant={resolveHealthVariant(r.readinessStatus)} className="w-fit text-[10px]">
-                      {r.readinessStatus}
-                    </Badge>
+
+                    <StatusDot
+                      tone={resolveHealthTone(r.healthStatus)}
+                      label={r.healthStatus}
+                      labelClassName="font-mono text-[11px]"
+                    />
+                    <StatusDot
+                      tone={resolveHealthTone(r.readinessStatus)}
+                      label={r.readinessStatus}
+                      labelClassName="font-mono text-[11px]"
+                    />
+
                     <div className="min-w-0">
                       <div className="truncate text-xs text-foreground">{r.topReasonText}</div>
-                      <div className="font-mono text-[11px] text-muted-foreground">
-                        Crit: {r.openCriticalCount} • Warn: {r.openWarningCount} • Attn: {r.openAttentionCount}
+                      <div className="font-mono text-[10.5px] text-muted-foreground tabular-nums">
+                        Crit {r.openCriticalCount} · Warn {r.openWarningCount} · Attn {r.openAttentionCount}
                       </div>
                     </div>
-                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+
+                    <div className="flex flex-wrap items-center justify-end gap-1">
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-7 w-7 px-0"
+                        className="h-7 w-7 px-0 text-muted-foreground hover:text-foreground"
                         title="Xem chi tiết"
                         onClick={() => setInspectedRow(r)}
                       >
                         <Eye className="h-3.5 w-3.5" />
                       </Button>
                       <Button
-                        variant="secondary"
+                        variant="ghost"
                         size="sm"
-                        className="h-7 px-2 text-xs"
+                        className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
                         onClick={() => sendDesktopCommand('open_health_signals', { adAccountId: r.adAccountId })}
                       >
                         <Bell className="h-3 w-3" /> Tín hiệu
                       </Button>
                       <Button
-                        variant="secondary"
+                        variant="ghost"
                         size="sm"
-                        className="h-7 px-2 text-xs"
+                        className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
                         onClick={() => sendDesktopCommand('recalc_account_health', { adAccountId: r.adAccountId })}
                       >
                         <RefreshCw className="h-3 w-3" /> Tính lại
                       </Button>
                       <Button
-                        variant="secondary"
+                        variant="outline"
                         size="sm"
-                        className="h-7 px-2 text-xs"
+                        className="h-7 border-border/80 bg-transparent px-2.5 text-xs hover:border-primary hover:bg-primary hover:text-primary-foreground transition-colors"
                         onClick={() =>
                           sendDesktopCommand('open_ads_manager', {
                             externalAccountId: r.externalAccountId,
@@ -275,246 +290,240 @@ export function HealthTokensTab({ state }: { state: AppShellWebStateDto }) {
                       </Button>
                     </div>
                   </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* TAB B: Meta Connections */}
-        <TabsContent value="tokens" className="mt-0">
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <CardTitle className="text-sm font-semibold">Kết nối Meta Graph API &amp; Token Hệ thống</CardTitle>
-                  <CardDescription className="text-xs">
-                    Kiểm tra khả năng đọc của Meta Token và kích hoạt Quick Sync lấy số liệu mới nhất.
-                  </CardDescription>
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="secondary" size="sm" onClick={() => sendDesktopCommand('open_auto_connect_token')}>
-                    <KeyRound className="h-3.5 w-3.5" /> Gắn Token EAAB
-                  </Button>
-                  <Button size="sm" onClick={() => sendDesktopCommand('quick_sync_meta')}>
-                    <RefreshCw className="h-3.5 w-3.5" /> Đồng bộ nhanh Meta
-                  </Button>
-                </div>
+                ))}
               </div>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {state.metaConnections.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  Chưa có Meta Connection hoặc tài khoản hiện tại chưa có quyền xem cấu hình Token.
-                </p>
-              ) : (
-                state.metaConnections.map((conn) => (
-                  <div
-                    key={conn.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-background/60 p-3"
-                  >
-                    <div className="min-w-0 space-y-0.5">
-                      <div className="text-xs font-semibold text-foreground">{conn.label}</div>
-                      <div className="text-[11px] text-muted-foreground">
-                        Môi trường: {conn.environment} • Nguồn: {conn.readerSource} • BM: {conn.bmReference}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2.5">
-                      <Badge variant={conn.tokenConfigured ? 'success' : 'warning'} className="text-[10px]">
-                        {conn.badgeLabel}
-                      </Badge>
-                      <span className="text-[11px] text-muted-foreground">{conn.lastCheckedLocal}</span>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => sendDesktopCommand('check_meta_token', { connectionId: conn.id })}
-                      >
-                        <Activity className="h-3 w-3" /> Kiểm tra Token
-                      </Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* TAB B: Meta Connections */}
+      {activeTab === 'tokens' && (
+        <section className="studio-panel overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 px-5 py-3.5">
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">Kết nối Meta Graph API &amp; Token Hệ thống</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Kiểm tra khả năng đọc của Meta Token và kích hoạt Quick Sync lấy số liệu mới nhất.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="secondary" size="sm" className="h-8 text-xs" onClick={() => sendDesktopCommand('open_auto_connect_token')}>
+                <KeyRound className="h-3.5 w-3.5" /> Gắn Token EAAB
+              </Button>
+              <Button size="sm" className="h-8 text-xs font-semibold" onClick={() => sendDesktopCommand('quick_sync_meta')}>
+                <RefreshCw className="h-3.5 w-3.5" /> Đồng bộ nhanh Meta
+              </Button>
+            </div>
+          </div>
+
+          {state.metaConnections.length === 0 ? (
+            <p className="p-8 text-center text-xs text-muted-foreground">
+              Chưa có Meta Connection hoặc tài khoản hiện tại chưa có quyền xem cấu hình Token.
+            </p>
+          ) : (
+            <div className="divide-y divide-border/60">
+              {state.metaConnections.map((conn) => (
+                <div key={conn.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 transition-colors hover:bg-muted/30">
+                  <div className="min-w-0 space-y-0.5">
+                    <div className="text-xs font-semibold text-foreground">{conn.label}</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      Môi trường: {conn.environment} · Nguồn: {conn.readerSource} · BM: {conn.bmReference}
                     </div>
                   </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* TAB C: Readiness Board */}
-        <TabsContent value="readiness" className="mt-0">
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <CardTitle className="text-sm font-semibold">Readiness Board (Mức độ sẵn sàng)</CardTitle>
-                <div className="flex flex-wrap gap-1.5">
-                  <Badge variant="success">Sẵn sàng: {state.readinessSummary.operationallyReady}</Badge>
-                  <Badge variant="warning">Cảnh báo: {state.readinessSummary.readyWithWarnings}</Badge>
-                  <Badge variant="destructive">Chưa đạt: {state.readinessSummary.notReady}</Badge>
-                  <Badge variant="secondary">Chưa rõ: {state.readinessSummary.unknown}</Badge>
-                </div>
-              </div>
-              {state.readinessGroups.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 pt-2">
-                  {state.readinessGroups.map((g, i) => (
-                    <Badge
-                      key={i}
-                      variant={g.severity === 'critical' ? 'destructive' : 'warning'}
-                      className="text-[11px]"
-                    >
-                      {g.message} ({g.accountCount} TKQC)
-                    </Badge>
-                  ))}
-                </div>
-              )}
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {state.readinessRows.length === 0 ? (
-                <p className="text-xs text-muted-foreground">Chưa có dữ liệu Readiness Board.</p>
-              ) : (
-                state.readinessRows.map((r) => (
-                  <div
-                    key={r.adAccountId}
-                    className="grid grid-cols-1 items-center gap-2 rounded-lg border border-border bg-background/60 p-2.5 lg:grid-cols-[1.3fr_auto_80px_1.6fr_auto]"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate text-xs font-semibold text-foreground">{r.displayName}</div>
-                      <div className="font-mono text-[11px] text-muted-foreground">
-                        act_{r.externalAccountId} • {r.status}
-                      </div>
-                    </div>
-                    <Badge variant={resolveHealthVariant(r.readinessStatus)} className="w-fit text-[10px]">
-                      {r.readinessStatus}
-                    </Badge>
-                    <span className="font-mono text-xs text-muted-foreground">
-                      {r.completedItemCount}/{r.requiredItemCount} mục
-                    </span>
-                    <span className="truncate text-xs text-muted-foreground">{r.reasonText}</span>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <StatusDot
+                      tone={conn.tokenConfigured ? 'live' : 'warning'}
+                      label={conn.badgeLabel}
+                      labelClassName="text-[11px]"
+                    />
+                    <span className="font-mono text-[11px] text-muted-foreground">{conn.lastCheckedLocal}</span>
                     <Button
-                      variant="secondary"
+                      variant="outline"
                       size="sm"
-                      className="h-7 px-2.5 text-xs"
-                      onClick={() =>
-                        sendDesktopCommand('recalc_account_readiness', {
-                          adAccountId: r.adAccountId,
-                          externalAccountId: r.externalAccountId,
-                        })
-                      }
+                      className="h-7 text-xs"
+                      onClick={() => sendDesktopCommand('check_meta_token', { connectionId: conn.id })}
                     >
-                      <RefreshCw className="h-3 w-3" /> Tính lại
+                      <Activity className="h-3 w-3" /> Kiểm tra Token
                     </Button>
                   </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
-        {/* TAB D: Pre-flight Campaign Drafts */}
-        <TabsContent value="drafts" className="mt-0">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold">Kiểm tra Pre-flight Chiến dịch Nháp</CardTitle>
-              <CardDescription className="text-xs">
-                Đánh giá rủi ro chặn hoặc cảnh báo trước khi chạy chiến dịch thực tế.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {state.campaignDrafts.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  Chưa có chiến dịch nháp (Campaign Draft) nào được tạo trong Workspace.
-                </p>
-              ) : (
-                state.campaignDrafts.map((d) => (
-                  <div
-                    key={d.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-background/60 p-3"
-                  >
-                    <div className="min-w-0">
-                      <div className="text-xs font-semibold text-foreground">{d.title}</div>
-                      <div className="text-[11px] text-muted-foreground">
-                        TKQC: {d.accountName} • Mục tiêu: {d.objective}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2.5">
-                      <Badge
-                        variant={
-                          d.openBlockingCount > 0 ? 'destructive' : d.openWarningCount > 0 ? 'warning' : 'success'
-                        }
-                        className="text-[10px]"
-                      >
-                        {d.draftStatus}
-                      </Badge>
-                      <span className="font-mono text-xs text-muted-foreground">
-                        Chặn: {d.openBlockingCount} • Cảnh báo: {d.openWarningCount}
-                      </span>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => sendDesktopCommand('evaluate_campaign_draft', { draftId: d.id })}
-                      >
-                        <Play className="h-3 w-3" /> Chấm điểm lại
-                      </Button>
+      {/* TAB C: Readiness Board */}
+      {activeTab === 'readiness' && (
+        <section className="studio-panel overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 px-5 py-3.5">
+            <h2 className="text-sm font-semibold text-foreground">Readiness Board (Mức độ sẵn sàng)</h2>
+            <div className="flex flex-wrap items-center gap-4 text-xs">
+              <StatusDot tone="live" label={`Sẵn sàng: ${state.readinessSummary.operationallyReady}`} labelClassName="font-mono" />
+              <StatusDot tone="warning" label={`Cảnh báo: ${state.readinessSummary.readyWithWarnings}`} labelClassName="font-mono" />
+              <StatusDot tone="critical" label={`Chưa đạt: ${state.readinessSummary.notReady}`} labelClassName="font-mono" />
+              <StatusDot tone="muted" label={`Chưa rõ: ${state.readinessSummary.unknown}`} labelClassName="font-mono" />
+            </div>
+          </div>
+
+          {state.readinessGroups.length > 0 && (
+            <div className="flex flex-wrap gap-2 border-b border-border/65 bg-muted/20 px-5 py-2.5">
+              {state.readinessGroups.map((g, i) => (
+                <StatusDot
+                  key={i}
+                  tone={g.severity === 'critical' ? 'critical' : 'warning'}
+                  label={`${g.message} (${g.accountCount})`}
+                  labelClassName="text-[11px]"
+                />
+              ))}
+            </div>
+          )}
+
+          {state.readinessRows.length === 0 ? (
+            <p className="p-8 text-center text-xs text-muted-foreground">Chưa có dữ liệu Readiness Board.</p>
+          ) : (
+            <div className="divide-y divide-border/60">
+              {state.readinessRows.map((r) => (
+                <div
+                  key={r.adAccountId}
+                  className="grid grid-cols-1 items-center gap-2.5 px-5 py-3 transition-colors hover:bg-muted/30 lg:grid-cols-[1.3fr_140px_80px_1.5fr_auto]"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-xs font-semibold text-foreground">{r.displayName}</div>
+                    <div className="font-mono text-[11px] text-muted-foreground">
+                      act_{r.externalAccountId} · {r.status}
                     </div>
                   </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* TAB E: Live Audit Logs */}
-        <TabsContent value="audit" className="mt-0">
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="relative min-w-[240px] flex-1">
-                  <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    value={auditSearch}
-                    onChange={(e) => setAuditSearch(e.target.value)}
-                    placeholder="Lọc theo action, entity hoặc email người thực hiện..."
-                    className="pl-8"
+                  <StatusDot
+                    tone={resolveHealthTone(r.readinessStatus)}
+                    label={r.readinessStatus}
+                    labelClassName="font-mono text-[11px]"
                   />
+                  <span className="font-mono text-xs text-muted-foreground tabular-nums">
+                    {r.completedItemCount}/{r.requiredItemCount} mục
+                  </span>
+                  <span className="truncate text-xs text-muted-foreground">{r.reasonText}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2.5 text-xs"
+                    onClick={() =>
+                      sendDesktopCommand('recalc_account_readiness', {
+                        adAccountId: r.adAccountId,
+                        externalAccountId: r.externalAccountId,
+                      })
+                    }
+                  >
+                    <RefreshCw className="h-3 w-3" /> Tính lại
+                  </Button>
                 </div>
-                <Button variant="secondary" size="sm" onClick={() => sendDesktopCommand('export_audit_csv')}>
-                  <FileSpreadsheet className="h-3.5 w-3.5" /> Xuất CSV Audit
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-1.5">
-              {filteredAudits.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  {state.auditLogs.length === 0
-                    ? 'Không có nhật ký Audit (hoặc tài khoản hiện tại chưa được cấp quyền Owner).'
-                    : 'Không có dòng nhật ký nào khớp từ khóa.'}
-                </p>
-              ) : (
-                filteredAudits.map((a) => (
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* TAB D: Pre-flight Campaign Drafts */}
+      {activeTab === 'drafts' && (
+        <section className="studio-panel overflow-hidden">
+          <div className="border-b border-border/70 px-5 py-3.5">
+            <h2 className="text-sm font-semibold text-foreground">Kiểm tra Pre-flight Chiến dịch Nháp</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Đánh giá rủi ro chặn hoặc cảnh báo trước khi chạy chiến dịch thực tế.
+            </p>
+          </div>
+          {state.campaignDrafts.length === 0 ? (
+            <p className="p-8 text-center text-xs text-muted-foreground">
+              Chưa có chiến dịch nháp (Campaign Draft) nào được tạo trong Workspace.
+            </p>
+          ) : (
+            <div className="divide-y divide-border/60">
+              {state.campaignDrafts.map((d) => (
+                <div key={d.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 transition-colors hover:bg-muted/30">
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-foreground">{d.title}</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      TKQC: {d.accountName} · Mục tiêu: {d.objective}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <StatusDot
+                      tone={d.openBlockingCount > 0 ? 'critical' : d.openWarningCount > 0 ? 'warning' : 'live'}
+                      label={d.draftStatus}
+                      labelClassName="font-mono text-[11px]"
+                    />
+                    <span className="font-mono text-xs text-muted-foreground tabular-nums">
+                      Chặn: {d.openBlockingCount} · Cảnh báo: {d.openWarningCount}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => sendDesktopCommand('evaluate_campaign_draft', { draftId: d.id })}
+                    >
+                      <Play className="h-3 w-3" /> Chấm điểm lại
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* TAB E: Live Audit Logs */}
+      {activeTab === 'audit' && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="relative min-w-[240px] flex-1">
+              <Search className="pointer-events-none absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
+              <Input
+                value={auditSearch}
+                onChange={(e) => setAuditSearch(e.target.value)}
+                placeholder="Lọc theo action, entity hoặc email người thực hiện..."
+                className="h-8 pl-8 text-xs"
+              />
+            </div>
+            <Button variant="secondary" size="sm" className="h-8 text-xs" onClick={() => sendDesktopCommand('export_audit_csv')}>
+              <FileSpreadsheet className="h-3.5 w-3.5" /> Xuất CSV Audit
+            </Button>
+          </div>
+
+          <section className="studio-panel overflow-hidden">
+            {filteredAudits.length === 0 ? (
+              <p className="p-8 text-center text-xs text-muted-foreground">
+                {state.auditLogs.length === 0
+                  ? 'Không có nhật ký Audit (hoặc tài khoản hiện tại chưa được cấp quyền Owner).'
+                  : 'Không có dòng nhật ký nào khớp từ khóa.'}
+              </p>
+            ) : (
+              <div className="divide-y divide-border/55">
+                {filteredAudits.map((a) => (
                   <div
                     key={a.id}
-                    className="grid grid-cols-1 items-center gap-2 rounded-md border border-border/70 bg-background/50 px-3 py-2 text-xs lg:grid-cols-[150px_1.2fr_1fr_1.2fr]"
+                    className="grid grid-cols-1 items-center gap-2 px-4 py-2.5 text-xs transition-colors hover:bg-muted/30 lg:grid-cols-[150px_1.2fr_1fr_1.2fr]"
                   >
-                    <span className="font-mono text-[11px] text-muted-foreground">{a.createdAtLocal}</span>
-                    <span className="truncate font-mono font-semibold text-primary">{a.action}</span>
+                    <span className="font-mono text-[11px] text-muted-foreground tabular-nums">{a.createdAtLocal}</span>
+                    <span className="truncate font-mono font-medium text-primary">{a.action}</span>
                     <span className="truncate text-[11px] text-muted-foreground">
                       {a.entityType}: {a.entityId}
                     </span>
                     <span className="truncate text-right text-[11px] text-muted-foreground">{a.actorEmail}</span>
                   </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
 
       {/* Health Row Slide-Over Inspector */}
       <InspectorDrawer
         open={Boolean(inspectedRow)}
         onOpenChange={(o) => !o && setInspectedRow(null)}
         title={inspectedRow?.displayName || ''}
-        subtitle={inspectedRow ? `act_${inspectedRow.externalAccountId} • ${inspectedRow.businessManagerName}` : ''}
+        subtitle={inspectedRow ? `act_${inspectedRow.externalAccountId} · ${inspectedRow.businessManagerName}` : ''}
         badge={
           inspectedRow && (
             <Badge variant={resolveHealthVariant(inspectedRow.healthStatus)}>
@@ -573,7 +582,7 @@ export function HealthTokensTab({ state }: { state: AppShellWebStateDto }) {
                 <div className="flex justify-between gap-2">
                   <dt className="text-muted-foreground">Lỗi mở:</dt>
                   <dd className="font-mono">
-                    Crit {inspectedRow.openCriticalCount} • Warn {inspectedRow.openWarningCount} • Attn{' '}
+                    Crit {inspectedRow.openCriticalCount} · Warn {inspectedRow.openWarningCount} · Attn{' '}
                     {inspectedRow.openAttentionCount}
                   </dd>
                 </div>

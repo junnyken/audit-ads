@@ -3,10 +3,10 @@
 @tailwind utilities;
 
 @layer base {
-  /* Option A: Linear Graphite & Cobalt — Light Mode */
+  /* Option A: Impeccable Studio — Alabaster Light Mode (preserves 221.2 83.2% primary invariant) */
   :root,
   .light {
-    --background: 210 40% 98%;
+    --background: 216 33% 97.5%;
     --foreground: 222.2 47.4% 11.2%;
     --card: 0 0% 100%;
     --card-foreground: 222.2 47.4% 11.2%;
@@ -14,44 +14,44 @@
     --popover-foreground: 222.2 47.4% 11.2%;
     --primary: 221.2 83.2% 53.3%;
     --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
+    --secondary: 214 32% 95.5%;
     --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 44%;
-    --accent: 210 40% 94%;
+    --muted: 214 32% 95%;
+    --muted-foreground: 215.4 16.3% 42%;
+    --accent: 214 32% 93.5%;
     --accent-foreground: 222.2 47.4% 11.2%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
+    --border: 214.3 26% 89.5%;
+    --input: 214.3 26% 88%;
     --ring: 221.2 83.2% 53.3%;
-    --radius: 0.5rem;
+    --radius: 0.625rem;
     color-scheme: light;
   }
 
-  /* Option A: Linear Graphite & Cobalt — Dark Mode */
+  /* Option A: Impeccable Studio — Obsidian Dark Mode (preserves 217.2 91.2% primary invariant) */
   .dark,
   .dark[data-palette="obsidian"] {
-    --background: 220 21% 5.5%;
-    --foreground: 210 40% 98%;
-    --card: 222 22% 9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222 22% 10.5%;
-    --popover-foreground: 210 40% 98%;
+    --background: 222 24% 4.8%;
+    --foreground: 220 20% 97%;
+    --card: 222 22% 8.2%;
+    --card-foreground: 220 20% 97%;
+    --popover: 222 22% 10.2%;
+    --popover-foreground: 220 20% 97%;
     --primary: 217.2 91.2% 59.8%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 21% 12%;
-    --secondary-foreground: 214 32% 91%;
-    --muted: 220 21% 11.5%;
-    --muted-foreground: 215 16% 62%;
-    --accent: 220 21% 14.5%;
-    --accent-foreground: 210 40% 98%;
+    --secondary: 220 20% 12.2%;
+    --secondary-foreground: 214 25% 91%;
+    --muted: 220 20% 11%;
+    --muted-foreground: 215 15% 63%;
+    --accent: 220 20% 14.2%;
+    --accent-foreground: 220 20% 97%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
-    --border: 222 21% 15.5%;
-    --input: 222 21% 16.5%;
+    --border: 220 18% 14.8%;
+    --input: 220 18% 17.5%;
     --ring: 217.2 91.2% 59.8%;
-    --radius: 0.5rem;
+    --radius: 0.625rem;
     color-scheme: dark;
   }
 
@@ -98,6 +98,33 @@
 
 .tabular-nums {
   font-variant-numeric: tabular-nums;
+}
+
+/* Impeccable Studio Surface & Hairline Utilities */
+.studio-panel {
+  background-color: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.dark .studio-panel {
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.045), 0 8px 28px -8px rgba(0, 0, 0, 0.45);
+}
+
+.studio-row-cell {
+  padding-top: 0.72rem;
+  padding-bottom: 0.72rem;
+}
+
+html[data-density="compact"] .studio-row-cell {
+  padding-top: 0.42rem;
+  padding-bottom: 0.42rem;
+}
+
+.studio-muted-zero {
+  color: hsl(var(--muted-foreground) / 0.45);
+  font-weight: 400;
 }
 
 ::-webkit-scrollbar {

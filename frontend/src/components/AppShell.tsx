@@ -47,10 +47,10 @@ function PlatformScopeSwitcher({ collapsed = false }: { collapsed?: boolean }) {
             title={opt.label}
             onClick={() => setPlatformScope(opt.key)}
             className={cn(
-              'inline-flex items-center justify-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors',
+              'inline-flex w-full items-center justify-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-all',
               active
-                ? 'bg-brand text-brand-fg shadow-xs'
-                : 'text-ink-muted hover:bg-surface hover:text-ink',
+                ? 'bg-surface text-ink shadow-xs border border-line/80'
+                : 'text-ink-muted hover:text-ink border border-transparent',
             )}
           >
             <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -84,7 +84,7 @@ function AppShellInner() {
       <div className="min-h-screen min-[769px]:flex">
         <aside
           className={cn(
-            'hidden shrink-0 border-r border-line bg-surface transition-[width] duration-200 min-[769px]:block',
+            'hidden shrink-0 border-r border-line/80 bg-surface/95 transition-[width] duration-200 min-[769px]:block',
             sidebarCollapsed ? 'w-16' : 'w-sidebar',
           )}
         >
@@ -136,7 +136,7 @@ function AppShellInner() {
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-10 flex h-header shrink-0 items-center gap-2 border-b border-line bg-surface px-3 min-[769px]:px-6">
+          <header className="sticky top-0 z-10 flex h-header shrink-0 items-center gap-2 border-b border-line/80 bg-surface/85 px-3 backdrop-blur-md min-[769px]:px-6">
             <div className="min-[769px]:hidden">
               <Sheet open={navOpen} onOpenChange={setNavOpen}>
                 <SheetTrigger asChild>

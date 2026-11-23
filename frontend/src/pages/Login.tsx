@@ -435,9 +435,9 @@ export default function Login() {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="min-h-screen bg-canvas text-ink">
+      <div className="min-h-screen bg-surface-muted text-ink">
         {/* STICKY WEBSITE HEADER */}
-        <header className="sticky top-0 z-30 border-b border-line bg-surface/95 backdrop-blur">
+        <header className="sticky top-0 z-30 border-b border-line/85 bg-surface/85 backdrop-blur-md">
           <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
             <div className="flex items-center gap-6">
               <a href="#top" className="focus:outline-none">
@@ -472,7 +472,7 @@ export default function Login() {
               <button
                 type="button"
                 onClick={() => downloadChromeExtensionZip()}
-                className="inline-flex items-center gap-1.5 rounded-md border border-brand bg-brand px-3 py-1.5 text-xs font-semibold text-brand-fg hover:bg-brand-hover transition-colors"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-brand bg-brand px-3 py-1.5 text-xs font-semibold text-brand-fg hover:bg-brand-dark transition-colors"
               >
                 <Download className="h-3.5 w-3.5" aria-hidden="true" />
                 <span className="hidden sm:inline">
@@ -490,7 +490,7 @@ export default function Login() {
           {/* SECTION 1: HERO & LOGIN PORTAL */}
           <section className="grid items-center gap-10 py-10 lg:grid-cols-12 lg:py-14 border-b border-line">
             <div className="space-y-6 lg:col-span-7">
-              <div className="inline-flex flex-wrap items-center gap-2 rounded-full border border-brand/40 bg-brand-light/40 px-3.5 py-1 text-xs font-semibold text-brand-text">
+              <div className="inline-flex flex-wrap items-center gap-2 rounded-full border border-brand/35 bg-brand-light/45 px-3.5 py-1 text-xs font-semibold text-brand-text">
                 <ShieldCheck className="h-4 w-4 shrink-0" aria-hidden="true" />
                 <span>
                   {isEn
@@ -499,13 +499,13 @@ export default function Login() {
                 </span>
               </div>
 
-              <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight text-ink leading-[1.2]">
+              <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight text-ink leading-[1.18]">
                 {isEn
                   ? 'Centralize 20–500+ Meta Ad Accounts, isolate Chrome & Proxies per Via, and automate monthly Client Settlements'
                   : 'Kiểm soát tập trung 20–500+ Tài khoản Quảng cáo Meta, cách ly Hồ sơ Chrome · Proxy từng Via và tự động xuất Bảng Quyết Toán Khách Hàng'}
               </h1>
 
-              <p className="text-sm sm:text-base text-ink-secondary leading-relaxed">
+              <p className="text-sm sm:text-base text-ink-muted leading-relaxed">
                 {isEn ? (
                   <>
                     <strong className="font-semibold text-ink">AdsOps Control Center</strong> is an end-to-end operating system for Meta Ads Agencies and Media-Buying Teams: synchronize live spend across <strong className="font-semibold text-ink">Central &amp; Partner BMs</strong>, protect <strong className="font-semibold text-ink">Fanpages, Pixels &amp; Payment Cards</strong> from chain bans, isolate every Via with the <strong className="font-semibold text-ink">AdsOps Companion Chrome Extension (.zip)</strong>, and generate client billing statements (including 5%–15% Agency Fee &amp; 5%–10% Meta Tax) in one click.
@@ -517,21 +517,21 @@ export default function Login() {
                 )}
               </p>
 
-              {/* 4 KEY METRIC PILLS */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
-                <div className="rounded-lg border border-line bg-surface p-3">
+              {/* 4 KEY METRICS IN UNIFIED HAIRLINE STRIP */}
+              <div className="studio-strip grid grid-cols-2 sm:grid-cols-4 divide-y sm:divide-y-0">
+                <div className="p-3.5">
                   <div className="font-mono text-base font-bold text-ink tabular-nums">8 Phân hệ</div>
                   <div className="text-xs text-ink-muted mt-0.5">
                     {isEn ? 'BM · Ad Acct · Page · Pixel · Retainer' : 'BM · TKQC · Page · Pixel · Quyết toán'}
                   </div>
                 </div>
-                <div className="rounded-lg border border-line bg-surface p-3">
+                <div className="p-3.5">
                   <div className="font-mono text-base font-bold text-ink tabular-nums">1 : 1 : 1</div>
                   <div className="text-xs text-ink-muted mt-0.5">
                     {isEn ? '1 Chrome · 1 Via · 1 Proxy' : '1 Chrome · 1 Via · 1 Proxy'}
                   </div>
                 </div>
-                <div className="rounded-lg border border-line bg-surface p-3">
+                <div className="p-3.5">
                   <div className="font-mono text-base font-bold text-ink tabular-nums">
                     {isEn ? '≤ 3 Accts' : '≤ 3 TKQC'}
                   </div>
@@ -539,8 +539,8 @@ export default function Login() {
                     {isEn ? 'Safe limit / Card & Page' : 'Ngưỡng an toàn / Thẻ & Page'}
                   </div>
                 </div>
-                <div className="rounded-lg border border-line bg-surface p-3">
-                  <div className="font-mono text-base font-bold text-emerald-500 tabular-nums">
+                <div className="p-3.5">
+                  <div className="font-mono text-base font-bold text-tone-positive-fg tabular-nums">
                     {isEn ? '5%–15% Fee' : '5%–15% Phí'}
                   </div>
                   <div className="text-xs text-ink-muted mt-0.5">
@@ -553,7 +553,7 @@ export default function Login() {
                 <button
                   type="button"
                   onClick={() => downloadChromeExtensionZip()}
-                  className="inline-flex items-center gap-2 rounded-md bg-brand px-4 py-2.5 text-xs sm:text-sm font-semibold text-brand-fg shadow-xs hover:bg-brand-hover transition-colors"
+                  className="btn-primary px-4 py-2.5 text-xs sm:text-sm"
                 >
                   <Download className="h-4 w-4" aria-hidden="true" />
                   <span>
@@ -562,7 +562,7 @@ export default function Login() {
                 </button>
                 <a
                   href="#he-sinh-thai-8-phan-he"
-                  className="inline-flex items-center gap-1.5 rounded-md border border-line-strong bg-surface px-4 py-2.5 text-xs sm:text-sm font-semibold text-ink hover:bg-muted transition-colors"
+                  className="btn-secondary px-4 py-2.5 text-xs sm:text-sm"
                 >
                   <span>{isEn ? 'Explore 8 Agency Modules' : 'Khám phá 8 Phân hệ Quản trị'}</span>
                   <ArrowRight className="h-4 w-4" aria-hidden="true" />
@@ -572,17 +572,17 @@ export default function Login() {
 
             {/* LOGIN & REGISTRATION PORTAL CARD */}
             <aside className="lg:col-span-5" aria-label={isEn ? 'Operator sign in & registration' : 'Đăng nhập & Đăng ký quản trị'}>
-              <div className="rounded-xl border border-line-strong bg-surface p-6 sm:p-7 shadow-md">
+              <div className="card border-line-strong/85 p-6 sm:p-7">
                 <div className="mb-4 flex items-center justify-between border-b border-line pb-3.5">
                   <BrandMark />
-                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-400">
+                  <span className="inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium tone-positive">
                     <Lock className="h-3 w-3" aria-hidden="true" />
                     {isEn ? 'Multi-Tenant Isolated' : 'Tách bạch Dữ liệu 100%'}
                   </span>
                 </div>
 
                 {/* DUAL TAB SWITCHER: LOGIN vs REGISTER */}
-                <div className="mb-4 grid grid-cols-2 rounded-lg border border-line bg-canvas p-1 text-xs font-bold">
+                <div className="mb-4 grid grid-cols-2 rounded-lg border border-line bg-surface-sunken p-1 text-xs font-bold">
                   <button
                     type="button"
                     onClick={() => {
@@ -590,13 +590,14 @@ export default function Login() {
                       setError(null)
                       setInfoNotice(null)
                     }}
-                    className={`rounded-md py-2 transition-colors ${
+                    className={`inline-flex items-center justify-center gap-1.5 rounded-md py-2 transition-all ${
                       authMode === 'login' || authMode === 'forgot' || authMode === 'reset'
-                        ? 'bg-brand text-brand-fg shadow-xs'
-                        : 'text-ink-muted hover:text-ink'
+                        ? 'bg-surface text-ink shadow-xs border border-line/80'
+                        : 'text-ink-muted hover:text-ink border border-transparent'
                     }`}
                   >
-                    {isEn ? '🔑 Sign In' : '🔑 Đăng nhập Quản trị'}
+                    <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span>{isEn ? 'Sign In' : 'Đăng nhập Quản trị'}</span>
                   </button>
                   <button
                     type="button"
@@ -606,13 +607,14 @@ export default function Login() {
                       setInfoNotice(null)
                       void loadBotChallenge()
                     }}
-                    className={`rounded-md py-2 transition-colors ${
+                    className={`inline-flex items-center justify-center gap-1.5 rounded-md py-2 transition-all ${
                       authMode === 'register'
-                        ? 'bg-brand text-brand-fg shadow-xs'
-                        : 'text-ink-muted hover:text-ink'
+                        ? 'bg-surface text-ink shadow-xs border border-line/80'
+                        : 'text-ink-muted hover:text-ink border border-transparent'
                     }`}
                   >
-                    {isEn ? '🛡️ Create Agency Account' : '🛡️ Đăng ký Tài khoản'}
+                    <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span>{isEn ? 'Create Agency Account' : 'Đăng ký Tài khoản'}</span>
                   </button>
                 </div>
 
@@ -679,7 +681,7 @@ export default function Login() {
                   {error && (
                     <div
                       role="alert"
-                      className="rounded-md border border-danger-line bg-danger-soft px-3 py-2 text-xs text-danger-ink"
+                      className="rounded-md border px-3 py-2 text-xs tone-attention"
                     >
                       {error}
                     </div>
@@ -701,7 +703,7 @@ export default function Login() {
                           value={fullName}
                           onChange={(e) => setFullName(e.target.value)}
                           placeholder={isEn ? 'e.g. Nguyen Van A' : 'VD: Nguyễn Văn A'}
-                          className="w-full rounded-md border border-line-strong bg-canvas px-3 py-2 text-xs sm:text-sm text-ink placeholder:text-ink-subtle focus:border-brand focus:outline-none"
+                          className="input text-xs sm:text-sm"
                         />
                       </Field>
 
@@ -719,7 +721,7 @@ export default function Login() {
                           value={workspaceName}
                           onChange={(e) => setWorkspaceName(e.target.value)}
                           placeholder={isEn ? 'e.g. Alpha Media Agency' : 'VD: Alpha Ads Agency'}
-                          className="w-full rounded-md border border-line-strong bg-canvas px-3 py-2 text-xs sm:text-sm text-ink placeholder:text-ink-subtle focus:border-brand focus:outline-none"
+                          className="input text-xs sm:text-sm"
                         />
                       </Field>
                     </div>
@@ -749,12 +751,12 @@ export default function Login() {
                             ? 'tenban@gmail.com / outlook.com / icloud.com'
                             : 'name@company.com'
                         }
-                        className="w-full rounded-md border border-line-strong bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-subtle focus:border-brand focus:outline-none"
+                        className="input text-sm"
                       />
                       {authMode === 'register' && emailCheckStatus && (
                         <div
                           className={`mt-1.5 rounded border px-2.5 py-1 text-[11px] font-medium ${
-                            emailCheckStatus.ok ? 'tone-positive' : 'border-danger-line bg-danger-soft text-danger-ink'
+                            emailCheckStatus.ok ? 'tone-positive' : 'tone-attention'
                           }`}
                         >
                           {emailCheckStatus.msg}
@@ -786,7 +788,7 @@ export default function Login() {
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         placeholder="••••••••"
-                        className="w-full rounded-md border border-line-strong bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-subtle focus:border-brand focus:outline-none"
+                        className="input text-sm"
                       />
                       {authMode === 'login' && (
                         <div className="mt-1 flex justify-end">
@@ -821,7 +823,7 @@ export default function Login() {
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}
                         placeholder="••••••••"
-                        className="w-full rounded-md border border-line-strong bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-subtle focus:border-brand focus:outline-none"
+                        className="input text-sm"
                       />
                     </Field>
                   )}
@@ -831,7 +833,7 @@ export default function Login() {
                       label={
                         isEn
                           ? 'Community Invite Code / Pro Upgrade (Optional)'
-                          : '🎟️ Mã Mời Cộng Đồng / Nâng Cấp Pro (Tùy chọn)'
+                          : 'Mã Mời Cộng Đồng / Nâng Cấp Pro (Tùy chọn)'
                       }
                       htmlFor="reg-invite-code"
                     >
@@ -842,14 +844,14 @@ export default function Login() {
                         value={inviteCode}
                         onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
                         placeholder={isEn ? 'e.g. ADSOPS-PRO-XXXXXX (leave blank for Free Community tier)' : 'VD: ADSOPS-PRO-XXXXXX (để trống = Gói Cộng đồng Free)'}
-                        className="w-full rounded-md border border-line-strong bg-canvas px-3 py-2 font-mono text-xs uppercase text-ink placeholder:text-ink-subtle focus:border-brand focus:outline-none"
+                        className="input font-mono text-xs uppercase"
                       />
                     </Field>
                   )}
 
                   {/* 4-LAYER ANTI-BOT VERIFICATION FOR REGISTRATION */}
                   {authMode === 'register' && (
-                    <div className="rounded-lg border border-line-strong bg-canvas p-3 space-y-2.5">
+                    <div className="rounded-lg border border-line-strong bg-surface-sunken/70 p-3 space-y-2.5">
                       {/* Honeypot trap field (invisible to humans) */}
                       <div className="sr-only" aria-hidden="true">
                         <label htmlFor="website-hp">Website URL</label>
@@ -864,10 +866,11 @@ export default function Login() {
                       </div>
 
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">
+                        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-ink-muted">
+                          <ShieldCheck className="h-3.5 w-3.5 text-brand-text" aria-hidden="true" />
                           {isEn
-                            ? '🛡️ Anti-Bot & Anti-Spam Security Check'
-                            : '🛡️ Xác thực Chống Bot & Chống Spam Tự động'}
+                            ? 'Anti-Bot & Anti-Spam Security Check'
+                            : 'Xác thực Chống Bot & Chống Spam Tự động'}
                         </span>
                         <button
                           type="button"
@@ -892,7 +895,7 @@ export default function Login() {
                             {isEn ? 'Loading captcha...' : 'Đang tạo mã...'}
                           </div>
                         )}
-                        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-mono font-bold text-amber-400">
+                        <div className="rounded-md border px-3 py-2 text-xs font-mono font-bold tone-caution">
                           {challenge?.math_question ?? '... + ... = ?'}
                         </div>
                       </div>
@@ -910,7 +913,7 @@ export default function Login() {
                             value={captchaCode}
                             onChange={(e) => setCaptchaCode(e.target.value.toUpperCase())}
                             placeholder={isEn ? 'e.g. K7M9P' : 'VD: K7M9P'}
-                            className="w-full rounded border border-line-strong bg-surface px-2.5 py-1.5 font-mono text-xs uppercase text-ink focus:border-brand focus:outline-none"
+                            className="input font-mono text-xs uppercase"
                           />
                         </div>
 
@@ -927,7 +930,7 @@ export default function Login() {
                             value={mathAnswer}
                             onChange={(e) => setMathAnswer(e.target.value)}
                             placeholder={isEn ? 'Sum = ?' : 'Tổng = ?'}
-                            className="w-full rounded border border-line-strong bg-surface px-2.5 py-1.5 font-mono text-xs text-ink focus:border-brand focus:outline-none"
+                            className="input font-mono text-xs"
                           />
                         </div>
                       </div>
@@ -952,7 +955,7 @@ export default function Login() {
                   <button
                     type="submit"
                     disabled={busy || (authMode === 'register' && emailCheckStatus?.ok === false)}
-                    className="w-full rounded-md bg-brand px-4 py-2.5 text-sm font-semibold text-brand-fg shadow-xs hover:bg-brand-hover disabled:opacity-50 transition-colors"
+                    className="btn-primary w-full py-2.5 text-sm"
                   >
                     {busy
                       ? authMode === 'register'
@@ -970,8 +973,8 @@ export default function Login() {
                             : t('login.submitting')
                       : authMode === 'register'
                         ? isEn
-                          ? '🛡️ Verify & Create Isolated Agency Account'
-                          : '🛡️ Xác thực & Tạo Tài khoản Workspace Riêng'
+                          ? 'Verify & Create Isolated Agency Account'
+                          : 'Xác thực & Tạo Tài khoản Workspace Riêng'
                         : authMode === 'forgot'
                           ? isEn
                             ? 'Send Password Reset Link'
@@ -1048,7 +1051,7 @@ export default function Login() {
                         <div className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-brand-light text-brand-text">
                           <Icon className="h-4 w-4" aria-hidden="true" />
                         </div>
-                        <span className="rounded-full border border-line bg-canvas px-2.5 py-0.5 text-[10px] font-bold text-ink-muted">
+                        <span className="rounded-full border border-line bg-surface-sunken px-2.5 py-0.5 text-[10px] font-bold text-ink-muted">
                           {m.tag}
                         </span>
                       </div>
@@ -1080,14 +1083,14 @@ export default function Login() {
                     : 'Gom nhiều TKQC vào 1 Hợp đồng Khách hàng & Xuất Bảng Quyết Toán Chi Phí chỉ với 1 cú nhấp'}
                 </h2>
 
-                <p className="text-sm text-ink-secondary leading-relaxed">
+                <p className="text-sm text-ink-muted leading-relaxed">
                   {isEn
                     ? 'Stop manually copying spend numbers from dozens of VND and USD Ad Accounts into spreadsheets at month-end. AdsOps automatically groups accounts per client, tracks real-time budget pacing, and computes the exact billable amount:'
                     : 'Loại bỏ hoàn toàn việc cuối tháng kế toán và Account phải cộng tay từng TKQC tiền VND và USD trên Excel. Hệ thống tự động gom nhóm nhiều TKQC theo từng Hợp đồng Khách hàng / Dự án, đo tốc độ cắn ngân sách (Pacing) và tính chuẩn xác số tiền phải thu:'}
                 </p>
 
                 <div className="space-y-2.5 pt-1">
-                  <div className="rounded-lg border border-line bg-surface p-3.5 flex items-start gap-3">
+                  <div className="card p-3.5 flex items-start gap-3">
                     <TrendingUp className="h-4 w-4 text-brand-text shrink-0 mt-0.5" />
                     <div className="text-xs text-ink-muted leading-relaxed">
                       <strong className="text-ink font-semibold">
@@ -1101,8 +1104,8 @@ export default function Login() {
                     </div>
                   </div>
 
-                  <div className="rounded-lg border border-line bg-surface p-3.5 flex items-start gap-3">
-                    <FileSpreadsheet className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
+                  <div className="card p-3.5 flex items-start gap-3">
+                    <FileSpreadsheet className="h-4 w-4 text-tone-positive-fg shrink-0 mt-0.5" />
                     <div className="text-xs text-ink-muted leading-relaxed">
                       <strong className="text-ink font-semibold">
                         {isEn
@@ -1119,10 +1122,10 @@ export default function Login() {
 
               {/* SETTLEMENT ARCHITECTURE CARD */}
               <div className="lg:col-span-6">
-                <div className="rounded-xl border border-line-strong bg-surface p-5 shadow-sm space-y-4">
+                <div className="card border-line-strong p-5 space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-3">
                     <div>
-                      <span className="rounded bg-brand/15 px-2 py-0.5 font-mono text-[11px] font-bold text-brand-text">
+                      <span className="rounded bg-brand-light px-2 py-0.5 font-mono text-[11px] font-bold text-brand-text">
                         META GRAPH + LOCAL BILLING SYNC
                       </span>
                       <h3 className="mt-1 text-sm font-bold text-ink">
@@ -1131,49 +1134,49 @@ export default function Login() {
                           : 'Công thức Quyết toán Hợp đồng Theo Chi tiêu Thật'}
                       </h3>
                     </div>
-                    <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-400">
+                    <span className="rounded-full border px-2.5 py-0.5 text-[11px] font-semibold tone-positive">
                       {isEn ? 'Live Meta Graph Sync' : 'Đồng bộ Meta Thời gian thực'}
                     </span>
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
-                    <div className="rounded-lg border border-line bg-canvas p-2.5">
+                    <div className="rounded-lg border border-line bg-surface-sunken p-2.5">
                       <div className="text-[10px] font-bold uppercase text-ink-muted">
                         {isEn ? '1. Live Meta Spend' : '1. Chi tiêu gốc Meta'}
                       </div>
                       <div className="mt-1 font-mono text-sm font-bold text-ink">MTD Spend</div>
                       <div className="text-[10px] text-ink-muted">{isEn ? 'Auto VND / USD rate' : 'Gộp đa TKQC (VND & USD)'}</div>
                     </div>
-                    <div className="rounded-lg border border-line bg-canvas p-2.5">
+                    <div className="rounded-lg border border-line bg-surface-sunken p-2.5">
                       <div className="text-[10px] font-bold uppercase text-ink-muted">
                         {isEn ? '2. Agency Fee (%)' : '2. Phí Quản lý (%)'}
                       </div>
                       <div className="mt-1 font-mono text-sm font-bold text-brand-text">+ Spend × Fee%</div>
                       <div className="text-[10px] text-ink-muted">{isEn ? 'Per-contract rate' : 'Cấu hình theo hợp đồng'}</div>
                     </div>
-                    <div className="rounded-lg border border-line bg-canvas p-2.5">
+                    <div className="rounded-lg border border-line bg-surface-sunken p-2.5">
                       <div className="text-[10px] font-bold uppercase text-ink-muted">
                         {isEn ? '3. Meta Tax (%)' : '3. Thuế Nhà thầu (%)'}
                       </div>
-                      <div className="mt-1 font-mono text-sm font-bold text-amber-500">+ Spend × Tax%</div>
+                      <div className="mt-1 font-mono text-sm font-bold text-tone-caution-fg">+ Spend × Tax%</div>
                       <div className="text-[10px] text-ink-muted">{isEn ? 'Configurable rate' : 'Đối soát minh bạch'}</div>
                     </div>
-                    <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-2.5">
-                      <div className="text-[10px] font-bold uppercase text-emerald-400">
+                    <div className="rounded-lg border p-2.5 tone-positive">
+                      <div className="text-[10px] font-bold uppercase">
                         {isEn ? '4. Total Settlement' : '4. Tổng Quyết Toán'}
                       </div>
-                      <div className="mt-1 font-mono text-sm font-extrabold text-emerald-400">(1) + (2) + (3)</div>
-                      <div className="text-[10px] text-emerald-300/80">
+                      <div className="mt-1 font-mono text-sm font-extrabold">(1) + (2) + (3)</div>
+                      <div className="text-[10px] opacity-85">
                         {isEn ? 'PDF · Excel · Zalo' : 'Xuất PDF · Excel · Zalo'}
                       </div>
                     </div>
                   </div>
 
-                  <div className="rounded-lg border border-line bg-canvas p-3 text-xs text-ink-muted flex flex-wrap items-center justify-between gap-2">
+                  <div className="rounded-lg border border-line bg-surface-sunken p-3 text-xs text-ink-muted flex flex-wrap items-center justify-between gap-2">
                     <span>
                       {isEn
-                        ? '✓ Includes Printable Client Statement with Dual Signature Blocks & UTF-8 Excel CSV'
-                        : '✓ Hỗ trợ In Phiếu Quyết Toán có khung ký xác nhận 2 bên & Xuất file Excel CSV chuẩn tiếng Việt'}
+                        ? 'Includes Printable Client Statement with Dual Signature Blocks & UTF-8 Excel CSV'
+                        : 'Hỗ trợ In Phiếu Quyết Toán có khung ký xác nhận 2 bên & Xuất file Excel CSV chuẩn tiếng Việt'}
                     </span>
                   </div>
                 </div>
@@ -1200,7 +1203,7 @@ export default function Login() {
                     : 'Tiện ích «AdsOps Companion» trên Google Chrome dùng để làm gì?'}
                 </h2>
 
-                <p className="text-sm text-ink-secondary leading-relaxed">
+                <p className="text-sm text-ink-muted leading-relaxed">
                   {isEn ? (
                     <>
                       When operating multiple Facebook accounts (Vias) across separate Chrome Profiles, opening the wrong browser window or forgetting to enable a Proxy easily triggers Meta IP sweeps and chain-bans across your BMs. The <strong className="font-semibold text-ink">AdsOps Companion (.zip)</strong> extension sits inside each Chrome Profile to automate 4 critical protections:
@@ -1282,13 +1285,13 @@ export default function Login() {
                         <div className="text-[11px] text-ink-muted">Chrome Extension · Manifest V3</div>
                       </div>
                     </div>
-                    <span className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] font-bold text-emerald-400">
+                    <span className="rounded border px-2 py-0.5 font-mono text-[10px] font-bold tone-positive">
                       {isEn ? 'PROXY ACTIVE' : 'ĐANG BỌC PROXY'}
                     </span>
                   </div>
 
                   <div className="space-y-2.5 text-xs">
-                    <div className="rounded-md border border-line bg-canvas p-2.5">
+                    <div className="rounded-md border border-line bg-surface-sunken p-2.5">
                       <div className="text-[10px] font-bold uppercase text-ink-muted">
                         {isEn ? '1. Via Identity & Chrome Folder' : '1. Định danh Via & Hồ sơ Chrome'}
                       </div>
@@ -1298,7 +1301,7 @@ export default function Login() {
                       </div>
                     </div>
 
-                    <div className="rounded-md border border-line bg-canvas p-2.5">
+                    <div className="rounded-md border border-line bg-surface-sunken p-2.5">
                       <div className="text-[10px] font-bold uppercase text-ink-muted">
                         {isEn ? '2. Dedicated Proxy (IP:Port:User:Pass)' : '2. Cấu hình Proxy riêng (IP:Port:User:Pass)'}
                       </div>
@@ -1311,7 +1314,7 @@ export default function Login() {
                   <button
                     type="button"
                     onClick={() => downloadChromeExtensionZip()}
-                    className="w-full inline-flex items-center justify-center gap-2 rounded-md bg-brand px-4 py-2 text-xs font-semibold text-brand-fg hover:bg-brand-hover transition-colors"
+                    className="btn-primary w-full py-2 text-xs"
                   >
                     <Download className="h-4 w-4" aria-hidden="true" />
                     <span>
@@ -1339,7 +1342,7 @@ export default function Login() {
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="rounded-lg border border-line bg-surface p-4 space-y-2">
+              <div className="card p-4 space-y-2">
                 <div className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-brand-light text-brand-text">
                   <UserRoundCog className="h-4 w-4" aria-hidden="true" />
                 </div>
@@ -1356,7 +1359,7 @@ export default function Login() {
                 </p>
               </div>
 
-              <div className="rounded-lg border border-line bg-surface p-4 space-y-2">
+              <div className="card p-4 space-y-2">
                 <div className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-brand-light text-brand-text">
                   <Flag className="h-4 w-4" aria-hidden="true" />
                 </div>
@@ -1373,7 +1376,7 @@ export default function Login() {
                 </p>
               </div>
 
-              <div className="rounded-lg border border-line bg-surface p-4 space-y-2">
+              <div className="card p-4 space-y-2">
                 <div className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-brand-light text-brand-text">
                   <CreditCard className="h-4 w-4" aria-hidden="true" />
                 </div>
@@ -1390,7 +1393,7 @@ export default function Login() {
                 </p>
               </div>
 
-              <div className="rounded-lg border border-line bg-surface p-4 space-y-2">
+              <div className="card p-4 space-y-2">
                 <div className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-brand-light text-brand-text">
                   <Layers className="h-4 w-4" aria-hidden="true" />
                 </div>
@@ -1412,7 +1415,7 @@ export default function Login() {
           {/* SECTION 6: SECURITY HARDENING & CUSTOM DOMAIN SEO ARCHITECTURE */}
           <section id="bao-mat-he-thong" className="py-12 border-b border-line space-y-6">
             <div className="space-y-1.5">
-              <div className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-400">
+              <div className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold tone-positive">
                 <Lock className="h-3.5 w-3.5" aria-hidden="true" />
                 <span>
                   {isEn
@@ -1433,9 +1436,9 @@ export default function Login() {
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="rounded-lg border border-line bg-surface p-4 space-y-1.5">
+              <div className="card p-4 space-y-1.5">
                 <div className="text-xs font-bold text-ink flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4 text-emerald-500" />
+                  <ShieldCheck className="h-4 w-4 text-tone-positive-fg" />
                   <span>
                     {isEn
                       ? '1. Fernet AES-128-CBC + HMAC-SHA256 Secret Vault'
@@ -1449,9 +1452,9 @@ export default function Login() {
                 </p>
               </div>
 
-              <div className="rounded-lg border border-line bg-surface p-4 space-y-1.5">
+              <div className="card p-4 space-y-1.5">
                 <div className="text-xs font-bold text-ink flex items-center gap-2">
-                  <Lock className="h-4 w-4 text-emerald-500" />
+                  <Lock className="h-4 w-4 text-tone-positive-fg" />
                   <span>
                     {isEn
                       ? '2. PBKDF2-SHA256 (260k) & Device Session Registry'
@@ -1465,9 +1468,9 @@ export default function Login() {
                 </p>
               </div>
 
-              <div className="rounded-lg border border-line bg-surface p-4 space-y-1.5">
+              <div className="card p-4 space-y-1.5">
                 <div className="text-xs font-bold text-ink flex items-center gap-2">
-                  <Layers className="h-4 w-4 text-emerald-500" />
+                  <Layers className="h-4 w-4 text-tone-positive-fg" />
                   <span>
                     {isEn
                       ? '3. Multi-Tenant Isolation & 4-Tier RBAC'
@@ -1481,9 +1484,9 @@ export default function Login() {
                 </p>
               </div>
 
-              <div className="rounded-lg border border-line bg-surface p-4 space-y-1.5">
+              <div className="card p-4 space-y-1.5">
                 <div className="text-xs font-bold text-ink flex items-center gap-2">
-                  <ShieldAlert className="h-4 w-4 text-emerald-500" />
+                  <ShieldAlert className="h-4 w-4 text-tone-positive-fg" />
                   <span>
                     {isEn
                       ? '4. Atomic Rate Limiting & Anti-Bruteforce'
@@ -1497,9 +1500,9 @@ export default function Login() {
                 </p>
               </div>
 
-              <div className="rounded-lg border border-line bg-surface p-4 space-y-1.5">
+              <div className="card p-4 space-y-1.5">
                 <div className="text-xs font-bold text-ink flex items-center gap-2">
-                  <Terminal className="h-4 w-4 text-emerald-500" />
+                  <Terminal className="h-4 w-4 text-tone-positive-fg" />
                   <span>
                     {isEn
                       ? '5. Hardened CSP, HSTS, X-Frame-Options & Permissions-Policy'
@@ -1513,9 +1516,9 @@ export default function Login() {
                 </p>
               </div>
 
-              <div className="rounded-lg border border-line bg-surface p-4 space-y-1.5">
+              <div className="card p-4 space-y-1.5">
                 <div className="text-xs font-bold text-ink flex items-center gap-2">
-                  <Globe className="h-4 w-4 text-emerald-500" />
+                  <Globe className="h-4 w-4 text-tone-positive-fg" />
                   <span>
                     {isEn
                       ? '6. Dynamic Domain-Ready SEO (Sitemap, Robots & JSON-LD)'
@@ -1550,12 +1553,12 @@ export default function Login() {
               {faqs.map((item, idx) => {
                 const isOpen = openFaq === idx
                 return (
-                  <div key={idx} className="rounded-lg border border-line bg-surface overflow-hidden">
+                  <div key={idx} className="card overflow-hidden">
                     <button
                       type="button"
                       onClick={() => setOpenFaq(isOpen ? null : idx)}
                       aria-expanded={isOpen}
-                      className="w-full flex items-center justify-between gap-4 px-4 py-3.5 text-left text-xs sm:text-sm font-bold text-ink hover:bg-muted/50 transition-colors"
+                      className="w-full flex items-center justify-between gap-4 px-4 py-3.5 text-left text-xs sm:text-sm font-bold text-ink hover:bg-surface-sunken/60 transition-colors"
                     >
                       <span>{item.q}</span>
                       <ChevronDown
@@ -1565,7 +1568,7 @@ export default function Login() {
                       />
                     </button>
                     {isOpen && (
-                      <div className="border-t border-line bg-canvas/50 px-4 py-3 text-xs sm:text-sm text-ink-muted leading-relaxed">
+                      <div className="border-t border-line bg-surface-sunken/40 px-4 py-3 text-xs sm:text-sm text-ink-muted leading-relaxed">
                         {item.a}
                       </div>
                     )}
@@ -1656,7 +1659,7 @@ export default function Login() {
                 <button
                   type="button"
                   onClick={() => downloadChromeExtensionZip()}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-brand bg-brand/10 px-3 py-1.5 text-xs font-semibold text-brand-text hover:bg-brand/20 transition-colors"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-brand bg-brand-light/40 px-3 py-1.5 text-xs font-semibold text-brand-text hover:bg-brand-light transition-colors"
                 >
                   <Download className="h-3.5 w-3.5" aria-hidden="true" />
                   <span>{isEn ? 'Download Chrome Extension (.zip)' : 'Tải Tiện ích Chrome (.zip)'}</span>
@@ -1666,7 +1669,7 @@ export default function Login() {
 
             <div className="flex flex-wrap items-center justify-between gap-4 border-t border-line pt-5 text-xs text-ink-muted">
               <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" aria-hidden="true" />
+                <CheckCircle2 className="h-4 w-4 text-tone-positive-fg" aria-hidden="true" />
                 <span>
                   {isEn
                     ? 'AdsOps Control Center · Enterprise Meta Ads Governance, Retainer Billing & Chrome Extension Suite'

@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { BarChart3, Code2, Eye, FileSpreadsheet, RefreshCw, Rocket, Search } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { InspectorDrawer, InspectorSection } from '@/components/ui/inspector-drawer'
+import { FinancialValue, SegmentedTabs, StatusDot } from '@/components/ui/studio-primitives'
 import {
   Table,
   TableBody,
@@ -77,216 +77,226 @@ export function AdAccountsTab({
   const metaCount = state.adAccounts.length - googleCount
 
   return (
-    <div className="space-y-3.5">
-      {/* Multi-Currency Spend Strip */}
+    <div className="space-y-4">
+      {/* Multi-Currency Executive Summary Strip (Zero nested boxes) */}
       {state.spendCurrencies.length > 0 && (
-        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="studio-panel grid grid-cols-1 divide-y divide-border/75 sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-3">
           {state.spendCurrencies.map((b) => (
-            <Card key={b.currency} className="border-primary/25 bg-primary/5">
-              <CardContent className="p-3">
-                <div className="text-[11px] font-semibold text-primary">
-                  Chi tiêu {b.currency} ({b.accountsIncluded} TKQC)
-                </div>
-                <div className="mt-1 font-mono text-xs tabular-nums text-foreground">
-                  Hôm nay: {b.todayText} • 7D: {b.last7dText} • Tháng: {b.mtdText}
-                </div>
-              </CardContent>
-            </Card>
+            <div key={b.currency} className="px-4 py-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                  Chi tiêu {b.currency}
+                </span>
+                <span className="font-mono text-[11px] text-muted-foreground tabular-nums">
+                  {b.accountsIncluded} TKQC
+                </span>
+              </div>
+              <div className="mt-1.5 flex flex-wrap items-baseline gap-3 font-mono text-xs tabular-nums">
+                <span>
+                  <span className="text-muted-foreground">HN:</span>{' '}
+                  <strong className="font-semibold text-foreground">{b.todayText}</strong>
+                </span>
+                <span className="text-border">·</span>
+                <span>
+                  <span className="text-muted-foreground">7D:</span>{' '}
+                  <strong className="font-semibold text-foreground">{b.last7dText}</strong>
+                </span>
+                <span className="text-border">·</span>
+                <span>
+                  <span className="text-muted-foreground">Tháng:</span>{' '}
+                  <strong className="font-semibold text-foreground">{b.mtdText}</strong>
+                </span>
+              </div>
+            </div>
           ))}
         </div>
       )}
 
-      {/* Search & Filter Toolbar */}
-      <Card>
-        <CardContent className="space-y-3 p-3.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative min-w-[220px] flex-1">
-              <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Tìm tên TKQC, act_ID, Google CID, tên BM..."
-                className="pl-8"
-              />
-            </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => sendDesktopCommand('open_google_ads_script_wizard')}
-              title="Lấy mã Google Ads Script cho MCC & Gmail khách độc lập (0% rủi ro)"
-            >
-              <Code2 className="h-3.5 w-3.5 text-emerald-500" /> Kết nối Google Ads Script
-            </Button>
-            <Button variant="secondary" size="sm" onClick={() => sendDesktopCommand('export_ad_accounts_csv')}>
-              <FileSpreadsheet className="h-3.5 w-3.5" /> Xuất CSV
-            </Button>
-            <Button size="sm" onClick={() => sendDesktopCommand('quick_sync_meta')}>
-              <RefreshCw className="h-3.5 w-3.5" /> Đồng bộ nhanh Meta
-            </Button>
+      {/* Single-Line Progressive Disclosure Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <SegmentedTabs
+            value={statusFilter}
+            onChange={setStatusFilter}
+            items={[
+              { value: 'all', label: 'Tất cả', count: state.adAccounts.length },
+              { value: 'active', label: 'Active', count: activeCount },
+              { value: 'disabled', label: 'Hạn chế / Khác', count: restrictedCount },
+            ]}
+          />
+
+          <SegmentedTabs
+            value={platformFilter}
+            onChange={setPlatformFilter}
+            items={[
+              { value: 'all', label: 'Mọi nền tảng' },
+              { value: 'meta', label: 'Meta', count: metaCount },
+              { value: 'google_ads', label: 'Google Ads', count: googleCount },
+            ]}
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-56 sm:w-64">
+            <Search className="pointer-events-none absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Tìm tên TKQC, act_ID, CID, BM..."
+              className="h-8 pl-8 text-xs"
+            />
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap gap-1.5">
-              {[
-                { key: 'all', label: `Tất cả (${state.adAccounts.length})` },
-                { key: 'active', label: `Active (${activeCount})` },
-                { key: 'disabled', label: `Hạn chế / Khác (${restrictedCount})` },
-              ].map((ch) => (
-                <Button
-                  key={ch.key}
-                  type="button"
-                  size="sm"
-                  variant={statusFilter === ch.key ? 'default' : 'secondary'}
-                  className="h-7 px-2.5 text-xs"
-                  onClick={() => setStatusFilter(ch.key)}
-                >
-                  {ch.label}
-                </Button>
-              ))}
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {[
-                { key: 'all' as const, label: 'Mọi nền tảng' },
-                { key: 'meta' as const, label: `Meta (${metaCount})` },
-                { key: 'google_ads' as const, label: `Google Ads (${googleCount})` },
-              ].map((pf) => (
-                <Button
-                  key={pf.key}
-                  type="button"
-                  size="sm"
-                  variant={platformFilter === pf.key ? 'default' : 'secondary'}
-                  className="h-7 px-2.5 text-xs"
-                  onClick={() => setPlatformFilter(pf.key)}
-                >
-                  {pf.label}
-                </Button>
-              ))}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => sendDesktopCommand('open_google_ads_script_wizard')}
+            title="Lấy mã Google Ads Script cho MCC & Gmail khách độc lập (0% rủi ro)"
+          >
+            <Code2 className="h-3.5 w-3.5 text-emerald-500" /> Google Script
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="h-8 gap-1.5 text-xs"
+            onClick={() => sendDesktopCommand('export_ad_accounts_csv')}
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5" /> Xuất CSV
+          </Button>
+          <Button size="sm" className="h-8 gap-1.5 text-xs font-semibold" onClick={() => sendDesktopCommand('quick_sync_meta')}>
+            <RefreshCw className="h-3.5 w-3.5" /> Đồng bộ Meta
+          </Button>
+        </div>
+      </div>
 
-      {/* Accounts Table */}
+      {/* Financial Table (Bloomberg / Stripe precision) */}
       {state.adAccounts.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center gap-3 py-10 text-center">
-            <BarChart3 className="h-9 w-9 text-muted-foreground" />
-            <div>
-              <div className="text-sm font-semibold text-foreground">Chưa có Tài khoản Quảng cáo</div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Kết nối Meta Token hoặc Google Ads Script để nạp danh sách tài khoản.
-              </p>
-            </div>
-            <Button onClick={() => sendDesktopCommand('quick_sync_meta')}>
-              <RefreshCw className="h-4 w-4" /> Đồng bộ nhanh Meta
-            </Button>
-          </CardContent>
-        </Card>
+        <div className="studio-panel flex flex-col items-center justify-center gap-3 py-12 text-center">
+          <BarChart3 className="h-9 w-9 text-muted-foreground/60" />
+          <div>
+            <div className="text-sm font-semibold text-foreground">Chưa có Tài khoản Quảng cáo</div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Kết nối Meta Token hoặc Google Ads Script để nạp danh sách tài khoản.
+            </p>
+          </div>
+          <Button size="sm" onClick={() => sendDesktopCommand('quick_sync_meta')}>
+            <RefreshCw className="h-3.5 w-3.5" /> Đồng bộ nhanh Meta
+          </Button>
+        </div>
       ) : (
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Tài khoản &amp; ID</TableHead>
-                  <TableHead>Trạng thái</TableHead>
-                  <TableHead className="text-right">Số dư</TableHead>
-                  <TableHead className="text-right">Ngưỡng</TableHead>
-                  <TableHead className="text-right">Giới hạn ngày</TableHead>
-                  <TableHead className="text-right">Chi tiêu (HN / 7D)</TableHead>
-                  <TableHead>BM &amp; Via cầm</TableHead>
-                  <TableHead className="text-right">Thao tác</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map((acc) => {
-                  const isGads = isGoogleAdAccountId(acc.externalAccountId)
-                  return (
-                    <TableRow key={acc.id}>
-                      <TableCell>
-                        <button
-                          type="button"
+        <div className="studio-panel overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Tài khoản &amp; ID</TableHead>
+                <TableHead>Trạng thái</TableHead>
+                <TableHead className="text-right">Số dư</TableHead>
+                <TableHead className="text-right">Ngưỡng</TableHead>
+                <TableHead className="text-right">Giới hạn ngày</TableHead>
+                <TableHead className="text-right">Chi tiêu (HN / 7D)</TableHead>
+                <TableHead>BM &amp; Via cầm</TableHead>
+                <TableHead className="text-right">Thao tác</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.map((acc) => {
+                const isGads = isGoogleAdAccountId(acc.externalAccountId)
+                const isRestricted = !acc.isActive && acc.status.toUpperCase().includes('RESTRICT')
+                return (
+                  <TableRow key={acc.id}>
+                    <TableCell>
+                      <button
+                        type="button"
+                        onClick={() => setInspected(acc)}
+                        className="group flex max-w-[230px] items-center gap-1.5 text-left"
+                      >
+                        <span className="shrink-0 rounded bg-muted/85 px-1.5 py-[1px] font-mono text-[9.5px] font-medium uppercase text-muted-foreground">
+                          {isGads ? 'GADS' : 'META'}
+                        </span>
+                        <span className="truncate text-[13px] font-semibold text-foreground transition-colors group-hover:text-primary">
+                          {acc.displayName}
+                        </span>
+                      </button>
+                      <div className="mt-0.5 font-mono text-[11px] text-muted-foreground/85">
+                        {isGads
+                          ? `CID ${formatGoogleCid(acc.externalAccountId)}`
+                          : `act_${acc.externalAccountId}`}{' '}
+                        · {acc.currency}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <StatusDot
+                        tone={acc.isActive ? 'live' : isRestricted ? 'warning' : 'critical'}
+                        label={acc.status}
+                        labelClassName="font-mono text-[11px]"
+                      />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <FinancialValue value={acc.balanceText} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <FinancialValue value={acc.thresholdText} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <FinancialValue value={acc.dailyLimitText} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex flex-col items-end gap-0.5">
+                        <div className="inline-flex items-baseline gap-1 font-mono text-[11px] tabular-nums">
+                          <span className="text-muted-foreground/65">HN:</span>
+                          <FinancialValue value={acc.spendTodayText} className="text-[11px]" />
+                        </div>
+                        <div className="inline-flex items-baseline gap-1 font-mono text-[11px] tabular-nums">
+                          <span className="text-muted-foreground/65">7D:</span>
+                          <FinancialValue value={acc.spend7dText} className="text-[11px]" />
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="max-w-[190px] truncate text-xs font-medium text-foreground">
+                        {acc.bmName}
+                      </div>
+                      <div className="max-w-[190px] truncate text-[11px] text-muted-foreground">
+                        {acc.paymentCard ? `Via: ${acc.viaLabels} · ${acc.paymentCard}` : `Via: ${acc.viaLabels}`}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="inline-flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 px-0 text-muted-foreground hover:text-foreground"
+                          title="Xem chi tiết tài khoản"
                           onClick={() => setInspected(acc)}
-                          className="group flex max-w-[230px] items-center gap-1.5 text-left"
                         >
-                          <Badge
-                            variant={isGads ? 'success' : 'info'}
-                            className="shrink-0 px-1.5 py-0 text-[9px]"
-                          >
-                            {isGads ? 'GOOGLE' : 'META'}
-                          </Badge>
-                          <span className="truncate text-xs font-semibold text-foreground group-hover:text-primary">
-                            {acc.displayName}
-                          </span>
-                        </button>
-                        <div className="font-mono text-[11px] text-muted-foreground">
-                          {isGads
-                            ? `CID ${formatGoogleCid(acc.externalAccountId)}`
-                            : `act_${acc.externalAccountId}`}{' '}
-                          • {acc.currency}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={acc.isActive ? 'success' : 'destructive'} className="text-[10px]">
-                          {acc.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-xs tabular-nums">
-                        {acc.balanceText}
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-xs tabular-nums">
-                        {acc.thresholdText}
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-xs tabular-nums">
-                        {acc.dailyLimitText}
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-[11px] tabular-nums">
-                        <div className="text-foreground">HN: {acc.spendTodayText}</div>
-                        <div className="text-muted-foreground">7D: {acc.spend7dText}</div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="max-w-[190px] truncate text-xs text-foreground">{acc.bmName}</div>
-                        <div className="max-w-[190px] truncate text-[11px] text-muted-foreground">
-                          {acc.paymentCard ? `Via: ${acc.viaLabels} • ${acc.paymentCard}` : `Via: ${acc.viaLabels}`}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="inline-flex items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 w-7 px-0"
-                            title="Xem chi tiết tài khoản"
-                            onClick={() => setInspected(acc)}
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 w-7 px-0"
-                            title="Làm mới Chi tiêu TKQC"
-                            onClick={() => sendDesktopCommand('refresh_ad_spend', { accountId: acc.id })}
-                          >
-                            <RefreshCw className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            className="h-7 px-2.5 text-xs"
-                            onClick={() => sendDesktopCommand('open_ads_manager', { accountId: acc.id })}
-                          >
-                            <Rocket className="h-3 w-3" /> {isGads ? 'Google Ads' : 'Ads Manager'}
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                          <Eye className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 px-0 text-muted-foreground hover:text-foreground"
+                          title="Làm mới Chi tiêu TKQC"
+                          onClick={() => sendDesktopCommand('refresh_ad_spend', { accountId: acc.id })}
+                        >
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 border-border/80 bg-transparent px-2.5 text-xs hover:border-primary hover:bg-primary hover:text-primary-foreground transition-colors"
+                          onClick={() => sendDesktopCommand('open_ads_manager', { accountId: acc.id })}
+                        >
+                          <Rocket className="h-3 w-3" /> {isGads ? 'Google Ads' : 'Ads Manager'}
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+        </div>
       )}
 
       {/* Slide-Over Account Inspector Drawer */}
@@ -331,28 +341,28 @@ export function AdAccountsTab({
           <div className="space-y-3 text-xs">
             <InspectorSection title="Số liệu Chi tiêu & Giới hạn">
               <div className="grid grid-cols-2 gap-2.5">
-                <div className="rounded-md border border-border bg-card p-2.5">
+                <div className="rounded-lg border border-border/75 bg-card p-2.5">
                   <div className="text-[11px] text-muted-foreground">Chi tiêu hôm nay</div>
                   <div className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
                     {inspected.spendTodayText}
                   </div>
                 </div>
-                <div className="rounded-md border border-border bg-card p-2.5">
+                <div className="rounded-lg border border-border/75 bg-card p-2.5">
                   <div className="text-[11px] text-muted-foreground">Chi tiêu 7 ngày</div>
                   <div className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
                     {inspected.spend7dText}
                   </div>
                 </div>
-                <div className="rounded-md border border-border bg-card p-2.5">
+                <div className="rounded-lg border border-border/75 bg-card p-2.5">
                   <div className="text-[11px] text-muted-foreground">Số dư hiện tại</div>
                   <div className="mt-0.5 font-mono text-xs font-medium tabular-nums">
                     {inspected.balanceText}
                   </div>
                 </div>
-                <div className="rounded-md border border-border bg-card p-2.5">
+                <div className="rounded-lg border border-border/75 bg-card p-2.5">
                   <div className="text-[11px] text-muted-foreground">Ngưỡng / Giới hạn</div>
                   <div className="mt-0.5 font-mono text-xs font-medium tabular-nums">
-                    {inspected.thresholdText} • {inspected.dailyLimitText}
+                    {inspected.thresholdText} · {inspected.dailyLimitText}
                   </div>
                 </div>
               </div>

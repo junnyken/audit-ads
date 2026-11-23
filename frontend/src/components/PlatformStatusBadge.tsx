@@ -112,13 +112,13 @@ export default function PlatformStatusBadge({
             <button
               type="button"
               onClick={() => handleLaunchProfile(actionUrl)}
-              className="inline-flex items-center gap-1 rounded border border-emerald-500/50 bg-emerald-500/15 px-1.5 py-0.5 font-semibold text-emerald-700 hover:bg-emerald-500/25 dark:text-emerald-300"
+              className="inline-flex items-center gap-1 rounded border border-line-strong bg-surface-sunken px-1.5 py-0.5 font-semibold text-ink hover:border-brand hover:text-brand-text transition-colors"
               title={`Tự động bật cửa sổ Google Chrome (${chromeDir} — ${primaryIdentity.label}) và mở thẳng trang xử lý (đồng thời copy sẵn link)`}
               data-testid="launch-assigned-chrome-btn"
             >
               {copiedFeedback === 'launched'
-                ? `✓ Đã mở ${shortProfile} & Copy link`
-                : `🚀 Mở Chrome [${shortProfile}]`}
+                ? `Đã mở ${shortProfile} & Copy link`
+                : `Mở Chrome [${shortProfile}]`}
             </button>
           )}
           {isBillingIssue && billingUrl && (
@@ -126,7 +126,7 @@ export default function PlatformStatusBadge({
               href={billingUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 font-medium text-amber-600 hover:underline dark:text-amber-300"
+              className="inline-flex items-center rounded border px-1.5 py-0.5 font-medium hover:underline tone-caution"
               title="Mở trang Cài đặt thanh toán của tài khoản này trên Meta để thanh toán dư nợ"
             >
               Thanh toán dư nợ Meta ↗
@@ -137,7 +137,7 @@ export default function PlatformStatusBadge({
               href={appealUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center rounded border border-rose-500/40 bg-rose-500/10 px-1.5 py-0.5 font-medium text-rose-600 hover:underline dark:text-rose-300"
+              className="inline-flex items-center rounded border px-1.5 py-0.5 font-medium hover:underline tone-attention"
               title="Mở trang Chất lượng tài khoản (Account Quality) trên Meta để kiểm tra hoặc kháng nghị"
             >
               Kiểm tra & Kháng nghị Meta ↗
@@ -154,7 +154,7 @@ export default function PlatformStatusBadge({
                   : 'Copy đường link xử lý trực tiếp trên Meta'
               }
             >
-              {copiedFeedback === 'copied' ? '✓ Đã copy link' : '📋 Copy link'}
+              {copiedFeedback === 'copied' ? 'Đã copy link' : 'Copy link'}
             </button>
           )}
           {accountId && (

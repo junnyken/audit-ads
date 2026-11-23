@@ -2091,9 +2091,9 @@ internal static class Program
                 }
             }
 
-            // 35. v4.4.0 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
+            // 35. v5.0.0 Full 8-Tab Impeccable Studio AppShellWebStateDto, LiveTickDto & Bundle Verification
             {
-                if (DesktopAppInfo.Version != "4.4.0" || DesktopAppInfo.ExtVersion != "2.10.4")
+                if (DesktopAppInfo.Version != "5.0.0" || DesktopAppInfo.ExtVersion != "2.10.4")
                 {
                     throw new InvalidOperationException(
                         $"DesktopAppInfo version mismatch: app={DesktopAppInfo.Version}, ext={DesktopAppInfo.ExtVersion}");
@@ -2143,7 +2143,7 @@ internal static class Program
                 foreach (var reqKey in new[]
                          {
                              "\"type\":\"full_state\"",
-                             "\"appVersion\":\"4.4.0\"",
+                             "\"appVersion\":\"5.0.0\"",
                              "\"extVersion\":\"2.10.4\"",
                              "\"activeView\":\"settings\"",
                              "\"totpMap\"",

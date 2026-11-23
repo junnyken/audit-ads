@@ -191,7 +191,7 @@ export interface FanpageSummaryResponse {
 const VIA_PAGE_TEMPLATES = [
   {
     key: 'beauty_spa',
-    badge: '💄 Mỹ phẩm & Spa',
+    badge: 'Mỹ phẩm & Spa',
     namePrefix: 'Viện Chăm Sóc Sắc Đẹp & Da Liễu Chuẩn Y Khoa',
     category: 'Sức khỏe / Sắc đẹp (Health & Beauty)',
     bio: 'Chuyên gia giải pháp chăm sóc da chuyên sâu, trẻ hóa làn da tự nhiên và phân phối mỹ phẩm chính hãng an toàn cho phụ nữ Việt.',
@@ -199,7 +199,7 @@ const VIA_PAGE_TEMPLATES = [
   },
   {
     key: 'fashion_store',
-    badge: '👗 Thời trang & Phụ kiện',
+    badge: 'Thời trang & Phụ kiện',
     namePrefix: 'Thời Trang Thiết Kế Thanh Lịch & Hiện Đại',
     category: 'Thương hiệu Quần áo / Thời trang (Clothing Brand)',
     bio: 'Bộ sưu tập thời trang công sở & dạo phố thiết kế tinh tế, chất liệu cao cấp, tôn dáng và bảo hành đường may trọn đời.',
@@ -207,7 +207,7 @@ const VIA_PAGE_TEMPLATES = [
   },
   {
     key: 'home_decor',
-    badge: '🛋️ Nội thất & Gia dụng',
+    badge: 'Nội thất & Gia dụng',
     namePrefix: 'Không Gian Sống Tinh Tế — Nội Thất & Decor',
     category: 'Cửa hàng Nội thất & Gia dụng (Home & Living)',
     bio: 'Giải pháp thiết kế nội thất thông minh và phụ kiện trang trí tổ ấm hiện đại, tối ưu diện tích và nâng tầm chất lượng sống.',
@@ -215,7 +215,7 @@ const VIA_PAGE_TEMPLATES = [
   },
   {
     key: 'fnb_cuisine',
-    badge: '🍜 Ẩm thực & F&B',
+    badge: 'Ẩm thực & F&B',
     namePrefix: 'Bếp Ngon Bản Địa — Hương Vị Truyền Thống',
     category: 'Nhà hàng / Dịch vụ Ẩm thực (Restaurant & Cafe)',
     bio: 'Thưởng thức hương vị ẩm thực tươi ngon mỗi ngày từ nguyên liệu tuyển chọn kỹ lưỡng, không gian ấm cúng cho gia đình và bạn bè.',
@@ -223,7 +223,7 @@ const VIA_PAGE_TEMPLATES = [
   },
   {
     key: 'tech_saas',
-    badge: '💻 Công nghệ & Giải pháp Số',
+    badge: 'Công nghệ & Giải pháp Số',
     namePrefix: 'Giải Pháp Chuyển Đổi Số & Vận Hành Doanh Nghiệp',
     category: 'Công ty Công nghệ / Phần mềm (Information Technology)',
     bio: 'Cung cấp nền tảng quản trị tự động hóa, tối ưu hiệu suất vận hành và bảo mật dữ liệu toàn diện cho doanh nghiệp SME.',
@@ -231,7 +231,7 @@ const VIA_PAGE_TEMPLATES = [
   },
   {
     key: 'real_estate',
-    badge: '🏠 Bất động sản & Đầu tư',
+    badge: 'Bất động sản & Đầu tư',
     namePrefix: 'Tư Vấn An Cư & Đầu Tư Bất Động Sản Bền Vững',
     category: 'Dịch vụ Bất động sản (Real Estate Service)',
     bio: 'Cập nhật thông tin quy hoạch minh bạch, phân tích pháp lý chuẩn xác và đồng hành cùng nhà đầu tư lựa chọn bất động sản giá trị thực.',
@@ -1208,20 +1208,20 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
           <div className="flex flex-wrap items-center gap-2">
             <Link
               to="/operations-guide"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-brand/40 bg-brand-light px-3 py-1.5 text-xs font-bold text-brand-text hover:opacity-90"
+              className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-brand-text transition hover:border-line-strong hover:bg-surface-muted"
             >
               <Sparkles className="h-3.5 w-3.5" />
-              <span>{isEn ? '📖 Anti-Contagion Page Playbook →' : '📖 Quy tắc Bảo vệ Fanpage Chống Đỏ Page →'}</span>
+              <span>{isEn ? 'Anti-Contagion Page Playbook →' : 'Quy tắc Bảo vệ Fanpage Chống Đỏ Page →'}</span>
             </Link>
           </div>
         </div>
       )}
 
       {/* GOLDEN RULE BANNER FOR FANPAGES */}
-      <div className="rounded-xl border border-brand/30 bg-brand-light/30 p-3.5">
+      <div className="rounded-xl border border-line bg-surface p-3.5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="space-y-1">
-            <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-brand-text">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-brand-text">
               <ShieldCheck className="h-4 w-4" />
               <span>
                 {isEn
@@ -1250,8 +1250,8 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                     ? 'Scanning Meta Graph API...'
                     : 'Đang quét Meta Graph API...'
                   : isEn
-                    ? '🔄 Sync Fanpages & Check Health from Meta'
-                    : '🔄 Đồng bộ Fanpage & Quét Sức khỏe từ Meta'}
+                    ? 'Sync Fanpages & Check Health from Meta'
+                    : 'Đồng bộ Fanpage & Quét Sức khỏe từ Meta'}
               </span>
             </Button>
             <Button
@@ -1269,18 +1269,18 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                 }
                 setStudioOpen((prev) => !prev)
               }}
-              className="gap-1.5 font-bold border-emerald-500/50 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+              className="gap-1.5 font-semibold"
             >
               <Sparkles className="h-3.5 w-3.5" />
               <span>
                 {isEn
-                  ? '🌱 Via Page Creator & Auto-Warmup Studio'
-                  : '🌱 Tạo Page bằng Via & Nuôi Page Sống Lâu (Định mức & Nhật ký)'}
+                  ? 'Via Page Creator & Auto-Warmup Studio'
+                  : 'Tạo Page bằng Via & Nuôi Page Sống Lâu (Định mức & Nhật ký)'}
               </span>
             </Button>
             <Button size="sm" onClick={openCreateModal} className="gap-1.5 font-semibold">
               <Plus className="h-3.5 w-3.5" />
-              <span>{isEn ? '+ Add Fanpage' : '+ Thêm Fanpage mới'}</span>
+              <span>{isEn ? 'Add Fanpage' : 'Thêm Fanpage mới'}</span>
             </Button>
           </div>
         </div>
@@ -1289,7 +1289,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
       {cronStatusQ.data && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-surface px-3.5 py-2 text-xs">
           <div className="flex flex-wrap items-center gap-2 text-ink">
-            <span className="font-semibold">⏱️ Auto-Cron chạy ngầm:</span>
+            <span className="font-semibold">Auto-Cron chạy ngầm:</span>
             <span className="text-ink-muted">
               {cronStatusQ.data.auto_meta_sync_enabled
                 ? `Đồng bộ Meta mỗi ${cronStatusQ.data.sync_interval_minutes}p`
@@ -1308,7 +1308,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
               disabled={runAutoCronMut.isPending}
               onClick={() => runAutoCronMut.mutate()}
             >
-              {runAutoCronMut.isPending ? 'Đang chạy Auto-Cron...' : '⚡ Chạy Auto-Cron ngay'}
+              {runAutoCronMut.isPending ? 'Đang chạy Auto-Cron...' : 'Chạy Auto-Cron ngay'}
             </Button>
             <Link to="/settings" className="font-semibold text-brand-text hover:underline">
               Đổi lịch →
@@ -1322,27 +1322,27 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
         <div
           className={`flex flex-wrap items-center justify-between gap-2.5 rounded-xl border px-3.5 py-2.5 text-xs ${
             quotaAlerts.limit_reached_vias_count > 0
-              ? 'border-rose-500/40 bg-rose-500/10 text-rose-800 dark:text-rose-200'
-              : 'border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200'
+              ? 'border-tone-attention-border bg-tone-attention-bg text-tone-attention-fg'
+              : 'border-tone-caution-border bg-tone-caution-bg text-tone-caution-fg'
           }`}
         >
           <div className="flex flex-wrap items-center gap-2">
             <AlertTriangle className="h-4 w-4 shrink-0" />
             <span className="font-bold">
-              ⚠️ Cảnh báo Định mức Tạo Page của Via:
+              Cảnh báo Định mức Tạo Page của Via:
             </span>
             <span>
               {quotaAlerts.limit_reached_vias_count > 0 && (
-                <strong className="mr-2">🔴 {quotaAlerts.limit_reached_vias_count} Via chạm trần định mức</strong>
+                <strong className="mr-2">{quotaAlerts.limit_reached_vias_count} Via chạm trần định mức</strong>
               )}
               {quotaAlerts.cooldown_vias_count > 0 && (
-                <strong className="mr-2">⏳ {quotaAlerts.cooldown_vias_count} Via đang nghỉ Cooldown</strong>
+                <strong className="mr-2">{quotaAlerts.cooldown_vias_count} Via đang nghỉ Cooldown</strong>
               )}
               {quotaAlerts.near_limit_vias_count > 0 && (
-                <strong className="mr-2">🟡 {quotaAlerts.near_limit_vias_count} Via sắp chạm trần</strong>
+                <strong className="mr-2">{quotaAlerts.near_limit_vias_count} Via sắp chạm trần</strong>
               )}
               <span>
-                — Hiện còn <strong>🟢 {quotaAlerts.max_safe_batch_now} Via sạch</strong> sẵn sàng xoay vòng tạo Page an toàn ngay.
+                — Hiện còn <strong>{quotaAlerts.max_safe_batch_now} Via sạch</strong> sẵn sàng xoay vòng tạo Page an toàn ngay.
               </span>
             </span>
           </div>
@@ -1350,13 +1350,16 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
             {quotaAlerts.flagged_vias.slice(0, 2).map((fv) => (
               <span
                 key={fv.via_id}
-                className="rounded border border-current/25 bg-surface/60 px-2 py-0.5 text-[10.5px] font-semibold"
+                className="inline-flex items-center gap-1.5 rounded border border-current/25 bg-surface/60 px-2 py-0.5 text-[10.5px] font-semibold"
                 title={fv.warning_reasons.join(' · ')}
               >
-                {fv.quota_status === 'LIMIT_REACHED' ? '🔴' : fv.quota_status === 'COOLDOWN' ? '⏳' : '🟡'} {fv.label}
-                {fv.cooldown_remaining_minutes > 0
-                  ? ` (${Math.floor(fv.cooldown_remaining_minutes / 60)}h${String(fv.cooldown_remaining_minutes % 60).padStart(2, '0')}p)`
-                  : ''}
+                <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+                <span>
+                  {fv.label}
+                  {fv.cooldown_remaining_minutes > 0
+                    ? ` (${Math.floor(fv.cooldown_remaining_minutes / 60)}h${String(fv.cooldown_remaining_minutes % 60).padStart(2, '0')}p)`
+                    : ''}
+                </span>
               </span>
             ))}
             <button
@@ -1365,21 +1368,21 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                 setStudioTab('batch')
                 setStudioOpen(true)
               }}
-              className="rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-700"
+              className="rounded-md bg-brand px-2.5 py-1 text-[11px] font-semibold text-brand-fg hover:opacity-90"
             >
-              ⚡ Xoay vòng {quotaAlerts.max_safe_batch_now} Via sạch
+              Xoay vòng {quotaAlerts.max_safe_batch_now} Via sạch
             </button>
           </div>
         </div>
       )}
 
       {bannerMsg && (
-        <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3.5 py-2.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-tone-positive-border bg-tone-positive-bg px-3.5 py-2.5 text-xs font-semibold text-tone-positive-fg">
           <span>{bannerMsg}</span>
           <button
             type="button"
             onClick={() => setBannerMsg(null)}
-            className="rounded p-0.5 hover:bg-emerald-500/20"
+            className="rounded p-0.5 hover:bg-surface/40"
             aria-label={isEn ? 'Close notification' : 'Đóng thông báo'}
           >
             <X className="h-3.5 w-3.5" />
@@ -1389,12 +1392,12 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
 
       {/* VIA PAGE CREATOR, QUOTA GUARDRAIL & MULTI-VIA BATCH STUDIO */}
       {studioOpen && (
-        <Card className="border-emerald-500/40 bg-surface shadow-md">
+        <Card className="border-line-strong bg-surface shadow-md">
           <CardHeader className="border-b border-line pb-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <CardTitle className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300">
-                  <Sparkles className="h-4 w-4" />
+                <CardTitle className="flex items-center gap-2 text-sm text-ink">
+                  <Sparkles className="h-4 w-4 text-brand-text" />
                   <span>
                     {isEn
                       ? 'Multi-Via Auto-Rotation Batch Page Creator, Quota Guardrails & Activity History'
@@ -1409,24 +1412,24 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                 <button
                   type="button"
                   onClick={() => setStudioTab('batch')}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
                     studioTab === 'batch'
-                      ? 'bg-emerald-600 text-white shadow-xs'
-                      : 'border border-line bg-surface-muted text-ink hover:border-emerald-500/50'
+                      ? 'bg-brand text-brand-fg shadow-xs'
+                      : 'border border-line bg-surface-muted text-ink hover:border-line-strong'
                   }`}
                 >
-                  ⚡ 1. Tạo Hàng Loạt Đa Via ({quotaAlerts.max_safe_batch_now} Via sẵn)
+                  1. Tạo Hàng Loạt Đa Via ({quotaAlerts.max_safe_batch_now} Via sẵn)
                 </button>
                 <button
                   type="button"
                   onClick={() => setStudioTab('create')}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
                     studioTab === 'create'
-                      ? 'bg-emerald-600 text-white shadow-xs'
-                      : 'border border-line bg-surface-muted text-ink hover:border-emerald-500/50'
+                      ? 'bg-brand text-brand-fg shadow-xs'
+                      : 'border border-line bg-surface-muted text-ink hover:border-line-strong'
                   }`}
                 >
-                  🌱 2. Tạo Lẻ & Cảnh Báo Via ({viaQuotas.length} Via)
+                  2. Tạo Lẻ &amp; Cảnh Báo Via ({viaQuotas.length} Via)
                 </button>
                 <button
                   type="button"
@@ -1434,31 +1437,31 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                     if (!warmupTargetPageId && items[0]?.id) setWarmupTargetPageId(items[0].id)
                     setStudioTab('warmup')
                   }}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
                     studioTab === 'warmup'
-                      ? 'bg-emerald-600 text-white shadow-xs'
-                      : 'border border-line bg-surface-muted text-ink hover:border-emerald-500/50'
+                      ? 'bg-brand text-brand-fg shadow-xs'
+                      : 'border border-line bg-surface-muted text-ink hover:border-line-strong'
                   }`}
                 >
-                  ✍️ 3. Auto Nuôi Page ({underNurturedCount} cần nuôi)
+                  3. Auto Nuôi Page ({underNurturedCount} cần nuôi)
                 </button>
                 <button
                   type="button"
                   onClick={() => setStudioTab('logs')}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
                     studioTab === 'logs'
-                      ? 'bg-emerald-600 text-white shadow-xs'
-                      : 'border border-line bg-surface-muted text-ink hover:border-emerald-500/50'
+                      ? 'bg-brand text-brand-fg shadow-xs'
+                      : 'border border-line bg-surface-muted text-ink hover:border-line-strong'
                   }`}
                 >
-                  📜 4. Nhật Ký Lưu Vĩnh Viễn ({viaActivityLogs.length})
+                  4. Nhật Ký Lưu Vĩnh Viễn ({viaActivityLogs.length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setStudioOpen(false)}
                   className="rounded-lg border border-line px-2 py-1.5 text-xs font-semibold text-ink-muted hover:text-ink"
                 >
-                  ✕ Đóng
+                  Đóng
                 </button>
               </div>
             </div>
@@ -1468,65 +1471,66 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
             {/* CLEAN AUTOMATION MODE BAR */}
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-surface-muted/40 px-3 py-2 text-xs">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-bold text-ink">Chế độ thao tác trên Chrome:</span>
+                <span className="font-semibold text-ink">Chế độ thao tác trên Chrome:</span>
                 <button
                   type="button"
                   onClick={() => setAutoSubmitMode(true)}
-                  className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-bold transition ${
+                  className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${
                     autoSubmitMode
-                      ? 'border-emerald-500 bg-emerald-600 text-white shadow-xs'
-                      : 'border-line bg-surface text-ink hover:border-emerald-500/40'
+                      ? 'border-brand bg-brand text-brand-fg shadow-xs'
+                      : 'border-line bg-surface text-ink hover:border-line-strong'
                   }`}
                 >
                   <Bot className="h-3.5 w-3.5" />
-                  <span>🤖 Full Automatic (Tự điền + Tự bấm Tạo &amp; Hoàn tất)</span>
+                  <span>Full Automatic (Tự điền + Tự bấm Tạo &amp; Hoàn tất)</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setAutoSubmitMode(false)}
-                  className={`rounded-lg border px-2.5 py-1 text-[11px] font-bold transition ${
+                  className={`rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${
                     !autoSubmitMode
-                      ? 'border-sky-500 bg-sky-600 text-white shadow-xs'
-                      : 'border-line bg-surface text-ink hover:border-sky-500/40'
+                      ? 'border-brand bg-brand text-brand-fg shadow-xs'
+                      : 'border-line bg-surface text-ink hover:border-line-strong'
                   }`}
                 >
-                  <span>👀 Bán tự động (Tự điền, chờ bấm tay)</span>
+                  <span>Bán tự động (Tự điền, chờ bấm tay)</span>
                 </button>
               </div>
               <div className="flex flex-wrap items-center gap-2 text-[11px]">
                 {bridgeProbe?.isDesktopApp ? (
                   <span
-                    className="inline-flex items-center gap-1 rounded border border-emerald-500/50 bg-emerald-500/15 px-2 py-1 font-extrabold text-emerald-700 dark:text-emerald-300"
+                    className="inline-flex items-center gap-1.5 rounded border border-tone-positive-border bg-tone-positive-bg px-2 py-1 font-semibold text-tone-positive-fg"
                     title={`Ứng dụng Windows AdsOps Desktop Pro đang chạy ngầm trên máy (127.0.0.1:${bridgeProbe.port || 17890})`}
                   >
-                    💻 App Windows Desktop Pro Đang Chạy (v{bridgeProbe.version || '3.2.0'})
+                    <span className="h-1.5 w-1.5 rounded-full bg-tone-positive-fg" aria-hidden="true" />
+                    <span>App Windows Desktop Pro Đang Chạy (v{bridgeProbe.version || '5.0.0'})</span>
                   </span>
                 ) : bridgeProbe?.online ? (
-                  <span className="inline-flex items-center gap-1 rounded border border-sky-500/40 bg-sky-500/10 px-2 py-1 font-bold text-sky-700 dark:text-sky-300">
-                    ⚡ Cầu nối .bat Đang Chạy (:{bridgeProbe.port || 17890})
+                  <span className="inline-flex items-center gap-1 rounded border border-tone-info-border bg-tone-info-bg px-2 py-1 font-semibold text-tone-info-fg">
+                    Cầu nối .bat Đang Chạy (:{bridgeProbe.port || 17890})
                   </span>
                 ) : null}
                 <a
-                  href="/downloads/AdsOps-Desktop-Pro-v2.3.zip"
+                  href="/downloads/AdsOps-Desktop-Pro-latest.zip"
                   download
-                  className="rounded border border-indigo-500/45 bg-indigo-500/15 px-2 py-1 font-bold text-indigo-700 hover:bg-indigo-500/25 dark:text-indigo-300"
-                  title="Tải App Windows AdsOps Desktop Pro v3.2.0 (.exe chạy ngầm System Tray 24/7, tự gia hạn phiên DPAPI 24/7, nhận diện thông minh Chrome Profile gốc & cô lập, Extension v2.10.2)"
+                  className="rounded border border-line bg-surface px-2 py-1 font-semibold text-ink transition hover:border-line-strong hover:bg-surface-muted"
+                  title="Tải App Windows AdsOps Desktop Pro v5.0.0 (.exe chạy ngầm System Tray 24/7, tự gia hạn phiên DPAPI 24/7, nhận diện thông minh Chrome Profile gốc & cô lập, Extension v2.10.4)"
                 >
-                  💻 Tải App Windows v3.2.0 (.zip)
+                  Tải App Windows v5.0 (.zip)
                 </a>
                 <button
                   type="button"
                   onClick={downloadWindowsChromeLauncherBat}
-                  className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 font-bold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+                  className="rounded border border-line bg-surface px-2 py-1 font-semibold text-ink transition hover:border-line-strong hover:bg-surface-muted"
                   title="Chạy 1 lần duy nhất để bật Cầu nối ngầm 127.0.0.1:17890 mở đa Chrome không hiện hộp thoại hỏi"
                 >
-                  ⚡ Bật Cầu nối Mở Ngầm (.bat 1 lần)
+                  Bật Cầu nối Mở Ngầm (.bat 1 lần)
                 </button>
                 <Link
                   to="/chrome-extension"
-                  className="rounded border border-line bg-surface px-2 py-1 font-bold text-brand-text hover:underline"
+                  className="rounded border border-line bg-surface px-2 py-1 font-semibold text-brand-text hover:underline"
                 >
-                  Cài Extension v2.10.2 ↗
+                  Cài Extension v2.10.4
                 </Link>
               </div>
             </div>
@@ -1535,44 +1539,44 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
             {(() => {
               const idleVias = viaQuotas.filter((v) => v.needs_keepalive)
               return (
-                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-[11px]">
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-surface-sunken px-3 py-2 text-[11px]">
                   <div className="flex flex-wrap items-center gap-2.5">
-                    <span className="font-extrabold text-emerald-700 dark:text-emerald-300">✨ Bảo vệ v2.9 Pro:</span>
-                    <label className="inline-flex cursor-pointer items-center gap-1.5 font-semibold text-ink">
+                    <span className="font-semibold text-ink">Bảo vệ vận hành:</span>
+                    <label className="inline-flex cursor-pointer items-center gap-1.5 font-medium text-ink">
                       <input
                         type="checkbox"
                         checked={preCheckProxy}
                         onChange={(e) => setPreCheckProxy(e.target.checked)}
-                        className="accent-emerald-600"
+                        className="accent-brand"
                       />
-                      <span>🛡️ Check Proxy sống 2s</span>
+                      <span>Check Proxy sống 2s</span>
                     </label>
-                    <label className="inline-flex cursor-pointer items-center gap-1.5 font-semibold text-ink">
+                    <label className="inline-flex cursor-pointer items-center gap-1.5 font-medium text-ink">
                       <input
                         type="checkbox"
                         checked={warmupBeforeCreate}
                         onChange={(e) => setWarmupBeforeCreate(e.target.checked)}
-                        className="accent-emerald-600"
+                        className="accent-brand"
                       />
-                      <span>🌿 Lướt ấm 15s trước khi tạo</span>
+                      <span>Lướt ấm 15s trước khi tạo</span>
                     </label>
-                    <label className="inline-flex cursor-pointer items-center gap-1.5 font-semibold text-ink">
+                    <label className="inline-flex cursor-pointer items-center gap-1.5 font-medium text-ink">
                       <input
                         type="checkbox"
                         checked={autoUploadMedia}
                         onChange={(e) => setAutoUploadMedia(e.target.checked)}
-                        className="accent-emerald-600"
+                        className="accent-brand"
                       />
-                      <span>🖼️ Tự gắn Avatar/Cover độc bản</span>
+                      <span>Tự gắn Avatar/Cover độc bản</span>
                     </label>
-                    <label className="inline-flex cursor-pointer items-center gap-1.5 font-semibold text-ink">
+                    <label className="inline-flex cursor-pointer items-center gap-1.5 font-medium text-ink">
                       <input
                         type="checkbox"
                         checked={autoCloseTab}
                         onChange={(e) => setAutoCloseTab(e.target.checked)}
-                        className="accent-emerald-600"
+                        className="accent-brand"
                       />
-                      <span>🧹 Tự đóng Tab khi xong</span>
+                      <span>Tự đóng Tab khi xong</span>
                     </label>
                   </div>
                   <button
@@ -1582,12 +1586,12 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                       const picked = (idleVias.length > 0 ? idleVias : viaQuotas.slice(0, 8)).slice(0, 12)
                       launchHumanKeepAliveForVias(picked)
                     }}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/45 bg-amber-500/15 px-2.5 py-1 text-[11px] font-bold text-amber-800 hover:bg-amber-500/25 disabled:opacity-50 dark:text-amber-200"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-tone-caution-border bg-tone-caution-bg px-2.5 py-1 text-[11px] font-semibold text-tone-caution-fg transition hover:opacity-90 disabled:opacity-50"
                     title="Đảo Ấm Sinh Học v2.9 (chu kỳ lệch pha 2.5–4.5 ngày): đa lộ trình Newsfeed / Thông báo / Quản lý Trang / Business Suite BM, giữ nguyên tab nếu văng Cookie"
                   >
                     <Coffee className="h-3.5 w-3.5" />
                     <span>
-                      ☕ Đảo Ấm Sinh Học v2.9 ({idleVias.length > 0 ? `${idleVias.length} Via cần ấm` : `${Math.min(viaQuotas.length, 8)} Via`})
+                      Đảo Ấm Sinh Học ({idleVias.length > 0 ? `${idleVias.length} Via cần ấm` : `${Math.min(viaQuotas.length, 8)} Via`})
                     </span>
                   </button>
                 </div>
@@ -1596,43 +1600,43 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
 
             {/* LIVE WEB AUTO-RUNNER MONITOR (PAGE CREATION & KEEP-ALIVE) */}
             {autoRunner.phase !== 'idle' && (
-              <div className="space-y-2 rounded-xl border-2 border-emerald-500/50 bg-surface p-3 shadow-xs">
+              <div className="space-y-2 rounded-xl border border-line-strong bg-surface p-3 shadow-xs">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     {autoRunner.isKeepAliveRun ? (
-                      <Coffee className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                      <Coffee className="h-4 w-4 text-tone-caution-fg" />
                     ) : (
-                      <Bot className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                      <Bot className="h-4 w-4 text-tone-positive-fg" />
                     )}
-                    <span className="font-extrabold text-ink">
+                    <span className="font-bold text-ink">
                       {autoRunner.checkingProxy &&
-                        `🛡️ Đang kiểm tra Proxy sống (${autoRunner.currentIdx + 1}/${autoRunner.total}) cho Via ${autoRunner.currentViaLabel}...`}
+                        `Đang kiểm tra Proxy sống (${autoRunner.currentIdx + 1}/${autoRunner.total}) cho Via ${autoRunner.currentViaLabel}...`}
                       {!autoRunner.checkingProxy &&
                         autoRunner.nightPaused &&
-                        `🌙 Tạm nghỉ khung giờ đêm 22:30–08:00 (Via ${autoRunner.currentIdx + 1}/${autoRunner.total}) — Tự chạy tiếp lúc 08:00 sáng`}
+                        `Tạm nghỉ khung giờ đêm 22:30–08:00 (Via ${autoRunner.currentIdx + 1}/${autoRunner.total}) — Tự chạy tiếp lúc 08:00 sáng`}
                       {!autoRunner.checkingProxy &&
                         !autoRunner.nightPaused &&
                         autoRunner.phase === 'running' &&
-                        `${autoRunner.isKeepAliveRun ? '☕ Đang Đảo Ấm Cookie' : '🤖 Đang chạy Automatic'} (${autoRunner.currentIdx + 1}/${autoRunner.total}) · Đang mở: ${autoRunner.currentViaLabel}`}
+                        `${autoRunner.isKeepAliveRun ? 'Đang Đảo Ấm Cookie' : 'Đang chạy Automatic'} (${autoRunner.currentIdx + 1}/${autoRunner.total}) · Đang mở: ${autoRunner.currentViaLabel}`}
                       {autoRunner.phase === 'paused' &&
-                        `⏸️ Đã tạm dừng ở Via ${autoRunner.currentIdx + 1}/${autoRunner.total} (${autoRunner.currentViaLabel})`}
+                        `Đã tạm dừng ở Via ${autoRunner.currentIdx + 1}/${autoRunner.total} (${autoRunner.currentViaLabel})`}
                       {autoRunner.phase === 'syncing' &&
                         (autoRunner.isKeepAliveRun
-                          ? `☕ Đã mở đủ ${autoRunner.total}/${autoRunner.total} Via đảo ấm — Hoàn tất sau ${autoRunner.countdownSec}s...`
-                          : `🔄 Đã mở đủ ${autoRunner.total}/${autoRunner.total} Via — Đang đợi ${autoRunner.countdownSec}s rồi tự đồng bộ Page ID + gom về BM...`)}
+                          ? `Đã mở đủ ${autoRunner.total}/${autoRunner.total} Via đảo ấm — Hoàn tất sau ${autoRunner.countdownSec}s...`
+                          : `Đã mở đủ ${autoRunner.total}/${autoRunner.total} Via — Đang đợi ${autoRunner.countdownSec}s rồi tự đồng bộ Page ID + gom về BM...`)}
                       {autoRunner.phase === 'done' &&
                         (autoRunner.isKeepAliveRun
-                          ? `✅ Hoàn tất đảo ấm Cookie ${autoRunner.total - autoRunner.skippedProxyCount}/${autoRunner.total} Via an toàn!`
-                          : `✅ Hoàn tất tự động ${autoRunner.total - autoRunner.skippedProxyCount}/${autoRunner.total} Via & đã kích hoạt đồng bộ Meta!`)}
+                          ? `Hoàn tất đảo ấm Cookie ${autoRunner.total - autoRunner.skippedProxyCount}/${autoRunner.total} Via an toàn!`
+                          : `Hoàn tất tự động ${autoRunner.total - autoRunner.skippedProxyCount}/${autoRunner.total} Via & đã kích hoạt đồng bộ Meta!`)}
                     </span>
                     {autoRunner.phase === 'running' && !autoRunner.checkingProxy && !autoRunner.nightPaused && (
-                      <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 font-mono text-[11px] font-bold text-amber-700 dark:text-amber-300">
-                        ⏳ Nghỉ an toàn {autoRunner.countdownSec}s (+{autoRunner.lastJitterSec}s ngẫu nhiên)
+                      <span className="rounded-full bg-tone-caution-bg px-2.5 py-0.5 font-mono text-[11px] font-semibold text-tone-caution-fg">
+                        Nghỉ an toàn {autoRunner.countdownSec}s (+{autoRunner.lastJitterSec}s ngẫu nhiên)
                       </span>
                     )}
                     {autoRunner.skippedProxyCount > 0 && (
-                      <span className="rounded-full bg-rose-500/15 px-2 py-0.5 text-[10.5px] font-bold text-rose-700 dark:text-rose-300">
-                        🛑 Đã bỏ qua {autoRunner.skippedProxyCount} Via lỗi/trùng Proxy
+                      <span className="rounded-full bg-tone-attention-bg px-2 py-0.5 text-[10.5px] font-semibold text-tone-attention-fg">
+                        Đã bỏ qua {autoRunner.skippedProxyCount} Via lỗi/trùng Proxy
                       </span>
                     )}
                   </div>
@@ -1646,7 +1650,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                             runnerStateRef.current = p
                             setAutoRunner(p)
                           }}
-                          className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/15 px-2.5 py-1 text-[11px] font-bold text-amber-700 hover:bg-amber-500/25 dark:text-amber-300"
+                          className="inline-flex items-center gap-1 rounded-md border border-tone-caution-border bg-tone-caution-bg px-2.5 py-1 text-[11px] font-semibold text-tone-caution-fg hover:opacity-90"
                         >
                           <Pause className="h-3 w-3" />
                           <span>Tạm dừng</span>
@@ -1667,7 +1671,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                               )
                             }
                           }}
-                          className="inline-flex items-center gap-1 rounded-md border border-emerald-500/40 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-bold text-emerald-700 hover:bg-emerald-500/25 dark:text-emerald-300"
+                          className="inline-flex items-center gap-1 rounded-md border border-tone-positive-border bg-tone-positive-bg px-2.5 py-1 text-[11px] font-semibold text-tone-positive-fg hover:opacity-90"
                         >
                           <SkipForward className="h-3 w-3" />
                           <span>Mở ngay Via kế</span>
@@ -1682,7 +1686,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                           runnerStateRef.current = r
                           setAutoRunner(r)
                         }}
-                        className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-700"
+                        className="inline-flex items-center gap-1 rounded-md bg-brand px-2.5 py-1 text-[11px] font-semibold text-brand-fg hover:opacity-90"
                       >
                         <Play className="h-3 w-3" />
                         <span>Tiếp tục</span>
@@ -1692,7 +1696,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                       <button
                         type="button"
                         onClick={stopWebAutoRunner}
-                        className="inline-flex items-center gap-1 rounded-md border border-rose-500/40 bg-rose-500/10 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-500/20 dark:text-rose-300"
+                        className="inline-flex items-center gap-1 rounded-md border border-tone-attention-border bg-tone-attention-bg px-2.5 py-1 text-[11px] font-semibold text-tone-attention-fg hover:opacity-90"
                       >
                         <Square className="h-3 w-3" />
                         <span>{autoRunner.phase === 'done' ? 'Đóng' : 'Dừng Auto'}</span>
@@ -1703,7 +1707,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                 <div className="h-2 w-full overflow-hidden rounded-full bg-surface-muted">
                   <div
                     className={`h-full rounded-full transition-all duration-500 ${
-                      autoRunner.isKeepAliveRun ? 'bg-amber-500' : 'bg-emerald-500'
+                      autoRunner.isKeepAliveRun ? 'bg-tone-caution-fg' : 'bg-tone-positive-fg'
                     }`}
                     style={{
                       width: `${autoRunner.total > 0 ? Math.round(((autoRunner.currentIdx + 1) / autoRunner.total) * 100) : 0}%`,
@@ -1714,10 +1718,10 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                   <span>Phiên hiện tại: <strong className="text-ink">{autoRunner.currentPageName}</strong></span>
                   <span>
                     {autoRunner.bridgeMode === 'bridge'
-                      ? `⚡ Đang mở qua Cầu nối ngầm 127.0.0.1:${bridgeProbe?.port || 17890} (0 hộp thoại hỏi)`
+                      ? `Đang mở qua Cầu nối ngầm 127.0.0.1:${bridgeProbe?.port || 17890} (0 hộp thoại hỏi)`
                       : autoRunner.bridgeMode === 'protocol'
-                        ? '🔗 Đang mở qua adsops-chrome:// (khuyên chạy .bat Cầu nối 1 lần để 0 popup)'
-                        : '🚀 Đang kết nối trình duyệt Chrome Profile...'}
+                        ? 'Đang mở qua adsops-chrome:// (khuyên chạy .bat Cầu nối 1 lần để 0 popup)'
+                        : 'Đang kết nối trình duyệt Chrome Profile...'}
                   </span>
                 </div>
               </div>
@@ -1731,7 +1735,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                   <div className="space-y-3 rounded-xl border border-line bg-surface-muted/30 p-3.5 lg:col-span-7">
                     <div>
                       <div className="text-xs font-bold text-ink">
-                        1. Chọn Ngành hàng — Hệ thống tự Spin Tên, Tiểu sử & Bài mồi khác nhau cho từng Page (Chống quét trùng lặp)
+                        1. Chọn Ngành hàng — Hệ thống tự Spin Tên, Tiểu sử &amp; Bài mồi khác nhau cho từng Page (Chống quét trùng lặp)
                       </div>
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
                         {VIA_PAGE_TEMPLATES.map((tpl) => (
@@ -1739,10 +1743,10 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                             key={tpl.key}
                             type="button"
                             onClick={() => setBatchNicheKey(tpl.key)}
-                            className={`rounded-lg border px-2.5 py-1 text-[11px] font-bold transition ${
+                            className={`rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${
                               batchNicheKey === tpl.key
-                                ? 'border-emerald-500 bg-emerald-600 text-white'
-                                : 'border-line bg-surface text-ink hover:border-emerald-500/50'
+                                ? 'border-brand bg-brand text-brand-fg'
+                                : 'border-line bg-surface text-ink hover:border-line-strong'
                             }`}
                           >
                             {tpl.badge}
@@ -1768,7 +1772,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                               key={`${preset}-${i}`}
                               type="button"
                               onClick={() => setBatchCount(preset)}
-                              className="rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-ink hover:border-emerald-500"
+                              className="rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-ink hover:border-line-strong"
                             >
                               {i === 2 ? `Tối đa sạch (${preset})` : `${preset} Page`}
                             </button>
@@ -1786,8 +1790,8 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                           <option value={22}>22s + ngẫu nhiên 4–10s / Via (Khuyên dùng)</option>
                           <option value={32}>32s + ngẫu nhiên 5–12s / Via (Siêu an toàn)</option>
                           <option value={45}>45s + ngẫu nhiên 5–12s / Via (Nuôi kỹ tự nhiên)</option>
-                          <option value={1800}>⏳ Drip 30 phút / Via (+ngẫu nhiên, tự nghỉ đêm 22h–08h)</option>
-                          <option value={3600}>⏳ Drip 60 phút / Via (+ngẫu nhiên, nuôi siêu tự nhiên)</option>
+                          <option value={1800}>Drip 30 phút / Via (+ngẫu nhiên, tự nghỉ đêm 22h–08h)</option>
+                          <option value={3600}>Drip 60 phút / Via (+ngẫu nhiên, nuôi siêu tự nhiên)</option>
                         </select>
                       </div>
 
@@ -1801,7 +1805,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                           <option value="">— Giữ tại Via trước —</option>
                           {allBms.map((b) => (
                             <option key={b.id} value={b.id}>
-                              🏛️ {String(b.name ?? b.id)}
+                              {String(b.name ?? b.id)}
                             </option>
                           ))}
                         </select>
@@ -1832,21 +1836,21 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                     </div>
 
                     {batchCount > eligibleBatchVias.length && (
-                      <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] font-semibold text-amber-800 dark:text-amber-200">
-                        ⚠️ Bạn đang yêu cầu tạo <strong>{batchCount} Page</strong>, nhưng hiện chỉ có{' '}
+                      <div className="rounded-lg border border-tone-caution-border bg-tone-caution-bg px-3 py-2 text-[11px] font-semibold text-tone-caution-fg">
+                        Bạn đang yêu cầu tạo <strong>{batchCount} Page</strong>, nhưng hiện chỉ có{' '}
                         <strong>{eligibleBatchVias.length} Via sạch</strong> (nguyên tắc an toàn: 1 Via chỉ tạo tối đa 1 Page/đợt). Hệ thống sẽ tự động giới hạn tạo đúng <strong>{eligibleBatchVias.length} Page</strong> trên các Via sạch để chống Checkpoint!
                       </div>
                     )}
 
                     {quotaAlerts.ip_cluster_advisory && (
-                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-sky-500/35 bg-sky-500/10 px-3 py-2 text-[11px] text-sky-800 dark:text-sky-200">
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-tone-info-border bg-tone-info-bg px-3 py-2 text-[11px] text-tone-info-fg">
                         <span>{quotaAlerts.ip_cluster_advisory}</span>
                         <span className="flex items-center gap-2 shrink-0 font-bold">
                           <Link to="/facebook-accounts" className="underline hover:opacity-80">
-                            Cấu hình Proxy Via ↗
+                            Cấu hình Proxy Via
                           </Link>
                           <Link to="/chrome-extension" className="underline hover:opacity-80">
-                            Tải Bộ Extension v2.10.2 ↗
+                            Tải Bộ Extension v2.10.4
                           </Link>
                         </span>
                       </div>
@@ -1854,7 +1858,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
 
                     <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                       <span className="text-[11px] text-ink-muted">
-                        🛡️ Nghỉ giãn nhịp <strong>{batchStaggerSeconds}s + random 4–12s</strong> giữa mỗi Via · Tự dừng ngay nếu FB hỏi xác minh · Tự quét <code>Page ID</code> sau khi xong.
+                        Nghỉ giãn nhịp <strong>{batchStaggerSeconds}s + random 4–12s</strong> giữa mỗi Via · Tự dừng ngay nếu FB hỏi xác minh · Tự quét <code>Page ID</code> sau khi xong.
                       </span>
                       <Button
                         size="sm"
@@ -1871,15 +1875,15 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                             auto_submit: autoSubmitMode,
                           })
                         }}
-                        className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 font-bold shadow-xs"
+                        className="gap-1.5 font-semibold"
                       >
                         {autoSubmitMode ? <Bot className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5" />}
                         <span>
                           {viaBatchCreateMut.isPending
                             ? 'Đang tạo lô & khởi chạy Auto...'
                             : autoSubmitMode
-                              ? `🤖 Tạo & Chạy Full Automatic (${Math.min(batchCount, eligibleBatchVias.length)} Page)`
-                              : `🚀 Khởi Tạo Lô ${Math.min(batchCount, eligibleBatchVias.length)} Page (Bán tự động)`}
+                              ? `Tạo & Chạy Full Automatic (${Math.min(batchCount, eligibleBatchVias.length)} Page)`
+                              : `Khởi Tạo Lô ${Math.min(batchCount, eligibleBatchVias.length)} Page (Bán tự động)`}
                         </span>
                       </Button>
                     </div>
@@ -1889,7 +1893,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                   <div className="space-y-2 lg:col-span-5">
                     <div className="flex items-center justify-between text-xs font-bold text-ink">
                       <span>2. Phân bổ tự động (1 Page = 1 Via sạch)</span>
-                      <span className="text-emerald-600 dark:text-emerald-400">
+                      <span className="text-tone-positive-fg">
                         {eligibleBatchVias.length}/{viaQuotas.length} Via sẵn sàng
                       </span>
                     </div>
@@ -1902,57 +1906,57 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                             key={vq.via_id}
                             className={`rounded-lg border px-2.5 py-2 text-[11px] ${
                               isPicked
-                                ? 'border-emerald-500/50 bg-emerald-500/10'
+                                ? 'border-tone-positive-border bg-tone-positive-bg'
                                 : vq.quota_status === 'LIMIT_REACHED' || vq.quota_status === 'COOLDOWN'
-                                  ? 'border-rose-500/30 bg-rose-500/5 opacity-80'
+                                  ? 'border-tone-attention-border bg-tone-attention-bg opacity-80'
                                   : 'border-line bg-surface'
                             }`}
                           >
                             <div className="flex items-center justify-between gap-2">
                               <span className="font-bold text-ink">
-                                {isPicked ? `✅ #${willRunIdx + 1} · ` : ''}🛡️ {vq.label}
+                                {isPicked ? `#${willRunIdx + 1} · ` : ''}{vq.label}
                               </span>
                               {vq.quota_status === 'SAFE' && (
-                                <span className="font-bold text-emerald-700 dark:text-emerald-300">
-                                  🟢 An toàn ({vq.holding_pages_count}/{vq.holding_limit})
+                                <span className="font-semibold text-tone-positive-fg">
+                                  An toàn ({vq.holding_pages_count}/{vq.holding_limit})
                                 </span>
                               )}
                               {vq.quota_status === 'NEAR_LIMIT' && (
-                                <span className="font-bold text-amber-700 dark:text-amber-300">
-                                  🟡 Sắp chạm trần ({vq.holding_pages_count}/{vq.holding_limit})
+                                <span className="font-semibold text-tone-caution-fg">
+                                  Sắp chạm trần ({vq.holding_pages_count}/{vq.holding_limit})
                                 </span>
                               )}
                               {vq.quota_status === 'COOLDOWN' && (
-                                <span className="font-bold text-amber-700 dark:text-amber-300">
-                                  ⏳ Nghỉ Cooldown ({Math.floor((vq.cooldown_remaining_minutes ?? 0) / 60)}h{String((vq.cooldown_remaining_minutes ?? 0) % 60).padStart(2, '0')}p)
+                                <span className="font-semibold text-tone-caution-fg">
+                                  Nghỉ Cooldown ({Math.floor((vq.cooldown_remaining_minutes ?? 0) / 60)}h{String((vq.cooldown_remaining_minutes ?? 0) % 60).padStart(2, '0')}p)
                                 </span>
                               )}
                               {vq.quota_status === 'LIMIT_REACHED' && (
-                                <span className="font-bold text-rose-700 dark:text-rose-300">
-                                  🔴 Bỏ qua (Chạm trần)
+                                <span className="font-semibold text-tone-attention-fg">
+                                  Bỏ qua (Chạm trần)
                                 </span>
                               )}
                             </div>
                             <div className="mt-0.5 flex flex-wrap items-center justify-between gap-1.5 font-mono text-[10px] text-ink-muted">
-                              <span>💻 {vq.browser_profile} · Hôm nay {vq.created_today_count}/{vq.daily_limit} · Tuần {vq.created_7d_count}/{vq.weekly_limit}</span>
+                              <span>{vq.browser_profile} · Hôm nay {vq.created_today_count}/{vq.daily_limit} · Tuần {vq.created_7d_count}/{vq.weekly_limit}</span>
                               <span className="inline-flex items-center gap-1.5">
                                 {vq.needs_keepalive ? (
-                                  <span className="font-sans font-bold text-amber-700 dark:text-amber-300">
-                                    ☕ Nghỉ {vq.idle_days}d/{vq.keepalive_interval_days ?? 3}d — Nên đảo ấm
+                                  <span className="font-sans font-semibold text-tone-caution-fg">
+                                    Nghỉ {vq.idle_days}d/{vq.keepalive_interval_days ?? 3}d — Nên đảo ấm
                                   </span>
                                 ) : vq.last_keepalive_route ? (
-                                  <span className="font-sans text-emerald-700 dark:text-emerald-300" title={vq.last_keepalive_route}>
-                                    ☕ Ấm: {vq.last_keepalive_route.slice(0, 34)}{vq.last_keepalive_route.length > 34 ? '…' : ''}
+                                  <span className="font-sans text-tone-positive-fg" title={vq.last_keepalive_route}>
+                                    Ấm: {vq.last_keepalive_route.slice(0, 34)}{vq.last_keepalive_route.length > 34 ? '…' : ''}
                                   </span>
                                 ) : null}
                                 <button
                                   type="button"
                                   disabled={autoRunner.phase === 'running' || autoRunner.phase === 'syncing'}
                                   onClick={() => launchHumanKeepAliveForVias([vq])}
-                                  className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 font-sans text-[10px] font-bold text-amber-800 hover:bg-amber-500/20 disabled:opacity-50 dark:text-amber-200"
+                                  className="rounded border border-tone-caution-border bg-tone-caution-bg px-1.5 py-0.5 font-sans text-[10px] font-semibold text-tone-caution-fg hover:opacity-90 disabled:opacity-50"
                                   title="Đảo ấm sinh học riêng cho Via này (đa lộ trình + tự giữ tab nếu văng Cookie)"
                                 >
-                                  ☕ Đảo ấm
+                                  Đảo ấm
                                 </button>
                               </span>
                             </div>
@@ -1965,24 +1969,24 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
 
                 {/* POST-CREATION BATCH EXECUTION QUEUE & LIVE AUTO-RUNNER */}
                 {batchQueue.length > 0 && (
-                  <div className="space-y-3 rounded-xl border-2 border-emerald-500/50 bg-emerald-500/5 p-3.5">
+                  <div className="space-y-3 rounded-xl border border-tone-positive-border bg-tone-positive-bg/40 p-3.5">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
-                        <div className="text-xs font-extrabold text-emerald-800 dark:text-emerald-200">
-                          🎯 Hàng đợi {batchQueue.length} Page đã lưu vào Hệ thống
+                        <div className="text-xs font-bold text-tone-positive-fg">
+                          Hàng đợi {batchQueue.length} Page đã lưu vào Hệ thống
                         </div>
                         <p className="text-[11px] text-ink-muted">
-                          Bấm <strong>🤖 Chạy Full Automatic</strong> để Web tự mở từng Via giãn nhịp ({batchStaggerSeconds}s + ngẫu nhiên), Extension v2.10.2 tự bấm Tạo Trang và tự quét Page ID sau khi xong.
+                          Bấm <strong>Chạy Full Automatic</strong> để Web tự mở từng Via giãn nhịp ({batchStaggerSeconds}s + ngẫu nhiên), Extension v2.10.4 tự bấm Tạo Trang và tự quét Page ID sau khi xong.
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <Button
                           size="sm"
                           onClick={() => startWebAutoRunner(batchQueue, batchStaggerSeconds)}
-                          className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 font-bold"
+                          className="gap-1.5 font-semibold"
                         >
                           <Bot className="h-3.5 w-3.5" />
-                          <span>🤖 Chạy Full Automatic ({batchQueue.length} Via)</span>
+                          <span>Chạy Full Automatic ({batchQueue.length} Via)</span>
                         </Button>
                         <Button
                           size="sm"
@@ -1992,22 +1996,22 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                               batchQueue.map((t) => ({ page_name: t.page_name, category: t.category })),
                             )
                             setBannerMsg(
-                              `🎨 Đã tạo & tải bộ ${batchQueue.length} cặp Ảnh Avatar + Cover 100% Độc Bản (khác mã hash chống trùng lặp)!`,
+                              `Đã tạo & tải bộ ${batchQueue.length} cặp Ảnh Avatar + Cover 100% Độc Bản (khác mã hash chống trùng lặp)!`,
                             )
                           }}
-                          className="gap-1.5 border-violet-500/40 bg-surface font-bold text-violet-700 dark:text-violet-300"
+                          className="gap-1.5 font-semibold"
                           title="Tự vẽ bộ Avatar 800x800 + Cover 1640x624 khác mã Hash cho từng Page trong lô"
                         >
                           <ImageIcon className="h-3.5 w-3.5" />
-                          <span>🎨 Bộ Ảnh Độc Bản</span>
+                          <span>Bộ Ảnh Độc Bản</span>
                         </Button>
                         <Button
                           size="sm"
                           variant="secondary"
                           onClick={() => downloadBatchPageCreationBat(batchQueue, batchStaggerSeconds, autoSubmitMode)}
-                          className="gap-1.5 border-line bg-surface font-semibold text-ink"
+                          className="gap-1.5 font-semibold"
                         >
-                          <span>📥 Dự phòng .bat</span>
+                          <span>Dự phòng .bat</span>
                         </Button>
                         <Button
                           size="sm"
@@ -2031,14 +2035,14 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                             )
                             setBatchQueueIdx((prev) => (prev + 1 < batchQueue.length ? prev + 1 : 0))
                             setBannerMsg(
-                              `🚀 Đã mở lẻ [${task.batch_index}/${task.batch_size}] Via «${task.via_label}» (${task.browser_profile}) cho Page «${task.page_name}»!`,
+                              `Đã mở lẻ [${task.batch_index}/${task.batch_size}] Via «${task.via_label}» (${task.browser_profile}) cho Page «${task.page_name}»!`,
                             )
                           }}
-                          className="gap-1.5 bg-surface font-semibold text-ink"
+                          className="gap-1.5 font-semibold"
                         >
                           <Globe className="h-3.5 w-3.5" />
                           <span>
-                            ▶️ Mở Lẻ ({(batchQueueIdx % batchQueue.length) + 1}/{batchQueue.length})
+                            Mở Lẻ ({(batchQueueIdx % batchQueue.length) + 1}/{batchQueue.length})
                           </span>
                         </Button>
                       </div>
@@ -2050,7 +2054,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                           key={task.page_id}
                           className={`rounded-lg border p-2.5 text-xs ${
                             idx === batchQueueIdx % batchQueue.length
-                              ? 'border-emerald-500 bg-surface shadow-xs'
+                              ? 'border-brand bg-surface shadow-xs'
                               : 'border-line bg-surface/70'
                           }`}
                         >
@@ -2074,22 +2078,22 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                                   task.network_label,
                                 )
                               }}
-                              className="shrink-0 rounded bg-brand px-2 py-0.5 text-[10px] font-bold text-white hover:opacity-90"
+                              className="shrink-0 rounded border border-line bg-surface px-2 py-0.5 text-[10px] font-semibold text-ink hover:border-line-strong hover:bg-surface-muted"
                             >
-                              Mở Chrome ↗
+                              Mở Chrome
                             </button>
                             <button
                               type="button"
                               onClick={() => discardDraftMut.mutate(task.page_id)}
                               disabled={discardDraftMut.isPending}
                               title="Hủy bản nháp này và hoàn lại định mức Via"
-                              className="shrink-0 rounded border border-rose-500/40 bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-bold text-rose-600 hover:bg-rose-500/20"
+                              className="shrink-0 rounded border border-tone-attention-border bg-tone-attention-bg px-1.5 py-0.5 text-[10px] font-semibold text-tone-attention-fg hover:opacity-90"
                             >
-                              ✕ Hủy
+                              Hủy
                             </button>
                           </div>
                           <div className="mt-1 text-[10.5px] text-ink-muted">
-                            🛡️ {task.via_label} · <span className="font-mono">{task.browser_profile}</span>
+                            {task.via_label} · <span className="font-mono">{task.browser_profile}</span>
                           </div>
                         </div>
                       ))}
@@ -2114,7 +2118,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                 <div className="space-y-2.5 lg:col-span-5">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-ink">
-                      1. Chọn Tài khoản Via (Lớp 1 / Dự phòng) để Tạo & Giữ Page
+                      1. Chọn Tài khoản Via (Lớp 1 / Dự phòng) để Tạo &amp; Giữ Page
                     </span>
                     <span className="text-[11px] text-ink-muted">Bấm chọn Via bên dưới</span>
                   </div>
@@ -2131,35 +2135,35 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                           }}
                           className={`w-full rounded-xl border p-2.5 text-left transition ${
                             isSelected
-                              ? 'border-emerald-500 bg-emerald-500/10 shadow-xs'
-                              : 'border-line bg-surface hover:border-emerald-500/40'
+                              ? 'border-brand bg-brand-light/40 shadow-xs'
+                              : 'border-line bg-surface hover:border-line-strong'
                           }`}
                         >
                           <div className="flex flex-wrap items-center justify-between gap-1.5">
                             <span className="text-xs font-bold text-ink">
-                              🛡️ {vq.label}{' '}
+                              {vq.label}{' '}
                               <span className="font-mono text-[10px] font-normal text-ink-muted">
                                 ({vq.browser_profile})
                               </span>
                             </span>
                             {vq.quota_status === 'SAFE' && (
-                              <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
-                                🟢 An toàn tạo tiếp
+                              <span className="rounded bg-tone-positive-bg px-1.5 py-0.5 text-[10px] font-semibold text-tone-positive-fg">
+                                An toàn tạo tiếp
                               </span>
                             )}
                             {vq.quota_status === 'NEAR_LIMIT' && (
-                              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300">
-                                🟡 Sắp chạm trần ({vq.holding_pages_count}/{vq.holding_limit})
+                              <span className="rounded bg-tone-caution-bg px-1.5 py-0.5 text-[10px] font-semibold text-tone-caution-fg">
+                                Sắp chạm trần ({vq.holding_pages_count}/{vq.holding_limit})
                               </span>
                             )}
                             {vq.quota_status === 'COOLDOWN' && (
-                              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300">
-                                ⏳ Nghỉ Cooldown ({Math.floor((vq.cooldown_remaining_minutes ?? 0) / 60)}h{String((vq.cooldown_remaining_minutes ?? 0) % 60).padStart(2, '0')}p)
+                              <span className="rounded bg-tone-caution-bg px-1.5 py-0.5 text-[10px] font-semibold text-tone-caution-fg">
+                                Nghỉ Cooldown ({Math.floor((vq.cooldown_remaining_minutes ?? 0) / 60)}h{String((vq.cooldown_remaining_minutes ?? 0) % 60).padStart(2, '0')}p)
                               </span>
                             )}
                             {vq.quota_status === 'LIMIT_REACHED' && (
-                              <span className="rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-bold text-rose-700 dark:text-rose-300">
-                                🔴 Chạm trần cảnh báo ({vq.holding_pages_count}/{vq.holding_limit} Page)
+                              <span className="rounded bg-tone-attention-bg px-1.5 py-0.5 text-[10px] font-semibold text-tone-attention-fg">
+                                Chạm trần cảnh báo ({vq.holding_pages_count}/{vq.holding_limit} Page)
                               </span>
                             )}
                           </div>
@@ -2178,8 +2182,8 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                             </span>
                           </div>
                           {vq.warning_reasons && vq.warning_reasons.length > 0 && (
-                            <div className="mt-1 text-[10.5px] font-medium text-rose-700 dark:text-rose-300">
-                              ⚠️ {vq.warning_reasons[0]}
+                            <div className="mt-1 text-[10.5px] font-medium text-tone-attention-fg">
+                              {vq.warning_reasons[0]}
                             </div>
                           )}
                         </button>
@@ -2194,14 +2198,14 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                     <div
                       className={`space-y-2 rounded-lg border p-3 text-xs ${
                         isBlockedQuota
-                          ? 'border-rose-500/40 bg-rose-500/10 text-rose-800 dark:text-rose-200'
-                          : 'border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200'
+                          ? 'border-tone-attention-border bg-tone-attention-bg text-tone-attention-fg'
+                          : 'border-tone-caution-border bg-tone-caution-bg text-tone-caution-fg'
                       }`}
                     >
                       <div className="font-bold">
                         {isBlockedQuota
-                          ? `🛑 Cảnh báo Chặn An Toàn cho Via «${selectedQuota.label}»:`
-                          : `⚠️ Via «${selectedQuota.label}» sắp chạm ngưỡng an toàn:`}
+                          ? `Cảnh báo Chặn An Toàn cho Via «${selectedQuota.label}»:`
+                          : `Via «${selectedQuota.label}» sắp chạm ngưỡng an toàn:`}
                       </div>
                       <ul className="list-disc pl-4 text-[11px] space-y-0.5">
                         {selectedQuota.warning_reasons.map((r, i) => (
@@ -2217,9 +2221,9 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                                 setStudioViaId(nextSafeVia.via_id)
                                 setForceOverrideQuota(false)
                               }}
-                              className="rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-700"
+                              className="rounded-md bg-brand px-2.5 py-1 text-[11px] font-semibold text-brand-fg hover:opacity-90"
                             >
-                              🔀 Đổi ngay sang Via An Toàn ({nextSafeVia.label})
+                              Đổi ngay sang Via An Toàn ({nextSafeVia.label})
                             </button>
                           )}
                           <label className="flex items-center gap-1.5 text-[11px] font-semibold cursor-pointer">
@@ -2251,7 +2255,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                             setStudioBio(tpl.bio)
                             setStudioWarmupPost(tpl.warmupPost)
                           }}
-                          className="rounded-lg border border-line bg-surface px-2.5 py-1 text-[11px] font-semibold text-ink hover:border-emerald-500 hover:text-emerald-700 dark:hover:text-emerald-300"
+                          className="rounded-lg border border-line bg-surface px-2.5 py-1 text-[11px] font-semibold text-ink hover:border-line-strong hover:bg-surface-muted"
                         >
                           {tpl.badge}
                         </button>
@@ -2289,7 +2293,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                         <option value="">— Giữ ở Via cá nhân trước, đưa vào BM sau —</option>
                         {allBms.map((b) => (
                           <option key={b.id} value={b.id}>
-                            🏛️ {String(b.name ?? b.id)} {b.external_id ? `(${String(b.external_id)})` : ''}
+                            {String(b.name ?? b.id)} {b.external_id ? `(${String(b.external_id)})` : ''}
                           </option>
                         ))}
                       </select>
@@ -2316,7 +2320,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
 
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                     <span className="text-[11px] text-ink-muted">
-                      💡 Hệ thống sẽ: (1) Lưu Page &amp; Nhật ký Via, (2) Mở đúng Chrome của Via đã chọn và (3) {autoSubmitMode ? 'Extension v2.10.2 tự điền + tự bấm Tạo Trang giãn nhịp an toàn (tự quét Page ID sau 26s).' : 'Extension v2.10.2 tự điền sẵn Tên + Tiểu sử chờ bạn kiểm tra & bấm Tạo Trang.'}
+                      Hệ thống sẽ: (1) Lưu Page &amp; Nhật ký Via, (2) Mở đúng Chrome của Via đã chọn và (3) {autoSubmitMode ? 'Extension v2.10.4 tự điền + tự bấm Tạo Trang giãn nhịp an toàn (tự quét Page ID sau 26s).' : 'Extension v2.10.4 tự điền sẵn Tên + Tiểu sử chờ bạn kiểm tra & bấm Tạo Trang.'}
                     </span>
                     <div className="flex flex-wrap items-center gap-2">
                     <Button
@@ -2327,12 +2331,12 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                         void downloadUniquePageMediaZip([
                           { page_name: studioPageName.trim(), category: studioCategory.trim() },
                         ])
-                        setBannerMsg(`🎨 Đã tải Avatar + Ảnh Bìa Độc Bản cho Page «${studioPageName.trim()}»!`)
+                        setBannerMsg(`Đã tải Avatar + Ảnh Bìa Độc Bản cho Page «${studioPageName.trim()}»!`)
                       }}
                       className="gap-1.5 font-semibold"
                     >
                       <ImageIcon className="h-3.5 w-3.5" />
-                      <span>🎨 Ảnh Avatar/Cover Độc Bản</span>
+                      <span>Ảnh Avatar/Cover Độc Bản</span>
                     </Button>
                     <Button
                       size="sm"
@@ -2357,17 +2361,17 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                           auto_submit: autoSubmitMode,
                         })
                       }}
-                      className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 font-bold"
+                      className="gap-1.5 font-semibold"
                     >
                       <Globe className="h-3.5 w-3.5" />
                       <span>
                         {viaCreateLaunchMut.isPending
                           ? 'Đang lưu & khởi chạy...'
                           : isBlockedQuota && !forceOverrideQuota
-                            ? '🔒 Đang khóa an toàn (Hãy đổi Via sạch hoặc tick xác nhận)'
+                            ? 'Đang khóa an toàn (Hãy đổi Via sạch hoặc tick xác nhận)'
                             : autoSubmitMode
-                              ? '🤖 Lưu Hệ Thống & Chạy Full Automatic Trên Chrome Via'
-                              : '🚀 Lưu Hệ Thống & Mở Chrome Via Tự Điền (Chờ Bấm Tay)'}
+                              ? 'Lưu Hệ Thống & Chạy Full Automatic Trên Chrome Via'
+                              : 'Lưu Hệ Thống & Mở Chrome Via Tự Điền (Chờ Bấm Tay)'}
                       </span>
                     </Button>
                     </div>
@@ -2380,10 +2384,10 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
             {/* TAB 3: AUTO BATCH WARM-UP + SINGLE WARM-UP */}
             {studioTab === 'warmup' && (
               <div className="space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-tone-positive-border bg-tone-positive-bg p-3 text-xs">
                   <div>
-                    <div className="font-bold text-emerald-800 dark:text-emerald-200">
-                      ⚡ Nuôi Page Hàng Loạt Tự Động ({underNurturedCount} Fanpage đang có &lt; 3 bài mồi)
+                    <div className="font-bold text-tone-positive-fg">
+                      Nuôi Page Hàng Loạt Tự Động ({underNurturedCount} Fanpage đang có &lt; 3 bài mồi)
                     </div>
                     <div className="text-[11px] text-ink-muted">
                       Tự động sinh bài mồi khác nhau theo ngành hàng, ưu tiên đăng ngầm qua Meta Graph API (nếu đã đồng bộ Token Page) và ghi nhận điểm Trust vào Database.
@@ -2393,13 +2397,13 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                     size="sm"
                     disabled={underNurturedCount === 0 || batchWarmupMut.isPending}
                     onClick={() => batchWarmupMut.mutate()}
-                    className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 font-bold"
+                    className="gap-1.5 font-semibold"
                   >
                     <Sparkles className="h-3.5 w-3.5" />
                     <span>
                       {batchWarmupMut.isPending
                         ? 'Đang nuôi hàng loạt...'
-                        : `⚡ 1 Chạm Nuôi Hàng Loạt ${underNurturedCount} Page Yếu Trust`}
+                        : `1 Chạm Nuôi Hàng Loạt ${underNurturedCount} Page Yếu Trust`}
                     </span>
                   </Button>
                 </div>
@@ -2422,24 +2426,24 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                             onClick={() => setWarmupTargetPageId(pg.id)}
                             className={`w-full rounded-xl border p-2.5 text-left transition ${
                               isSel
-                                ? 'border-emerald-500 bg-emerald-500/10 shadow-xs'
-                                : 'border-line bg-surface hover:border-emerald-500/40'
+                                ? 'border-brand bg-brand-light/40 shadow-xs'
+                                : 'border-line bg-surface hover:border-line-strong'
                             }`}
                           >
                             <div className="flex items-center justify-between gap-2">
                               <span className="truncate text-xs font-bold text-ink">{pg.name}</span>
                               <span
-                                className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                                className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
                                   wScore >= 75
-                                    ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                                    : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                                    ? 'bg-tone-positive-bg text-tone-positive-fg'
+                                    : 'bg-tone-caution-bg text-tone-caution-fg'
                                 }`}
                               >
-                                🌱 Trust {wScore}% · {wPosts} bài mồi
+                                Trust {wScore}% · {wPosts} bài mồi
                               </span>
                             </div>
                             <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-ink-muted">
-                              <span>🛡️ Via: {pg.holder_label || 'Via Tổng'}</span>
+                              <span>Via: {pg.holder_label || 'Via Tổng'}</span>
                               <span className="font-mono text-[10px]">({pg.holder_browser_profile})</span>
                             </div>
                           </button>
@@ -2459,7 +2463,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                             key={tpl.key}
                             type="button"
                             onClick={() => setWarmupMessage(tpl.warmupPost)}
-                            className="rounded-lg border border-line bg-surface px-2.5 py-1 text-[11px] font-semibold text-ink hover:border-emerald-500"
+                            className="rounded-lg border border-line bg-surface px-2.5 py-1 text-[11px] font-semibold text-ink hover:border-line-strong hover:bg-surface-muted"
                           >
                             {tpl.badge}
                           </button>
@@ -2501,7 +2505,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                         className="gap-1.5 font-semibold"
                       >
                         <Globe className="h-3.5 w-3.5" />
-                        <span>🌐 Copy Bài + Mở Chrome Via Đăng &amp; Lưu Nhật Ký</span>
+                        <span>Copy Bài + Mở Chrome Via Đăng &amp; Lưu Nhật Ký</span>
                       </Button>
                       <Button
                         size="sm"
@@ -2522,10 +2526,10 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                             postMode: 'graph_api_or_assist',
                           })
                         }}
-                        className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 font-bold"
+                        className="gap-1.5 font-semibold"
                       >
                         <Sparkles className="h-3.5 w-3.5" />
-                        <span>⚡ Đăng Bài Mồi (Graph API / Ghi Nhật Ký Nuôi Page)</span>
+                        <span>Đăng Bài Mồi (Graph API / Ghi Nhật Ký Nuôi Page)</span>
                       </Button>
                     </div>
                   </div>
@@ -2538,14 +2542,14 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="text-xs font-bold text-ink">
-                    📜 Lịch sử hoạt động của từng Via (Lưu vĩnh viễn trong PostgreSQL — mở lại trình duyệt bất cứ lúc nào đều xem lại được)
+                    Lịch sử hoạt động của từng Via (Lưu vĩnh viễn trong PostgreSQL — mở lại trình duyệt bất cứ lúc nào đều xem lại được)
                   </div>
                   <select
                     value={logViaFilter}
                     onChange={(e) => setLogViaFilter(e.target.value)}
                     className="input h-8 w-auto text-xs font-semibold"
                   >
-                    <option value="ALL">🛡️ Tất cả Via ({viaActivityLogs.length} hoạt động)</option>
+                    <option value="ALL">Tất cả Via ({viaActivityLogs.length} hoạt động)</option>
                     {viaQuotas.map((vq) => (
                       <option key={vq.via_id} value={vq.via_id}>
                         {vq.label} ({vq.browser_profile})
@@ -2574,14 +2578,14 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                               {new Date(lg.created_at).toLocaleString('vi-VN')}
                             </td>
                             <td className="px-3 py-2">
-                              <div className="font-bold text-ink">🛡️ {lg.via_label}</div>
-                              <div className="font-mono text-[10px] text-ink-muted">💻 {lg.browser_profile}</div>
+                              <div className="font-bold text-ink">{lg.via_label}</div>
+                              <div className="font-mono text-[10px] text-ink-muted">{lg.browser_profile}</div>
                             </td>
                             <td className="px-3 py-2">
                               <span
-                                className={`inline-block rounded px-2 py-0.5 text-[11px] font-bold ${
+                                className={`inline-block rounded px-2 py-0.5 text-[11px] font-semibold ${
                                   lg.action === 'page.via_created'
-                                    ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                    ? 'bg-tone-positive-bg text-tone-positive-fg'
                                   : lg.action === 'page.warmup_posted'
                                     ? 'bg-brand-light text-brand-text'
                                     : 'bg-surface-muted text-ink'
@@ -2634,15 +2638,15 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
           onClick={() => setHealthFilter('LIVE')}
           className={`rounded-xl border p-3.5 text-left transition ${
             healthFilter === 'LIVE'
-              ? 'border-emerald-500 bg-emerald-500/10'
-              : 'border-line bg-surface hover:border-emerald-500/50'
+              ? 'border-tone-positive-border bg-tone-positive-bg'
+              : 'border-line bg-surface hover:border-line-strong'
           }`}
         >
-          <div className="flex items-center justify-between text-xs font-bold text-emerald-600 dark:text-emerald-400">
-            <span>{isEn ? '🟢 Live & Ready Pages' : '🟢 Page Đang Live (Sạch)'}</span>
+          <div className="flex items-center justify-between text-xs font-semibold text-tone-positive-fg">
+            <span>{isEn ? 'Live & Ready Pages' : 'Page Đang Live (Sạch)'}</span>
             <CheckCircle2 className="h-4 w-4" />
           </div>
-          <div className="mt-1.5 font-mono text-2xl font-extrabold text-emerald-600 dark:text-emerald-400">
+          <div className="mt-1.5 font-mono text-2xl font-extrabold text-tone-positive-fg">
             {summary.live_pages}
           </div>
           <div className="mt-0.5 text-[11px] text-ink-muted">
@@ -2655,15 +2659,15 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
           onClick={() => setHealthFilter('RESTRICTED')}
           className={`rounded-xl border p-3.5 text-left transition ${
             healthFilter === 'RESTRICTED'
-              ? 'border-rose-500 bg-rose-500/10'
-              : 'border-line bg-surface hover:border-rose-500/50'
+              ? 'border-tone-attention-border bg-tone-attention-bg'
+              : 'border-line bg-surface hover:border-line-strong'
           }`}
         >
-          <div className="flex items-center justify-between text-xs font-bold text-rose-600 dark:text-rose-400">
-            <span>{isEn ? '🔴 Restricted / Unpublished' : '🔴 Hạn chế QC / Hủy đăng'}</span>
+          <div className="flex items-center justify-between text-xs font-semibold text-tone-attention-fg">
+            <span>{isEn ? 'Restricted / Unpublished' : 'Hạn chế QC / Hủy đăng'}</span>
             <ShieldAlert className="h-4 w-4" />
           </div>
-          <div className="mt-1.5 font-mono text-2xl font-extrabold text-rose-600 dark:text-rose-400">
+          <div className="mt-1.5 font-mono text-2xl font-extrabold text-tone-attention-fg">
             {summary.restricted_or_unpublished_pages}
           </div>
           <div className="mt-0.5 text-[11px] text-ink-muted">
@@ -2676,15 +2680,15 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
           onClick={() => setHealthFilter('CONTAGION')}
           className={`rounded-xl border p-3.5 text-left transition ${
             healthFilter === 'CONTAGION'
-              ? 'border-amber-500 bg-amber-500/10'
-              : 'border-line bg-surface hover:border-amber-500/50'
+              ? 'border-tone-caution-border bg-tone-caution-bg'
+              : 'border-line bg-surface hover:border-line-strong'
           }`}
         >
-          <div className="flex items-center justify-between text-xs font-bold text-amber-600 dark:text-amber-400">
-            <span>{isEn ? '⚠️ Contagion Risk (Ad Accounts)' : '⚠️ Rủi ro Chết Liên Đới'}</span>
+          <div className="flex items-center justify-between text-xs font-semibold text-tone-caution-fg">
+            <span>{isEn ? 'Contagion Risk (Ad Accounts)' : 'Rủi ro Chết Liên Đới'}</span>
             <AlertTriangle className="h-4 w-4" />
           </div>
-          <div className="mt-1.5 font-mono text-2xl font-extrabold text-amber-600 dark:text-amber-400">
+          <div className="mt-1.5 font-mono text-2xl font-extrabold text-tone-caution-fg">
             {summary.contagion_risk_pages}
           </div>
           <div className="mt-0.5 text-[11px] text-ink-muted">
@@ -2693,8 +2697,8 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
         </button>
 
         <div className="rounded-xl border border-line bg-surface p-3.5">
-          <div className="flex items-center justify-between text-xs font-bold text-ink-muted">
-            <span>{isEn ? '🛡️ Tier-1 Via & BM Isolation' : '🛡️ Cách Ly Via Tổng & BM'}</span>
+          <div className="flex items-center justify-between text-xs font-semibold text-ink-muted">
+            <span>{isEn ? 'Tier-1 Via & BM Isolation' : 'Cách Ly Via Tổng & BM'}</span>
             <UserRoundCog className="h-4 w-4 text-brand-text" />
           </div>
           <div className="mt-1.5 font-mono text-2xl font-extrabold text-ink">
@@ -2734,7 +2738,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                 aria-label={isEn ? 'Filter by Business Manager' : 'Lọc theo Business Manager'}
               >
                 <option value="ALL">
-                  {isEn ? `🏛️ All Business Managers (${allBms.length})` : `🏛️ Tất cả BM (${allBms.length})`}
+                  {isEn ? `All Business Managers (${allBms.length})` : `Tất cả BM (${allBms.length})`}
                 </option>
                 {allBms.map((b) => (
                   <option key={b.id} value={b.id}>
@@ -2757,32 +2761,32 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                   type="button"
                   onClick={() => setHealthFilter('LIVE')}
                   className={`rounded-md px-2.5 py-1 font-semibold transition ${
-                    healthFilter === 'LIVE' ? 'bg-surface text-emerald-600 shadow-xs' : 'text-ink-muted hover:text-ink'
+                    healthFilter === 'LIVE' ? 'bg-surface text-tone-positive-fg shadow-xs' : 'text-ink-muted hover:text-ink'
                   }`}
                 >
-                  {isEn ? '🟢 Live' : '🟢 Đang Live'} ({summary.live_pages})
+                  {isEn ? 'Live' : 'Đang Live'} ({summary.live_pages})
                 </button>
                 <button
                   type="button"
                   onClick={() => setHealthFilter('RESTRICTED')}
                   className={`rounded-md px-2.5 py-1 font-semibold transition ${
                     healthFilter === 'RESTRICTED'
-                      ? 'bg-surface text-rose-600 shadow-xs'
+                      ? 'bg-surface text-tone-attention-fg shadow-xs'
                       : 'text-ink-muted hover:text-ink'
                   }`}
                 >
-                  {isEn ? '🔴 Restricted' : '🔴 Hạn chế / Ẩn'} ({summary.restricted_or_unpublished_pages})
+                  {isEn ? 'Restricted' : 'Hạn chế / Ẩn'} ({summary.restricted_or_unpublished_pages})
                 </button>
                 <button
                   type="button"
                   onClick={() => setHealthFilter('CONTAGION')}
                   className={`rounded-md px-2.5 py-1 font-semibold transition ${
                     healthFilter === 'CONTAGION'
-                      ? 'bg-surface text-amber-600 shadow-xs'
+                      ? 'bg-surface text-tone-caution-fg shadow-xs'
                       : 'text-ink-muted hover:text-ink'
                   }`}
                 >
-                  {isEn ? '⚠️ Contagion Risk' : '⚠️ Rủi ro liên đới'} ({summary.contagion_risk_pages})
+                  {isEn ? 'Contagion Risk' : 'Rủi ro liên đới'} ({summary.contagion_risk_pages})
                 </button>
               </div>
             </div>
@@ -2902,9 +2906,9 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                                 {item.verification_status === 'blue_verified' && (
                                   <span
                                     title={isEn ? 'Blue Verified Fanpage' : 'Fanpage Tích Xanh'}
-                                    className="inline-flex items-center rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-bold text-sky-600"
+                                    className="inline-flex items-center rounded border border-tone-info-border bg-tone-info-bg px-1.5 py-0.5 text-[10px] font-semibold text-tone-info-fg"
                                   >
-                                    ✓ Verified
+                                    Verified
                                   </span>
                                 )}
                               </div>
@@ -2913,8 +2917,8 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                                 {extId ? (
                                   <span>ID: {extId}</span>
                                 ) : (
-                                  <span className="rounded bg-amber-500/15 px-1.5 py-0.5 font-sans text-[10px] font-bold text-amber-700 dark:text-amber-300">
-                                    📝 Nháp chờ tạo FB / Đồng bộ Meta
+                                  <span className="rounded border border-tone-caution-border bg-tone-caution-bg px-1.5 py-0.5 font-sans text-[10px] font-semibold text-tone-caution-fg">
+                                    Nháp chờ tạo FB / Đồng bộ Meta
                                   </span>
                                 )}
                                 {extId && (
@@ -2925,7 +2929,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                                     title={isEn ? 'Copy Page ID' : 'Sao chép Page ID'}
                                   >
                                     {copiedId === extId ? (
-                                      <Check className="h-3 w-3 text-emerald-500" />
+                                      <Check className="h-3 w-3 text-tone-positive-fg" />
                                     ) : (
                                       <Copy className="h-3 w-3" />
                                     )}
@@ -2936,11 +2940,11 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
 
                               <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-ink-muted">
                                 <span className="rounded bg-surface-muted px-1.5 py-0.5 font-medium text-ink">
-                                  🏷️ {item.category || (isEn ? 'Brand Page' : 'Trang Thương hiệu')}
+                                  {item.category || (isEn ? 'Brand Page' : 'Trang Thương hiệu')}
                                 </span>
                                 {(item.followers_count !== null || item.fan_count !== null) && (
                                   <span className="rounded bg-brand-light/50 px-1.5 py-0.5 font-semibold text-brand-text">
-                                    👥 {(item.followers_count ?? item.fan_count ?? 0).toLocaleString()}{' '}
+                                    {(item.followers_count ?? item.fan_count ?? 0).toLocaleString()}{' '}
                                     {isEn ? 'followers' : 'theo dõi'}
                                   </span>
                                 )}
@@ -2954,22 +2958,22 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                           <div className="space-y-1.5">
                             {item.health_status === 'LIVE' && (
                               <Badge tone="positive">
-                                {isEn ? '🟢 Live · Advertising Active' : '🟢 Đang Live · Chạy QC Tốt'}
+                                {isEn ? 'Live · Advertising Active' : 'Đang Live · Chạy QC Tốt'}
                               </Badge>
                             )}
                             {item.health_status === 'RESTRICTED' && (
                               <Badge tone="attention">
-                                {isEn ? '🔴 Restricted from Advertising' : '🔴 Hạn chế Quảng cáo (Đỏ Page)'}
+                                {isEn ? 'Restricted from Advertising' : 'Hạn chế Quảng cáo (Đỏ Page)'}
                               </Badge>
                             )}
                             {item.health_status === 'APPEAL' && (
                               <Badge tone="caution">
-                                {isEn ? '🟡 Appeal Submitted (Waiting)' : '🟡 Đang Kháng Nghị Meta'}
+                                {isEn ? 'Appeal Submitted (Waiting)' : 'Đang Kháng Nghị Meta'}
                               </Badge>
                             )}
                             {item.health_status === 'UNPUBLISHED' && (
                               <Badge tone="muted">
-                                {isEn ? '⚪ Unpublished / Hidden Page' : '⚪ Đã Hủy Đăng (Ẩn Page)'}
+                                {isEn ? 'Unpublished / Hidden Page' : 'Đã Hủy Đăng (Ẩn Page)'}
                               </Badge>
                             )}
 
@@ -3000,17 +3004,17 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                                   setStudioTab('warmup')
                                   setStudioOpen(true)
                                 }}
-                                className="inline-flex items-center gap-1 rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20"
+                                className="inline-flex items-center gap-1 rounded border border-tone-positive-border bg-tone-positive-bg px-2 py-1 text-[11px] font-semibold text-tone-positive-fg hover:opacity-90"
                                 title="Đăng bài mồi nuôi độ Trust cho Fanpage này và lưu lịch sử hoạt động Via"
                               >
-                                <span>🌱 Trust {item.warmup_score ?? 65}% ({item.warmup_posts_count ?? 1} bài)</span>
+                                <span>Trust {item.warmup_score ?? 65}% ({item.warmup_posts_count ?? 1} bài)</span>
                               </button>
                               {(item.soak_remaining_hours ?? 0) > 0 && (
                                 <span
-                                  className="inline-flex items-center rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300"
+                                  className="inline-flex items-center rounded border border-tone-caution-border bg-tone-caution-bg px-1.5 py-0.5 text-[10px] font-semibold text-tone-caution-fg"
                                   title="Khuyến nghị ngâm đủ 48h–72h và 3 bài mồi trước khi gắn TKQC lên chiến dịch"
                                 >
-                                  ⏳ Ngâm còn {item.soak_remaining_hours}h/48h
+                                  Ngâm còn {item.soak_remaining_hours}h/48h
                                 </span>
                               )}
                             </div>
@@ -3018,11 +3022,11 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                             <div data-detail-only="true" className="text-[10px] text-ink-faint">
                               {item.tasks.includes('MANAGE')
                                 ? isEn
-                                  ? '🔑 Full Admin (MANAGE + ADVERTISE)'
-                                  : '🔑 Quyền Quản trị viên (Full Admin)'
+                                  ? 'Full Admin (MANAGE + ADVERTISE)'
+                                  : 'Quyền Quản trị viên (Full Admin)'
                                 : isEn
-                                  ? '🎯 Advertiser Role (ADVERTISE)'
-                                  : '🎯 Quyền Nhà quảng cáo (Advertiser)'}
+                                  ? 'Advertiser Role (ADVERTISE)'
+                                  : 'Quyền Nhà quảng cáo (Advertiser)'}
                             </div>
                           </div>
                         </td>
@@ -3048,18 +3052,18 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
 
                             {item.holder_label && (
                               <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                                <span className="inline-flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 font-semibold text-emerald-700 dark:text-emerald-300">
-                                  🛡️ {isEn ? 'Holder Via:' : 'Via giữ Page:'} {item.holder_label}
+                                <span className="inline-flex items-center gap-1 rounded border border-tone-positive-border bg-tone-positive-bg px-1.5 py-0.5 font-semibold text-tone-positive-fg">
+                                  {isEn ? 'Holder Via:' : 'Via giữ Page:'} {item.holder_label}
                                 </span>
                                 <span className="rounded bg-surface-muted px-1.5 py-0.5 font-mono text-[10px] text-ink-muted">
-                                  💻 {item.holder_browser_profile}
+                                  {item.holder_browser_profile}
                                 </span>
                               </div>
                             )}
 
                             {item.notes && (
                               <div data-detail-only="true" className="text-[11px] text-ink-muted line-clamp-1" title={item.notes}>
-                                📝 {item.notes}
+                                {item.notes}
                               </div>
                             )}
                           </div>
@@ -3070,22 +3074,19 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                           <div className="space-y-1.5">
                             <div className="flex flex-wrap items-center gap-1.5">
                               {item.contagion_risk === 'HIGH' ? (
-                                <span className="inline-flex items-center gap-1 rounded border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[11px] font-bold text-rose-600 dark:text-rose-400">
-                                  ⚠️{' '}
+                                <span className="inline-flex items-center gap-1 rounded border border-tone-attention-border bg-tone-attention-bg px-2 py-0.5 text-[11px] font-semibold text-tone-attention-fg">
                                   {isEn
                                     ? `Contagion Danger (${item.restricted_ad_account_count} Disabled Acc)`
                                     : `Nguy cơ chết liên đới (${item.restricted_ad_account_count} TKQC lỗi)`}
                                 </span>
                               ) : item.contagion_risk === 'MEDIUM' ? (
-                                <span className="inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] font-bold text-amber-600 dark:text-amber-400">
-                                  ⚠️{' '}
+                                <span className="inline-flex items-center gap-1 rounded border border-tone-caution-border bg-tone-caution-bg px-2 py-0.5 text-[11px] font-semibold text-tone-caution-fg">
                                   {isEn
                                     ? `${item.linked_ad_account_count} Ad Accounts (Limit ≤ 3)`
                                     : `Đang gắn ${item.linked_ad_account_count} TKQC (Khuyến nghị ≤ 3)`}
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
-                                  ✅{' '}
+                                <span className="inline-flex items-center gap-1 rounded border border-tone-positive-border bg-tone-positive-bg px-2 py-0.5 text-[11px] font-semibold text-tone-positive-fg">
                                   {isEn
                                     ? `Safe (${item.linked_ad_account_count}/3 Ad Accounts)`
                                     : `An toàn (${item.linked_ad_account_count}/3 TKQC)`}
@@ -3096,9 +3097,9 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                                 <button
                                   type="button"
                                   onClick={() => handleQuickUnlinkDisabled(item)}
-                                  className="rounded bg-rose-600 px-2 py-0.5 text-[10px] font-bold text-white hover:bg-rose-700"
+                                  className="rounded border border-tone-attention-border bg-tone-attention-bg px-2 py-0.5 text-[10px] font-bold text-tone-attention-fg hover:opacity-90"
                                 >
-                                  {isEn ? '⚡ Unlink Disabled Now' : '⚡ Gỡ TKQC lỗi ngay'}
+                                  {isEn ? 'Unlink Disabled Now' : 'Gỡ TKQC lỗi ngay'}
                                 </button>
                               )}
                             </div>
@@ -3117,14 +3118,17 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                                     <Link
                                       key={acc.id}
                                       to={`/accounts/${acc.id}`}
-                                      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium hover:underline ${
+                                      className={`inline-flex items-center gap-1.5 rounded border px-1.5 py-0.5 text-[11px] font-medium hover:underline ${
                                         isBad
-                                          ? 'border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300'
+                                          ? 'border-tone-attention-border bg-tone-attention-bg text-tone-attention-fg'
                                           : 'border-line bg-surface-muted/60 text-ink'
                                       }`}
                                       title={`${acc.display_name} (${acc.external_account_id ?? ''}) - ${acc.status}`}
                                     >
-                                      <span>{isBad ? '🔴' : '🟢'}</span>
+                                      <span
+                                        className={`h-1.5 w-1.5 rounded-full ${isBad ? 'bg-tone-attention-fg' : 'bg-tone-positive-fg'}`}
+                                        aria-hidden="true"
+                                      />
                                       <span className="max-w-[140px] truncate">{acc.display_name}</span>
                                     </Link>
                                   )
@@ -3151,13 +3155,13 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                                 )
                                 setBannerMsg(
                                   !extId
-                                    ? `🚀 Đã mở Chrome (${item.holder_browser_profile || 'Profile 1'}) của Via «${item.holder_label || item.name}» tới trang Tạo Page để Extension tự điền «${item.name}»!`
+                                    ? `Đã mở Chrome (${item.holder_browser_profile || 'Profile 1'}) của Via «${item.holder_label || item.name}» tới trang Tạo Page để Extension tự điền «${item.name}»!`
                                     : isEn
-                                      ? `🚀 Launched Chrome (${item.holder_browser_profile || 'Profile 1'}) for ${item.holder_label || item.name}`
-                                      : `🚀 Đã mở Hồ sơ Chrome (${item.holder_browser_profile || 'Profile 1'}) của Via giữ Page: ${item.holder_label || item.name}`,
+                                      ? `Launched Chrome (${item.holder_browser_profile || 'Profile 1'}) for ${item.holder_label || item.name}`
+                                      : `Đã mở Hồ sơ Chrome (${item.holder_browser_profile || 'Profile 1'}) của Via giữ Page: ${item.holder_label || item.name}`,
                                 )
                               }}
-                              className="inline-flex items-center gap-1 rounded-md bg-brand px-2.5 py-1 text-[11px] font-bold text-white hover:opacity-90"
+                              className="inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2.5 py-1 text-[11px] font-semibold text-ink transition hover:border-line-strong hover:bg-surface-muted"
                               title={
                                 !extId
                                   ? `Mở ${item.holder_browser_profile} tại trang Tạo Page & tự điền tên «${item.name}»`
@@ -3167,7 +3171,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                               }
                             >
                               <Globe className="h-3 w-3" />
-                              <span>{!extId ? '🌱 Mở Tạo Trên FB' : isEn ? '🚀 Open Holder Chrome' : '🚀 Mở Chrome Via Giữ'}</span>
+                              <span>{!extId ? 'Mở Tạo Trên FB' : isEn ? 'Open Holder Chrome' : 'Mở Chrome Via Giữ'}</span>
                             </button>
 
                             {!extId && (
@@ -3178,9 +3182,9 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                                     void downloadUniquePageMediaZip([
                                       { page_name: item.name, category: item.category || '' },
                                     ])
-                                    setBannerMsg(`🎨 Đã tải Ảnh Avatar + Cover Độc Bản cho Page «${item.name}»!`)
+                                    setBannerMsg(`Đã tải Ảnh Avatar + Cover Độc Bản cho Page «${item.name}»!`)
                                   }}
-                                  className="inline-flex items-center gap-1 rounded-md border border-violet-500/40 bg-violet-500/10 px-2 py-1 text-[11px] font-semibold text-violet-700 dark:text-violet-300 hover:bg-violet-500/20"
+                                  className="inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-[11px] font-semibold text-ink hover:border-line-strong hover:bg-surface-muted"
                                   title="Tạo & tải cặp Avatar 800x800 + Cover 1640x624 khác mã Hash"
                                 >
                                   <ImageIcon className="h-3 w-3" />
@@ -3190,7 +3194,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                                   type="button"
                                   onClick={() => discardDraftMut.mutate(item.id)}
                                   disabled={discardDraftMut.isPending}
-                                  className="inline-flex items-center gap-1 rounded-md border border-rose-500/40 bg-rose-500/10 px-2 py-1 text-[11px] font-semibold text-rose-700 dark:text-rose-300 hover:bg-rose-500/20"
+                                  className="inline-flex items-center gap-1 rounded-md border border-tone-attention-border bg-tone-attention-bg px-2 py-1 text-[11px] font-semibold text-tone-attention-fg hover:opacity-90"
                                   title="Hủy bản nháp này & hoàn lại định mức tạo Page cho Via"
                                 >
                                   <Trash2 className="h-3 w-3" />
@@ -3209,11 +3213,11 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                                   })
                                 }
                                 disabled={claimPageToBmMut.isPending}
-                                className="inline-flex items-center gap-1 rounded-md border border-sky-500/40 bg-sky-500/10 px-2 py-1 text-[11px] font-semibold text-sky-700 hover:bg-sky-500/20 dark:text-sky-300"
+                                className="inline-flex items-center gap-1 rounded-md border border-tone-info-border bg-tone-info-bg px-2 py-1 text-[11px] font-semibold text-tone-info-fg hover:opacity-90"
                                 title="Gọi Meta Graph API gán quyền sở hữu Fanpage này về Business Manager trung tâm"
                               >
                                 <Building2 className="h-3 w-3" />
-                                <span>🏛️ Gom về BM</span>
+                                <span>Gom về BM</span>
                               </button>
                             )}
 
@@ -3221,7 +3225,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                               href={qualityUrl}
                               target="_blank"
                               rel="noreferrer"
-                              className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300 hover:bg-amber-500/20"
+                              className="inline-flex items-center gap-1 rounded-md border border-tone-caution-border bg-tone-caution-bg px-2 py-1 text-[11px] font-semibold text-tone-caution-fg hover:opacity-90"
                               title={
                                 isEn
                                   ? 'Open Meta Account Quality to check Page restrictions or submit appeal'
@@ -3336,23 +3340,23 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                   className="input text-xs font-semibold"
                 >
                   <option value="LIVE">
-                    {isEn ? '🟢 LIVE — Active & Eligible for Ads' : '🟢 Đang Live — Hiển thị & Chạy QC bình thường'}
+                    {isEn ? 'LIVE — Active & Eligible for Ads' : 'Đang Live — Hiển thị & Chạy QC bình thường'}
                   </option>
                   <option value="RESTRICTED">
-                    {isEn ? '🔴 RESTRICTED — Advertising Restricted' : '🔴 Hạn chế QC — Đỏ Page (Cấm chạy Ads)'}
+                    {isEn ? 'RESTRICTED — Advertising Restricted' : 'Hạn chế QC — Đỏ Page (Cấm chạy Ads)'}
                   </option>
                   <option value="APPEAL">
-                    {isEn ? '🟡 APPEAL — Appeal Submitted to Meta' : '🟡 Đang kháng nghị — Chờ Meta duyệt lại'}
+                    {isEn ? 'APPEAL — Appeal Submitted to Meta' : 'Đang kháng nghị — Chờ Meta duyệt lại'}
                   </option>
                   <option value="UNPUBLISHED">
-                    {isEn ? '⚪ UNPUBLISHED — Hidden / Unpublished' : '⚪ Đã hủy đăng — Đang ẩn Page'}
+                    {isEn ? 'UNPUBLISHED — Hidden / Unpublished' : 'Đã hủy đăng — Đang ẩn Page'}
                   </option>
                 </select>
               </div>
 
               <div>
                 <label className="label text-xs">
-                  {isEn ? '🏛️ Holding Business Manager (Owner BM)' : '🏛️ BM Trung tâm Sở hữu Page'}
+                  {isEn ? 'Holding Business Manager (Owner BM)' : 'BM Trung tâm Sở hữu Page'}
                 </label>
                 <select
                   value={formBmId}
@@ -3370,7 +3374,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
 
               <div>
                 <label className="label text-xs">
-                  {isEn ? '🛡️ Tier-1 Holding Via (Page Admin)' : '🛡️ Via Tổng (Lớp 1) Giữ Quyền Admin Gốc'}
+                  {isEn ? 'Tier-1 Holding Via (Page Admin)' : 'Via Tổng (Lớp 1) Giữ Quyền Admin Gốc'}
                 </label>
                 <select
                   value={formHolderId}
@@ -3381,7 +3385,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                   {allVias.map((v) => (
                     <option key={v.id} value={v.id}>
                       {String(v.label ?? v.id)}{' '}
-                      {v.browser_profile_label ? `· 💻 ${String(v.browser_profile_label)}` : ''}
+                      {v.browser_profile_label ? `· ${String(v.browser_profile_label)}` : ''}
                     </option>
                   ))}
                 </select>
@@ -3403,8 +3407,8 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
               ((editingPage.soak_remaining_hours ?? 0) > 0 ||
                 (editingPage.warmup_posts_count ?? 3) < 3 ||
                 !editingPage.external_page_id) && (
-                <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
-                  <strong>⚠️ Khuyến nghị kỹ thuật Chống Chết Page Mới:</strong> Page này{' '}
+                <div className="rounded-lg border border-tone-caution-border bg-tone-caution-bg px-3 py-2 text-xs text-tone-caution-fg">
+                  <strong>Khuyến nghị kỹ thuật Chống Chết Page Mới:</strong> Page này{' '}
                   {!editingPage.external_page_id ? 'chưa đồng bộ Page ID thật từ Meta · ' : ''}
                   {(editingPage.soak_remaining_hours ?? 0) > 0
                     ? `đang trong thời gian ngâm (còn ${editingPage.soak_remaining_hours}h / 48h) · `
@@ -3413,7 +3417,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                     ? `mới có ${editingPage.warmup_posts_count ?? 0}/3 bài mồi nuôi Trust.`
                     : ''}
                   <span className="block mt-0.5 text-[11px]">
-                    Bạn nên hoàn tất tạo trên Facebook, bấm <strong>🔄 Đồng bộ Meta</strong>, nuôi đủ 3 bài mồi và ngâm đủ 48h rồi mới gán TKQC chạy chiến dịch!
+                    Bạn nên hoàn tất tạo trên Facebook, bấm <strong>Đồng bộ Meta</strong>, nuôi đủ 3 bài mồi và ngâm đủ 48h rồi mới gán TKQC chạy chiến dịch!
                   </span>
                 </div>
               )}
@@ -3453,7 +3457,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                       }}
                       className="rounded border border-brand/40 bg-brand-light px-2 py-1 text-[10px] font-bold text-brand-text hover:opacity-90"
                     >
-                      {isEn ? '⚡ Select Active Accounts in Same BM (≤3)' : '⚡ Chọn TKQC Sạch cùng BM (≤3)'}
+                      {isEn ? 'Select Active Accounts in Same BM (≤3)' : 'Chọn TKQC Sạch cùng BM (≤3)'}
                     </button>
                   )}
                   <button
@@ -3467,7 +3471,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                     }}
                     className="rounded border border-line bg-surface px-2 py-1 text-[10px] font-semibold text-ink hover:border-brand"
                   >
-                    {isEn ? '🧹 Uncheck Disabled Accounts' : '🧹 Bỏ chọn các TKQC bị khóa'}
+                    {isEn ? 'Uncheck Disabled Accounts' : 'Bỏ chọn các TKQC bị khóa'}
                   </button>
                 </div>
               </div>
@@ -3482,7 +3486,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                       className={`flex cursor-pointer items-center gap-2 rounded border p-1.5 text-xs transition ${
                         checked
                           ? isBad
-                            ? 'border-rose-500 bg-rose-500/10'
+                            ? 'border-tone-attention-border bg-tone-attention-bg'
                             : 'border-brand bg-brand-light/30'
                           : 'border-line/60 hover:bg-surface-muted'
                       }`}
@@ -3494,8 +3498,11 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                         className="rounded border-line"
                       />
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1 font-medium text-ink truncate">
-                          <span>{isBad ? '🔴' : '🟢'}</span>
+                        <div className="flex items-center gap-1.5 font-medium text-ink truncate">
+                          <span
+                            className={`h-1.5 w-1.5 shrink-0 rounded-full ${isBad ? 'bg-tone-attention-fg' : 'bg-tone-positive-fg'}`}
+                            aria-hidden="true"
+                          />
                           <span className="truncate">{acc.display_name}</span>
                         </div>
                         <div className="text-[10px] font-mono text-ink-muted truncate">

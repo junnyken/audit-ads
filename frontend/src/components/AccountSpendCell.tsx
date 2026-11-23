@@ -32,10 +32,11 @@ export default function AccountSpendCell({
   const hasAmount = day !== null && day !== undefined && day.spend_raw !== null && day.spend_raw !== ''
 
   let figure
+  const isZeroAmount = hasAmount && /^0(\.0+)?$/.test(String(day!.spend_raw).trim())
   if (hasAmount) {
     figure = (
       <span
-        className="font-mono text-sm font-bold tabular-nums text-emerald-600 dark:text-emerald-400"
+        className={`font-mono text-sm font-semibold tabular-nums ${isZeroAmount ? 'text-ink-faint opacity-55 font-normal' : 'text-ink'}`}
         title={t('spend.dayTitle', { date: formatDay(day.date, language) })}
       >
         <span aria-hidden="true">{prettyMoney(day.spend_raw, spend.observed_currency)}</span>
@@ -79,23 +80,23 @@ export default function AccountSpendCell({
           data-testid="account-spend-periods"
         >
           {has7d && (
-            <span className="text-sky-600 dark:text-sky-400">
+            <span className="text-brand-text">
               <span className="font-sans font-medium opacity-85">{t('spend.period7dShort')}:</span>{' '}
               <span className="font-semibold">{prettyMoney(periods.last_7d_raw!, spend.observed_currency)}</span>
             </span>
           )}
           {has7d && (hasMtd || hasTotal) && <span className="text-ink-faint">·</span>}
           {hasMtd && (
-            <span className="text-amber-600 dark:text-amber-400">
+            <span className="text-ink-muted">
               <span className="font-sans font-medium opacity-85">{t('spend.periodMtdShort')}:</span>{' '}
-              <span className="font-semibold">{prettyMoney(periods.mtd_raw!, spend.observed_currency)}</span>
+              <span className="font-semibold text-ink">{prettyMoney(periods.mtd_raw!, spend.observed_currency)}</span>
             </span>
           )}
           {hasMtd && hasTotal && <span className="text-ink-faint">·</span>}
           {hasTotal && (
-            <span className="text-rose-600 dark:text-amber-300">
+            <span className="text-tone-caution-fg">
               <span className="font-sans font-medium opacity-90">Lũy kế:</span>{' '}
-              <span className="font-bold">{prettyMoney(periods.amount_spent_raw!, spend.observed_currency)}</span>
+              <span className="font-semibold">{prettyMoney(periods.amount_spent_raw!, spend.observed_currency)}</span>
             </span>
           )}
         </span>

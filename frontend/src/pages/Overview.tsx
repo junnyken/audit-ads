@@ -153,12 +153,12 @@ export default function Overview() {
             </p>
             <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
               <a
-                href="/downloads/AdsOps-Desktop-Pro-v2.3.zip"
+                href="/downloads/AdsOps-Desktop-Pro-latest.zip"
                 download
                 className="inline-flex items-center gap-1 rounded border border-brand bg-brand px-2 py-1 text-[11px] font-bold text-brand-fg hover:bg-brand-dark"
               >
                 <Download className="h-3 w-3" aria-hidden="true" />
-                App Win v4.1.0
+                App Win v5.0
               </a>
               <button
                 type="button"
@@ -265,130 +265,114 @@ export default function Overview() {
           {/* Hàng 1: 4 Thẻ Tổng Quan Tài Sản & Cảnh Báo */}
           {readiness?.inventory && (
             <section aria-label={t('overview.inventory.title')} data-testid="overview-inventory-section">
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <Card>
-                  <CardHeader className="pb-1.5">
-                    <CardTitle className="text-xs font-bold uppercase tracking-wide text-ink-muted">
-                      <Link to="/facebook-accounts" className="hover:underline">
-                        {t('overview.inventory.viaTitle')}
-                      </Link>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    <div className="text-2xl font-bold tabular-nums text-ink">
-                      {formatCount(readiness.inventory.via_counts.total)}
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 text-xs">
-                      <Badge tone="positive">
-                        {t('overview.inventory.activeCount', {
-                          count: formatCount(readiness.inventory.via_counts.active),
+              <div className="studio-strip grid sm:grid-cols-2 xl:grid-cols-4 divide-y sm:divide-y-0">
+                <div className="p-4 space-y-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-faint">
+                    <Link to="/facebook-accounts" className="hover:text-ink transition-colors">
+                      {t('overview.inventory.viaTitle')}
+                    </Link>
+                  </div>
+                  <div className="font-mono text-2xl font-bold tabular-nums text-ink">
+                    {formatCount(readiness.inventory.via_counts.total)}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 text-xs">
+                    <Badge tone="positive">
+                      {t('overview.inventory.activeCount', {
+                        count: formatCount(readiness.inventory.via_counts.active),
+                      })}
+                    </Badge>
+                    {readiness.inventory.via_counts.restricted > 0 && (
+                      <Badge tone="attention">
+                        {t('overview.inventory.blockedCount', {
+                          count: formatCount(readiness.inventory.via_counts.restricted),
                         })}
                       </Badge>
-                      {readiness.inventory.via_counts.restricted > 0 && (
-                        <Badge tone="attention">
-                          {t('overview.inventory.blockedCount', {
-                            count: formatCount(readiness.inventory.via_counts.restricted),
-                          })}
-                        </Badge>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
+                    )}
+                  </div>
+                </div>
 
-                <Card>
-                  <CardHeader className="pb-1.5">
-                    <CardTitle className="text-xs font-bold uppercase tracking-wide text-ink-muted">
-                      <Link to="/business-managers" className="hover:underline">
-                        {t('overview.inventory.bmTitle')}
-                      </Link>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    <div className="text-2xl font-bold tabular-nums text-ink">
-                      {formatCount(readiness.inventory.bm_counts.total)}
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 text-xs">
-                      <Badge tone="positive">
-                        {t('overview.inventory.activeCount', {
-                          count: formatCount(readiness.inventory.bm_counts.active),
+                <div className="p-4 space-y-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-faint">
+                    <Link to="/business-managers" className="hover:text-ink transition-colors">
+                      {t('overview.inventory.bmTitle')}
+                    </Link>
+                  </div>
+                  <div className="font-mono text-2xl font-bold tabular-nums text-ink">
+                    {formatCount(readiness.inventory.bm_counts.total)}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 text-xs">
+                    <Badge tone="positive">
+                      {t('overview.inventory.activeCount', {
+                        count: formatCount(readiness.inventory.bm_counts.active),
+                      })}
+                    </Badge>
+                    {readiness.inventory.bm_counts.restricted > 0 && (
+                      <Badge tone="attention">
+                        {t('overview.inventory.blockedCount', {
+                          count: formatCount(readiness.inventory.bm_counts.restricted),
                         })}
                       </Badge>
-                      {readiness.inventory.bm_counts.restricted > 0 && (
-                        <Badge tone="attention">
-                          {t('overview.inventory.blockedCount', {
-                            count: formatCount(readiness.inventory.bm_counts.restricted),
-                          })}
-                        </Badge>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
+                    )}
+                  </div>
+                </div>
 
-                <Card>
-                  <CardHeader className="pb-1.5">
-                    <CardTitle className="text-xs font-bold uppercase tracking-wide text-ink-muted">
-                      <Link to="/accounts" className="hover:underline">
-                        {t('overview.inventory.adAccountTitle')}
-                      </Link>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    <div className="flex flex-wrap items-baseline gap-2">
-                      <span className="text-2xl font-bold tabular-nums text-ink">
-                        {formatCount(readiness.inventory.ad_account_counts.total)}
+                <div className="p-4 space-y-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-faint">
+                    <Link to="/accounts" className="hover:text-ink transition-colors">
+                      {t('overview.inventory.adAccountTitle')}
+                    </Link>
+                  </div>
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <span className="font-mono text-2xl font-bold tabular-nums text-ink">
+                      {formatCount(readiness.inventory.ad_account_counts.total)}
+                    </span>
+                    {Object.keys(readiness.inventory.ad_account_counts.by_currency).length > 0 && (
+                      <span className="font-mono text-xs font-semibold text-ink-muted">
+                        {Object.entries(readiness.inventory.ad_account_counts.by_currency)
+                          .map(([curr, cnt]) => `${formatCount(cnt)} ${curr}`)
+                          .join(' · ')}
                       </span>
-                      {Object.keys(readiness.inventory.ad_account_counts.by_currency).length > 0 && (
-                        <span className="font-mono text-xs font-semibold text-ink-muted">
-                          {Object.entries(readiness.inventory.ad_account_counts.by_currency)
-                            .map(([curr, cnt]) => `${formatCount(cnt)} ${curr}`)
-                            .join(' · ')}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 text-xs">
-                      <Badge tone="positive">
-                        {t('overview.inventory.activeCount', {
-                          count: formatCount(readiness.inventory.ad_account_counts.active),
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 text-xs">
+                    <Badge tone="positive">
+                      {t('overview.inventory.activeCount', {
+                        count: formatCount(readiness.inventory.ad_account_counts.active),
+                      })}
+                    </Badge>
+                    {readiness.inventory.ad_account_counts.blocked > 0 && (
+                      <Badge tone="attention">
+                        {t('overview.inventory.blockedCount', {
+                          count: formatCount(readiness.inventory.ad_account_counts.blocked),
                         })}
                       </Badge>
-                      {readiness.inventory.ad_account_counts.blocked > 0 && (
-                        <Badge tone="attention">
-                          {t('overview.inventory.blockedCount', {
-                            count: formatCount(readiness.inventory.ad_account_counts.blocked),
-                          })}
-                        </Badge>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
+                    )}
+                  </div>
+                </div>
 
-                <Card>
-                  <CardHeader className="pb-1.5">
-                    <CardTitle className="text-xs font-bold uppercase tracking-wide text-ink-muted">
-                      <Link to="/alerts" className="hover:underline">
-                        Trạng thái Meta & Cảnh báo
-                      </Link>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-2xl font-bold tabular-nums text-ink">
-                        {formatCount(metaBlockedCount)}
-                      </span>
-                      <span className="text-xs font-semibold text-ink-muted">TKQC cần kiểm tra</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 text-xs">
-                      <Link to="/accounts">
-                        <Badge tone="positive">Meta hoạt động: {formatCount(metaActiveCount)}</Badge>
-                      </Link>
-                      <Link to="/alerts?status=open">
-                        <Badge tone={openCriticalAlerts > 0 ? 'attention' : 'neutral'}>
-                          Cảnh báo mở: {formatCount(openCriticalAlerts)}
-                        </Badge>
-                      </Link>
-                    </div>
-                  </CardContent>
-                </Card>
+                <div className="p-4 space-y-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-faint">
+                    <Link to="/alerts" className="hover:text-ink transition-colors">
+                      Trạng thái Meta &amp; Cảnh báo
+                    </Link>
+                  </div>
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-mono text-2xl font-bold tabular-nums text-ink">
+                      {formatCount(metaBlockedCount)}
+                    </span>
+                    <span className="text-xs font-medium text-ink-muted">TKQC cần kiểm tra</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 text-xs">
+                    <Link to="/accounts">
+                      <Badge tone="positive">Meta hoạt động: {formatCount(metaActiveCount)}</Badge>
+                    </Link>
+                    <Link to="/alerts?status=open">
+                      <Badge tone={openCriticalAlerts > 0 ? 'attention' : 'neutral'}>
+                        Cảnh báo mở: {formatCount(openCriticalAlerts)}
+                      </Badge>
+                    </Link>
+                  </div>
+                </div>
               </div>
             </section>
           )}
@@ -419,90 +403,74 @@ export default function Overview() {
               </div>
             ) : (
               <>
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <Card>
-                    <CardHeader className="pb-1.5">
-                      <CardTitle className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-ink-muted">
-                        <Activity className="h-3.5 w-3.5 text-brand-text" aria-hidden="true" />
-                        {t('overview.telemetry.opsRateTitle')}
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-1.5">
-                      <div className="text-2xl font-bold tabular-nums text-ink">
-                        {tel?.automation_health?.success_rate_pct !== null &&
-                        tel?.automation_health?.success_rate_pct !== undefined
-                          ? `${tel.automation_health.success_rate_pct.toFixed(1)}%`
-                          : t('overview.telemetry.noRuns7d')}
-                      </div>
-                      <p className="text-xs text-ink-muted tabular-nums">
-                        {t('overview.telemetry.opsBreakdown', {
-                          ok: formatCount(tel?.automation_health?.ok_ops_7d ?? 0),
-                          fail: formatCount(tel?.automation_health?.fail_ops_7d ?? 0),
-                        })}
-                      </p>
-                    </CardContent>
-                  </Card>
+                <div className="studio-strip grid sm:grid-cols-2 xl:grid-cols-4 divide-y sm:divide-y-0">
+                  <div className="p-4 space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-faint">
+                      <Activity className="h-3.5 w-3.5 text-brand-text" aria-hidden="true" />
+                      {t('overview.telemetry.opsRateTitle')}
+                    </div>
+                    <div className="font-mono text-2xl font-bold tabular-nums text-ink">
+                      {tel?.automation_health?.success_rate_pct !== null &&
+                      tel?.automation_health?.success_rate_pct !== undefined
+                        ? `${tel.automation_health.success_rate_pct.toFixed(1)}%`
+                        : t('overview.telemetry.noRuns7d')}
+                    </div>
+                    <p className="text-xs text-ink-muted tabular-nums">
+                      {t('overview.telemetry.opsBreakdown', {
+                        ok: formatCount(tel?.automation_health?.ok_ops_7d ?? 0),
+                        fail: formatCount(tel?.automation_health?.fail_ops_7d ?? 0),
+                      })}
+                    </p>
+                  </div>
 
-                  <Card>
-                    <CardHeader className="pb-1.5">
-                      <CardTitle className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-ink-muted">
-                        <Globe className="h-3.5 w-3.5 text-tone-positive-fg" aria-hidden="true" />
-                        {t('overview.telemetry.proxyCardTitle')}
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-1.5">
-                      <div className="text-2xl font-bold tabular-nums text-ink">
-                        {formatCount(tel?.proxy_summary?.total_clusters ?? 0)}
-                      </div>
-                      <p className="text-xs text-ink-muted tabular-nums">
-                        {t('overview.telemetry.proxyBreakdown', {
-                          healthy: formatCount(tel?.proxy_summary?.healthy_clusters ?? 0),
-                          crowded: formatCount(tel?.proxy_summary?.crowded_clusters ?? 0),
-                          incident: formatCount(tel?.proxy_summary?.incident_clusters ?? 0),
-                        })}
-                      </p>
-                    </CardContent>
-                  </Card>
+                  <div className="p-4 space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-faint">
+                      <Globe className="h-3.5 w-3.5 text-tone-positive-fg" aria-hidden="true" />
+                      {t('overview.telemetry.proxyCardTitle')}
+                    </div>
+                    <div className="font-mono text-2xl font-bold tabular-nums text-ink">
+                      {formatCount(tel?.proxy_summary?.total_clusters ?? 0)}
+                    </div>
+                    <p className="text-xs text-ink-muted tabular-nums">
+                      {t('overview.telemetry.proxyBreakdown', {
+                        healthy: formatCount(tel?.proxy_summary?.healthy_clusters ?? 0),
+                        crowded: formatCount(tel?.proxy_summary?.crowded_clusters ?? 0),
+                        incident: formatCount(tel?.proxy_summary?.incident_clusters ?? 0),
+                      })}
+                    </p>
+                  </div>
 
-                  <Card>
-                    <CardHeader className="pb-1.5">
-                      <CardTitle className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-ink-muted">
-                        <CreditCard className="h-3.5 w-3.5 text-tone-caution-fg" aria-hidden="true" />
-                        {t('overview.telemetry.threshCardTitle')}
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-1.5">
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-2xl font-bold tabular-nums text-ink">
-                          {formatCount(thresholdRiskCount)}
-                        </span>
-                        {thresholdRiskCount > 0 && (
-                          <Badge tone="caution">≥ 80%</Badge>
-                        )}
-                      </div>
-                      <p className="text-xs text-ink-muted">{t('overview.telemetry.threshSub')}</p>
-                    </CardContent>
-                  </Card>
+                  <div className="p-4 space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-faint">
+                      <CreditCard className="h-3.5 w-3.5 text-tone-caution-fg" aria-hidden="true" />
+                      {t('overview.telemetry.threshCardTitle')}
+                    </div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="font-mono text-2xl font-bold tabular-nums text-ink">
+                        {formatCount(thresholdRiskCount)}
+                      </span>
+                      {thresholdRiskCount > 0 && (
+                        <Badge tone="caution">≥ 80%</Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-ink-muted">{t('overview.telemetry.threshSub')}</p>
+                  </div>
 
-                  <Card>
-                    <CardHeader className="pb-1.5">
-                      <CardTitle className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-ink-muted">
-                        <TrendingUp className="h-3.5 w-3.5 text-tone-attention-fg" aria-hidden="true" />
-                        {t('overview.telemetry.spikeCardTitle')}
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-1.5">
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-2xl font-bold tabular-nums text-ink">
-                          {formatCount(spikeRiskCount)}
-                        </span>
-                        {spikeRiskCount > 0 && (
-                          <Badge tone="attention">Spike</Badge>
-                        )}
-                      </div>
-                      <p className="text-xs text-ink-muted">{t('overview.telemetry.spikeSub')}</p>
-                    </CardContent>
-                  </Card>
+                  <div className="p-4 space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-faint">
+                      <TrendingUp className="h-3.5 w-3.5 text-tone-attention-fg" aria-hidden="true" />
+                      {t('overview.telemetry.spikeCardTitle')}
+                    </div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="font-mono text-2xl font-bold tabular-nums text-ink">
+                        {formatCount(spikeRiskCount)}
+                      </span>
+                      {spikeRiskCount > 0 && (
+                        <Badge tone="attention">Spike</Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-ink-muted">{t('overview.telemetry.spikeSub')}</p>
+                  </div>
                 </div>
 
                 <div className="grid gap-4 xl:grid-cols-2">
@@ -665,7 +633,7 @@ export default function Overview() {
                                 primaryVia.network_label,
                               )
                             }
-                            className="inline-flex items-center rounded border border-tone-positive-border bg-tone-positive-bg px-1.5 py-0.5 text-[11px] font-bold text-tone-positive-fg hover:opacity-90"
+                            className="inline-flex items-center rounded-md border border-line-strong bg-surface-sunken/70 px-2 py-0.5 text-[11px] font-semibold text-ink hover:border-brand hover:text-brand-text transition-colors"
                             title={`Mở trang Kháng nghị bằng Chrome (${formatShortProfileBadge(primaryVia)})`}
                           >
                             Mở Chrome
@@ -718,7 +686,7 @@ export default function Overview() {
                                 primaryVia.network_label,
                               )
                             }
-                            className="inline-flex items-center rounded border border-tone-positive-border bg-tone-positive-bg px-1.5 py-0.5 text-[11px] font-bold text-tone-positive-fg hover:opacity-90"
+                            className="inline-flex items-center rounded-md border border-line-strong bg-surface-sunken/70 px-2 py-0.5 text-[11px] font-semibold text-ink hover:border-brand hover:text-brand-text transition-colors"
                           >
                             Mở Chrome
                           </button>

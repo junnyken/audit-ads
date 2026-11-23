@@ -34,7 +34,6 @@ import {
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   DropdownMenu,
@@ -45,7 +44,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { InspectorDrawer, InspectorSection } from '@/components/ui/inspector-drawer'
-import { Progress } from '@/components/ui/progress'
 import {
   Select,
   SelectContent,
@@ -53,6 +51,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { FilterPopover, SegmentedTabs, StatusDot, TrustRing } from '@/components/ui/studio-primitives'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -79,6 +78,8 @@ function getInitials(label: string): string {
   if (words.length >= 2) return `${words[0][0]}${words[words.length - 1][0]}`.toUpperCase()
   return (label || 'VA').slice(0, 2).toUpperCase()
 }
+
+const PRIMARY_TIER_KEYS = new Set(['all', 'vault', 'camp', 'standby', 'keepalive_due'])
 
 export function ViasTab({ state }: { state: AppShellWebStateDto }) {
   const { platformScope } = useShellUi()
@@ -196,9 +197,40 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
     (v) => (v.accountPlatform || 'meta') === 'google_ads_standalone',
   ).length
 
-  const tierChips = [
-    { key: 'all', label: `Tất cả (${scopedBaseVias.length})` },
-    ...(platformScope !== 'meta'
+  const primaryTabs =
+    platformScope === 'google_ads'
+      ? [
+          { value: 'all', label: 'Tất cả', count: scopedBaseVias.length },
+          { value: 'google_mcc', label: 'Google MCC', count: googleMccCount },
+          { value: 'google_standalone', label: 'Gmail 1:1', count: googleStandaloneCount },
+          { value: 'running', label: 'Đang mở', count: scopedBaseVias.filter((v) => v.isBrowserRunning).length },
+        ]
+      : [
+          { value: 'all', label: 'Tất cả', count: scopedBaseVias.length },
+          {
+            value: 'vault',
+            label: 'Hold BM',
+            count: scopedBaseVias.filter((v) => v.roleTier === 'vault' || v.roleTier === 'hold').length,
+          },
+          {
+            value: 'camp',
+            label: 'Lên Camp',
+            count: scopedBaseVias.filter((v) => v.roleTier !== 'vault' && v.roleTier !== 'hold' && v.roleTier !== 'standby').length,
+          },
+          {
+            value: 'standby',
+            label: 'Dự phòng',
+            count: scopedBaseVias.filter((v) => v.roleTier === 'standby').length,
+          },
+          {
+            value: 'keepalive_due',
+            label: 'Cần đảo ấm',
+            count: scopedBaseVias.filter((v) => v.needsKeepAlive).length,
+          },
+        ]
+
+  const secondaryFilterChips = [
+    ...(platformScope !== 'meta' && platformScope !== 'google_ads'
       ? [
           { key: 'google_mcc', label: `Google MCC (${googleMccCount})` },
           { key: 'google_standalone', label: `Gmail 1:1 (${googleStandaloneCount})` },
@@ -206,15 +238,6 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
       : []),
     ...(platformScope !== 'google_ads'
       ? [
-          {
-            key: 'vault',
-            label: `Hold BM (${scopedBaseVias.filter((v) => v.roleTier === 'vault' || v.roleTier === 'hold').length})`,
-          },
-          {
-            key: 'camp',
-            label: `Lên Camp (${scopedBaseVias.filter((v) => v.roleTier !== 'vault' && v.roleTier !== 'hold' && v.roleTier !== 'standby').length})`,
-          },
-          { key: 'standby', label: `Dự phòng (${scopedBaseVias.filter((v) => v.roleTier === 'standby').length})` },
           {
             key: 'ready_to_born',
             label: `Chờ khai sinh (${scopedBaseVias.filter((v) => v.incubationStageKey === 'ready_to_born').length})`,
@@ -235,7 +258,6 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
             key: 'standby_ready',
             label: `Dự phòng sẵn (${scopedBaseVias.filter((v) => v.incubationStageKey === 'standby_ready').length})`,
           },
-          { key: 'keepalive_due', label: `Cần đảo ấm (${scopedBaseVias.filter((v) => v.needsKeepAlive).length})` },
           { key: 'no_cookie', label: `Thiếu Cookie (${scopedBaseVias.filter((v) => !v.hasVaultCookie).length})` },
         ]
       : []),
@@ -244,6 +266,12 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
       ? [{ key: 'cooldown', label: `Cảnh báo (${issueCount})` }]
       : []),
   ]
+
+  const advancedFilterCount =
+    (engineFilter !== 'all' ? 1 : 0) +
+    (proxyFilter !== 'all' ? 1 : 0) +
+    (ownerFilter !== 'all' ? 1 : 0) +
+    (!PRIMARY_TIER_KEYS.has(tierFilter) ? 1 : 0)
 
   const ef = state.embryoFactory ?? {
     enabled: false,
@@ -284,472 +312,474 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
   const poolRows = state.standbyPoolMatrix ?? []
 
   return (
-    <div className="space-y-3.5">
-      {/* Top Contextual Banner: Google Ads Silo OR Agency Standby / Embryo Factory */}
+    <div className="space-y-4">
+      {/* Compact Contextual Embryo / Google Ads Silo Bar */}
       {platformScope === 'google_ads' ? (
-        <Card className="border-emerald-500/30 bg-emerald-500/5">
-          <CardContent className="flex flex-wrap items-center justify-between gap-2 p-3">
-            <div className="flex items-center gap-2 text-xs">
-              <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-500" />
-              <span className="font-semibold text-foreground">
-                Chế độ Google Ads 1:1 — Đã tách biệt hoàn toàn khỏi kịch bản Meta / Extension Script
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/6 px-4 py-2.5">
+          <StatusDot
+            tone="live"
+            label="Chế độ Google Ads 1:1 · Tách biệt hoàn toàn khỏi kịch bản Meta / Extension"
+            labelClassName="text-xs font-medium text-foreground"
+          />
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-7 px-2.5 text-xs"
+              onClick={() => sendDesktopCommand('open_google_ads_script_wizard')}
+            >
+              <Code2 className="h-3.5 w-3.5 text-emerald-500" /> Mã Google Ads Script
+            </Button>
+            <Button size="sm" className="h-7 px-2.5 text-xs" onClick={() => sendDesktopCommand('add_via')}>
+              <Plus className="h-3.5 w-3.5" /> Thêm MCC / Gmail 1:1
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="studio-panel overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
+            <button
+              type="button"
+              className="flex items-center gap-2 text-left text-xs font-medium text-foreground hover:text-primary transition-colors"
+              onClick={() => setStandbyOpen((v) => !v)}
+            >
+              <StatusDot tone="live" />
+              <span>Kho Dự phòng &amp; Xưởng Ủ Phôi ({poolRows.length} nhóm)</span>
+              {standbyOpen ? (
+                <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+              )}
+            </button>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              {ef.readyToBornCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setTierFilter('ready_to_born')}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20"
+                >
+                  <BellRing className="h-3 w-3" />
+                  {ef.readyToBornCount} Phôi sẵn khai sinh
+                </button>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => setFactoryConfigOpen((v) => !v)}
+              >
+                <Settings2 className="h-3.5 w-3.5" />
+                Lịch Ủ ({efEnabled ? `${efInterval}N` : 'Tắt'})
+              </Button>
               <Button
                 variant="secondary"
                 size="sm"
+                disabled={ef.isSilentPreBakeRunning}
                 className="h-7 px-2.5 text-xs"
-                onClick={() => sendDesktopCommand('open_google_ads_script_wizard')}
+                onClick={() => sendDesktopCommand('spawn_embryo_now')}
               >
-                <Code2 className="h-3.5 w-3.5 text-emerald-500" /> Mã Google Ads Script
-              </Button>
-              <Button size="sm" className="h-7 px-2.5 text-xs" onClick={() => sendDesktopCommand('add_via')}>
-                <Plus className="h-3.5 w-3.5" /> Thêm MCC / Gmail 1:1
+                <Ghost className="h-3.5 w-3.5 text-emerald-500" />
+                {ef.isSilentPreBakeRunning ? 'Đang ủ ngầm...' : 'Đẻ & Ủ 1 Phôi'}
               </Button>
             </div>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card className="border-primary/20 bg-primary/5">
-          <CardContent className="space-y-2.5 p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <button
-                type="button"
-                className="flex items-center gap-2 text-left text-xs font-semibold text-foreground hover:text-primary"
-                onClick={() => setStandbyOpen((v) => !v)}
-              >
-                <ShieldCheck className="h-4 w-4 text-emerald-500" />
-                <span>Kho Dự phòng &amp; Xưởng Tự động Ủ Phôi ({poolRows.length} nhóm)</span>
-                {standbyOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-              </button>
-              <div className="flex flex-wrap items-center gap-1.5">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="h-7 px-2.5 text-xs"
-                  onClick={() => setFactoryConfigOpen((v) => !v)}
+          </div>
+
+          {standbyOpen && poolRows.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 border-t border-border/65 px-4 py-2.5">
+              {poolRows.map((row) => (
+                <span
+                  key={row.clientGroup}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 font-mono text-[11px]',
+                    row.hasStandbyDeficit
+                      ? 'border-amber-500/35 bg-amber-500/8 text-amber-700 dark:text-amber-300'
+                      : 'border-border/75 bg-muted/40 text-muted-foreground',
+                  )}
                 >
-                  <Settings2 className="h-3.5 w-3.5" />
-                  Lịch Ủ ({efEnabled ? `${efInterval} ngày` : 'Tắt'})
-                </Button>
+                  <span className="font-sans font-semibold text-foreground">{row.clientGroup}:</span>
+                  <span>{row.activePrimaryCount} Chính</span>
+                  <span>·</span>
+                  <span>{row.standbyReadyCount} Standby</span>
+                  {row.incubatingCount > 0 && <span>· {row.incubatingCount} đang ủ</span>}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {factoryConfigOpen && (
+            <div className="space-y-3 border-t border-border/70 bg-muted/20 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <Switch checked={efEnabled} onCheckedChange={setEfEnabled} />
+                  <div>
+                    <div className="text-xs font-semibold text-foreground">
+                      Bật lịch tự động đẻ &amp; ủ Cookie ngầm (08:00–22:00)
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {ef.nextSpawnHint} · Gần nhất: {ef.lastSpawnLocal} · Proxy kho: {ef.proxyPoolValidCount}
+                    </div>
+                  </div>
+                </div>
                 <Button
                   variant="secondary"
                   size="sm"
                   disabled={ef.isSilentPreBakeRunning}
-                  className="h-7 px-2.5 text-xs"
-                  onClick={() => sendDesktopCommand('spawn_embryo_now')}
+                  onClick={() => sendDesktopCommand('bake_all_embryos_silent')}
                 >
                   <Ghost className="h-3.5 w-3.5 text-emerald-500" />
-                  {ef.isSilentPreBakeRunning ? 'Đang ủ ngầm...' : 'Đẻ & Ủ 1 Phôi ngay'}
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="h-7 px-2.5 text-xs"
-                  onClick={() => sendDesktopCommand('add_via')}
-                >
-                  <Plus className="h-3.5 w-3.5" /> Thêm Via
+                  Ủ ngầm phôi chờ ({ef.preBakingCount})
                 </Button>
               </div>
-            </div>
 
-            {ef.readyToBornCount > 0 && (
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
-                <div className="flex items-center gap-2 font-medium">
-                  <BellRing className="h-4 w-4 shrink-0" />
-                  Có {ef.readyToBornCount} Phôi đã ủ chín Cookie sạch — sẵn sàng Khai sinh 60s
-                </div>
-                <Button
-                  size="sm"
-                  className="h-7 bg-emerald-600 px-2.5 text-xs text-white hover:bg-emerald-500"
-                  onClick={() => setTierFilter('ready_to_born')}
-                >
-                  Lọc phôi sẵn ({ef.readyToBornCount})
-                </Button>
-              </div>
-            )}
-
-            {standbyOpen && poolRows.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {poolRows.map((row) => (
-                  <Badge
-                    key={row.clientGroup}
-                    variant={row.hasStandbyDeficit ? 'warning' : 'secondary'}
-                    className="gap-1.5 px-2.5 py-1 font-mono text-[11px]"
-                  >
-                    <span className="font-sans font-semibold">{row.clientGroup}:</span>
-                    <span>{row.activePrimaryCount} Chính</span>
-                    <span>•</span>
-                    <span>{row.standbyReadyCount} Standby</span>
-                    {row.incubatingCount > 0 && <span>• {row.incubatingCount} đang ủ</span>}
-                  </Badge>
-                ))}
-              </div>
-            )}
-
-            {factoryConfigOpen && (
-              <div className="space-y-3 rounded-lg border border-border bg-card p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2.5">
-                    <Switch checked={efEnabled} onCheckedChange={setEfEnabled} />
-                    <div>
-                      <div className="text-xs font-semibold text-foreground">
-                        Bật lịch tự động đẻ &amp; ủ Cookie ngầm (08:00–22:00)
-                      </div>
-                      <div className="text-[11px] text-muted-foreground">
-                        {ef.nextSpawnHint} • Gần nhất: {ef.lastSpawnLocal} • Proxy kho: {ef.proxyPoolValidCount}
-                      </div>
-                    </div>
-                  </div>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    disabled={ef.isSilentPreBakeRunning}
-                    onClick={() => sendDesktopCommand('bake_all_embryos_silent')}
-                  >
-                    <Ghost className="h-3.5 w-3.5 text-emerald-500" />
-                    Ủ ngầm phôi chờ ({ef.preBakingCount})
-                  </Button>
+              <div className="grid grid-cols-1 gap-2.5 md:grid-cols-5">
+                <div className="space-y-1">
+                  <span className="text-[11px] font-medium text-muted-foreground">Chu kỳ tạo</span>
+                  <Select value={efInterval} onValueChange={setEfInterval}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">Mỗi 1 ngày</SelectItem>
+                      <SelectItem value="2">Mỗi 2 ngày</SelectItem>
+                      <SelectItem value="3">Mỗi 3 ngày (Khuyên dùng)</SelectItem>
+                      <SelectItem value="5">Mỗi 5 ngày</SelectItem>
+                      <SelectItem value="7">Mỗi 7 ngày</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
-                <div className="grid grid-cols-1 gap-2.5 md:grid-cols-5">
-                  <div className="space-y-1">
-                    <span className="text-[11px] font-medium text-muted-foreground">Chu kỳ tạo</span>
-                    <Select value={efInterval} onValueChange={setEfInterval}>
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="1">Mỗi 1 ngày</SelectItem>
-                        <SelectItem value="2">Mỗi 2 ngày</SelectItem>
-                        <SelectItem value="3">Mỗi 3 ngày (Khuyên dùng)</SelectItem>
-                        <SelectItem value="5">Mỗi 5 ngày</SelectItem>
-                        <SelectItem value="7">Mỗi 7 ngày</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-1">
-                    <span className="text-[11px] font-medium text-muted-foreground">Số phiên Cookie Robot</span>
-                    <Select value={efSessions} onValueChange={setEfSessions}>
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="2">2 phiên (~1–2 ngày)</SelectItem>
-                        <SelectItem value="3">3 phiên (~2–3 ngày)</SelectItem>
-                        <SelectItem value="4">4 phiên (Chín kỹ)</SelectItem>
-                        <SelectItem value="5">5 phiên (Siêu sạch)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-1">
-                    <span className="text-[11px] font-medium text-muted-foreground">Trần phôi tối đa</span>
-                    <Input
-                      value={efMaxPending}
-                      onChange={(e) => setEfMaxPending(e.target.value)}
-                      placeholder="3"
-                      className="h-8 font-mono text-xs"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <span className="text-[11px] font-medium text-muted-foreground">Nhóm khách (Silo)</span>
-                    <Input
-                      value={efClientGroup}
-                      onChange={(e) => setEfClientGroup(e.target.value)}
-                      placeholder="VD: NhaKhoa_A"
-                      className="h-8 text-xs"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <span className="text-[11px] font-medium text-muted-foreground">Domain Mail riêng</span>
-                    <Input
-                      value={efDomain}
-                      onChange={(e) => setEfDomain(e.target.value)}
-                      placeholder="VD: agency.vn"
-                      className="h-8 text-xs"
-                    />
-                  </div>
+                <div className="space-y-1">
+                  <span className="text-[11px] font-medium text-muted-foreground">Số phiên Cookie Robot</span>
+                  <Select value={efSessions} onValueChange={setEfSessions}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="2">2 phiên (~1–2 ngày)</SelectItem>
+                      <SelectItem value="3">3 phiên (~2–3 ngày)</SelectItem>
+                      <SelectItem value="4">4 phiên (Chín kỹ)</SelectItem>
+                      <SelectItem value="5">5 phiên (Siêu sạch)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
-                <Textarea
-                  value={efProxyPool}
-                  onChange={(e) => setEfProxyPool(e.target.value)}
-                  rows={2}
-                  placeholder="103.1.2.3:8080:user:pass"
-                  className="font-mono text-xs"
-                />
+                <div className="space-y-1">
+                  <span className="text-[11px] font-medium text-muted-foreground">Trần phôi tối đa</span>
+                  <Input
+                    value={efMaxPending}
+                    onChange={(e) => setEfMaxPending(e.target.value)}
+                    placeholder="3"
+                    className="h-8 font-mono text-xs"
+                  />
+                </div>
 
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-[11px] text-muted-foreground">
-                    App tự tạo Profile + ủ Cookie sạch mỗi {efInterval} ngày; đủ {efSessions} phiên sẽ báo chuông để bạn
-                    thực hiện Khai Sinh 60s chính chủ.
-                  </p>
-                  <Button
-                    size="sm"
-                    onClick={() =>
-                      sendDesktopCommand('save_embryo_factory_config', {
-                        enabled: efEnabled,
-                        spawnIntervalDays: Number(efInterval) || 3,
-                        requiredSessions: Number(efSessions) || 3,
-                        maxPendingEmbryos: Number(efMaxPending) || 3,
-                        defaultClientGroup: efClientGroup,
-                        customDomain: efDomain,
-                        proxyPoolRaw: efProxyPool,
-                      })
-                    }
-                  >
-                    Lưu cấu hình Xưởng
-                  </Button>
+                <div className="space-y-1">
+                  <span className="text-[11px] font-medium text-muted-foreground">Nhóm khách (Silo)</span>
+                  <Input
+                    value={efClientGroup}
+                    onChange={(e) => setEfClientGroup(e.target.value)}
+                    placeholder="VD: NhaKhoa_A"
+                    className="h-8 text-xs"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <span className="text-[11px] font-medium text-muted-foreground">Domain Mail riêng</span>
+                  <Input
+                    value={efDomain}
+                    onChange={(e) => setEfDomain(e.target.value)}
+                    placeholder="VD: agency.vn"
+                    className="h-8 text-xs"
+                  />
                 </div>
               </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
 
-      {/* Filter & Actions Toolbar */}
-      <Card>
-        <CardContent className="space-y-3 p-3.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative min-w-[220px] flex-1">
-              <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Tìm tên Via, UID, Gmail/CID, Chrome Profile, Proxy..."
-                className="pl-8"
+              <Textarea
+                value={efProxyPool}
+                onChange={(e) => setEfProxyPool(e.target.value)}
+                rows={2}
+                placeholder="103.1.2.3:8080:user:pass"
+                className="font-mono text-xs"
               />
-            </div>
 
-            {platformScope !== 'google_ads' && (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => sendDesktopCommand('harvest_all_open_cookies')}
-                title="Thu Cookie FB từ các Chrome Cô lập đang mở vào Két DPAPI"
-              >
-                <KeyRound className="h-3.5 w-3.5 text-emerald-500" />
-                Thu Cookie đang mở
-              </Button>
-            )}
-
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => sendDesktopCommand('distribute_proxies', { viaIds: selectedIds })}
-            >
-              <Globe className="h-3.5 w-3.5" />
-              Chia Proxy 1:{state.automationConfig.maxViasPerProxyInBatch}
-            </Button>
-
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="secondary" size="sm">
-                  Công cụ lô <ChevronDown className="h-3 w-3 opacity-70" />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[11px] text-muted-foreground">
+                  App tự tạo Profile + ủ Cookie sạch mỗi {efInterval} ngày; đủ {efSessions} phiên sẽ báo chuông để bạn thực hiện Khai Sinh 60s chính chủ.
+                </p>
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    sendDesktopCommand('save_embryo_factory_config', {
+                      enabled: efEnabled,
+                      spawnIntervalDays: Number(efInterval) || 3,
+                      requiredSessions: Number(efSessions) || 3,
+                      maxPendingEmbryos: Number(efMaxPending) || 3,
+                      defaultClientGroup: efClientGroup,
+                      customDomain: efDomain,
+                      proxyPoolRaw: efProxyPool,
+                    })
+                  }
+                >
+                  Lưu cấu hình Xưởng
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-72">
-                <DropdownMenuItem onClick={() => sendDesktopCommand('bulk_change_tier', { viaIds: selectedIds })}>
-                  <Users className="h-3.5 w-3.5 text-primary" />
-                  Đổi Lớp Via / Nhóm Khách &amp; Tách Profile
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => sendDesktopCommand('batch_proxy_check')}>
-                  <Globe className="h-3.5 w-3.5 text-emerald-500" />
-                  Quét kiểm tra Proxy Live/Dead toàn bộ
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => sendDesktopCommand('bulk_import_vias')}>
-                  <Upload className="h-3.5 w-3.5 text-sky-500" />
-                  Nhập lô nhiều Via từ Clipboard (Ctrl+B)
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => sendDesktopCommand('export_vias_csv')}>
-                  <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-500" />
-                  Xuất danh sách Via &amp; Proxy ra file CSV
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => sendDesktopCommand('tile_chrome_windows', { grid: '2x2' })}>
-                  <Grid2x2 className="h-3.5 w-3.5" />
-                  Xếp cửa sổ Chrome đang mở lưới 2×2
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => sendDesktopCommand('open_auto_connect_token')}>
-                  <KeyRound className="h-3.5 w-3.5 text-amber-500" />
-                  Dán Token EAAB kết nối nhanh Via &amp; TKQC
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => sendDesktopCommand('benchmark_engines')}>
-                  <Gauge className="h-3.5 w-3.5 text-violet-500" />
-                  Benchmark tốc độ 5 Engine Antidetect
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => sendDesktopCommand('open_stewardship_log')}>
-                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
-                  Xem nhật ký bảo vệ &amp; chống rò rỉ IP
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => sendDesktopCommand('open_launch_audit')}>
-                  <Terminal className="h-3.5 w-3.5" />
-                  Xem nhật ký mở Profile (Audit Log)
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={toggleAllVisible}>
-                  <CheckSquare className="h-3.5 w-3.5" />
-                  Chọn / Bỏ chọn tất cả đang hiển thị
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => sendDesktopCommand('open_google_ads_script_wizard')}
-              title="Lấy mã Google Ads Script cho MCC & Gmail khách độc lập"
-            >
-              <Code2 className="h-3.5 w-3.5 text-emerald-500" />
-              Google Ads Script
-            </Button>
-
-            <Button size="sm" onClick={() => sendDesktopCommand('add_via')}>
-              <Plus className="h-3.5 w-3.5" />
-              Thêm hồ sơ
-            </Button>
-          </div>
-
-          <div className="flex flex-wrap gap-1.5">
-            {tierChips.map((ch) => (
-              <Button
-                key={ch.key}
-                type="button"
-                size="sm"
-                variant={tierFilter === ch.key ? 'default' : 'secondary'}
-                className="h-7 px-2.5 text-xs"
-                onClick={() => setTierFilter(ch.key)}
-              >
-                {ch.label}
-              </Button>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-1 gap-2.5 md:grid-cols-3">
-            <Select value={engineFilter} onValueChange={setEngineFilter}>
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="Engine" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Engine: Tất cả</SelectItem>
-                {state.supportedEngines.map((eng) => (
-                  <SelectItem key={eng.value} value={eng.value}>
-                    Engine: {eng.label} ({scopedBaseVias.filter((v) => v.antidetectEngine === eng.value).length})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select value={proxyFilter} onValueChange={setProxyFilter}>
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="Proxy" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Proxy: Tất cả cụm</SelectItem>
-                <SelectItem value="direct">Proxy: Mạng gốc (Direct)</SelectItem>
-                {distinctProxies.map((px) => (
-                  <SelectItem key={px} value={px}>
-                    Proxy: {px}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select value={ownerFilter} onValueChange={setOwnerFilter}>
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="Phụ trách" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Phụ trách: Tất cả nhân sự</SelectItem>
-                <SelectItem value="unassigned">Phụ trách: Chưa phân công</SelectItem>
-                {state.teamMemberOptions.map((tm) => (
-                  <SelectItem key={tm.value} value={tm.value}>
-                    Phụ trách: {tm.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Bulk Selection Strip */}
-      {selectedIds.length > 0 && (
-        <Card className="border-primary/40 bg-primary/10">
-          <CardContent className="flex flex-wrap items-center justify-between gap-2.5 p-3">
-            <span className="text-xs font-semibold text-primary">
-              Đã chọn {selectedIds.length} hồ sơ:
-            </span>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Button size="sm" onClick={() => sendDesktopCommand('distribute_proxies', { viaIds: selectedIds })}>
-                <Globe className="h-3 w-3" /> Chia Proxy 1:{state.automationConfig.maxViasPerProxyInBatch}
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => sendDesktopCommand('bulk_change_tier', { viaIds: selectedIds })}
-              >
-                <Users className="h-3 w-3" /> Đổi Lớp / Profile
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => sendDesktopCommand('bulk_keepalive', { viaIds: selectedIds })}
-              >
-                <Coffee className="h-3 w-3" /> Đảo ấm lô chọn
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => sendDesktopCommand('bulk_check_proxy', { viaIds: selectedIds })}
-              >
-                <Globe className="h-3 w-3" /> Check Proxy
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => sendDesktopCommand('bulk_provision_ext', { viaIds: selectedIds })}
-              >
-                <ShieldCheck className="h-3 w-3" /> Cấp Extension
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => setSelectedIds([])}>
-                Bỏ chọn
-              </Button>
+              </div>
             </div>
-          </CardContent>
-        </Card>
+          )}
+        </div>
       )}
 
-      {/* List */}
-      {state.vias.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center gap-3 py-10 text-center">
-            <Users className="h-9 w-9 text-muted-foreground" />
-            <div>
-              <div className="text-sm font-semibold text-foreground">Chưa có hồ sơ trình duyệt nào</div>
-              <p className="mt-1 max-w-md text-xs text-muted-foreground">
-                Thêm Via hoặc tài khoản Google Ads để gắn Chrome Profile, Proxy tĩnh và két Cookie/2FA DPAPI.
-              </p>
+      {/* SINGLE-LINE PROGRESSIVE DISCLOSURE TOOLBAR */}
+      <div className="flex flex-wrap items-center justify-between gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <SegmentedTabs items={primaryTabs} value={tierFilter} onChange={setTierFilter} />
+
+          <FilterPopover
+            activeCount={advancedFilterCount}
+            align="left"
+            onReset={() => {
+              setTierFilter('all')
+              setEngineFilter('all')
+              setProxyFilter('all')
+              setOwnerFilter('all')
+            }}
+          >
+            <div className="space-y-1.5">
+              <div className="text-[11px] font-medium text-muted-foreground">Trạng thái chuyên sâu</div>
+              <div className="flex flex-wrap gap-1.5">
+                {secondaryFilterChips.map((ch) => {
+                  const active = tierFilter === ch.key
+                  return (
+                    <button
+                      key={ch.key}
+                      type="button"
+                      onClick={() => setTierFilter(active ? 'all' : ch.key)}
+                      className={cn(
+                        'rounded-md border px-2 py-1 text-[11px] font-medium transition-colors',
+                        active
+                          ? 'border-primary bg-primary/15 text-primary'
+                          : 'border-border/75 bg-card text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      {ch.label}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
-            <Button onClick={() => sendDesktopCommand('add_via')}>
-              <Plus className="h-4 w-4" /> Thêm hồ sơ đầu tiên
+
+            <div className="space-y-2 border-t border-border/65 pt-2.5">
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-muted-foreground">Engine trình duyệt</label>
+                <Select value={engineFilter} onValueChange={setEngineFilter}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Engine" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Engine: Tất cả</SelectItem>
+                    {state.supportedEngines.map((eng) => (
+                      <SelectItem key={eng.value} value={eng.value}>
+                        {eng.label} ({scopedBaseVias.filter((v) => v.antidetectEngine === eng.value).length})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-muted-foreground">Cụm Proxy</label>
+                <Select value={proxyFilter} onValueChange={setProxyFilter}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Proxy" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Proxy: Tất cả cụm</SelectItem>
+                    <SelectItem value="direct">Mạng gốc (Direct IP)</SelectItem>
+                    {distinctProxies.map((px) => (
+                      <SelectItem key={px} value={px}>
+                        {px}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-muted-foreground">Nhân sự phụ trách</label>
+                <Select value={ownerFilter} onValueChange={setOwnerFilter}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Phụ trách" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Tất cả nhân sự</SelectItem>
+                    <SelectItem value="unassigned">Chưa phân công</SelectItem>
+                    {state.teamMemberOptions.map((tm) => (
+                      <SelectItem key={tm.value} value={tm.value}>
+                        {tm.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </FilterPopover>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-52 sm:w-64">
+            <Search className="pointer-events-none absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Tìm tên Via, UID, Profile, Proxy..."
+              className="h-8 pl-8 text-xs"
+            />
+          </div>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="secondary" size="sm" className="h-8 gap-1.5 text-xs">
+                Công cụ <ChevronDown className="h-3 w-3 opacity-65" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-72">
+              {platformScope !== 'google_ads' && (
+                <DropdownMenuItem onClick={() => sendDesktopCommand('harvest_all_open_cookies')}>
+                  <KeyRound className="h-3.5 w-3.5 text-emerald-500" />
+                  Thu Cookie đang mở vào Két DPAPI
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={() => sendDesktopCommand('distribute_proxies', { viaIds: selectedIds })}>
+                <Globe className="h-3.5 w-3.5 text-primary" />
+                Chia Proxy 1:{state.automationConfig.maxViasPerProxyInBatch}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => sendDesktopCommand('open_google_ads_script_wizard')}>
+                <Code2 className="h-3.5 w-3.5 text-emerald-500" />
+                Mã Google Ads Script (MCC / 1:1)
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => sendDesktopCommand('bulk_change_tier', { viaIds: selectedIds })}>
+                <Users className="h-3.5 w-3.5 text-primary" />
+                Đổi Lớp Via / Nhóm Khách &amp; Tách Profile
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => sendDesktopCommand('batch_proxy_check')}>
+                <Globe className="h-3.5 w-3.5 text-emerald-500" />
+                Quét kiểm tra Proxy Live/Dead toàn bộ
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => sendDesktopCommand('bulk_import_vias')}>
+                <Upload className="h-3.5 w-3.5 text-sky-500" />
+                Nhập lô nhiều Via từ Clipboard (Ctrl+B)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => sendDesktopCommand('export_vias_csv')}>
+                <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-500" />
+                Xuất danh sách Via &amp; Proxy ra file CSV
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => sendDesktopCommand('tile_chrome_windows', { grid: '2x2' })}>
+                <Grid2x2 className="h-3.5 w-3.5" />
+                Xếp cửa sổ Chrome đang mở lưới 2×2
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => sendDesktopCommand('open_auto_connect_token')}>
+                <KeyRound className="h-3.5 w-3.5 text-amber-500" />
+                Dán Token EAAB kết nối nhanh Via &amp; TKQC
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => sendDesktopCommand('benchmark_engines')}>
+                <Gauge className="h-3.5 w-3.5 text-violet-500" />
+                Benchmark tốc độ 5 Engine Antidetect
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => sendDesktopCommand('open_stewardship_log')}>
+                <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+                Xem nhật ký bảo vệ &amp; chống rò rỉ IP
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => sendDesktopCommand('open_launch_audit')}>
+                <Terminal className="h-3.5 w-3.5" />
+                Xem nhật ký mở Profile (Audit Log)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={toggleAllVisible}>
+                <CheckSquare className="h-3.5 w-3.5" />
+                Chọn / Bỏ chọn tất cả đang hiển thị
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Button size="sm" className="h-8 px-3 text-xs font-semibold" onClick={() => sendDesktopCommand('add_via')}>
+            <Plus className="h-3.5 w-3.5" />
+            Thêm hồ sơ
+          </Button>
+        </div>
+      </div>
+
+      {/* BULK SELECTION FLOATING STRIP */}
+      {selectedIds.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-primary/35 bg-primary/8 px-4 py-2.5">
+          <span className="text-xs font-semibold text-primary tabular-nums">
+            Đã chọn {selectedIds.length} hồ sơ:
+          </span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Button size="sm" className="h-7 text-xs" onClick={() => sendDesktopCommand('distribute_proxies', { viaIds: selectedIds })}>
+              <Globe className="h-3 w-3" /> Chia Proxy 1:{state.automationConfig.maxViasPerProxyInBatch}
             </Button>
-          </CardContent>
-        </Card>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => sendDesktopCommand('bulk_change_tier', { viaIds: selectedIds })}
+            >
+              <Users className="h-3 w-3" /> Đổi Lớp / Profile
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => sendDesktopCommand('bulk_keepalive', { viaIds: selectedIds })}
+            >
+              <Coffee className="h-3 w-3" /> Đảo ấm lô chọn
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => sendDesktopCommand('bulk_check_proxy', { viaIds: selectedIds })}
+            >
+              <Globe className="h-3 w-3" /> Check Proxy
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => sendDesktopCommand('bulk_provision_ext', { viaIds: selectedIds })}
+            >
+              <ShieldCheck className="h-3 w-3" /> Cấp Extension
+            </Button>
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setSelectedIds([])}>
+              Bỏ chọn
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* UNIFIED HAIRLINE TABLE */}
+      {state.vias.length === 0 ? (
+        <div className="studio-panel flex flex-col items-center justify-center gap-3 py-12 text-center">
+          <Users className="h-9 w-9 text-muted-foreground/60" />
+          <div>
+            <div className="text-sm font-semibold text-foreground">Chưa có hồ sơ trình duyệt nào</div>
+            <p className="mt-1 max-w-md text-xs text-muted-foreground">
+              Thêm Via hoặc tài khoản Google Ads để gắn Chrome Profile, Proxy tĩnh và két Cookie/2FA DPAPI.
+            </p>
+          </div>
+          <Button size="sm" onClick={() => sendDesktopCommand('add_via')}>
+            <Plus className="h-3.5 w-3.5" /> Thêm hồ sơ đầu tiên
+          </Button>
+        </div>
       ) : filtered.length === 0 ? (
-        <Card>
-          <CardContent className="py-8 text-center text-xs text-muted-foreground">
-            Không có hồ sơ khớp bộ lọc hiện tại.
-          </CardContent>
-        </Card>
+        <div className="studio-panel py-10 text-center text-xs text-muted-foreground">
+          Không có hồ sơ khớp bộ lọc hiện tại.
+        </div>
       ) : (
-        <div className="space-y-2">
-          <div className="hidden grid-cols-[30px_1.45fr_0.9fr_1.1fr_168px_220px] items-center gap-3 px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground lg:grid">
+        <div className="studio-panel overflow-hidden">
+          <div className="hidden grid-cols-[34px_1.45fr_0.95fr_1.15fr_164px_188px] items-center gap-3 border-b border-border/75 bg-muted/25 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/85 lg:grid">
             <div className="flex justify-center">
               <Checkbox
                 checked={filtered.length > 0 && filtered.every((v) => selectedSet.has(v.viaId))}
@@ -757,22 +787,24 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
               />
             </div>
             <div>Hồ sơ &amp; Vai trò</div>
-            <div>Trust &amp; Bảo mật</div>
+            <div>Trust &amp; Tín hiệu</div>
             <div>Trình duyệt &amp; Proxy</div>
             <div>Mã 2FA Live</div>
             <div className="text-right">Thao tác</div>
           </div>
 
-          {filtered.map((via) => (
-            <ViaRowCard
-              key={via.viaId}
-              via={via}
-              totp={state.totpMap[via.viaId]}
-              checked={selectedSet.has(via.viaId)}
-              onToggle={(c) => toggleVia(via.viaId, c)}
-              onInspect={() => setInspectedVia(via)}
-            />
-          ))}
+          <div className="divide-y divide-border/55">
+            {filtered.map((via) => (
+              <ViaStudioRow
+                key={via.viaId}
+                via={via}
+                totp={state.totpMap[via.viaId]}
+                checked={selectedSet.has(via.viaId)}
+                onToggle={(c) => toggleVia(via.viaId, c)}
+                onInspect={() => setInspectedVia(via)}
+              />
+            ))}
+          </div>
         </div>
       )}
 
@@ -784,8 +816,8 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
         subtitle={
           liveInspected
             ? isGoogleVia(liveInspected)
-              ? `Google Ads • ${liveInspected.googleAdsCustomerId || 'Chưa gắn CID'}`
-              : `Chrome ${liveInspected.profileDir} • ${liveInspected.clientGroup || 'Chưa phân nhóm'}`
+              ? `Google Ads · ${liveInspected.googleAdsCustomerId || 'Chưa gắn CID'}`
+              : `Chrome ${liveInspected.profileDir} · ${liveInspected.clientGroup || 'Chưa phân nhóm'}`
             : ''
         }
         badge={
@@ -823,7 +855,7 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
         {liveInspected && (
           <div className="space-y-3 text-xs">
             <InspectorSection title="Mã 2FA & Két bảo mật DPAPI">
-              <div className="flex items-center justify-between rounded-md border border-border bg-card p-2.5">
+              <div className="flex items-center justify-between rounded-lg border border-border/80 bg-card p-3">
                 <div>
                   <div className="text-[11px] text-muted-foreground">Mã TOTP 6 số</div>
                   <div className="font-mono text-lg font-bold tracking-wider text-primary tabular-nums">
@@ -868,7 +900,7 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
                 <div className="flex justify-between gap-2">
                   <dt className="text-muted-foreground">Màn hình / Quốc gia:</dt>
                   <dd className="font-mono text-right">
-                    {liveInspected.envViewport || '1440×900'} • {liveInspected.envCountry || 'VN'}
+                    {liveInspected.envViewport || '1440×900'} · {liveInspected.envCountry || 'VN'}
                   </dd>
                 </div>
                 <div className="flex justify-between gap-2">
@@ -927,7 +959,7 @@ export function ViasTab({ state }: { state: AppShellWebStateDto }) {
   )
 }
 
-function ViaRowCard({
+function ViaStudioRow({
   via,
   totp,
   checked,
@@ -940,35 +972,26 @@ function ViaRowCard({
   onToggle: (checked: boolean) => void
   onInspect: () => void
 }) {
-  const tierInfo =
+  const tierLabel =
     via.roleTier === 'vault' || via.roleTier === 'hold'
-      ? { label: 'HOLD BM', variant: 'info' as const }
+      ? 'Hold BM'
       : via.roleTier === 'standby'
-      ? { label: 'DỰ PHÒNG', variant: 'warning' as const }
-      : { label: 'LÊN CAMP', variant: 'success' as const }
-
-  const trustColor =
-    via.trustScore >= 70
-      ? 'text-emerald-600 dark:text-emerald-400'
-      : via.trustScore >= 45
-      ? 'text-amber-600 dark:text-amber-400'
-      : 'text-rose-600 dark:text-rose-400'
-  const barClass =
-    via.trustScore >= 70 ? 'bg-emerald-500' : via.trustScore >= 45 ? 'bg-amber-500' : 'bg-rose-500'
+      ? 'Dự phòng'
+      : 'Lên Camp'
 
   const engineLine =
     via.antidetectEngine === 'chrome_native'
-      ? `Chrome Cô lập • ${via.profileDir}`
+      ? `Chrome Cô lập · ${via.profileDir}`
       : `${via.antidetectEngineLabel} #${via.antidetectProfileId}`
 
   const proxyShort = !via.networkLabel.trim()
-    ? 'Direct IP (Mạng gốc)'
+    ? 'Direct IP'
     : extractHostPort(via.networkLabel) || via.networkLabel
 
   const proxyHealth =
     via.proxyStatus === 'LIVE'
       ? via.proxyLatencyMs != null
-        ? `LIVE (${via.proxyLatencyMs}ms)`
+        ? `LIVE ${via.proxyLatencyMs}ms`
         : 'LIVE'
       : via.proxyStatus === 'DEAD'
       ? 'DEAD'
@@ -990,268 +1013,236 @@ function ViaRowCard({
     : `Mở ${via.antidetectEngineLabel}`
 
   return (
-    <Card className="transition-colors hover:border-primary/40">
-      <CardContent className="grid grid-cols-1 items-center gap-3 p-3 lg:grid-cols-[30px_1.45fr_0.9fr_1.1fr_168px_220px]">
-        <div className="hidden justify-center lg:flex">
-          <Checkbox checked={checked} onCheckedChange={(v) => onToggle(Boolean(v))} />
+    <div className="group grid grid-cols-1 items-center gap-3 px-4 studio-row-cell transition-colors hover:bg-muted/30 lg:grid-cols-[34px_1.45fr_0.95fr_1.15fr_164px_188px]">
+      <div className="hidden justify-center lg:flex">
+        <Checkbox checked={checked} onCheckedChange={(v) => onToggle(Boolean(v))} />
+      </div>
+
+      {/* Col 1: Identity & Quiet Role */}
+      <div className="flex min-w-0 items-center gap-2.5">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/75 bg-muted/55 font-mono text-[11px] font-semibold text-foreground/85">
+          {getInitials(via.label)}
         </div>
-
-        <div className="flex min-w-0 items-center gap-2.5">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-secondary font-mono text-xs font-semibold text-primary">
-            {getInitials(via.label)}
-          </div>
-          <div className="min-w-0 space-y-0.5">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <button
-                type="button"
-                onClick={onInspect}
-                className="truncate text-left text-sm font-semibold text-foreground hover:text-primary"
-              >
-                {via.label}
-              </button>
-              {isGadsMcc ? (
-                <Badge variant="info" className="px-1.5 py-0 text-[10px]">
-                  GOOGLE MCC
-                </Badge>
-              ) : isGadsStandalone ? (
-                <Badge variant="success" className="px-1.5 py-0 text-[10px]">
-                  GMAIL 1:1
-                </Badge>
-              ) : (
-                <Badge variant={tierInfo.variant} className="px-1.5 py-0 text-[10px]">
-                  {tierInfo.label}
-                </Badge>
-              )}
-              {via.isInCooldown ? (
-                <Badge variant="destructive" className="px-1.5 py-0 text-[10px]" title={via.cooldownReason}>
-                  COOLDOWN
-                </Badge>
-              ) : via.hasSiloConflict ? (
-                <Badge variant="destructive" className="px-1.5 py-0 text-[10px]" title={via.siloConflictDetail}>
-                  <ShieldAlert className="h-2.5 w-2.5" /> TRÙNG SILO
-                </Badge>
-              ) : via.isBrowserRunning ? (
-                <Badge variant="success" className="px-1.5 py-0 font-mono text-[10px]">
-                  Mở ({via.activeRamMb}MB)
-                </Badge>
-              ) : null}
-            </div>
-            <div className="truncate font-mono text-[11px] text-muted-foreground">
-              {isGoogleAds
-                ? `${via.googleAdsCustomerId ? `CID: ${via.googleAdsCustomerId}` : 'CID: Chưa gắn'} • Cách ly 1:1`
-                : `${via.externalReferenceId ? `UID: ${via.externalReferenceId}` : 'UID: —'} • ${via.holdingPagesCount}/${via.holdingLimit} Page • ${via.adAccountsCount} TKQC`}
-              {via.ownerMemberName ? ` • ${via.ownerMemberName}` : ''}
-              {via.customTag ? ` • ${via.customTag}` : ''}
-            </div>
-          </div>
-        </div>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-xs">
-                <span className={cn('font-mono font-semibold tabular-nums', trustColor)}>
-                  {via.trustScore}/100
-                </span>
-                <span
-                  className={cn(
-                    'text-[11px] font-medium',
-                    via.hasVaultCookie
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : 'text-amber-600 dark:text-amber-400',
-                  )}
-                >
-                  {via.hasVaultCookie ? 'Có Cookie' : 'Thiếu Cookie'}
-                </span>
-              </div>
-              <Progress value={Math.max(12, via.trustScore)} className="h-1.5" indicatorClassName={barClass} />
-              <div className="truncate font-mono text-[10px] text-muted-foreground">
-                {via.incubationStageLabel || 'Đang vận hành'}
-                {via.hasRecoveryMail ? ' • Có Mail' : ' • Thiếu Mail'}
-                {(via.unusedBackupCodesCount ?? 0) > 0 ? ` • ${via.unusedBackupCodesCount} mã` : ''}
-              </div>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent>{via.trustSummary || `Điểm Trust ${via.trustScore}/100 (${via.warmupLabel})`}</TooltipContent>
-        </Tooltip>
-
         <div className="min-w-0 space-y-0.5">
-          <div className="truncate text-xs font-medium text-foreground">{engineLine}</div>
-          <div
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={onInspect}
+              className="truncate text-left text-[13px] font-semibold text-foreground transition-colors hover:text-primary"
+            >
+              {via.label}
+            </button>
+            <span className="rounded bg-muted/80 px-1.5 py-[1px] font-mono text-[10px] font-medium text-muted-foreground">
+              {isGadsMcc ? 'Google MCC' : isGadsStandalone ? 'Gmail 1:1' : tierLabel}
+            </span>
+            {via.isInCooldown ? (
+              <StatusDot tone="critical" label="Cooldown" labelClassName="text-[10.5px]" />
+            ) : via.hasSiloConflict ? (
+              <StatusDot tone="critical" label="Trùng Silo" labelClassName="text-[10.5px]" />
+            ) : via.isBrowserRunning ? (
+              <StatusDot tone="live" label={`${via.activeRamMb}MB`} labelClassName="font-mono text-[10.5px]" />
+            ) : null}
+          </div>
+          <div className="truncate font-mono text-[11px] text-muted-foreground/85">
+            {isGoogleAds
+              ? `${via.googleAdsCustomerId ? `CID ${via.googleAdsCustomerId}` : 'CID —'} · Cách ly 1:1`
+              : `${via.externalReferenceId ? `UID ${via.externalReferenceId}` : 'UID —'} · ${via.holdingPagesCount}/${via.holdingLimit} Page · ${via.adAccountsCount} TKQC`}
+            {via.ownerMemberName ? ` · ${via.ownerMemberName}` : ''}
+            {via.customTag ? ` · ${via.customTag}` : ''}
+          </div>
+        </div>
+      </div>
+
+      {/* Col 2: TrustRing + 3 Micro Signal Pills */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div className="min-w-0">
+            <TrustRing
+              score={via.trustScore}
+              signals={[
+                { label: 'CK', ok: Boolean(via.hasVaultCookie), warn: !via.hasVaultCookie },
+                { label: '2FA', ok: Boolean(via.hasTwoFa) },
+                { label: 'Mail', ok: Boolean(via.hasRecoveryMail) },
+              ]}
+            />
+          </div>
+        </TooltipTrigger>
+        <TooltipContent>{via.trustSummary || `Điểm Trust ${via.trustScore}/100 (${via.warmupLabel})`}</TooltipContent>
+      </Tooltip>
+
+      {/* Col 3: Browser & Proxy Status */}
+      <div className="min-w-0 space-y-0.5">
+        <div className="truncate text-xs font-medium text-foreground">{engineLine}</div>
+        <div className="flex items-center gap-1.5 truncate">
+          <StatusDot
+            tone={via.proxyStatus === 'DEAD' ? 'critical' : via.needsKeepAlive ? 'warning' : 'live'}
+            label={`${proxyShort}${proxyHealth ? ` (${proxyHealth})` : ''} · ${keepText}`}
+            labelClassName="text-[11px] truncate"
+          />
+        </div>
+        <div className="truncate font-mono text-[10px] text-muted-foreground/75">
+          {via.envViewport || '1440×900'} · {via.envCountry || 'VN'}
+          {via.webRtcLocked !== false ? ' · WebRTC Lock' : ''}
+        </div>
+      </div>
+
+      {/* Col 4: Sleek Hardware Token Pill */}
+      <button
+        type="button"
+        onClick={() => sendDesktopCommand('copy_via_totp', { viaId: via.viaId })}
+        title={via.hasTwoFa ? 'Click để copy mã 2FA 6 số' : 'Gắn mã 2FA / Cookie vào Két DPAPI'}
+        className="flex items-center justify-between gap-2 rounded-lg border border-border/75 bg-muted/30 px-2.5 py-1.5 text-left transition-colors hover:border-primary/45 hover:bg-muted/60"
+      >
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span
             className={cn(
-              'truncate text-[11px]',
-              via.proxyStatus === 'DEAD'
-                ? 'text-rose-600 dark:text-rose-400'
-                : via.needsKeepAlive
-                ? 'text-amber-600 dark:text-amber-400'
-                : 'text-emerald-600 dark:text-emerald-400',
+              'truncate font-mono tabular-nums',
+              totp?.justCopied
+                ? 'text-xs font-semibold text-emerald-500'
+                : totp?.valid
+                ? 'text-sm font-semibold tracking-wider text-foreground'
+                : via.hasTwoFa
+                ? 'text-xs font-medium tracking-widest text-foreground/80'
+                : 'text-[11px] text-muted-foreground/65',
             )}
           >
-            {proxyShort}
-            {proxyHealth ? ` (${proxyHealth})` : ''} • {keepText}
-          </div>
-          <div className="truncate font-mono text-[10px] text-muted-foreground">
-            {via.envViewport || '1440×900'} • {via.envCountry || 'VN'}
-            {via.webRtcLocked !== false ? ' • WebRTC Lock' : ''}
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-background/60 px-2.5 py-1.5">
-          <div className="flex min-w-0 items-center gap-1.5">
+            {totp?.justCopied ? 'Đã copy' : totp?.formattedCode ?? (via.hasTwoFa ? '••••••' : 'Chưa gắn 2FA')}
+          </span>
+          {totp?.valid && !totp.justCopied && (
             <span
               className={cn(
-                'truncate font-mono text-sm font-semibold tabular-nums',
-                totp?.justCopied
-                  ? 'text-emerald-600 dark:text-emerald-400'
-                  : totp?.valid
-                  ? 'text-primary'
-                  : 'text-xs text-muted-foreground',
+                'font-mono text-[10px] tabular-nums',
+                totp.secondsRemaining <= 5 ? 'text-amber-500 font-semibold' : 'text-muted-foreground/80',
               )}
             >
-              {totp?.formattedCode ?? (via.hasTwoFa ? '••••••' : 'Chưa có 2FA')}
+              {totp.secondsRemaining}s
             </span>
-            {totp?.valid && !totp.justCopied && (
-              <span
-                className={cn(
-                  'rounded border px-1 py-0.5 font-mono text-[10px] tabular-nums',
-                  totp.secondsRemaining <= 5
-                    ? 'border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300'
-                    : 'border-border bg-secondary text-muted-foreground',
-                )}
-              >
-                {totp.secondsRemaining}s
-              </span>
-            )}
-          </div>
+          )}
+        </div>
+        <Copy className="h-3 w-3 shrink-0 text-muted-foreground/75" />
+      </button>
+
+      {/* Col 5: Quiet Hover/Tonal Row Actions */}
+      <div className="flex items-center justify-end gap-1">
+        {via.incubationStageKey === 'ready_to_born' && (
           <Button
             variant="secondary"
             size="sm"
-            className="h-7 w-7 shrink-0 p-0"
-            onClick={() => sendDesktopCommand('copy_via_totp', { viaId: via.viaId })}
-            title={via.hasTwoFa ? 'Copy mã 2FA 6 số' : 'Gắn mã 2FA / Cookie vào Két DPAPI'}
+            className="h-7 px-2 text-xs text-emerald-600 dark:text-emerald-400"
+            onClick={() => sendDesktopCommand('open_assisted_onboarding', { viaId: via.viaId })}
           >
-            <Copy className="h-3.5 w-3.5" />
+            <Sparkles className="h-3 w-3" /> Khai sinh
           </Button>
-        </div>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+          title="Xem chi tiết hồ sơ"
+          onClick={onInspect}
+        >
+          <Eye className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 border-border/80 bg-transparent px-2.5 text-xs font-medium hover:border-primary hover:bg-primary hover:text-primary-foreground transition-colors"
+          disabled={!via.canLaunch}
+          onClick={() =>
+            sendDesktopCommand(isGoogleAds ? 'open_google_ads_clean' : 'open_via_chrome', {
+              viaId: via.viaId,
+            })
+          }
+          title={via.canLaunch ? `Mở trình duyệt an toàn (${launchLabel})` : via.denyReason}
+        >
+          {via.canLaunch ? <Chrome className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
+          {via.canLaunch ? launchLabel : 'Khóa'}
+        </Button>
 
-        <div className="flex flex-wrap items-center justify-end gap-1.5">
-          {via.incubationStageKey === 'ready_to_born' && (
-            <Button
-              size="sm"
-              className="h-8 bg-emerald-600 px-2 text-xs text-white hover:bg-emerald-500"
-              onClick={() => sendDesktopCommand('open_assisted_onboarding', { viaId: via.viaId })}
-            >
-              <Sparkles className="h-3.5 w-3.5" /> Khai sinh
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" className="h-7 w-7 px-0 text-muted-foreground hover:text-foreground" title="Thao tác thêm">
+              <MoreHorizontal className="h-4 w-4" />
             </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 w-8 p-0"
-            title="Xem chi tiết hồ sơ"
-            onClick={onInspect}
-          >
-            <Eye className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            size="sm"
-            disabled={!via.canLaunch}
-            onClick={() =>
-              sendDesktopCommand(isGoogleAds ? 'open_google_ads_clean' : 'open_via_chrome', {
-                viaId: via.viaId,
-              })
-            }
-            title={via.canLaunch ? `Mở trình duyệt an toàn (${launchLabel})` : via.denyReason}
-          >
-            {via.canLaunch ? <Chrome className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
-            {via.canLaunch ? launchLabel : 'Khóa'}
-          </Button>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="secondary" size="sm" className="w-8 px-0" title="Thao tác thêm">
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-64">
-              <DropdownMenuItem onClick={() => sendDesktopCommand('quick_test_via', { viaId: via.viaId })}>
-                <FlaskConical className="h-3.5 w-3.5 text-primary" />
-                Test nhanh kịch bản (5s/bước)
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => sendDesktopCommand('keepalive_single_via', { viaId: via.viaId })}>
-                <Coffee className="h-3.5 w-3.5 text-amber-500" />
-                Đảo ấm thụ động
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => sendDesktopCommand('open_local_vault', { viaId: via.viaId })}>
-                <KeyRound className="h-3.5 w-3.5 text-emerald-500" />
-                Két 6 Lớp (Cookie + 2FA + Mail)
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => sendDesktopCommand('open_checkpoint_rescue', { viaId: via.viaId })}>
-                <ShieldAlert className="h-3.5 w-3.5 text-rose-500" />
-                Ứng cứu Checkpoint 1-chạm
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => sendDesktopCommand('open_recovery_mailbox', { viaId: via.viaId })}>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-64">
+            <DropdownMenuItem onClick={() => sendDesktopCommand('quick_test_via', { viaId: via.viaId })}>
+              <FlaskConical className="h-3.5 w-3.5 text-primary" />
+              Test nhanh kịch bản (5s/bước)
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => sendDesktopCommand('keepalive_single_via', { viaId: via.viaId })}>
+              <Coffee className="h-3.5 w-3.5 text-amber-500" />
+              Đảo ấm thụ động
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => sendDesktopCommand('open_local_vault', { viaId: via.viaId })}>
+              <KeyRound className="h-3.5 w-3.5 text-emerald-500" />
+              Két 6 Lớp (Cookie + 2FA + Mail)
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => sendDesktopCommand('open_checkpoint_rescue', { viaId: via.viaId })}>
+              <ShieldAlert className="h-3.5 w-3.5 text-rose-500" />
+              Ứng cứu Checkpoint 1-chạm
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => sendDesktopCommand('open_recovery_mailbox', { viaId: via.viaId })}>
+              <Globe className="h-3.5 w-3.5 text-sky-500" />
+              Mở hộp thư khôi phục cùng Proxy
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => sendDesktopCommand('run_silent_prebake_single', { viaId: via.viaId })}>
+              <Ghost className="h-3.5 w-3.5 text-primary" />
+              Ủ Cookie nền chạy ẩn (CDP)
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => sendDesktopCommand('open_assisted_onboarding', { viaId: via.viaId })}>
+              <Sparkles className="h-3.5 w-3.5 text-emerald-500" />
+              Bàn Khai sinh 60 giây
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => sendDesktopCommand('run_prebake_session', { viaId: via.viaId })}>
+              <Coffee className="h-3.5 w-3.5 text-amber-500" />
+              Chạy 1 phiên Ủ Cookie hiện hình
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => sendDesktopCommand('open_manual_onboarding', { viaId: via.viaId, target: 'gmail' })}
+            >
+              <Users className="h-3.5 w-3.5 text-sky-500" />
+              Mở khởi tạo Gmail / Webmail thủ công
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => sendDesktopCommand('set_via_env_override', { viaId: via.viaId, cycleViewport: true })}
+            >
+              <Monitor className="h-3.5 w-3.5 text-sky-500" />
+              Đổi cỡ màn hình ({via.envViewport || '1440×900'})
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => sendDesktopCommand('set_via_env_override', { viaId: via.viaId, cycleCountry: true })}
+            >
+              <Globe className="h-3.5 w-3.5 text-primary" />
+              Đổi Quốc gia / TZ ({via.envCountry || 'VN'})
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => sendDesktopCommand('set_via_custom_tag', { viaId: via.viaId, cycleTag: true })}
+            >
+              <Users className="h-3.5 w-3.5 text-amber-500" />
+              Đổi nhãn nhóm ({via.customTag || 'Chưa gắn'})
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => sendDesktopCommand('edit_via', { viaId: via.viaId })}>
+              <Edit3 className="h-3.5 w-3.5" />
+              Chỉnh sửa thông tin Via &amp; Proxy
+            </DropdownMenuItem>
+            {via.networkLabel && (
+              <DropdownMenuItem onClick={() => sendDesktopCommand('check_via_proxy', { viaId: via.viaId })}>
                 <Globe className="h-3.5 w-3.5 text-sky-500" />
-                Mở hộp thư khôi phục cùng Proxy
+                Kiểm tra nhanh Proxy Live/Dead
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => sendDesktopCommand('run_silent_prebake_single', { viaId: via.viaId })}>
-                <Ghost className="h-3.5 w-3.5 text-primary" />
-                Ủ Cookie nền chạy ẩn (CDP)
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => sendDesktopCommand('open_assisted_onboarding', { viaId: via.viaId })}>
-                <Sparkles className="h-3.5 w-3.5 text-emerald-500" />
-                Bàn Khai sinh 60 giây
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => sendDesktopCommand('run_prebake_session', { viaId: via.viaId })}>
-                <Coffee className="h-3.5 w-3.5 text-amber-500" />
-                Chạy 1 phiên Ủ Cookie hiện hình
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => sendDesktopCommand('open_manual_onboarding', { viaId: via.viaId, target: 'gmail' })}
-              >
-                <Users className="h-3.5 w-3.5 text-sky-500" />
-                Mở khởi tạo Gmail / Webmail thủ công
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => sendDesktopCommand('set_via_env_override', { viaId: via.viaId, cycleViewport: true })}
-              >
-                <Monitor className="h-3.5 w-3.5 text-sky-500" />
-                Đổi cỡ màn hình ({via.envViewport || '1440×900'})
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => sendDesktopCommand('set_via_env_override', { viaId: via.viaId, cycleCountry: true })}
-              >
-                <Globe className="h-3.5 w-3.5 text-primary" />
-                Đổi Quốc gia / TZ ({via.envCountry || 'VN'})
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => sendDesktopCommand('set_via_custom_tag', { viaId: via.viaId, cycleTag: true })}
-              >
-                <Users className="h-3.5 w-3.5 text-amber-500" />
-                Đổi nhãn nhóm ({via.customTag || 'Chưa gắn'})
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => sendDesktopCommand('edit_via', { viaId: via.viaId })}>
-                <Edit3 className="h-3.5 w-3.5" />
-                Chỉnh sửa thông tin Via &amp; Proxy
-              </DropdownMenuItem>
-              {via.networkLabel && (
-                <DropdownMenuItem onClick={() => sendDesktopCommand('check_via_proxy', { viaId: via.viaId })}>
-                  <Globe className="h-3.5 w-3.5 text-sky-500" />
-                  Kiểm tra nhanh Proxy Live/Dead
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-rose-500 focus:text-rose-500"
-                onClick={() => sendDesktopCommand('archive_via', { viaId: via.viaId })}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                Lưu trữ (Archive) hồ sơ này
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </CardContent>
-    </Card>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-rose-500 focus:text-rose-500"
+              onClick={() => sendDesktopCommand('archive_via', { viaId: via.viaId })}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Lưu trữ (Archive) hồ sơ này
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </div>
   )
 }

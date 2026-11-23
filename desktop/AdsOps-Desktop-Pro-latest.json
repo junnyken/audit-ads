@@ -1,5 +1,5 @@
 {
-    "version":  "4.4.0",
+    "version":  "5.0.0",
     "min_supported_version":  "4.2.0",
     "ext_version":  "2.10.4",
     "authenticode_signed":  true,
@@ -8,8 +8,8 @@
                         "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.zip",
                         "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
                     ],
-    "sha256":  "1b570f2fa87ffda4830eed866594bc63ca1afa4e7f7a46422126e290d43fea02",
-    "size_bytes":  67336635,
-    "published_at":  "2026-11-23T04:58:53.7694746Z",
-    "release_notes":  "AdsOps Desktop Pro v4.4.0 (Commercial Auth \u0026 Forgot-Password Sync, License Expiry/Grace/Read-Only Guard, Desktop Device Limit Support, Portable Master-Passphrase Auto-Backup \u0026 Preview, Streaming Self-Updater with .bak Rollback)."
+    "sha256":  "8e809670aa809c23f5f41f0bf3e1bc68c6cc61a6f85d63f8160320dab97760a5",
+    "size_bytes":  67339300,
+    "published_at":  "2026-11-23T07:21:02.2224288Z",
+    "release_notes":  "AdsOps Desktop Pro v5.0.0 (Impeccable Studio UX/UI Overhaul: Obsidian Dark \u0026 Alabaster Light, Density Toggle, Luminous Status Primitives, Commercial Auth Sync, License Guard, Portable Backup \u0026 Streaming Self-Updater)."
 }

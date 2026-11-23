@@ -350,10 +350,10 @@ export default function Accounts() {
                                 identity.label,
                               )
                             }
-                            className="inline-flex items-center rounded border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+                            className="inline-flex items-center rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-ink transition hover:border-line-strong hover:bg-surface-muted"
                             title={`Mở Trình quản lý quảng cáo bằng đúng Chrome Profile (${identity.browser_profile_label})`}
                           >
-                            🚀 Mở Chrome
+                            Mở Chrome
                           </button>
                         )}
                       </div>
@@ -410,7 +410,7 @@ export default function Accounts() {
 
         return (
           <TableCell key={id} label="Thanh toán, Dư nợ & Hạn mức" className="min-w-[295px]">
-            <div className="space-y-1.5 rounded-lg border border-line bg-surface-muted/35 p-2.5 text-xs">
+            <div className="space-y-1.5 rounded-lg border border-line bg-surface-sunken p-2.5 text-xs">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5">
                   <span className="text-ink-muted">Dư nợ:</span>
@@ -418,9 +418,9 @@ export default function Accounts() {
                     className={`font-mono text-sm font-bold tabular-nums ${
                       numBal > 0
                         ? account.status === 'restricted'
-                          ? 'text-rose-600 dark:text-rose-400'
-                          : 'text-amber-600 dark:text-amber-300'
-                        : 'text-ink'
+                          ? 'text-tone-attention-fg'
+                          : 'text-tone-caution-fg'
+                        : 'text-ink-faint'
                     }`}
                   >
                     {prettyMoney(String(rawBal), curr)}
@@ -428,7 +428,7 @@ export default function Accounts() {
                 </div>
                 {cardDisplay ? (
                   <div className="flex flex-wrap items-center gap-1">
-                    <span className="inline-flex items-center gap-1 rounded border border-blue-500/40 bg-blue-500/10 px-1.5 py-0.5 font-mono text-[11px] font-bold text-blue-700 dark:text-blue-300">
+                    <span className="inline-flex items-center gap-1 rounded border border-tone-info-border bg-tone-info-bg px-1.5 py-0.5 font-mono text-[11px] font-semibold text-tone-info-fg">
                       <CreditCard className="h-3 w-3" aria-hidden="true" />
                       {cardDisplay}
                       {cardExpiry ? <span className="font-normal opacity-80">({cardExpiry})</span> : null}
@@ -474,10 +474,10 @@ export default function Accounts() {
                         <div
                           className={`h-full rounded-full transition-all ${
                             pctThresh >= 90
-                              ? 'bg-rose-500'
+                              ? 'bg-tone-attention-fg'
                               : pctThresh >= 65
-                                ? 'bg-amber-500'
-                                : 'bg-emerald-500'
+                                ? 'bg-tone-caution-fg'
+                                : 'bg-tone-positive-fg'
                           }`}
                           style={{ width: `${pctThresh}%` }}
                         />
@@ -493,7 +493,7 @@ export default function Accounts() {
               <div data-detail-only="true" className="flex flex-wrap items-center justify-between gap-2 border-t border-line/70 pt-1.5 text-[11px]">
                 {dailyLimit ? (
                   <span className="inline-flex items-center gap-1">
-                    <Gauge className="h-3 w-3 text-emerald-500" aria-hidden="true" />
+                    <Gauge className="h-3 w-3 text-tone-positive-fg" aria-hidden="true" />
                     <span className="text-ink-muted">GH ngày (Meta đặt):</span>
                     <strong className="font-mono font-semibold tabular-nums text-ink">
                       {prettyMoney(dailyLimit, curr)}
@@ -506,7 +506,7 @@ export default function Accounts() {
                     className="inline-flex items-center gap-1 text-[11px] text-ink-muted hover:text-brand-text hover:underline"
                     title="Nhập nhanh Ngưỡng thanh toán, Ngày TT hoặc Giới hạn ngày từ Billing Hub"
                   >
-                    <span>✎ Cập nhật Ngưỡng / Ngày TT</span>
+                    <span>Cập nhật Ngưỡng / Ngày TT</span>
                   </button>
                 )}
                 {account.facebook_identities?.[0]?.browser_profile_label ? (
@@ -523,7 +523,7 @@ export default function Accounts() {
                     className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-brand-text hover:underline"
                     title="Mở trực tiếp trang Thanh toán & Ngưỡng Bill của TKQC này trên Meta (Tiện ích Chrome tự động đồng bộ Ngưỡng & Ngày TT)"
                   >
-                    ⚡ Billing Meta (Tự đọc Ngưỡng)
+                    Billing Meta (Tự đọc Ngưỡng)
                     <ExternalLink className="h-2.5 w-2.5" aria-hidden="true" />
                   </button>
                 ) : (
@@ -714,7 +714,7 @@ export default function Accounts() {
             title="Tải và chạy 1 lần trên máy Windows để khi bấm nút Mở Chrome / Kháng nghị / Thanh toán trên web sẽ tự động bật đúng cửa sổ Chrome Profile của Via đó"
             data-testid="accounts-chrome-launcher-setup"
           >
-            ⚡ Cài đặt Tự động mở Chrome Profile (1 lần)
+            Cài đặt Tự động mở Chrome Profile (1 lần)
           </Button>
           {rows.length > 0 && (
             <Button
@@ -738,15 +738,19 @@ export default function Accounts() {
       {baseRows.length > 0 && (
         <div className="space-y-3 rounded-xl border border-line bg-surface p-4">
           {/* Top KPI Summary Bar */}
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-lg border border-line bg-surface-muted/40 p-3">
+          <div className="studio-strip grid divide-y divide-line overflow-hidden rounded-lg border border-line sm:grid-cols-2 lg:grid-cols-4 lg:divide-x lg:divide-y-0">
+            <div className="p-3">
               <div className="flex items-center justify-between text-xs text-ink-muted">
                 <span>Tổng Dư nợ cần thanh toán</span>
                 <Badge tone={summaryStats.hasDebtCount > 0 ? 'caution' : 'positive'}>
                   {summaryStats.hasDebtCount} TK có dư nợ
                 </Badge>
               </div>
-              <div className="mt-1 font-mono text-lg font-extrabold tabular-nums text-amber-600 dark:text-amber-400">
+              <div
+                className={`mt-1 font-mono text-lg font-extrabold tabular-nums ${
+                  summaryStats.totalDebtVnd > 0 ? 'text-tone-caution-fg' : 'text-ink-faint'
+                }`}
+              >
                 {prettyMoney(String(summaryStats.totalDebtVnd), 'VND')}
               </div>
               <div data-detail-only="true" className="mt-0.5 text-[11px] text-ink-muted">
@@ -754,10 +758,10 @@ export default function Accounts() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-line bg-surface-muted/40 p-3">
+            <div className="p-3">
               <div className="flex items-center justify-between text-xs text-ink-muted">
                 <span>Chi tiêu Hôm nay · 7 Ngày</span>
-                <span className="font-mono text-[11px] text-emerald-600 dark:text-emerald-400">
+                <span className="font-mono text-[11px] text-tone-positive-fg">
                   {summaryStats.activeCount}/{summaryStats.totalCount} TK đang sống
                 </span>
               </div>
@@ -772,7 +776,7 @@ export default function Accounts() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-line bg-surface-muted/40 p-3">
+            <div className="p-3">
               <div className="flex items-center justify-between text-xs text-ink-muted">
                 <span>Chi tiêu Tháng này (MTD)</span>
                 <span className="font-mono text-[11px] text-ink-muted">Tháng hiện tại</span>
@@ -785,16 +789,17 @@ export default function Accounts() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-line bg-surface-muted/40 p-3">
+            <div className="p-3">
               <div className="flex items-center justify-between text-xs text-ink-muted">
                 <span>Tổng Chi tiêu Lũy kế toàn dàn</span>
                 <button
                   type="button"
                   onClick={exportCsv}
-                  className="font-semibold text-brand-text hover:underline"
+                  className="inline-flex items-center gap-1 font-semibold text-brand-text hover:underline"
                   title="Tải file Excel/CSV đối soát toàn bộ Dư nợ, Chi tiêu & Thẻ"
                 >
-                  📥 Xuất CSV đối soát
+                  <Download className="h-3 w-3" aria-hidden="true" />
+                  <span>Xuất CSV đối soát</span>
                 </button>
               </div>
               <div className="mt-1 font-mono text-lg font-extrabold tabular-nums text-ink">
@@ -810,20 +815,20 @@ export default function Accounts() {
           {summaryStats.cards.length > 0 && (
             <details
               open={Boolean(cardFilter)}
-              className="group rounded-lg border border-line bg-surface-muted/30 px-3 py-2 text-xs"
+              className="group rounded-lg border border-line bg-surface-sunken px-3 py-2 text-xs"
             >
-              <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 font-bold text-ink">
+              <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 font-semibold text-ink">
                 <span className="inline-flex items-center gap-1.5">
                   <CreditCard className="h-3.5 w-3.5 text-brand-text" aria-hidden="true" />
                   <span>
-                    💳 Tổng hợp Dư nợ theo từng Thẻ thanh toán ({summaryStats.cards.length} thẻ đang gắn · Quy tắc an toàn: 1 Thẻ ≤ 3 TKQC)
+                    Tổng hợp Dư nợ theo từng Thẻ thanh toán ({summaryStats.cards.length} thẻ đang gắn · Quy tắc an toàn: 1 Thẻ ≤ 3 TKQC)
                   </span>
                 </span>
-                <span className="text-[11px] font-semibold text-brand-text group-open:hidden">
-                  Bấm để xổ chi tiết &amp; lọc theo thẻ ▾
+                <span className="text-[11px] font-medium text-brand-text group-open:hidden">
+                  Bấm để xổ chi tiết &amp; lọc theo thẻ
                 </span>
-                <span className="hidden text-[11px] font-semibold text-ink-muted group-open:inline">
-                  Thu gọn danh sách thẻ ▴
+                <span className="hidden text-[11px] font-medium text-ink-muted group-open:inline">
+                  Thu gọn danh sách thẻ
                 </span>
               </summary>
 
@@ -833,9 +838,10 @@ export default function Accounts() {
                     <button
                       type="button"
                       onClick={() => setCardFilter(null)}
-                      className="font-semibold text-brand-text hover:underline"
+                      className="inline-flex items-center gap-1 font-semibold text-brand-text hover:underline"
                     >
-                      ✕ Bỏ lọc thẻ ({cardFilter})
+                      <X className="h-3 w-3" aria-hidden="true" />
+                      <span>Bỏ lọc thẻ ({cardFilter})</span>
                     </button>
                   </div>
                 )}
@@ -866,7 +872,7 @@ export default function Accounts() {
                           Dư nợ:{' '}
                           <strong
                             className={`font-mono ${
-                              c.debtVnd > 0 ? 'text-amber-600 dark:text-amber-300' : 'text-ink'
+                              c.debtVnd > 0 ? 'text-tone-caution-fg' : 'text-ink-faint'
                             }`}
                           >
                             {prettyMoney(String(c.debtVnd), 'VND')}
@@ -883,30 +889,36 @@ export default function Accounts() {
           {/* 1-Click Quick Status Filter Pills + Direct Link to Anti-Die Guide */}
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-2.5">
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="mr-1 text-xs font-bold text-ink-muted">Lọc nhanh 1 chạm:</span>
+              <span className="mr-1 text-xs font-semibold text-ink-muted">Lọc nhanh:</span>
               {(
                 [
-                  ['all', `Tất cả (${summaryStats.totalCount})`],
-                  ['active', `🟢 Đang hoạt động (${summaryStats.activeCount})`],
-                  ['has_debt', `💰 Có dư nợ > 0 (${summaryStats.hasDebtCount})`],
-                  ['restricted', `🟡 Nợ cước / Hạn chế (${summaryStats.restrictedCount})`],
-                  ['disabled', `🔴 Đã đóng / Vô hiệu hóa (${summaryStats.disabledCount})`],
-                  ['has_card', `💳 Đã gắn thẻ (${summaryStats.hasCardCount})`],
+                  { sliceKey: 'all', label: `Tất cả (${summaryStats.totalCount})`, dotCls: null },
+                  { sliceKey: 'active', label: `Đang hoạt động (${summaryStats.activeCount})`, dotCls: 'bg-tone-positive-fg' },
+                  { sliceKey: 'has_debt', label: `Có dư nợ > 0 (${summaryStats.hasDebtCount})`, dotCls: 'bg-tone-caution-fg' },
+                  { sliceKey: 'restricted', label: `Nợ cước / Hạn chế (${summaryStats.restrictedCount})`, dotCls: 'bg-tone-caution-fg' },
+                  { sliceKey: 'disabled', label: `Đã đóng / Vô hiệu hóa (${summaryStats.disabledCount})`, dotCls: 'bg-tone-attention-fg' },
+                  { sliceKey: 'has_card', label: `Đã gắn thẻ (${summaryStats.hasCardCount})`, dotCls: 'bg-brand' },
                 ] as const
-              ).map(([sliceKey, label]) => {
+              ).map(({ sliceKey, label, dotCls }) => {
                 const active = quickSlice === sliceKey
                 return (
                   <button
                     key={sliceKey}
                     type="button"
                     onClick={() => setQuickSlice(sliceKey)}
-                    className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition ${
                       active
                         ? 'border-brand bg-brand text-brand-fg'
                         : 'border-line bg-surface hover:bg-surface-muted text-ink'
                     }`}
                   >
-                    {label}
+                    {dotCls && (
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${active ? 'bg-current opacity-85' : dotCls}`}
+                        aria-hidden="true"
+                      />
+                    )}
+                    <span>{label}</span>
                   </button>
                 )
               })}
@@ -914,9 +926,9 @@ export default function Accounts() {
 
             <Link
               to="/operations-guide"
-              className="shrink-0 rounded-lg border border-brand/40 bg-brand-light px-2.5 py-1 text-[11px] font-bold text-brand-text hover:opacity-90"
+              className="shrink-0 rounded-md border border-line bg-surface px-2.5 py-1 text-[11px] font-semibold text-brand-text transition hover:border-line-strong hover:bg-surface-muted"
             >
-              📖 Công thức Chống Die →
+              Công thức Chống Die →
             </Link>
           </div>
         </div>
@@ -1244,7 +1256,7 @@ export default function Accounts() {
                                 </span>
                               ) : account.billing_meta?.bm_verified ? (
                                 <span
-                                  className="inline-flex items-center gap-0.5 rounded border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-300"
+                                  className="inline-flex items-center gap-0.5 rounded border border-tone-positive-border bg-tone-positive-bg px-1.5 py-0.5 text-[10px] font-bold text-tone-positive-fg"
                                   title="Business Manager chủ quản đã Xác minh doanh nghiệp (XMDN) trên Meta"
                                 >
                                   <ShieldCheck className="h-3 w-3" aria-hidden="true" />
@@ -1252,7 +1264,7 @@ export default function Accounts() {
                                 </span>
                               ) : (
                                 <span
-                                  className="inline-flex items-center gap-0.5 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300"
+                                  className="inline-flex items-center gap-0.5 rounded border border-tone-caution-border bg-tone-caution-bg px-1.5 py-0.5 text-[10px] font-semibold text-tone-caution-fg"
                                   title="Business Manager chưa hoàn tất Xác minh doanh nghiệp"
                                 >
                                   Chưa XMDN
@@ -1276,7 +1288,7 @@ export default function Accounts() {
                                         account.facebook_identities![0].network_label,
                                       )
                                     }}
-                                    className="inline-flex items-center rounded border border-emerald-600/50 bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800 hover:bg-emerald-500/25 dark:text-emerald-300"
+                                    className="inline-flex items-center rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-ink transition hover:border-line-strong hover:bg-surface-muted"
                                     title={`Mở TKQC này bằng đúng cửa sổ Chrome (${account.facebook_identities[0].browser_profile_label})`}
                                   >
                                     Mở Chrome
@@ -1291,10 +1303,10 @@ export default function Accounts() {
                                         account.facebook_identities![0].network_label,
                                       )
                                     }}
-                                    className="inline-flex items-center rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 hover:bg-amber-500/20 dark:text-amber-300"
+                                    className="inline-flex items-center rounded border border-tone-caution-border bg-tone-caution-bg px-1.5 py-0.5 text-[10px] font-semibold text-tone-caution-fg transition hover:opacity-90"
                                     title="Mở Chất lượng tài khoản trên đúng Chrome của Via này để kiểm tra và XOÁ hẳn các bài quảng cáo bị Từ chối (Rejected) — chống chết ngược sang Via"
                                   >
-                                    🧹 Dọn bài Rejected
+                                    Dọn bài Rejected
                                   </button>
                                 </>
                               )}
@@ -1316,8 +1328,8 @@ export default function Accounts() {
                                   </span>
                                 )}
                                 {account.billing_meta.tax_id_verified ? (
-                                  <span className="inline-flex items-center gap-1 font-semibold text-emerald-600 dark:text-emerald-400">
-                                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
+                                  <span className="inline-flex items-center gap-1 font-semibold text-tone-positive-fg">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-tone-positive-fg" aria-hidden="true" />
                                     Đã xác minh
                                   </span>
                                 ) : (

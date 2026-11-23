@@ -40,16 +40,23 @@ export function SidebarNav({
                       title={collapsed ? label : undefined}
                       className={({ isActive }) =>
                         cn(
-                          'flex items-center rounded-md py-1.5 text-sm font-medium transition-colors',
+                          'relative flex items-center rounded-md py-1.5 text-sm transition-colors',
                           collapsed ? 'justify-center px-2' : 'gap-2.5 px-2.5',
                           isActive
-                            ? 'bg-brand-light text-brand-text'
-                            : 'text-ink-muted hover:bg-surface-sunken hover:text-ink',
+                            ? 'bg-surface-sunken/85 font-semibold text-ink before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[2.5px] before:rounded-full before:bg-brand'
+                            : 'font-medium text-ink-muted hover:bg-surface-sunken/55 hover:text-ink',
                         )
                       }
                     >
-                      <item.icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
-                      <span className={cn('min-w-0 truncate', collapsed && 'sr-only')}>{label}</span>
+                      {({ isActive }) => (
+                        <>
+                          <item.icon
+                            className={cn('h-[18px] w-[18px] shrink-0', isActive ? 'text-brand-text' : '')}
+                            aria-hidden="true"
+                          />
+                          <span className={cn('min-w-0 truncate', collapsed && 'sr-only')}>{label}</span>
+                        </>
+                      )}
                     </NavLink>
                   </li>
                 )

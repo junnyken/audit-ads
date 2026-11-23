@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "4.4.0",
+    [string]$Version = "5.0.0",
     [string]$MinSupportedVersion = "4.2.0",
     [string]$ExtVersion = "2.10.4"
 )
@@ -95,7 +95,7 @@ $manifestObj = [ordered]@{
     sha256 = $sha
     size_bytes = $zipInfo.Length
     published_at = (Get-Date).ToUniversalTime().ToString("O")
-    release_notes = "AdsOps Desktop Pro v$Version (Commercial Auth & Forgot-Password Sync, License Expiry/Grace/Read-Only Guard, Desktop Device Limit Support, Portable Master-Passphrase Auto-Backup & Preview, Streaming Self-Updater with .bak Rollback)."
+    release_notes = "AdsOps Desktop Pro v$Version (Impeccable Studio UX/UI Overhaul: Obsidian Dark & Alabaster Light, Density Toggle, Luminous Status Primitives, Commercial Auth Sync, License Guard, Portable Backup & Streaming Self-Updater)."
 }
 $manifestJson = $manifestObj | ConvertTo-Json -Depth 4
 [System.IO.File]::WriteAllText((Join-Path $downloadsDir "AdsOps-Desktop-Pro-latest.json"), $manifestJson, (New-Object System.Text.UTF8Encoding($false)))

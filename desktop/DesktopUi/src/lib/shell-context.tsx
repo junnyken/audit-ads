@@ -3,10 +3,12 @@ import type { WebViaItemDto } from '@/types'
 
 export type PlatformScope = 'all' | 'meta' | 'google_ads'
 export type DesktopThemeMode = 'dark' | 'light'
+export type DesktopDensityMode = 'airy' | 'compact'
 
 const SCOPE_KEY = 'adsops.desktop.platformScope'
 const THEME_KEY = 'adsops.desktop.themeMode'
 const SIDEBAR_KEY = 'adsops.desktop.sidebarCollapsed'
+const DENSITY_KEY = 'adsops.desktop.densityMode'
 
 function safeReadStorage(key: string): string | null {
   try {
@@ -42,6 +44,9 @@ interface ShellUiContextValue {
   sidebarCollapsed: boolean
   setSidebarCollapsed: (collapsed: boolean) => void
   toggleSidebarCollapsed: () => void
+  densityMode: DesktopDensityMode
+  setDensityMode: (density: DesktopDensityMode) => void
+  toggleDensityMode: () => void
 }
 
 const ShellUiContext = createContext<ShellUiContextValue | null>(null)
@@ -59,6 +64,11 @@ export function ShellUiProvider({ children }: { children: ReactNode }) {
 
   const [sidebarCollapsed, setCollapsedState] = useState<boolean>(() => {
     return safeReadStorage(SIDEBAR_KEY) === '1'
+  })
+
+  const [densityMode, setDensityState] = useState<DesktopDensityMode>(() => {
+    const raw = safeReadStorage(DENSITY_KEY)
+    return raw === 'compact' ? 'compact' : 'airy'
   })
 
   const setPlatformScope = useCallback((scope: PlatformScope) => {
@@ -92,11 +102,28 @@ export function ShellUiProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
+  const setDensityMode = useCallback((density: DesktopDensityMode) => {
+    setDensityState(density)
+    safeWriteStorage(DENSITY_KEY, density)
+  }, [])
+
+  const toggleDensityMode = useCallback(() => {
+    setDensityState((prev) => {
+      const next: DesktopDensityMode = prev === 'airy' ? 'compact' : 'airy'
+      safeWriteStorage(DENSITY_KEY, next)
+      return next
+    })
+  }, [])
+
   useEffect(() => {
     const root = document.documentElement
     root.classList.toggle('dark', themeMode === 'dark')
     root.classList.toggle('light', themeMode === 'light')
   }, [themeMode])
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-density', densityMode)
+  }, [densityMode])
 
   const value = useMemo<ShellUiContextValue>(
     () => ({
@@ -108,6 +135,9 @@ export function ShellUiProvider({ children }: { children: ReactNode }) {
       sidebarCollapsed,
       setSidebarCollapsed,
       toggleSidebarCollapsed,
+      densityMode,
+      setDensityMode,
+      toggleDensityMode,
     }),
     [
       platformScope,
@@ -118,6 +148,9 @@ export function ShellUiProvider({ children }: { children: ReactNode }) {
       sidebarCollapsed,
       setSidebarCollapsed,
       toggleSidebarCollapsed,
+      densityMode,
+      setDensityMode,
+      toggleDensityMode,
     ],
   )
 
