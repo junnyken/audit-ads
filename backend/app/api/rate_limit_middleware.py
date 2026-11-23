@@ -32,6 +32,8 @@ logger = logging.getLogger("app.rate_limit")
 AUTH_PATH_SUFFIXES = (
     "/auth/login",
     "/auth/register",
+    "/auth/forgot-password",
+    "/auth/reset-password",
     "/auth/bot-challenge",
     "/extension/connect",
     "/meta-reader-credentials/callback",

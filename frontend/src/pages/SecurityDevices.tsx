@@ -134,7 +134,13 @@ export default function SecurityDevices() {
               {rows.map((row) => (
                 <TableRow key={row.id}>
                   <TableCell className="cell-title">
-                    {row.label}
+                    <span>{row.label}</span>
+                    <Badge
+                      tone={row.client_channel === 'desktop' ? 'info' : 'neutral'}
+                      className="ml-1.5"
+                    >
+                      {row.client_channel === 'desktop' ? t('sd.channel.desktop') : t('sd.channel.web')}
+                    </Badge>
                     {row.is_current && <span className="ml-1.5 text-xs text-ink-muted">{t('sd.thisDevice')}</span>}
                   </TableCell>
                   <TableCell label={columns[1]} className="text-xs text-ink-muted">{formatRelative(row.last_seen_at)}</TableCell>

@@ -120,6 +120,11 @@ internal sealed partial class MainWindow : Window
     private string _offlineSnapshotAt = "";
     private UpdateManifestDto? _latestUpdateManifest;
     private string _updateStatusText = "Chưa kiểm tra cập nhật trong phiên này.";
+    private bool _updateRequired;
+    private string _minSupportedVersion = "";
+    private DateTime _lastAutoUpdateCheckUtc = DateTime.MinValue;
+    private string _portableBackupStatusMessage = "";
+    private string _portableBackupPreviewJson = "";
 
     private bool _isBusy;
     private bool _autoPipelineRunning;
@@ -777,6 +782,17 @@ internal sealed partial class MainWindow : Window
         {
             AppendLog("Chưa đăng nhập Cloud. Mở mục Két khóa & Cài đặt để kết nối tài khoản.");
         }
+
+        // Silent startup update check (after 8s delay so UI loads instantaneously)
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(8)).ConfigureAwait(false);
+                await Dispatcher.InvokeAsync(async () => await CheckForAppUpdatesAsync(silent: true));
+            }
+            catch { }
+        });
     }
 
     private void HydrateFromOfflineSnapshot(CloudSnapshotPayload snap)
@@ -804,7 +820,20 @@ internal sealed partial class MainWindow : Window
 
     internal void ConfigureApiClient()
     {
-        _api.Configure(_config.BackendBaseUrl, _config.GetJwt(), TryAutoReloginAsync);
+        var instId = _config.GetOrCreateInstallationId();
+        _api.Configure(_config.BackendBaseUrl, _config.GetJwt(), TryAutoReloginAsync, instId);
+    }
+
+    internal bool IsLicenseReadOnly(out string message)
+    {
+        var lic = _communityQuota?.License ?? _currentUser?.Workspace?.License;
+        if (lic != null && lic.IsReadOnly)
+        {
+            message = "Workspace đang ở chế độ Chỉ-đọc do quá hạn ân hạn 3 ngày. Bạn vẫn xem được dữ liệu, mở Chrome Profile, lấy 2FA và Sao lưu/Khôi phục Két; hãy nhập Mã gia hạn tại Két khóa & Cài đặt để mở khóa Auto-Pilot & Đồng bộ.";
+            return true;
+        }
+        message = "";
+        return false;
     }
 
     private async Task<string?> TryAutoReloginAsync()
@@ -3228,6 +3257,15 @@ internal sealed partial class MainWindow : Window
             }
             return;
         }
+        if (IsLicenseReadOnly(out var readOnlyMsg))
+        {
+            AppendLog($"🔒 {readOnlyMsg}");
+            if (interactiveConfirm)
+            {
+                MessageBox.Show(this, readOnlyMsg, "Workspace ở chế độ Chỉ-đọc", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            return;
+        }
 
         // #2 Pre-Flight Safety Check
         var preFlight = EvaluateAutoPilotPreFlight();
@@ -5439,9 +5477,16 @@ internal sealed partial class MainWindow : Window
     private async Task RunAutoKeepAliveTickAsync()
     {
         var now = DateTime.Now;
-        // #7 Daily Automatic DPAPI Vault Backup (.adsopsvault)
+        // #7 Daily Automatic Vault Backup (.adsopsvault)
         RunDailyAutoVaultBackupIfNeeded(force: false);
 
+        // Silent 6-hour background update check
+        if ((DateTime.UtcNow - _lastAutoUpdateCheckUtc).TotalHours >= 6)
+        {
+            _ = CheckForAppUpdatesAsync(silent: true);
+        }
+
+        if (IsLicenseReadOnly(out _)) return;
         if (_autoPipelineRunning) return;
         if (_queue.Current.Phase != QueuePhase.Idle && _queue.Current.Phase != QueuePhase.Completed) return;
 

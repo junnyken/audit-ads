@@ -29,7 +29,7 @@ def test_the_test_database_is_not_the_dev_database():
 
 
 def test_head_includes_0019_and_only_one_column_carries_a_credential(migrated_database):
-    assert _revision() in ("0019_f1_facebook_identities", "0020_f3_business_users", "0021_c1_client_budget_and_pacing", "0022_f1_5_login_environment", "0023_community_quotas", "0024_team_playbooks")
+    assert _revision() in ("0019_f1_facebook_identities", "0020_f3_business_users", "0021_c1_client_budget_and_pacing", "0022_f1_5_login_environment", "0023_community_quotas", "0024_team_playbooks", "0025_commercial_saas_license")
     inspector = sa.inspect(engine)
     columns = {c["name"]: c for c in inspector.get_columns("meta_reader_credentials")}
     assert columns["encrypted_secret"]["nullable"] is True
@@ -50,6 +50,7 @@ def test_head_includes_0019_and_only_one_column_carries_a_credential(migrated_da
         "users.password_hash",
         "workspace_invitations.token_hash",
         "workspace_invitations.token_last_four",
+        "password_reset_tokens.token_hash",
     }
     assert set(carrying) - allowed == set(), carrying
 
@@ -65,4 +66,4 @@ def test_downgrade_removes_the_table_and_column_and_upgrade_restores_them(migrat
     finally:
         command.upgrade(_config(), "head")
     assert set(sa.inspect(engine).get_table_names()) == tables_before
-    assert _revision() in ("0019_f1_facebook_identities", "0020_f3_business_users", "0021_c1_client_budget_and_pacing", "0022_f1_5_login_environment", "0023_community_quotas", "0024_team_playbooks")
+    assert _revision() in ("0019_f1_facebook_identities", "0020_f3_business_users", "0021_c1_client_budget_and_pacing", "0022_f1_5_login_environment", "0023_community_quotas", "0024_team_playbooks", "0025_commercial_saas_license")

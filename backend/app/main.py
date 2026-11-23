@@ -114,7 +114,8 @@ async def lifespan(app: FastAPI):
 
     with SessionLocal() as session:
         try:
-            from app.bootstrap import bootstrap_meta_sync
+            from app.bootstrap import bootstrap_meta_sync, ensure_commercial_schema_idempotent
+            ensure_commercial_schema_idempotent(session)
             ws = bootstrap_owner(session)
             bootstrap_meta_sync(session, ws)
         except Exception:  # pragma: no cover - startup must not crash on a cold database

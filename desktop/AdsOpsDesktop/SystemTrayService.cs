@@ -181,6 +181,23 @@ internal sealed class SystemTrayService : IDisposable
         return dlg.ShowDialog() == DialogResult.OK ? dlg.FileName : null;
     }
 
+    public static string? ShowPickFolderDialog(string description = "Chọn thư mục lưu Auto-Backup Két khóa", string? initialPath = null)
+    {
+        using var dlg = new FolderBrowserDialog
+        {
+            Description = description,
+            UseDescriptionForTitle = true,
+            ShowNewFolderButton = true,
+        };
+        if (!string.IsNullOrWhiteSpace(initialPath) && System.IO.Directory.Exists(initialPath))
+        {
+            dlg.InitialDirectory = initialPath;
+        }
+        return dlg.ShowDialog() == DialogResult.OK && !string.IsNullOrWhiteSpace(dlg.SelectedPath)
+            ? dlg.SelectedPath
+            : null;
+    }
+
     public static string? ShowSaveCsvDialog(string defaultFileName)
     {
         using var dlg = new SaveFileDialog

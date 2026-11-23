@@ -59,16 +59,32 @@ class SessionRegistryService:
         self.audit = audit
 
     def create(
-        self, *, user_id: uuid.UUID, expires_at: datetime, user_agent: str | None, ip: str | None
+        self,
+        *,
+        user_id: uuid.UUID,
+        expires_at: datetime,
+        user_agent: str | None,
+        ip: str | None,
+        client_channel: str = "web",
+        installation_hash: str | None = None,
+        label_override: str | None = None,
     ) -> DeviceSession:
         browser_family, os_family = _parse_user_agent(user_agent)
+        clean_channel = "desktop" if client_channel == "desktop" else "web"
+        resolved_label = (label_override or "").strip() or (
+            f"AdsOps Desktop Pro ({os_family or 'Windows'})"
+            if clean_channel == "desktop"
+            else default_label(browser_family, os_family)
+        )
         row = DeviceSession(
             workspace_id=self.workspace_id,
             user_id=user_id,
             session_type=DeviceSessionType.WEB,
-            label=default_label(browser_family, os_family),
-            browser_family=browser_family,
-            os_family=os_family,
+            client_channel=clean_channel,
+            installation_hash=installation_hash[:64] if installation_hash else None,
+            label=resolved_label[:120],
+            browser_family="AdsOps Desktop" if clean_channel == "desktop" else browser_family,
+            os_family=os_family or ("Windows" if clean_channel == "desktop" else None),
             ip_hash=hash_ip(ip),
             last_seen_at=datetime.now(UTC),
             expires_at=expires_at,
@@ -85,7 +101,7 @@ class SessionRegistryService:
             # Never a key containing "session" here — `SENSITIVE_NAME_FRAGMENTS` masks any such
             # key on principle (it could be a session token), so this domain's own field names
             # have to route around that rather than have a harmless value silently `[REDACTED]`.
-            after={"label": row.label, "channel": row.session_type.value},
+            after={"label": row.label, "channel": clean_channel},
         )
         return row
 
@@ -97,7 +113,10 @@ class SessionRegistryService:
 
     def touch(self, row: DeviceSession) -> None:
         now = datetime.now(UTC)
-        if row.last_seen_at is not None and now - row.last_seen_at < LAST_SEEN_THROTTLE:
+        last_seen = row.last_seen_at
+        if last_seen is not None and last_seen.tzinfo is None:
+            last_seen = last_seen.replace(tzinfo=UTC)
+        if last_seen is not None and now - last_seen < LAST_SEEN_THROTTLE:
             return
         row.last_seen_at = now
         self.session.flush()

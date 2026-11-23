@@ -40,6 +40,13 @@ export const vi = {
   'shell.platformScope.all': 'Tất cả',
   'shell.platformScope.meta': 'Meta',
   'shell.platformScope.googleAds': 'Google',
+  'shell.license.readOnly':
+    'Workspace đang ở chế độ Chỉ-đọc do quá hạn ân hạn 3 ngày. Xem dữ liệu & xuất CSV vẫn hoạt động; thao tác ghi & đồng bộ tạm khóa tới khi nhập mã gia hạn.',
+  'shell.license.grace':
+    'Gói thuê bao đã hết hạn và đang trong thời gian ân hạn 3 ngày. Vui lòng gia hạn sớm để không bị chuyển sang chế độ Chỉ-đọc.',
+  'shell.license.expiring':
+    'Gói thuê bao còn {days} ngày sử dụng. Vui lòng gia hạn sớm để đảm bảo vận hành liên tục.',
+  'shell.license.settingsLink': 'Cài đặt & Nhập mã gia hạn',
 
   'nav.group.overview': 'Bàn điều khiển',
   'nav.group.accounts': 'Tài sản & Hồ sơ',
@@ -1699,6 +1706,8 @@ export const vi = {
   'sd.thisDevice': '(thiết bị này)',
   'sd.status.active': 'Đang hoạt động',
   'sd.status.revoked': 'Đã thu hồi',
+  'sd.channel.desktop': 'Desktop App',
+  'sd.channel.web': 'Web',
   'sd.current': 'Đăng xuất từ thanh trên cùng',
   'sd.currentHint': 'Dùng nút đăng xuất ở thanh trên cùng để kết thúc phiên này.',
   'sd.revoke': 'Thu hồi',

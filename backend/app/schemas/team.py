@@ -16,6 +16,7 @@ ReasonField = Annotated[str, Field(min_length=1, max_length=200)]
 class DeviceSessionOut(ORMModel):
     id: uuid.UUID
     session_type: DeviceSessionType
+    client_channel: str = "web"
     label: str
     browser_family: str | None
     os_family: str | None

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -13,6 +14,20 @@ class LoginRequest(BaseModel):
 
     email: EmailStr
     password: str = Field(min_length=8, max_length=200)
+    replace_oldest_device: bool = False
+
+
+class ForgotPasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=16, max_length=512)
+    new_password: str = Field(min_length=8, max_length=200)
 
 
 class RegisterRequest(BaseModel):
@@ -51,7 +66,10 @@ class WorkspaceSummary(BaseModel):
     max_vias: int = 500
     max_ad_accounts: int = 500
     max_members: int = 25
+    max_desktop_devices: int | None = None
+    plan_expires_at: datetime | None = None
     community_status: str = "active"
+    license: dict[str, Any] | None = None
 
 
 class CurrentUserResponse(BaseModel):

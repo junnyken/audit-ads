@@ -27,6 +27,13 @@ export const en = {
   'shell.platformScope.all': 'All',
   'shell.platformScope.meta': 'Meta',
   'shell.platformScope.googleAds': 'Google',
+  'shell.license.readOnly':
+    'Workspace is in Read-Only mode past the 3-day grace window. Viewing & CSV export remain available; mutations and sync are paused until a renewal code is redeemed.',
+  'shell.license.grace':
+    'Subscription has expired and is in its 3-day grace period. Renew soon to avoid switching to Read-Only mode.',
+  'shell.license.expiring':
+    'Subscription expires in {days} day(s). Renew before expiry to keep operations uninterrupted.',
+  'shell.license.settingsLink': 'Settings & Redeem Code',
 
   'nav.group.overview': 'Control center',
   'nav.group.accounts': 'Assets & profiles',
@@ -1685,6 +1692,8 @@ export const en = {
   'sd.thisDevice': '(this device)',
   'sd.status.active': 'Active',
   'sd.status.revoked': 'Revoked',
+  'sd.channel.desktop': 'Desktop App',
+  'sd.channel.web': 'Web',
   'sd.current': 'Sign out from the header',
   'sd.currentHint': 'Use the sign-out button in the header to end this session.',
   'sd.revoke': 'Revoke',

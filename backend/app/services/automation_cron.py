@@ -183,16 +183,25 @@ def run_workspace_automation_cycle(
     cfg = get_workspace_cron_config(session, workspace_id)
     now = datetime.now(UTC)
 
+    from app.services.license_service import evaluate_workspace_license
+
+    ws_row = session.get(Workspace, workspace_id)
+    lic_info = evaluate_workspace_license(ws_row, now) if ws_row is not None else {"is_read_only": False}
+    is_read_only = bool(lic_info.get("is_read_only", False))
+
     outbox_res = NotificationDispatcherService(session, workspace_id, audit).dispatch_due()
 
     sync_executed = False
-    sync_status = "not_due"
+    sync_status = "license_read_only" if is_read_only else "not_due"
     last_sync_dt = _last_sync_timestamp(session, workspace_id)
-    sync_due = force_sync or (
-        cfg["auto_meta_sync_enabled"]
-        and (
-            last_sync_dt is None
-            or (now - last_sync_dt) >= timedelta(minutes=cfg["sync_interval_minutes"])
+    sync_due = (not is_read_only) and (
+        force_sync
+        or (
+            cfg["auto_meta_sync_enabled"]
+            and (
+                last_sync_dt is None
+                or (now - last_sync_dt) >= timedelta(minutes=cfg["sync_interval_minutes"])
+            )
         )
     )
 
@@ -224,7 +233,7 @@ def run_workspace_automation_cycle(
     )
 
     auto_warmed_count = 0
-    if (force_warmup or cfg["auto_page_warmup_enabled"]) and transports:
+    if (not is_read_only) and (force_warmup or cfg["auto_page_warmup_enabled"]) and transports:
         gap_delta = timedelta(hours=cfg["warmup_min_gap_hours"])
         for idx, item in enumerate(pages_summary.get("items", [])):
             if auto_warmed_count >= 10:

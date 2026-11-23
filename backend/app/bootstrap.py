@@ -22,6 +22,49 @@ from app.models.entities import User, Workspace, WorkspaceMember
 logger = logging.getLogger(__name__)
 
 
+def ensure_commercial_schema_idempotent(session: Session) -> str:
+    """Idempotent additive DDL guard for commercial license/reset columns on Postgres."""
+    bind = session.get_bind()
+    dialect_name = getattr(getattr(bind, "dialect", None), "name", "")
+    if dialect_name != "postgresql":
+        return "skipped_non_postgres"
+    try:
+        locked = bool(session.execute(sa.text("SELECT pg_try_advisory_xact_lock(440025)")).scalar())
+        if not locked:
+            session.rollback()
+            return "skipped_locked"
+        stmts = (
+            "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS plan_expires_at TIMESTAMPTZ NULL",
+            "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS max_desktop_devices INTEGER NULL",
+            "ALTER TABLE community_invite_codes ADD COLUMN IF NOT EXISTS duration_days INTEGER NULL",
+            "ALTER TABLE device_sessions ADD COLUMN IF NOT EXISTS client_channel VARCHAR(20) NOT NULL DEFAULT 'web'",
+            "ALTER TABLE device_sessions ADD COLUMN IF NOT EXISTS installation_hash VARCHAR(64) NULL",
+            "CREATE INDEX IF NOT EXISTS ix_device_sessions_installation_hash ON device_sessions (installation_hash)",
+            """
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                id UUID PRIMARY KEY,
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                token_hash VARCHAR(64) NOT NULL UNIQUE,
+                expires_at TIMESTAMPTZ NOT NULL,
+                used_at TIMESTAMPTZ NULL,
+                requested_ip_hash VARCHAR(64) NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """.strip(),
+            "CREATE INDEX IF NOT EXISTS ix_password_reset_tokens_user_id ON password_reset_tokens (user_id)",
+        )
+        for stmt in stmts:
+            session.execute(sa.text(stmt))
+        session.commit()
+        logger.info("commercial schema guard verified")
+        return "installed"
+    except Exception as exc:
+        session.rollback()
+        logger.warning("commercial schema guard warning", extra={"error_type": type(exc).__name__})
+        return f"error:{type(exc).__name__}"
+
+
 def _slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return slug or "workspace"

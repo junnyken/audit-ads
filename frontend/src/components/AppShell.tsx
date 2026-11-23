@@ -1,6 +1,6 @@
 import { Suspense, useState } from 'react'
-import { Outlet } from 'react-router-dom'
-import { Globe, Layers, Menu, PanelLeftClose, PanelLeftOpen, Sparkles } from 'lucide-react'
+import { Link, Outlet } from 'react-router-dom'
+import { AlertTriangle, Globe, Layers, Menu, PanelLeftClose, PanelLeftOpen, Sparkles } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { PlatformScopeProvider, usePlatformScope, type PlatformScope } from '../hooks/usePlatformScope'
 import { useI18n } from '../i18n'
@@ -179,6 +179,35 @@ function AppShellInner() {
             tabIndex={-1}
             className="min-w-0 flex-1 px-4 py-5 outline-none min-[769px]:px-6"
           >
+            {user?.workspace?.license &&
+              (user.workspace.license.status === 'read_only' ||
+                user.workspace.license.status === 'grace' ||
+                user.workspace.license.status === 'expiring') && (
+                <div
+                  role="status"
+                  className={cn(
+                    'mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3.5 py-2.5 text-xs font-medium',
+                    user.workspace.license.status === 'read_only' ? 'tone-attention' : 'tone-caution',
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span>
+                      {user.workspace.license.status === 'read_only'
+                        ? t('shell.license.readOnly')
+                        : user.workspace.license.status === 'grace'
+                          ? t('shell.license.grace')
+                          : t('shell.license.expiring', {
+                              days: Math.max(0, user.workspace.license.days_remaining ?? 0),
+                            })}
+                    </span>
+                  </div>
+                  <Link to="/settings" className="font-semibold underline underline-offset-2 shrink-0">
+                    {t('shell.license.settingsLink')}
+                  </Link>
+                </div>
+              )}
+
             <Suspense
               fallback={
                 <div role="status" aria-busy="true" aria-label={t('common.loading')} className="space-y-3">

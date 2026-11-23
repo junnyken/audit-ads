@@ -16,6 +16,7 @@ import contextlib
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import sqlalchemy as sa
@@ -39,6 +40,7 @@ from app.schemas import meta_operations as s
 from app.schemas.common import page_response
 from app.services.base import get_or_404, snapshot
 from app.services.discovery_sweep import serialize_automation
+from app.services.early_risk_detector import evaluate_and_reconcile_early_risks
 from app.services.meta_access_share import AccessShareBatchService, DraftShareItem
 from app.services.meta_account_creation import AccountCreationBatchService, DraftAccountItem
 from app.services.meta_discovery import MetaDiscoveryService, ReconciliationRow
@@ -374,6 +376,81 @@ def create_connection(ctx: OwnerCtx, payload: s.MetaConnectionCreate) -> dict[st
 
 
 
+META_AD_ACCOUNT_BASE_FIELDS = (
+    "id,account_id,name,account_status,disable_reason,currency,timezone_name,"
+    "balance,amount_spent,spend_cap,min_daily_budget,funding_source_details,"
+    "business_name,business_country_code,tax_id,tax_id_status,business{id,name,verification_status}"
+)
+META_AD_ACCOUNT_EXTENDED_FIELDS = f"{META_AD_ACCOUNT_BASE_FIELDS},adspaymentcycle{{threshold_amount}},adtrust_dsl"
+ZERO_DECIMAL_CURRENCIES: frozenset[str] = frozenset(
+    {
+        "BIF", "CLP", "DJF", "GNF", "HUF", "IDR", "ISK", "JPY",
+        "KMF", "KRW", "PYG", "RWF", "TWD", "UGX", "VND", "VUV",
+        "XAF", "XOF", "XPF",
+    }
+)
+
+
+def _decimal_to_plain_str(val: Decimal) -> str:
+    txt = format(val, "f")
+    if "." in txt:
+        txt = txt.rstrip("0").rstrip(".")
+    return txt or "0"
+
+
+def meta_minor_to_major_raw(raw_val: Any, currency: str, *, allow_zero: bool = True) -> str | None:
+    """Convert Meta Graph minor-unit amounts (cents for 2-decimal currencies, integer for VND/JPY/KRW) to major-unit string."""
+    if raw_val is None:
+        return None
+    raw_str = str(raw_val).strip()
+    if not raw_str:
+        return None
+    try:
+        dec = Decimal(raw_str)
+    except (InvalidOperation, ValueError):
+        return None
+    if dec < 0 or (not allow_zero and dec == 0):
+        return None
+    curr = (currency or "VND").strip().upper()
+    major = dec if curr in ZERO_DECIMAL_CURRENCIES else (dec / Decimal("100"))
+    return _decimal_to_plain_str(major)
+
+
+def _extract_adspaymentcycle_threshold(a_row: dict[str, Any], currency: str) -> str | None:
+    apc = a_row.get("adspaymentcycle")
+    raw_t: Any = None
+    if isinstance(apc, dict):
+        data_list = apc.get("data")
+        if isinstance(data_list, list) and data_list and isinstance(data_list[0], dict):
+            raw_t = data_list[0].get("threshold_amount")
+        elif "threshold_amount" in apc:
+            raw_t = apc.get("threshold_amount")
+    return meta_minor_to_major_raw(raw_t, currency, allow_zero=False)
+
+
+def _extract_daily_spend_limit(raw_val: Any) -> str | None:
+    if raw_val is None:
+        return None
+    raw_str = str(raw_val).strip()
+    if not raw_str:
+        return None
+    try:
+        dec = Decimal(raw_str)
+    except (InvalidOperation, ValueError):
+        return None
+    if dec <= 0:
+        return None
+    return _decimal_to_plain_str(dec)
+
+
+def _fetch_ad_accounts_with_fallback(transport: Any, path: str, limit: str = "200") -> Any:
+    """Fetch AdAccounts including billing threshold & DSL, falling back cleanly if the token lacks billing field permissions."""
+    resp = transport.get(path, {"fields": META_AD_ACCOUNT_EXTENDED_FIELDS, "limit": limit})
+    if not getattr(resp, "ok", False):
+        resp = transport.get(path, {"fields": META_AD_ACCOUNT_BASE_FIELDS, "limit": limit})
+    return resp
+
+
 def run_workspace_quick_sync(
     session: sa.orm.Session,
     workspace_id: uuid.UUID,
@@ -399,8 +476,14 @@ def run_workspace_quick_sync(
         PersonalAccountBusinessLink,
         PersonalAccountReference,
         Pixel,
+        Workspace,
         WorkspaceMember,
     )
+    from app.services.license_service import require_workspace_writable
+
+    ws_row = session.get(Workspace, workspace_id)
+    if ws_row is not None:
+        require_workspace_writable(ws_row)
     from app.models.meta_discovery import (
         DiscoveredAdAccountObservation,
         DiscoveredBusinessUserObservation,
@@ -673,7 +756,15 @@ def run_workspace_quick_sync(
                     b_info = a_row.get("business") if isinstance(a_row.get("business"), dict) else {}
                     sync_meta: dict[str, Any] = {}
                     if a_row.get("balance") is not None:
-                        sync_meta["balance_raw"] = str(a_row["balance"])
+                        bal_major = meta_minor_to_major_raw(a_row["balance"], acurr, allow_zero=True)
+                        if bal_major is not None:
+                            sync_meta["balance_raw"] = bal_major
+                    thresh_major = _extract_adspaymentcycle_threshold(a_row, acurr)
+                    if thresh_major is not None:
+                        sync_meta["billing_threshold_raw"] = thresh_major
+                    dsl_major = _extract_daily_spend_limit(a_row.get("adtrust_dsl"))
+                    if dsl_major is not None:
+                        sync_meta["meta_daily_limit_raw"] = dsl_major
                     if card_str:
                         sync_meta["payment_card_code"] = card_str
                         sync_meta["payment_card_display"] = (
@@ -726,12 +817,8 @@ def run_workspace_quick_sync(
                             continue
                         for edge_n in ("owned_ad_accounts", "client_ad_accounts"):
                             try:
-                                edge_resp = cand_prov.transport.get(
-                                    f"{bm_item.external_id}/{edge_n}",
-                                    {
-                                        "fields": "id,account_id,name,account_status,disable_reason,currency,timezone_name,balance,amount_spent,spend_cap,min_daily_budget,funding_source_details,business_name,business_country_code,tax_id,tax_id_status,business{id,name,verification_status}",
-                                        "limit": "200",
-                                    },
+                                edge_resp = _fetch_ad_accounts_with_fallback(
+                                    cand_prov.transport, f"{bm_item.external_id}/{edge_n}", limit="200"
                                 )
                                 if edge_resp.ok and isinstance(edge_resp.payload, dict):
                                     for a_row in edge_resp.payload.get("data", []) or []:
@@ -745,12 +832,8 @@ def run_workspace_quick_sync(
 
                     # Also pull /me/adaccounts to capture personal ad accounts & direct user ad accounts
                     try:
-                        a_resp = cand_prov.transport.get(
-                            "me/adaccounts",
-                            {
-                                "fields": "id,account_id,name,account_status,disable_reason,currency,timezone_name,balance,amount_spent,spend_cap,min_daily_budget,funding_source_details,business_name,business_country_code,tax_id,tax_id_status,business{id,name,verification_status}",
-                                "limit": "200",
-                            },
+                        a_resp = _fetch_ad_accounts_with_fallback(
+                            cand_prov.transport, "me/adaccounts", limit="200"
                         )
                         if a_resp.ok and isinstance(a_resp.payload, dict):
                             for a_row in a_resp.payload.get("data", []) or []:
@@ -822,6 +905,8 @@ def run_workspace_quick_sync(
                 hub_conn = _find_or_create_conn((settings.meta_business_id or "").strip())
                 bm_names = ", ".join(b.name for b in all_active_bms[:5])
                 summary_title = f"Toàn bộ {len(all_active_bms)} BM ({bm_names}) & TKQC Cá nhân"
+                with contextlib.suppress(Exception):
+                    evaluate_and_reconcile_early_risks(session, workspace_id, reconcile_alerts=True)
                 return {
                     "connection_id": str(hub_conn.id),
                     "connection_label": summary_title,
@@ -1789,6 +1874,8 @@ def run_workspace_quick_sync(
         )
     )
     discovered_total = (run.ad_account_coverage_json or {}).get("total_unique_assets") or 0
+    with contextlib.suppress(Exception):
+        evaluate_and_reconcile_early_risks(session, workspace_id, reconcile_alerts=True)
 
     return {
         "connection_id": str(connection.id),
@@ -5516,12 +5603,12 @@ def _build_unified_assets_overview(session, workspace_id: uuid.UUID) -> dict[str
             .all()
         )
         for r in b_rows:
-            m = r.metadata_json or r.after_json or {}
-            if isinstance(m, dict):
-                cur = acc_billing_ov.setdefault(r.entity_id, {})
-                for k, val in m.items():
-                    if val is not None and val != "":
-                        cur[k] = val
+            cur = acc_billing_ov.setdefault(r.entity_id, {})
+            for src in (r.after_json, r.metadata_json):
+                if isinstance(src, dict):
+                    for k, val in src.items():
+                        if k != "source" and val is not None and val != "":
+                            cur[k] = val
 
     all_asset_links = (
         session.execute(

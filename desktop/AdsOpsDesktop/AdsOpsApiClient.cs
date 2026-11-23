@@ -11,6 +11,11 @@ using System.Threading.Tasks;
 
 namespace AdsOpsDesktop;
 
+public sealed class DeviceLimitReachedException : InvalidOperationException
+{
+    public DeviceLimitReachedException(string message) : base(message) { }
+}
+
 public sealed class AdsOpsApiClient : IDisposable
 {
     private readonly HttpClient _http;
@@ -22,6 +27,7 @@ public sealed class AdsOpsApiClient : IDisposable
     };
     private string _baseUrl = DesktopConfig.DefaultBackendUrl;
     private string _token = "";
+    private string _installationId = "";
     private Func<Task<string?>>? _onUnauthorizedRefresh;
 
     public AdsOpsApiClient()
@@ -63,11 +69,16 @@ public sealed class AdsOpsApiClient : IDisposable
         }
     }
 
-    public void Configure(string baseUrl, string accessToken, Func<Task<string?>>? onUnauthorizedRefresh = null)
+    public void Configure(
+        string baseUrl,
+        string accessToken,
+        Func<Task<string?>>? onUnauthorizedRefresh = null,
+        string? installationId = null)
     {
         _baseUrl = (baseUrl ?? DesktopConfig.DefaultBackendUrl).Trim().TrimEnd('/');
         _token = accessToken ?? "";
         if (onUnauthorizedRefresh != null) _onUnauthorizedRefresh = onUnauthorizedRefresh;
+        if (!string.IsNullOrWhiteSpace(installationId)) _installationId = installationId.Trim();
     }
 
     public bool HasToken => !string.IsNullOrWhiteSpace(_token);
@@ -76,8 +87,12 @@ public sealed class AdsOpsApiClient : IDisposable
     private HttpRequestMessage BuildRequest(HttpMethod method, string relativePath, object? body = null)
     {
         var req = new HttpRequestMessage(method, _baseUrl + relativePath);
-        req.Headers.TryAddWithoutValidation("X-AdsOps-Client", DesktopAppInfo.Version);
+        req.Headers.TryAddWithoutValidation("X-AdsOps-Client", $"desktop/{DesktopAppInfo.Version}");
         req.Headers.TryAddWithoutValidation("X-AdsOps-Source", "desktop");
+        if (!string.IsNullOrWhiteSpace(_installationId))
+        {
+            req.Headers.TryAddWithoutValidation("X-AdsOps-Installation", _installationId);
+        }
         if (!string.IsNullOrWhiteSpace(_token))
         {
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _token);
@@ -138,7 +153,13 @@ public sealed class AdsOpsApiClient : IDisposable
 
         if (!resp.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"API {(int)resp.StatusCode} ({relativePath}): {ExtractDetail(raw)}");
+            var detail = ExtractDetail(raw);
+            if (resp.StatusCode == HttpStatusCode.Conflict &&
+                raw.Contains("device_limit_reached", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new DeviceLimitReachedException(detail);
+            }
+            throw new InvalidOperationException($"API {(int)resp.StatusCode} ({relativePath}): {detail}");
         }
         return JsonSerializer.Deserialize<T>(raw, JsonOpts)
             ?? throw new InvalidOperationException($"Không đọc được JSON từ {relativePath}");
@@ -196,12 +217,16 @@ public sealed class AdsOpsApiClient : IDisposable
         return raw.Length > 220 ? raw[..220] : raw;
     }
 
-    public async Task<LoginResponseDto> LoginAsync(string email, string password, CancellationToken ct = default)
+    public async Task<LoginResponseDto> LoginAsync(
+        string email,
+        string password,
+        bool replaceOldestDevice = false,
+        CancellationToken ct = default)
     {
         var res = await SendJsonAsync<LoginResponseDto>(
             HttpMethod.Post,
             "/api/v1/auth/login",
-            new { email = email.Trim(), password },
+            new { email = email.Trim(), password, replace_oldest_device = replaceOldestDevice },
             ct
         ).ConfigureAwait(false);
         _token = res.AccessToken;

@@ -686,6 +686,10 @@ def ingest_google_ads_script_report(
     if not expected_key or not provided_key or not hmac.compare_digest(provided_key, expected_key):
         raise AuthenticationError("Invalid or missing Google Ads script ingest key.")
 
+    from app.services.license_service import require_workspace_writable
+
+    require_workspace_writable(ws)
+
     owner_member = (
         session.execute(
             sa.select(WorkspaceMember).where(

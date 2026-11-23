@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import type { CurrentUser, ExtensionInstallation, NotificationPolicy } from '../lib/types'
+import type { CurrentUser, ExtensionInstallation, NotificationPolicy, WorkspaceLicenseInfo } from '../lib/types'
 import { Badge } from '../components/primitives/badge'
 import { Button } from '../components/primitives/button'
 import { Field } from '../components/primitives/field'
@@ -1109,8 +1109,20 @@ interface CommunityQuotaResp {
   ad_accounts_used: number
   max_members: number
   members_used: number
+  max_desktop_devices?: number
+  active_desktop_devices?: number
+  plan_expires_at?: string | null
+  license?: WorkspaceLicenseInfo
   invited_by_code: string | null
   is_platform_admin: boolean
+}
+
+function formatLicenseSummary(lic?: WorkspaceLicenseInfo): { label: string; tone: 'positive' | 'caution' | 'attention' | 'neutral' } {
+  if (!lic || lic.status === 'unlimited') return { label: 'Vĩnh viễn', tone: 'positive' }
+  if (lic.status === 'read_only') return { label: 'Chỉ-đọc (Hết hạn)', tone: 'attention' }
+  if (lic.status === 'grace') return { label: 'Ân hạn 3 ngày', tone: 'caution' }
+  if (lic.status === 'expiring') return { label: `Còn ${Math.max(0, lic.days_remaining ?? 0)} ngày`, tone: 'caution' }
+  return { label: `Còn ${Math.max(0, lic.days_remaining ?? 0)} ngày`, tone: 'positive' }
 }
 
 function CommunityQuotaSection({ isOwner }: { isOwner: boolean }) {
@@ -1128,7 +1140,7 @@ function CommunityQuotaSection({ isOwner }: { isOwner: boolean }) {
       setCodeInput('')
       setNotice({
         ok: true,
-        text: `Đã nâng cấp thành công lên gói ${res.plan_tier.toUpperCase()} (${res.max_vias} Via · ${res.max_ad_accounts} TKQC · ${res.max_members} Thành viên)!`,
+        text: `Đã nâng cấp thành công lên gói ${res.plan_tier.toUpperCase()} (${res.max_vias} Via · ${res.max_ad_accounts} TKQC · ${res.max_members} Thành viên · ${res.max_desktop_devices ?? res.license?.max_desktop_devices ?? 2} Máy Desktop)!`,
       })
       void qc.invalidateQueries({ queryKey: ['community-my-quota'] })
       void qc.invalidateQueries({ queryKey: ['me'] })
@@ -1139,6 +1151,7 @@ function CommunityQuotaSection({ isOwner }: { isOwner: boolean }) {
   })
 
   const d = q.data
+  const licSummary = formatLicenseSummary(d?.license)
   const tierLabel =
     d?.plan_tier === 'agency'
       ? '🏢 GÓI AGENCY (FULL)'
@@ -1159,12 +1172,13 @@ function CommunityQuotaSection({ isOwner }: { isOwner: boolean }) {
             <Badge tone={d.community_status === 'active' ? 'positive' : 'attention'}>
               {d.community_status === 'active' ? 'Đang hoạt động' : 'Đang tạm khóa'}
             </Badge>
+            <Badge tone={licSummary.tone}>{licSummary.label}</Badge>
             {d.invited_by_code && (
               <span className="font-mono text-ink-muted">Mã kích hoạt: {d.invited_by_code}</span>
             )}
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-3 text-xs">
+          <div className="grid gap-3 sm:grid-cols-4 text-xs">
             <div className="rounded border border-line bg-surface-sunken p-2.5">
               <div className="text-ink-muted">Tài khoản Via</div>
               <div className="mt-1 font-mono text-sm font-bold text-ink tabular-nums">
@@ -1181,6 +1195,15 @@ function CommunityQuotaSection({ isOwner }: { isOwner: boolean }) {
               <div className="text-ink-muted">Thành viên Team</div>
               <div className="mt-1 font-mono text-sm font-bold text-ink tabular-nums">
                 {d.members_used} / {d.max_members}
+              </div>
+            </div>
+            <div className="rounded border border-line bg-surface-sunken p-2.5">
+              <div className="text-ink-muted">Máy Desktop đang bật</div>
+              <div className="mt-1 font-mono text-sm font-bold text-ink tabular-nums">
+                {d.active_desktop_devices ?? d.license?.active_desktop_devices ?? 0} / {d.max_desktop_devices ?? d.license?.max_desktop_devices ?? 2}
+              </div>
+              <div className="mt-0.5 text-[11px] text-ink-muted">
+                {d.plan_expires_at ? `Hạn: ${new Date(d.plan_expires_at).toLocaleDateString('vi-VN')}` : 'Không giới hạn ngày'}
               </div>
             </div>
           </div>
@@ -1206,9 +1229,7 @@ function CommunityQuotaSection({ isOwner }: { isOwner: boolean }) {
               {notice && (
                 <div
                   className={`rounded-md border px-3 py-2 text-xs font-medium ${
-                    notice.ok
-                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
-                      : 'border-rose-500/40 bg-rose-500/10 text-rose-800 dark:text-rose-200'
+                    notice.ok ? 'tone-positive' : 'tone-attention'
                   }`}
                 >
                   {notice.text}
@@ -1226,6 +1247,8 @@ interface AdminWorkspaceRow {
   id: string
   name: string
   slug: string
+  owner_user_id?: string | null
+  owner_email?: string | null
   plan_tier: string
   max_vias: number
   vias_used: number
@@ -1233,6 +1256,10 @@ interface AdminWorkspaceRow {
   ad_accounts_used: number
   max_members: number
   members_used: number
+  max_desktop_devices?: number
+  active_desktop_devices?: number
+  plan_expires_at?: string | null
+  license?: WorkspaceLicenseInfo
   community_status: string
   invited_by_code: string | null
 }
@@ -1255,6 +1282,7 @@ interface InviteCodeRow {
   max_members: number
   max_uses: number
   used_count: number
+  duration_days?: number | null
   is_active: boolean
 }
 
@@ -1274,7 +1302,9 @@ function CommunitySuperAdminSection() {
   const [newMaxVias, setNewMaxVias] = useState('50')
   const [newMaxAds, setNewMaxAds] = useState('30')
   const [newMaxUses, setNewMaxUses] = useState('25')
+  const [newDurationDays, setNewDurationDays] = useState('30')
   const [adminNotice, setAdminNotice] = useState('')
+  const [generatedResetUrl, setGeneratedResetUrl] = useState<{ email: string; url: string } | null>(null)
 
   const policyMut = useMutation({
     mutationFn: (requireCode: boolean) =>
@@ -1292,16 +1322,19 @@ function CommunitySuperAdminSection() {
   })
 
   const createCodeMut = useMutation({
-    mutationFn: () =>
-      api.post<InviteCodeRow>('/api/v1/community/admin/invite-codes', {
+    mutationFn: () => {
+      const dur = Number.parseInt(newDurationDays, 10)
+      return api.post<InviteCodeRow>('/api/v1/community/admin/invite-codes', {
         label: newLabel.trim(),
         plan_tier: newTier,
         max_vias: Number.parseInt(newMaxVias, 10) || 50,
         max_ad_accounts: Number.parseInt(newMaxAds, 10) || 30,
         max_uses: Number.parseInt(newMaxUses, 10) || 25,
-      }),
+        duration_days: Number.isFinite(dur) && dur > 0 ? dur : null,
+      })
+    },
     onSuccess: (res) => {
-      setAdminNotice(`Đã tạo Mã mời mới: ${res.code} (${res.plan_tier.toUpperCase()}, ${res.max_vias} Via).`)
+      setAdminNotice(`Đã tạo Mã mời mới: ${res.code} (${res.plan_tier.toUpperCase()}, ${res.max_vias} Via${res.duration_days ? `, ${res.duration_days} ngày` : ''}).`)
       void qc.invalidateQueries({ queryKey: ['community-admin-codes'] })
       void qc.invalidateQueries({ queryKey: ['community-admin-overview'] })
     },
@@ -1320,18 +1353,37 @@ function CommunitySuperAdminSection() {
       id,
       plan_tier,
       community_status,
+      extend_months,
     }: {
       id: string
       plan_tier?: string
       community_status?: 'active' | 'suspended'
+      extend_months?: number
     }) =>
       api.patch<AdminWorkspaceRow>(`/api/v1/community/admin/workspaces/${id}`, {
         plan_tier,
         community_status,
+        extend_months,
       }),
-    onSuccess: () => {
+    onSuccess: (res) => {
+      if (res?.plan_expires_at) {
+        setAdminNotice(`Đã cập nhật Workspace ${res.name} (Hạn mới: ${new Date(res.plan_expires_at).toLocaleDateString('vi-VN')}).`)
+      }
       void qc.invalidateQueries({ queryKey: ['community-admin-overview'] })
       void qc.invalidateQueries({ queryKey: ['community-my-quota'] })
+    },
+  })
+
+  const resetLinkMut = useMutation({
+    mutationFn: (userId: string) =>
+      api.post<{ user_id: string; email: string; reset_url: string }>(
+        `/api/v1/community/admin/users/${userId}/reset-link`,
+        {},
+      ),
+    onSuccess: (res) => {
+      setGeneratedResetUrl({ email: res.email, url: res.reset_url })
+      void navigator.clipboard?.writeText(res.reset_url)
+      setAdminNotice(`Đã tạo link Reset Mật khẩu 1 lần (30 phút) cho ${res.email} và chép vào clipboard.`)
     },
   })
 
@@ -1413,7 +1465,7 @@ function CommunitySuperAdminSection() {
                 {createCodeMut.isPending ? 'Đang tạo...' : 'Tạo Mã Mới'}
               </Button>
             </div>
-            <div className="flex flex-wrap gap-2 text-[11px] text-ink-muted">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-ink-muted">
               <span>Max TKQC: {newMaxAds}</span>
               <span>·</span>
               <span>Số lượt nhập tối đa:</span>
@@ -1424,12 +1476,42 @@ function CommunitySuperAdminSection() {
                 onChange={(e) => setNewMaxUses(e.target.value)}
                 aria-label="Số lượt dùng tối đa"
               />
+              <span>·</span>
+              <span>Thời hạn gói (ngày, 0 = vĩnh viễn):</span>
+              <input
+                type="number"
+                className="input w-20 py-0.5 font-mono text-[11px]"
+                value={newDurationDays}
+                onChange={(e) => setNewDurationDays(e.target.value)}
+                aria-label="Thời hạn gói theo ngày"
+              />
             </div>
           </div>
 
           {adminNotice && (
-            <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-800 dark:text-emerald-200">
+            <div className="rounded-md border px-3 py-2 text-xs font-medium tone-positive">
               {adminNotice}
+            </div>
+          )}
+
+          {generatedResetUrl && (
+            <div className="rounded-md border px-3 py-2 text-xs space-y-1 tone-caution">
+              <div className="font-semibold">
+                Link đặt lại mật khẩu 1 lần cho {generatedResetUrl.email} (hiệu lực 30 phút):
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <code className="flex-1 break-all rounded bg-surface px-2 py-1 text-[11px] text-ink">
+                  {generatedResetUrl.url}
+                </code>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => void navigator.clipboard?.writeText(generatedResetUrl.url)}
+                >
+                  Chép link
+                </Button>
+              </div>
             </div>
           )}
 
@@ -1439,7 +1521,7 @@ function CommunitySuperAdminSection() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Mã Mời</TableHead>
-                    <TableHead>Gói / Quota</TableHead>
+                    <TableHead>Gói / Quota / Hạn</TableHead>
                     <TableHead>Lượt dùng</TableHead>
                     <TableHead>Trạng thái</TableHead>
                     <TableHead className="text-right">Thao tác</TableHead>
@@ -1450,7 +1532,8 @@ function CommunitySuperAdminSection() {
                     <TableRow key={c.id}>
                       <TableCell className="font-mono text-xs font-bold">{c.code}</TableCell>
                       <TableCell className="text-xs">
-                        {c.plan_tier.toUpperCase()} ({c.max_vias} Via / {c.max_ad_accounts} TKQC)
+                        {c.plan_tier.toUpperCase()} ({c.max_vias} Via / {c.max_ad_accounts} TKQC ·{' '}
+                        {c.duration_days ? `${c.duration_days} ngày` : 'Vĩnh viễn'})
                       </TableCell>
                       <TableCell className="font-mono text-xs tabular-nums">
                         {c.used_count} / {c.max_uses}
@@ -1491,65 +1574,92 @@ function CommunitySuperAdminSection() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Workspace</TableHead>
-                  <TableHead>Gói hiện tại</TableHead>
-                  <TableHead>Đã dùng (Via / TKQC / Team)</TableHead>
+                  <TableHead>Gói & Hạn</TableHead>
+                  <TableHead>Đã dùng (Via / TKQC / Desktop)</TableHead>
                   <TableHead>Trạng thái</TableHead>
                   <TableHead className="text-right">Quản trị nhanh</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {ov.workspaces.map((w) => (
-                  <TableRow key={w.id}>
-                    <TableCell className="text-xs font-semibold">
-                      {w.name} <span className="font-mono text-[11px] text-ink-faint">({w.slug})</span>
-                    </TableCell>
-                    <TableCell>
-                      <Badge tone={w.plan_tier === 'agency' ? 'positive' : w.plan_tier === 'pro' ? 'caution' : 'neutral'}>
-                        {w.plan_tier.toUpperCase()}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-mono text-xs tabular-nums">
-                      {w.vias_used}/{w.max_vias} Via · {w.ad_accounts_used}/{w.max_ad_accounts} TKQC · {w.members_used}/{w.max_members}
-                    </TableCell>
-                    <TableCell>
-                      <Badge tone={w.community_status === 'active' ? 'positive' : 'attention'}>
-                        {w.community_status === 'active' ? 'Hoạt động' : 'Tạm khóa'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right space-x-1.5">
-                      {w.plan_tier !== 'pro' && (
+                {ov.workspaces.map((w) => {
+                  const wLic = formatLicenseSummary(w.license)
+                  return (
+                    <TableRow key={w.id}>
+                      <TableCell className="text-xs font-semibold">
+                        <div>
+                          {w.name} <span className="font-mono text-[11px] text-ink-faint">({w.slug})</span>
+                        </div>
+                        {w.owner_email && (
+                          <div className="text-[11px] font-normal text-ink-muted">{w.owner_email}</div>
+                        )}
+                      </TableCell>
+                      <TableCell className="space-x-1">
+                        <Badge tone={w.plan_tier === 'agency' ? 'positive' : w.plan_tier === 'pro' ? 'caution' : 'neutral'}>
+                          {w.plan_tier.toUpperCase()}
+                        </Badge>
+                        <Badge tone={wLic.tone}>{wLic.label}</Badge>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs tabular-nums">
+                        {w.vias_used}/{w.max_vias} Via · {w.ad_accounts_used}/{w.max_ad_accounts} TKQC ·{' '}
+                        {w.active_desktop_devices ?? 0}/{w.max_desktop_devices ?? 2} PC
+                      </TableCell>
+                      <TableCell>
+                        <Badge tone={w.community_status === 'active' ? 'positive' : 'attention'}>
+                          {w.community_status === 'active' ? 'Hoạt động' : 'Tạm khóa'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right space-x-1.5">
+                        {w.plan_tier !== 'pro' && (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() => patchWsMut.mutate({ id: w.id, plan_tier: 'pro' })}
+                          >
+                            Lên Pro
+                          </Button>
+                        )}
+                        {w.plan_tier !== 'agency' && (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() => patchWsMut.mutate({ id: w.id, plan_tier: 'agency' })}
+                          >
+                            Lên Agency
+                          </Button>
+                        )}
                         <Button
                           type="button"
                           variant="secondary"
-                          onClick={() => patchWsMut.mutate({ id: w.id, plan_tier: 'pro' })}
+                          onClick={() => patchWsMut.mutate({ id: w.id, extend_months: 1 })}
                         >
-                          Lên Pro
+                          +1 tháng
                         </Button>
-                      )}
-                      {w.plan_tier !== 'agency' && (
+                        {w.owner_user_id && (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            disabled={resetLinkMut.isPending}
+                            onClick={() => resetLinkMut.mutate(w.owner_user_id!)}
+                          >
+                            Link Reset MK
+                          </Button>
+                        )}
                         <Button
                           type="button"
-                          variant="secondary"
-                          onClick={() => patchWsMut.mutate({ id: w.id, plan_tier: 'agency' })}
+                          variant={w.community_status === 'active' ? 'destructive' : 'secondary'}
+                          onClick={() =>
+                            patchWsMut.mutate({
+                              id: w.id,
+                              community_status: w.community_status === 'active' ? 'suspended' : 'active',
+                            })
+                          }
                         >
-                          Lên Agency
+                          {w.community_status === 'active' ? 'Khóa' : 'Mở khóa'}
                         </Button>
-                      )}
-                      <Button
-                        type="button"
-                        variant={w.community_status === 'active' ? 'destructive' : 'secondary'}
-                        onClick={() =>
-                          patchWsMut.mutate({
-                            id: w.id,
-                            community_status: w.community_status === 'active' ? 'suspended' : 'active',
-                          })
-                        }
-                      >
-                        {w.community_status === 'active' ? 'Khóa' : 'Mở khóa'}
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
               </TableBody>
             </Table>
           </div>

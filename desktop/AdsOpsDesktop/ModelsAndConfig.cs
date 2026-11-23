@@ -244,6 +244,45 @@ public sealed class DesktopConfig
     public string LastAutoEmbryoSpawnUtc { get; set; } = "";
     public Dictionary<string, string> ViaLastPreBakeAtUtc { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public List<string> NotifiedReadyEmbryoIds { get; set; } = new();
+    // v4.4.0 Installation identity (no hardware serials) & Portable Auto-Backup Vault
+    public string InstallationId { get; set; } = "";
+    public string EncryptedPortableBackupPassphraseBase64 { get; set; } = "";
+    public string CustomAutoBackupFolder { get; set; } = "";
+
+    public string GetOrCreateInstallationId(string? customPath = null)
+    {
+        if (!string.IsNullOrWhiteSpace(InstallationId) && InstallationId.Trim().Length >= 16)
+        {
+            return InstallationId.Trim().ToLowerInvariant();
+        }
+        InstallationId = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        try { Save(customPath); } catch { }
+        return InstallationId;
+    }
+
+    public string GetPortableBackupPassphrase()
+    {
+        try
+        {
+            return string.IsNullOrWhiteSpace(EncryptedPortableBackupPassphraseBase64)
+                ? ""
+                : WindowsDpapi.UnprotectString(EncryptedPortableBackupPassphraseBase64);
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    public void SetPortableBackupPassphrase(string? plain)
+    {
+        EncryptedPortableBackupPassphraseBase64 = string.IsNullOrWhiteSpace(plain)
+            ? ""
+            : WindowsDpapi.ProtectString(plain.Trim());
+    }
+
+    [JsonIgnore]
+    public bool HasPortableBackupPassphrase => GetPortableBackupPassphrase().Length >= 6;
 
     [JsonIgnore]
     public string AccessToken
@@ -413,6 +452,7 @@ public sealed class DesktopConfig
         copy.EncryptedPasswordBase64 = "";
         copy.EncryptedBridgeTokenBase64 = "";
         copy.EncryptedAntidetectApiKeyBase64 = "";
+        copy.EncryptedPortableBackupPassphraseBase64 = "";
         return copy;
     }
 
@@ -510,6 +550,10 @@ public sealed class DesktopConfig
         if (!string.IsNullOrWhiteSpace(src.LastAutoVaultBackupDateLocal))
         {
             LastAutoVaultBackupDateLocal = src.LastAutoVaultBackupDateLocal.Trim();
+        }
+        if (!string.IsNullOrWhiteSpace(src.CustomAutoBackupFolder))
+        {
+            CustomAutoBackupFolder = src.CustomAutoBackupFolder.Trim();
         }
         EnableInternalPageCrossWarmup = src.EnableInternalPageCrossWarmup;
         EnablePreAdsManagerWarmup = src.EnablePreAdsManagerWarmup;
@@ -1056,6 +1100,18 @@ public sealed class LoginResponseDto
     [JsonPropertyName("expires_at")] public string? ExpiresAt { get; set; }
 }
 
+public sealed class WorkspaceLicenseDto
+{
+    [JsonPropertyName("status")] public string Status { get; set; } = "unlimited";
+    [JsonPropertyName("is_read_only")] public bool IsReadOnly { get; set; }
+    [JsonPropertyName("plan_tier")] public string PlanTier { get; set; } = "agency";
+    [JsonPropertyName("plan_expires_at")] public string? PlanExpiresAt { get; set; }
+    [JsonPropertyName("grace_ends_at")] public string? GraceEndsAt { get; set; }
+    [JsonPropertyName("days_remaining")] public int? DaysRemaining { get; set; }
+    [JsonPropertyName("max_desktop_devices")] public int MaxDesktopDevices { get; set; } = 10;
+    [JsonPropertyName("active_desktop_devices")] public int? ActiveDesktopDevices { get; set; }
+}
+
 public sealed class WorkspaceDto
 {
     [JsonPropertyName("id")] public string Id { get; set; } = "";
@@ -1065,7 +1121,10 @@ public sealed class WorkspaceDto
     [JsonPropertyName("max_vias")] public int MaxVias { get; set; } = 500;
     [JsonPropertyName("max_ad_accounts")] public int MaxAdAccounts { get; set; } = 500;
     [JsonPropertyName("max_members")] public int MaxMembers { get; set; } = 25;
+    [JsonPropertyName("max_desktop_devices")] public int? MaxDesktopDevices { get; set; }
+    [JsonPropertyName("plan_expires_at")] public string? PlanExpiresAt { get; set; }
     [JsonPropertyName("community_status")] public string CommunityStatus { get; set; } = "active";
+    [JsonPropertyName("license")] public WorkspaceLicenseDto? License { get; set; }
 }
 
 public sealed class CurrentUserDto
@@ -2996,6 +3055,7 @@ public sealed class DeviceSessionDto
 {
     [JsonPropertyName("id")] public string Id { get; set; } = "";
     [JsonPropertyName("session_type")] public string? SessionType { get; set; }
+    [JsonPropertyName("client_channel")] public string? ClientChannel { get; set; }
     [JsonPropertyName("label")] public string? Label { get; set; }
     [JsonPropertyName("browser_family")] public string? BrowserFamily { get; set; }
     [JsonPropertyName("os_family")] public string? OsFamily { get; set; }
@@ -3418,8 +3478,8 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "4.2.0";
-    public const string DisplayVersion = "v4.2.0";
+    public const string Version = "4.4.0";
+    public const string DisplayVersion = "v4.4.0";
     public const string ExtVersion = "2.10.4";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 
@@ -3658,6 +3718,10 @@ public sealed class CommunityQuotaDto
     [JsonPropertyName("ad_accounts_used")] public int AdAccountsUsed { get; set; }
     [JsonPropertyName("max_members")] public int MaxMembers { get; set; } = 2;
     [JsonPropertyName("members_used")] public int MembersUsed { get; set; }
+    [JsonPropertyName("max_desktop_devices")] public int? MaxDesktopDevices { get; set; }
+    [JsonPropertyName("active_desktop_devices")] public int? ActiveDesktopDevices { get; set; }
+    [JsonPropertyName("plan_expires_at")] public string? PlanExpiresAt { get; set; }
+    [JsonPropertyName("license")] public WorkspaceLicenseDto? License { get; set; }
     [JsonPropertyName("invited_by_code")] public string? InvitedByCode { get; set; }
     [JsonPropertyName("is_platform_admin")] public bool IsPlatformAdmin { get; set; }
 }
@@ -3777,6 +3841,7 @@ public static class BinaryIntegrityInspector
 public sealed class UpdateManifestDto
 {
     [JsonPropertyName("version")] public string Version { get; set; } = string.Empty;
+    [JsonPropertyName("min_supported_version")] public string MinSupportedVersion { get; set; } = string.Empty;
     [JsonPropertyName("ext_version")] public string ExtVersion { get; set; } = string.Empty;
     [JsonPropertyName("release_notes")] public string ReleaseNotes { get; set; } = string.Empty;
     [JsonPropertyName("download_url")] public string DownloadUrl { get; set; } = string.Empty;
@@ -3791,13 +3856,15 @@ public sealed class SelfUpdateCheckResultDto
 {
     public bool Ok { get; set; }
     public bool UpdateAvailable { get; set; }
+    public bool UpdateRequired { get; set; }
+    public string MinSupportedVersion { get; set; } = string.Empty;
     public string CurrentVersion { get; set; } = DesktopAppInfo.Version;
     public string LatestVersion { get; set; } = string.Empty;
     public UpdateManifestDto? Manifest { get; set; }
     public string? Error { get; set; }
 }
 
-/// <summary>Kiểm tra manifest phát hành, tải gói ZIP an toàn (hỗ trợ đa mirror CDN) và chạy script PowerShell tự cập nhật EXE.</summary>
+/// <summary>Kiểm tra manifest phát hành, tải stream gói ZIP an toàn (hỗ trợ đa mirror CDN, SHA-256 trên disk) và chạy script PowerShell tự cập nhật EXE kèm rollback .bak.</summary>
 public static class SelfUpdateService
 {
     public static bool IsNewerVersion(string? candidate, string current = DesktopAppInfo.Version)
@@ -3835,10 +3902,14 @@ public static class SelfUpdateService
             {
                 return new SelfUpdateCheckResultDto { Ok = false, Error = "Manifest cập nhật thiếu trường version." };
             }
+            var minSup = (manifest.MinSupportedVersion ?? string.Empty).Trim();
+            var updateRequired = !string.IsNullOrWhiteSpace(minSup) && IsNewerVersion(minSup, DesktopAppInfo.Version);
             return new SelfUpdateCheckResultDto
             {
                 Ok = true,
                 UpdateAvailable = IsNewerVersion(manifest.Version, DesktopAppInfo.Version),
+                UpdateRequired = updateRequired,
+                MinSupportedVersion = minSup,
                 CurrentVersion = DesktopAppInfo.Version,
                 LatestVersion = manifest.Version,
                 Manifest = manifest,
@@ -3850,6 +3921,49 @@ public static class SelfUpdateService
         }
     }
 
+    public static string BuildSafeApplyUpdateScript(
+        int currentPid,
+        string stagingDir,
+        string appDir,
+        string zipPath,
+        string exeName = "AdsOpsDesktop.exe")
+    {
+        static string EscPs(string s) => s.Replace("'", "''");
+        var exePath = Path.Combine(appDir, exeName);
+        var psLines = new[]
+        {
+            $"$targetPid = {currentPid}",
+            $"$staging = '{EscPs(stagingDir)}'",
+            $"$dest = '{EscPs(appDir)}'",
+            $"$zip = '{EscPs(zipPath)}'",
+            $"$exe = '{EscPs(exePath)}'",
+            "$bak = \"$exe.bak\"",
+            "for ($i = 0; $i -lt 60; $i++) {",
+            "  $p = Get-Process -Id $targetPid -ErrorAction SilentlyContinue",
+            "  if (-not $p) { break }",
+            "  Start-Sleep -Milliseconds 500",
+            "}",
+            "try {",
+            "  if (Test-Path $exe) {",
+            "    Copy-Item -Path $exe -Destination $bak -Force",
+            "  }",
+            "  Copy-Item -Path (Join-Path $staging '*') -Destination $dest -Recurse -Force",
+            "  if (-not (Test-Path $exe)) {",
+            "    throw 'New executable missing after copy'",
+            "  }",
+            "} catch {",
+            "  if (Test-Path $bak) {",
+            "    Copy-Item -Path $bak -Destination $exe -Force -ErrorAction SilentlyContinue",
+            "  }",
+            "} finally {",
+            "  Remove-Item -Path $staging -Recurse -Force -ErrorAction SilentlyContinue",
+            "  Remove-Item -Path $zip -Force -ErrorAction SilentlyContinue",
+            "}",
+            "if (Test-Path $exe) { Start-Process -FilePath $exe }",
+        };
+        return string.Join("\r\n", psLines) + "\r\n";
+    }
+
     public static async Task<string> DownloadValidateExtractAndSpawnUpdaterAsync(
         HttpClient http,
         UpdateManifestDto manifest,
@@ -3857,7 +3971,8 @@ public static class SelfUpdateService
         string appDir,
         string exeName = "AdsOpsDesktop.exe",
         Action<string>? log = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        Action<int>? onProgressPercent = null)
     {
         var candidateUrls = new List<string>();
         if (!string.IsNullOrWhiteSpace(manifest.DownloadUrl)) candidateUrls.Add(manifest.DownloadUrl.Trim());
@@ -3883,42 +3998,83 @@ public static class SelfUpdateService
         var zipPath = Path.Combine(rootTemp, $"update_{stamp}.zip");
         var stagingDir = Path.Combine(rootTemp, $"staging_{stamp}");
 
-        byte[]? zipBytes = null;
+        bool downloadedOk = false;
         Exception? lastErr = null;
         foreach (var srcUrl in candidateUrls)
         {
             try
             {
-                log?.Invoke($"Đang tải bản cập nhật {manifest.Version} từ {srcUrl}...");
-                var candidateBytes = await http.GetByteArrayAsync(srcUrl, ct);
-                if (candidateBytes.Length < 100 || candidateBytes[0] != 0x50 || candidateBytes[1] != 0x4B)
+                log?.Invoke($"Đang tải stream bản cập nhật {manifest.Version} từ {srcUrl}...");
+                using var resp = await http.GetAsync(srcUrl, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode)
                 {
-                    throw new InvalidDataException("Tệp tải về không phải định dạng ZIP hợp lệ (PK header mismatch).");
+                    throw new HttpRequestException($"HTTP {(int)resp.StatusCode} từ {srcUrl}");
                 }
-                if (!string.IsNullOrWhiteSpace(manifest.Sha256))
+
+                var totalBytes = resp.Content.Headers.ContentLength ?? (manifest.SizeBytes > 0 ? manifest.SizeBytes : 0L);
+                await using (var remoteStream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false))
+                await using (var fs = new FileStream(zipPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
                 {
-                    var actualHash = Convert.ToHexString(SHA256.HashData(candidateBytes)).ToLowerInvariant();
-                    if (!string.Equals(actualHash, manifest.Sha256.Trim().ToLowerInvariant(), StringComparison.Ordinal))
+                    var buffer = new byte[81920];
+                    long written = 0;
+                    int lastReportedPct = -1;
+                    int read;
+                    while ((read = await remoteStream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct).ConfigureAwait(false)) > 0)
                     {
-                        throw new InvalidDataException("Mã kiểm tra SHA-256 gói cập nhật không khớp.");
+                        await fs.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
+                        written += read;
+                        if (totalBytes > 0 && onProgressPercent != null)
+                        {
+                            var pct = (int)Math.Clamp((written * 100L) / totalBytes, 0L, 100L);
+                            if (pct >= lastReportedPct + 10 || pct == 100)
+                            {
+                                lastReportedPct = pct;
+                                onProgressPercent(pct);
+                            }
+                        }
+                    }
+                    await fs.FlushAsync(ct).ConfigureAwait(false);
+                }
+
+                var fi = new FileInfo(zipPath);
+                if (!fi.Exists || fi.Length < 100)
+                {
+                    throw new InvalidDataException("Tệp tải về rỗng hoặc không đầy đủ.");
+                }
+                await using (var verifyFs = File.OpenRead(zipPath))
+                {
+                    var sig = new byte[2];
+                    if (await verifyFs.ReadAsync(sig.AsMemory(0, 2), ct).ConfigureAwait(false) < 2 || sig[0] != 0x50 || sig[1] != 0x4B)
+                    {
+                        throw new InvalidDataException("Tệp tải về không phải định dạng ZIP hợp lệ (PK header mismatch).");
+                    }
+                    if (!string.IsNullOrWhiteSpace(manifest.Sha256))
+                    {
+                        verifyFs.Position = 0;
+                        var hashBytes = await SHA256.HashDataAsync(verifyFs, ct).ConfigureAwait(false);
+                        var actualHash = Convert.ToHexString(hashBytes).ToLowerInvariant();
+                        if (!string.Equals(actualHash, manifest.Sha256.Trim().ToLowerInvariant(), StringComparison.Ordinal))
+                        {
+                            throw new InvalidDataException("Mã kiểm tra SHA-256 gói cập nhật không khớp.");
+                        }
                     }
                 }
-                zipBytes = candidateBytes;
+                downloadedOk = true;
                 break;
             }
             catch (Exception ex)
             {
                 lastErr = ex;
+                try { if (File.Exists(zipPath)) File.Delete(zipPath); } catch { }
                 log?.Invoke($"Nguồn {srcUrl} thất bại ({ex.Message}), thử mirror tiếp theo...");
             }
         }
 
-        if (zipBytes == null)
+        if (!downloadedOk)
         {
             throw lastErr ?? new InvalidOperationException("Không tải được gói cập nhật từ bất kỳ nguồn nào.");
         }
 
-        await File.WriteAllBytesAsync(zipPath, zipBytes, ct);
         Directory.CreateDirectory(stagingDir);
         ZipFile.ExtractToDirectory(zipPath, stagingDir, overwriteFiles: true);
 
@@ -3929,29 +4085,12 @@ public static class SelfUpdateService
         }
 
         var psScriptPath = Path.Combine(rootTemp, "apply_update.ps1");
-        static string EscPs(string s) => s.Replace("'", "''");
-        var psLines = new[]
-        {
-            $"$targetPid = {currentPid}",
-            $"$staging = '{EscPs(stagingDir)}'",
-            $"$dest = '{EscPs(appDir)}'",
-            $"$zip = '{EscPs(zipPath)}'",
-            $"$exe = '{EscPs(Path.Combine(appDir, exeName))}'",
-            "for ($i = 0; $i -lt 60; $i++) {",
-            "  $p = Get-Process -Id $targetPid -ErrorAction SilentlyContinue",
-            "  if (-not $p) { break }",
-            "  Start-Sleep -Milliseconds 500",
-            "}",
-            "Copy-Item -Path (Join-Path $staging '*') -Destination $dest -Recurse -Force",
-            "Remove-Item -Path $staging -Recurse -Force -ErrorAction SilentlyContinue",
-            "Remove-Item -Path $zip -Force -ErrorAction SilentlyContinue",
-            "if (Test-Path $exe) { Start-Process -FilePath $exe }",
-        };
+        var scriptText = BuildSafeApplyUpdateScript(currentPid, stagingDir, appDir, zipPath, exeName);
         await File.WriteAllTextAsync(
             psScriptPath,
-            string.Join("\r\n", psLines) + "\r\n",
+            scriptText,
             new UTF8Encoding(encoderShouldEmitUTF8Identifier: true),
-            ct);
+            ct).ConfigureAwait(false);
 
         var psi = new ProcessStartInfo
         {
@@ -3961,7 +4100,7 @@ public static class SelfUpdateService
             CreateNoWindow = true,
         };
         Process.Start(psi);
-        log?.Invoke($"Đã sẵn sàng cập nhật v{manifest.Version}, đang khởi động lại ứng dụng...");
+        log?.Invoke($"Đã sẵn sàng cập nhật v{manifest.Version}, đang sao lưu .bak và khởi động lại ứng dụng...");
         return stagingDir;
     }
 }

@@ -83,6 +83,10 @@ class Workspace(UUIDPrimaryKey, Timestamped, Archivable, Base):
         sa.String(32), nullable=False, default="active", server_default="active"
     )
     invited_by_code: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
+    plan_expires_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    max_desktop_devices: Mapped[int | None] = mapped_column(sa.Integer(), nullable=True)
 
 
 class CommunityInviteCode(UUIDPrimaryKey, Timestamped, Base):
@@ -98,6 +102,7 @@ class CommunityInviteCode(UUIDPrimaryKey, Timestamped, Base):
     used_count: Mapped[int] = mapped_column(sa.Integer(), nullable=False, default=0)
     is_active: Mapped[bool] = mapped_column(sa.Boolean(), nullable=False, default=True)
     expires_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
+    duration_days: Mapped[int | None] = mapped_column(sa.Integer(), nullable=True)
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         sa.Uuid(), sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -607,3 +612,21 @@ class AutomationPlaybookRating(UUIDPrimaryKey, Timestamped, Base):
     )
     stars: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
     comment: Mapped[str] = mapped_column(sa.String(400), nullable=False, default="")
+
+
+class PasswordResetToken(UUIDPrimaryKey, Timestamped, Base):
+    """Single-use password reset token; only its SHA-256 hash is ever persisted."""
+
+    __tablename__ = "password_reset_tokens"
+    __table_args__ = (
+        sa.UniqueConstraint("token_hash", name="uq_password_reset_tokens_hash"),
+        sa.Index("ix_password_reset_tokens_user_id", "user_id"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    token_hash: Mapped[str] = mapped_column(sa.String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
+    requested_ip_hash: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)

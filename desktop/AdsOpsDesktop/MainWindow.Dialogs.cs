@@ -3446,8 +3446,29 @@ internal sealed partial class MainWindow
             try
             {
                 _config.UserEmail = tbEmail.Text.Trim();
-                _api.Configure(_config.BackendBaseUrl, "");
-                var loginRes = await _api.LoginAsync(_config.UserEmail, pbPass.Password);
+                _api.Configure(_config.BackendBaseUrl, "", installationId: _config.GetOrCreateInstallationId());
+                LoginResponseDto loginRes;
+                try
+                {
+                    loginRes = await _api.LoginAsync(_config.UserEmail, pbPass.Password);
+                }
+                catch (DeviceLimitReachedException dlEx)
+                {
+                    var replaceOk = UiComponents.ShowConfirmActionDialog(
+                        this,
+                        "Đã đạt giới hạn Thiết bị Desktop",
+                        dlEx.Message,
+                        new (string, string)[] { ("Hành động:", "Đăng xuất máy Desktop cũ nhất và đăng nhập máy này") },
+                        "Dữ liệu Chrome Profile/Két local trên máy cũ không bị xóa, chỉ thu hồi phiên Cloud của máy cũ nhất.",
+                        "Thay thế & Đăng nhập");
+                    if (!replaceOk)
+                    {
+                        errTb.Text = dlEx.Message;
+                        okBtn.IsEnabled = true;
+                        return;
+                    }
+                    loginRes = await _api.LoginAsync(_config.UserEmail, pbPass.Password, replaceOldestDevice: true);
+                }
                 _config.SetJwt(loginRes.AccessToken);
                 _config.SetSavedPassword(pbPass.Password);
                 _config.Save();

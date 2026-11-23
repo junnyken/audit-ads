@@ -32,11 +32,31 @@ import { useI18n } from '../i18n'
 import { api, ApiError } from '../lib/api'
 import { downloadChromeExtensionZip } from '../lib/chromeProfileLauncher'
 
+export function normalizeCanonicalEmail(raw: string): string {
+  const clean = (raw || '').trim().toLowerCase()
+  const atIdx = clean.lastIndexOf('@')
+  if (atIdx <= 0) return clean
+  let localPart = clean.slice(0, atIdx)
+  let domain = clean.slice(atIdx + 1).replace(/\.+$/, '')
+  if ((domain === 'gmail.com' || domain === 'googlemail.com') && !localPart.includes('+')) {
+    localPart = localPart.replace(/\./g, '')
+    domain = 'gmail.com'
+  }
+  return `${localPart}@${domain}`
+}
+
 export default function Login() {
   const { signIn, registerAccount } = useAuth()
   const { t, language } = useI18n()
   const isEn = language === 'en'
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
+  const initialResetToken =
+    typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('reset_token') ?? '' : ''
+  const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot' | 'reset'>(
+    initialResetToken.trim().length > 0 ? 'reset' : 'login',
+  )
+  const [resetToken, setResetToken] = useState(initialResetToken)
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [infoNotice, setInfoNotice] = useState<string | null>(null)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [fullName, setFullName] = useState('')
@@ -83,7 +103,9 @@ export default function Login() {
   const emailCheckStatus = useMemo(() => {
     const raw = email.trim().toLowerCase()
     if (!raw || !raw.includes('@')) return null
-    const [localPart, domain] = raw.split('@')
+    const atIdx = raw.lastIndexOf('@')
+    const localPart = raw.slice(0, atIdx)
+    const domain = raw.slice(atIdx + 1).replace(/\.+$/, '')
     if (!localPart || !domain) return null
     if (localPart.includes('+')) {
       return {
@@ -93,12 +115,14 @@ export default function Login() {
           : 'Chặn email phụ chứa dấu "+" (alias) để chống tạo tài khoản ảo hàng loạt.',
       }
     }
-    if (localPart.length < 3 || /^\d+$/.test(localPart)) {
+    const canonical = normalizeCanonicalEmail(raw)
+    const canonLocal = canonical.slice(0, canonical.lastIndexOf('@'))
+    if (localPart.length < 3 || /^\d+$/.test(localPart) || canonLocal.length < 3 || /^\d+$/.test(canonLocal)) {
       return {
         ok: false,
         msg: isEn
-          ? 'Email username must be at least 3 characters and not pure digits.'
-          : 'Tên email trước dấu @ phải từ 3 ký tự và không được chỉ gồm chữ số.',
+          ? 'Email username must be at least 3 characters (excluding Gmail dots) and not pure digits.'
+          : 'Tên email trước dấu @ phải từ 3 ký tự hợp lệ (không tính dấu chấm Gmail) và không được chỉ gồm chữ số.',
       }
     }
     const disposableKeywords = [
@@ -194,9 +218,57 @@ export default function Login() {
     event.preventDefault()
     setBusy(true)
     setError(null)
+    setInfoNotice(null)
     try {
       if (authMode === 'login') {
-        await signIn(email, password)
+        await signIn(normalizeCanonicalEmail(email), password)
+      } else if (authMode === 'forgot') {
+        const canonical = normalizeCanonicalEmail(email)
+        const res = await api.post<{ status: string; message?: string }>('/api/v1/auth/forgot-password', {
+          email: canonical,
+        })
+        setInfoNotice(
+          res?.message ||
+            (isEn
+              ? 'If this email is registered, password reset instructions have been sent (valid 30m). If SMTP is not configured on this workspace, ask your Super-Admin for a 1-time reset link.'
+              : 'Nếu email đã đăng ký trên hệ thống, hướng dẫn đặt lại mật khẩu đã được tạo (hiệu lực 30 phút). Nếu máy chủ chưa bật SMTP, vui lòng liên hệ Quản trị viên để nhận link reset 1 lần.'),
+        )
+      } else if (authMode === 'reset') {
+        if (!resetToken.trim()) {
+          throw new Error(
+            isEn
+              ? 'Missing or invalid password reset token in URL.'
+              : 'Liên kết đặt lại mật khẩu thiếu mã xác thực.',
+          )
+        }
+        if (password.length < 8 || !/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/\d/.test(password)) {
+          throw new Error(
+            isEn
+              ? 'New password must be at least 8 characters and include uppercase, lowercase, and a digit.'
+              : 'Mật khẩu mới phải từ 8 ký tự, gồm chữ Hoa, chữ thường và chữ số.',
+          )
+        }
+        if (password !== confirmPassword) {
+          throw new Error(
+            isEn ? 'Confirmation password does not match.' : 'Mật khẩu xác nhận chưa trùng khớp.',
+          )
+        }
+        await api.post('/api/v1/auth/reset-password', {
+          token: resetToken.trim(),
+          new_password: password,
+        })
+        if (typeof window !== 'undefined' && window.history?.replaceState) {
+          window.history.replaceState({}, '', window.location.pathname)
+        }
+        setResetToken('')
+        setPassword('')
+        setConfirmPassword('')
+        setAuthMode('login')
+        setInfoNotice(
+          isEn
+            ? 'Password updated cleanly. All older device sessions were signed out — please sign in with your new password.'
+            : 'Đổi mật khẩu thành công. Toàn bộ phiên đăng nhập cũ đã được đăng xuất — vui lòng đăng nhập lại bằng mật khẩu mới.',
+        )
       } else {
         if (!challenge?.challenge_token) {
           await loadBotChallenge()
@@ -209,7 +281,7 @@ export default function Login() {
         await registerAccount({
           full_name: fullName.trim(),
           workspace_name: workspaceName.trim(),
-          email: email.trim(),
+          email: normalizeCanonicalEmail(email),
           password,
           challenge_token: challenge.challenge_token,
           captcha_code: captchaCode.trim(),
@@ -516,9 +588,10 @@ export default function Login() {
                     onClick={() => {
                       setAuthMode('login')
                       setError(null)
+                      setInfoNotice(null)
                     }}
                     className={`rounded-md py-2 transition-colors ${
-                      authMode === 'login'
+                      authMode === 'login' || authMode === 'forgot' || authMode === 'reset'
                         ? 'bg-brand text-brand-fg shadow-xs'
                         : 'text-ink-muted hover:text-ink'
                     }`}
@@ -530,6 +603,7 @@ export default function Login() {
                     onClick={() => {
                       setAuthMode('register')
                       setError(null)
+                      setInfoNotice(null)
                       void loadBotChallenge()
                     }}
                     className={`rounded-md py-2 transition-colors ${
@@ -553,6 +627,28 @@ export default function Login() {
                         : 'Bảo vệ bởi mã hóa Fernet AES-128, PBKDF2-SHA256 & Kiểm soát phiên theo thiết bị.'}
                     </p>
                   </>
+                ) : authMode === 'forgot' ? (
+                  <>
+                    <h2 className="text-base font-bold text-ink">
+                      {isEn ? 'Recover Account Password' : 'Khôi phục Mật khẩu Đăng nhập'}
+                    </h2>
+                    <p className="mt-1 text-xs text-ink-muted">
+                      {isEn
+                        ? 'Enter your registered email to receive a 30-minute one-time password reset link.'
+                        : 'Nhập email đã đăng ký để nhận liên kết đặt lại mật khẩu 1 lần (hiệu lực 30 phút).'}
+                    </p>
+                  </>
+                ) : authMode === 'reset' ? (
+                  <>
+                    <h2 className="text-base font-bold text-ink">
+                      {isEn ? 'Set a New Strong Password' : 'Đặt Lại Mật khẩu Mới'}
+                    </h2>
+                    <p className="mt-1 text-xs text-ink-muted">
+                      {isEn
+                        ? 'All existing device sessions will be signed out immediately once you update your password.'
+                        : 'Mọi phiên đăng nhập trên các thiết bị cũ sẽ bị thu hồi ngay sau khi bạn đổi mật khẩu.'}
+                    </p>
+                  </>
                 ) : (
                   <div className="rounded-lg border border-brand/30 bg-brand-light/20 p-3 space-y-1">
                     <div className="text-xs font-bold text-ink flex items-center gap-1.5">
@@ -572,6 +668,14 @@ export default function Login() {
                 )}
 
                 <form onSubmit={submit} className="mt-4 space-y-3.5">
+                  {infoNotice && (
+                    <div
+                      role="status"
+                      className="rounded-md border px-3 py-2 text-xs font-medium tone-positive"
+                    >
+                      {infoNotice}
+                    </div>
+                  )}
                   {error && (
                     <div
                       role="alert"
@@ -621,67 +725,106 @@ export default function Login() {
                     </div>
                   )}
 
-                  <Field
-                    label={
-                      authMode === 'register'
-                        ? isEn
-                          ? 'Official Email (Gmail, Outlook, iCloud, Yahoo, .vn)'
-                          : 'Email chính thống (Gmail, Outlook, iCloud, Yahoo, .vn)'
-                        : t('login.email')
-                    }
-                    htmlFor="login-email"
-                    required
-                  >
-                    <input
-                      id="login-email"
-                      type="email"
-                      autoComplete="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder={
+                  {authMode !== 'reset' && (
+                    <Field
+                      label={
                         authMode === 'register'
-                          ? 'tenban@gmail.com / outlook.com / icloud.com'
-                          : 'name@company.com'
+                          ? isEn
+                            ? 'Official Email (Gmail, Outlook, iCloud, Yahoo, .vn)'
+                            : 'Email chính thống (Gmail, Outlook, iCloud, Yahoo, .vn)'
+                          : t('login.email')
                       }
-                      className="w-full rounded-md border border-line-strong bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-subtle focus:border-brand focus:outline-none"
-                    />
-                    {authMode === 'register' && emailCheckStatus && (
-                      <div
-                        className={`mt-1.5 rounded px-2.5 py-1 text-[11px] font-medium ${
-                          emailCheckStatus.ok
-                            ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
-                            : 'border border-danger-line bg-danger-soft text-danger-ink'
-                        }`}
-                      >
-                        {emailCheckStatus.msg}
-                      </div>
-                    )}
-                  </Field>
-
-                  <Field
-                    label={
-                      authMode === 'register'
-                        ? isEn
-                          ? 'Strong Password (≥ 8 chars, Uppercase, Lowercase & Number)'
-                          : 'Mật khẩu bảo mật (≥ 8 ký tự, có chữ Hoa, chữ thường & số)'
-                        : t('login.password')
-                    }
-                    htmlFor="login-password"
-                    required
-                  >
-                    <input
-                      id="login-password"
-                      type="password"
-                      autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
+                      htmlFor="login-email"
                       required
-                      minLength={8}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full rounded-md border border-line-strong bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-subtle focus:border-brand focus:outline-none"
-                    />
-                  </Field>
+                    >
+                      <input
+                        id="login-email"
+                        type="email"
+                        autoComplete="email"
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder={
+                          authMode === 'register'
+                            ? 'tenban@gmail.com / outlook.com / icloud.com'
+                            : 'name@company.com'
+                        }
+                        className="w-full rounded-md border border-line-strong bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-subtle focus:border-brand focus:outline-none"
+                      />
+                      {authMode === 'register' && emailCheckStatus && (
+                        <div
+                          className={`mt-1.5 rounded border px-2.5 py-1 text-[11px] font-medium ${
+                            emailCheckStatus.ok ? 'tone-positive' : 'border-danger-line bg-danger-soft text-danger-ink'
+                          }`}
+                        >
+                          {emailCheckStatus.msg}
+                        </div>
+                      )}
+                    </Field>
+                  )}
+
+                  {authMode !== 'forgot' && (
+                    <Field
+                      label={
+                        authMode === 'register' || authMode === 'reset'
+                          ? isEn
+                            ? 'Strong Password (≥ 8 chars, Uppercase, Lowercase & Number)'
+                            : 'Mật khẩu bảo mật (≥ 8 ký tự, có chữ Hoa, chữ thường & số)'
+                          : t('login.password')
+                      }
+                      htmlFor="login-password"
+                      required
+                    >
+                      <input
+                        id="login-password"
+                        type="password"
+                        autoComplete={
+                          authMode === 'register' || authMode === 'reset' ? 'new-password' : 'current-password'
+                        }
+                        required
+                        minLength={8}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full rounded-md border border-line-strong bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-subtle focus:border-brand focus:outline-none"
+                      />
+                      {authMode === 'login' && (
+                        <div className="mt-1 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAuthMode('forgot')
+                              setError(null)
+                              setInfoNotice(null)
+                            }}
+                            className="text-[11px] font-semibold text-brand-text hover:underline"
+                          >
+                            {isEn ? 'Forgot password?' : 'Quên mật khẩu?'}
+                          </button>
+                        </div>
+                      )}
+                    </Field>
+                  )}
+
+                  {authMode === 'reset' && (
+                    <Field
+                      label={isEn ? 'Confirm New Password' : 'Xác nhận Mật khẩu Mới'}
+                      htmlFor="login-confirm-password"
+                      required
+                    >
+                      <input
+                        id="login-confirm-password"
+                        type="password"
+                        autoComplete="new-password"
+                        required
+                        minLength={8}
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full rounded-md border border-line-strong bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-subtle focus:border-brand focus:outline-none"
+                      />
+                    </Field>
+                  )}
 
                   {authMode === 'register' && (
                     <Field
@@ -816,13 +959,43 @@ export default function Login() {
                         ? isEn
                           ? 'Verifying & Creating Isolated Workspace...'
                           : 'Đang xác thực & Khởi tạo Workspace riêng...'
-                        : t('login.submitting')
+                        : authMode === 'forgot'
+                          ? isEn
+                            ? 'Sending Reset Instructions...'
+                            : 'Đang gửi yêu cầu khôi phục...'
+                          : authMode === 'reset'
+                            ? isEn
+                              ? 'Updating Password...'
+                              : 'Đang cập nhật mật khẩu...'
+                            : t('login.submitting')
                       : authMode === 'register'
                         ? isEn
                           ? '🛡️ Verify & Create Isolated Agency Account'
                           : '🛡️ Xác thực & Tạo Tài khoản Workspace Riêng'
-                        : t('login.submit')}
+                        : authMode === 'forgot'
+                          ? isEn
+                            ? 'Send Password Reset Link'
+                            : 'Gửi Liên Kết Đặt Lại Mật Khẩu'
+                          : authMode === 'reset'
+                            ? isEn
+                              ? 'Confirm New Password'
+                              : 'Xác Nhận Đổi Mật Khẩu'
+                            : t('login.submit')}
                   </button>
+
+                  {(authMode === 'forgot' || authMode === 'reset') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuthMode('login')
+                        setError(null)
+                        setInfoNotice(null)
+                      }}
+                      className="w-full text-center text-xs font-semibold text-ink-muted hover:text-ink"
+                    >
+                      {isEn ? '← Back to Sign In' : '← Quay lại Đăng nhập'}
+                    </button>
+                  )}
                 </form>
 
                 <div className="mt-4 border-t border-line pt-3.5 flex items-center justify-between text-xs text-ink-muted">

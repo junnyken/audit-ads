@@ -1,13 +1,15 @@
 {
-    "version":  "4.2.0",
+    "version":  "4.4.0",
+    "min_supported_version":  "4.2.0",
     "ext_version":  "2.10.4",
     "authenticode_signed":  true,
-    "download_url":  "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip",
+    "download_url":  "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.zip",
     "mirror_urls":  [
+                        "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.zip",
                         "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
                     ],
-    "sha256":  "e86abcc334e4a4701d14c5c203fec05b100689196d8f6729b3650a747e9c1583",
-    "size_bytes":  67895018,
-    "published_at":  "2026-11-22T17:05:51.5834191Z",
-    "release_notes":  "AdsOps Desktop Pro v4.2.0 (7-Day Operational Telemetry \u0026 Fallback Tracking, Proxy Cluster Health Ranking, Early \u003e=80% Card Threshold \u0026 Spend Spike Alerts across Meta + Google Ads, Telegram Alert Controls \u0026 Option A UX/UI)."
+    "sha256":  "1b570f2fa87ffda4830eed866594bc63ca1afa4e7f7a46422126e290d43fea02",
+    "size_bytes":  67336635,
+    "published_at":  "2026-11-23T04:58:53.7694746Z",
+    "release_notes":  "AdsOps Desktop Pro v4.4.0 (Commercial Auth \u0026 Forgot-Password Sync, License Expiry/Grace/Read-Only Guard, Desktop Device Limit Support, Portable Master-Passphrase Auto-Backup \u0026 Preview, Streaming Self-Updater with .bak Rollback)."
 }

@@ -47,7 +47,10 @@ export function SettingsTab({ state }: { state: AppShellWebStateDto }) {
   const [backendUrl, setBackendUrl] = useState(s.backendBaseUrl)
   const [email, setEmail] = useState(s.userEmail)
   const [password, setPassword] = useState('')
+  const [replaceOldestDevice, setReplaceOldestDevice] = useState(false)
   const [inviteCode, setInviteCode] = useState('')
+  const [portablePassphrase, setPortablePassphrase] = useState('')
+  const [customBackupFolder, setCustomBackupFolder] = useState(s.customAutoBackupFolder || '')
 
   const [isolatedProfiles, setIsolatedProfiles] = useState(s.useIsolatedProfiles)
 
@@ -81,6 +84,7 @@ export function SettingsTab({ state }: { state: AppShellWebStateDto }) {
   useEffect(() => {
     setBackendUrl(s.backendBaseUrl)
     setEmail(s.userEmail)
+    setCustomBackupFolder(s.customAutoBackupFolder || '')
     setIsolatedProfiles(s.useIsolatedProfiles)
     setEngine(s.defaultBrowserEngine || 'chrome_native')
     setAntidetectApiUrl(s.antidetectApiBaseUrl)
@@ -190,13 +194,37 @@ export function SettingsTab({ state }: { state: AppShellWebStateDto }) {
               </div>
             )}
 
+            <label className="flex items-center gap-2 text-[11px] text-muted-foreground select-none cursor-pointer">
+              <input
+                type="checkbox"
+                checked={replaceOldestDevice}
+                onChange={(e) => setReplaceOldestDevice(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-border"
+              />
+              <span>Tự đăng xuất máy Desktop cũ nhất nếu đã đầy giới hạn thiết bị</span>
+            </label>
+
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 size="sm"
                 disabled={state.isBusy}
-                onClick={() => sendDesktopCommand('cloud_login', { backendUrl, email, password })}
+                onClick={() =>
+                  sendDesktopCommand('cloud_login', {
+                    backendUrl,
+                    email,
+                    password,
+                    replaceOldestDevice,
+                  })
+                }
               >
                 <Cloud className="h-3.5 w-3.5" /> Đăng nhập Cloud
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => sendDesktopCommand('open_forgot_password_web')}
+              >
+                Quên mật khẩu?
               </Button>
               {state.isLoggedIn && (
                 <Button
@@ -210,14 +238,27 @@ export function SettingsTab({ state }: { state: AppShellWebStateDto }) {
             </div>
 
             <div className="space-y-2.5 rounded-lg border border-border bg-background/60 p-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-foreground">Hạn mức Gói Cộng đồng</span>
-                <Badge variant="info">{s.communityTier || 'AGENCY'}</Badge>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-foreground">Hạn mức Gói Cộng đồng &amp; Thiết bị</span>
+                <div className="flex items-center gap-1.5">
+                  <Badge variant={s.licenseIsReadOnly ? 'destructive' : s.licenseStatus === 'grace' ? 'warning' : 'success'}>
+                    {s.licenseIsReadOnly
+                      ? 'CHỈ-ĐỌC'
+                      : s.licenseStatus === 'grace'
+                        ? 'ÂN HẠN 3N'
+                        : s.licenseStatus === 'expiring'
+                          ? `CÒN ${Math.max(0, s.licenseDaysRemaining ?? 0)}N`
+                          : s.licenseStatus === 'active'
+                            ? `CÒN ${Math.max(0, s.licenseDaysRemaining ?? 0)}N`
+                            : 'KHÔNG GIỚI HẠN'}
+                  </Badge>
+                  <Badge variant="info">{s.communityTier || 'AGENCY'}</Badge>
+                </div>
               </div>
-              <div className="grid grid-cols-2 gap-3 text-[11px]">
+              <div className="grid grid-cols-3 gap-2.5 text-[11px]">
                 <div>
                   <div className="mb-1 flex justify-between text-muted-foreground">
-                    <span>Via quản lý</span>
+                    <span>Via</span>
                     <span className="font-mono font-semibold text-foreground">
                       {s.viasUsed}/{s.maxVias}
                     </span>
@@ -226,12 +267,27 @@ export function SettingsTab({ state }: { state: AppShellWebStateDto }) {
                 </div>
                 <div>
                   <div className="mb-1 flex justify-between text-muted-foreground">
-                    <span>TKQC liên kết</span>
+                    <span>TKQC</span>
                     <span className="font-mono font-semibold text-foreground">
                       {s.adAccountsUsed}/{s.maxAdAccounts}
                     </span>
                   </div>
                   <Progress value={adQuotaPct} className="h-1.5" />
+                </div>
+                <div>
+                  <div className="mb-1 flex justify-between text-muted-foreground">
+                    <span>Máy Desktop</span>
+                    <span className="font-mono font-semibold text-foreground">
+                      {s.activeDesktopDevices ?? 0}/{s.maxDesktopDevices ?? 10}
+                    </span>
+                  </div>
+                  <Progress
+                    value={Math.min(
+                      100,
+                      Math.round(((s.activeDesktopDevices ?? 0) / Math.max(1, s.maxDesktopDevices ?? 10)) * 100),
+                    )}
+                    className="h-1.5"
+                  />
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -282,6 +338,126 @@ export function SettingsTab({ state }: { state: AppShellWebStateDto }) {
                 <Button variant="secondary" size="sm" onClick={() => sendDesktopCommand('import_full_vault')}>
                   <HardDriveUpload className="h-3.5 w-3.5" /> Khôi phục từ File
                 </Button>
+                <Button variant="outline" size="sm" onClick={() => sendDesktopCommand('preview_vault_backup')}>
+                  <Search className="h-3.5 w-3.5" /> Xem trước File
+                </Button>
+              </div>
+
+              <div className="space-y-2 rounded-lg border border-border bg-background/60 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-foreground">
+                    Sao lưu Tự động Portable (Mở trên mọi máy Windows / sau cài lại Win)
+                  </span>
+                  <Badge variant={s.hasPortableBackupPassphrase ? 'success' : 'warning'}>
+                    {s.hasPortableBackupPassphrase ? 'ĐÃ BẬT PORTABLE' : 'CHỈ DPAPI MÁY NÀY'}
+                  </Badge>
+                </div>
+
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <div>
+                    <Label className="text-[11px] text-muted-foreground">
+                      Mật khẩu Khôi phục Két Portable (≥ 6 ký tự)
+                    </Label>
+                    <Input
+                      type="password"
+                      value={portablePassphrase}
+                      onChange={(e) => setPortablePassphrase(e.target.value)}
+                      placeholder={
+                        s.hasPortableBackupPassphrase
+                          ? 'Để trống nếu giữ nguyên mật khẩu Portable cũ'
+                          : 'Nhập mật khẩu nhớ được khi chuyển máy'
+                      }
+                      className="mt-1 h-8 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11px] text-muted-foreground">Thư mục Auto-Backup (OneDrive / GDrive)</Label>
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <Input
+                        value={customBackupFolder}
+                        onChange={(e) => setCustomBackupFolder(e.target.value)}
+                        placeholder={s.effectiveAutoBackupFolder || 'Mặc định AppData/AutoBackups'}
+                        className="h-8 text-xs font-mono"
+                      />
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        aria-label="Chọn thư mục Auto-Backup"
+                        title="Chọn thư mục Auto-Backup"
+                        onClick={() => sendDesktopCommand('pick_backup_folder')}
+                      >
+                        <FolderOpen className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      sendDesktopCommand('save_portable_backup_config', {
+                        passphrase: portablePassphrase,
+                        customFolder: customBackupFolder,
+                      })
+                    }
+                  >
+                    <Save className="h-3.5 w-3.5" /> Lưu &amp; Sao lưu Portable ngay
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => sendDesktopCommand('open_auto_backup_folder')}
+                  >
+                    <FolderOpen className="h-3.5 w-3.5" /> Mở thư mục Backup
+                  </Button>
+                </div>
+
+                {s.portableBackupStatusMessage && (
+                  <div className="rounded-md border border-border bg-card px-2.5 py-1.5 text-[11px] text-foreground">
+                    {s.portableBackupStatusMessage}
+                  </div>
+                )}
+
+                {s.autoBackupFiles && s.autoBackupFiles.length > 0 && (
+                  <div className="max-h-[150px] space-y-1.5 overflow-y-auto pt-1 pr-1">
+                    {s.autoBackupFiles.slice(0, 6).map((bf) => (
+                      <div
+                        key={bf.fullPath}
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-card/70 px-2.5 py-1.5 text-[11px]"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="truncate font-mono font-semibold text-foreground">{bf.fileName}</span>
+                            <Badge variant={bf.portable ? 'success' : 'secondary'} className="px-1.5 py-0 text-[9px]">
+                              {bf.portable ? 'Portable' : 'DPAPI Cục bộ'}
+                            </Badge>
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">
+                            {bf.lastWriteLocal} • {Math.max(1, Math.round(bf.sizeBytes / 1024))} KB
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => sendDesktopCommand('preview_vault_backup', { filePath: bf.fullPath })}
+                          >
+                            Xem trước
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => sendDesktopCommand('restore_vault_backup_file', { filePath: bf.fullPath })}
+                          >
+                            Khôi phục
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

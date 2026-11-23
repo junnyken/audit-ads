@@ -497,6 +497,24 @@ DISPOSABLE_KEYWORDS: tuple[str, ...] = (
 _EMAIL_REGEX = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{1,62}[a-zA-Z0-9]@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
 
 
+def normalize_canonical_email(raw_email: str) -> str:
+    """Canonicalize email identically across Web, Backend, and Auth lookups.
+
+    - Lowercase & strip whitespace
+    - Strip trailing dots on domain
+    - For Gmail / Googlemail, strip dots in local-part and unify domain to gmail.com (unless '+' alias present, which signup rejects)
+    """
+    email = (raw_email or "").strip().lower()
+    if "@" not in email:
+        return email
+    local_part, domain = email.rsplit("@", 1)
+    domain = domain.rstrip(".")
+    if domain in ("gmail.com", "googlemail.com") and "+" not in local_part:
+        local_part = local_part.replace(".", "")
+        domain = "gmail.com"
+    return f"{local_part}@{domain}"
+
+
 def validate_reputable_registration_email(raw_email: str) -> str:
     # Validate that an email belongs to a reputable provider or verified VN corporate domain.
     email = (raw_email or "").strip().lower()
@@ -552,7 +570,15 @@ def validate_reputable_registration_email(raw_email: str) -> str:
             details={"field": "email", "reason": "untrusted_email_domain", "domain": domain},
         )
 
-    return email
+    canonical = normalize_canonical_email(email)
+    canon_local = canonical.rsplit("@", 1)[0]
+    if len(canon_local) < 3 or canon_local.isdigit():
+        raise ValidationError(
+            "Tên tài khoản email sau chuẩn hóa phải có ít nhất 3 ký tự và không được chỉ gồm chữ số.",
+            details={"field": "email", "reason": "suspicious_local_part"},
+        )
+
+    return canonical
 
 
 def validate_strong_password(password: str) -> None:

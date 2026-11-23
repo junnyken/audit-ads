@@ -587,6 +587,32 @@ def dispatch_operational_telegram_alerts(
         except Exception:
             logger.exception("telegram_early_risk_scan_failed")
 
+    try:
+        from app.models.entities import Workspace
+        from app.services.license_service import evaluate_workspace_license
+
+        ws_obj = session.get(Workspace, workspace_id)
+        if ws_obj is not None:
+            lic = evaluate_workspace_license(ws_obj, now)
+            lic_st = lic["status"]
+            d_rem = lic.get("days_remaining")
+            should_alert_lic = (
+                lic_st in ("grace", "read_only")
+                or (lic_st == "expiring" and d_rem in (7, 3, 1, 0))
+            )
+            if should_alert_lic:
+                dk = f"license_expiry:{workspace_id}:{lic_st}:{now.strftime('%Y-%m-%d')}"
+                if dk not in already_sent:
+                    if lic_st == "read_only":
+                        msg_lic = "Gói thuê bao Workspace đã hết hạn (đang ở chế độ Chỉ-đọc). Vui lòng gia hạn."
+                    elif lic_st == "grace":
+                        msg_lic = "Gói thuê bao Workspace đã hết hạn — đang trong thời gian ân hạn 3 ngày trước khi chuyển Chỉ-đọc."
+                    else:
+                        msg_lic = f"Gói thuê bao Workspace còn {d_rem} ngày trước khi hết hạn."
+                    findings.append((dk, lic_st in ("grace", "read_only"), f"• {msg_lic}"))
+    except Exception:
+        logger.exception("telegram_license_scan_failed")
+
     if not findings:
         return {"sent": 0, "skipped_reason": "no_new_incidents"}
 

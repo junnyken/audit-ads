@@ -12,7 +12,7 @@ from typing import Annotated, Any
 
 import jwt
 import sqlalchemy as sa
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -22,6 +22,7 @@ from app.core.security import TOKEN_USE_DASHBOARD, TOKEN_USE_EXTENSION, decode_a
 from app.db.session import get_db
 from app.models.entities import User, Workspace, WorkspaceMember
 from app.services.audit import AuditLogService
+from app.services.license_service import require_workspace_writable
 from app.services.scope_authorization import ScopeAuthorizationService
 from app.services.session_registry import SessionRegistryService
 from app.services.workspace import WorkspaceAccessService
@@ -231,8 +232,26 @@ def get_extension_context(
     return ExtensionContext(api=api, installation=installation)
 
 
-def get_write_context(ctx: Annotated[ApiContext, Depends(get_context)]) -> ApiContext:
+_LICENSE_READ_ONLY_EXEMPT_PREFIXES = (
+    "/api/v1/community/redeem-code",
+    "/api/v1/community/admin",
+    "/api/v1/auth",
+    "/api/v1/security/sessions",
+)
+
+
+def _enforce_writable_if_needed(ctx: ApiContext, request: Request) -> None:
+    path = request.url.path or ""
+    if any(path.startswith(prefix) for prefix in _LICENSE_READ_ONLY_EXEMPT_PREFIXES):
+        return
+    require_workspace_writable(ctx.workspace)
+
+
+def get_write_context(
+    ctx: Annotated[ApiContext, Depends(get_context)], request: Request
+) -> ApiContext:
     WorkspaceAccessService.require_mutation(ctx.membership)
+    _enforce_writable_if_needed(ctx, request)
     return ctx
 
 
@@ -241,15 +260,20 @@ def get_audit_context(ctx: Annotated[ApiContext, Depends(get_context)]) -> ApiCo
     return ctx
 
 
-def get_owner_context(ctx: Annotated[ApiContext, Depends(get_context)]) -> ApiContext:
+def get_owner_context(
+    ctx: Annotated[ApiContext, Depends(get_context)], request: Request
+) -> ApiContext:
     """A9: every team-seat/invite/role/assignment/member-lifecycle mutation is owner-only —
     a stricter gate than `WriteCtx`'s `MUTATION_ROLES` (owner/admin/buyer)."""
     if ctx.membership.role != WorkspaceRole.OWNER:
         raise AuthorizationError("Only the workspace owner can do this.")
+    _enforce_writable_if_needed(ctx, request)
     return ctx
 
 
-def get_owner_or_admin_context(ctx: Annotated[ApiContext, Depends(get_context)]) -> ApiContext:
+def get_owner_or_admin_context(
+    ctx: Annotated[ApiContext, Depends(get_context)], request: Request
+) -> ApiContext:
     """Mutations that designate a Facebook-account holder or store its recoverable email.
 
     Buyers can edit ordinary operational labels, but must not be able to make themselves the
@@ -257,6 +281,7 @@ def get_owner_or_admin_context(ctx: Annotated[ApiContext, Depends(get_context)])
     """
     if ctx.membership.role not in {WorkspaceRole.OWNER, WorkspaceRole.ADMIN}:
         raise AuthorizationError("Only a workspace owner or admin can change this Facebook account detail.")
+    _enforce_writable_if_needed(ctx, request)
     return ctx
 
 

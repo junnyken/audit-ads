@@ -27,10 +27,31 @@ internal sealed class EncryptedVaultEnvelope
     [JsonPropertyName("format")] public string Format { get; set; } = "adsops-vault-v1";
     [JsonPropertyName("kdf")] public string Kdf { get; set; } = "PBKDF2-SHA256";
     [JsonPropertyName("iterations")] public int Iterations { get; set; } = 210_000;
+    [JsonPropertyName("portable")] public bool Portable { get; set; } = false;
     [JsonPropertyName("salt_b64")] public string SaltB64 { get; set; } = "";
     [JsonPropertyName("nonce_b64")] public string NonceB64 { get; set; } = "";
     [JsonPropertyName("tag_b64")] public string TagB64 { get; set; } = "";
     [JsonPropertyName("cipher_b64")] public string CipherB64 { get; set; } = "";
+}
+
+public sealed class VaultBackupFileInfoDto
+{
+    public string FileName { get; set; } = "";
+    public string FullPath { get; set; } = "";
+    public long SizeBytes { get; set; }
+    public string LastWriteLocal { get; set; } = "";
+    public bool Portable { get; set; }
+}
+
+public sealed class VaultBackupPreviewDto
+{
+    public string AppVersion { get; set; } = "";
+    public string ExportedAtUtc { get; set; } = "";
+    public string UserEmail { get; set; } = "";
+    public bool Portable { get; set; }
+    public int ViaCount { get; set; }
+    public int SecretCount { get; set; }
+    public int StewardshipCount { get; set; }
 }
 
 /// <summary>Zero-dependency PBKDF2-SHA256 + AES-256-GCM encrypted backup for local workstation Via vault.</summary>
@@ -42,7 +63,7 @@ public static class VaultBackupService
     private const int TagSize = 16;
     private const int KeySize = 32;
 
-    public static byte[] EncryptToBytes(VaultBackupPayload payload, string password)
+    public static byte[] EncryptToBytes(VaultBackupPayload payload, string password, bool portable = false)
     {
         if (string.IsNullOrWhiteSpace(password) || password.Length < 6)
         {
@@ -62,12 +83,74 @@ public static class VaultBackupService
 
         var env = new EncryptedVaultEnvelope
         {
+            Portable = portable,
             SaltB64 = Convert.ToBase64String(salt),
             NonceB64 = Convert.ToBase64String(nonce),
             TagB64 = Convert.ToBase64String(tag),
             CipherB64 = Convert.ToBase64String(cipher),
         };
         return Encoding.UTF8.GetBytes(JsonSerializer.Serialize(env, new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    public static VaultBackupPreviewDto PreviewFromBytes(byte[] fileBytes, string password)
+    {
+        var env = JsonSerializer.Deserialize<EncryptedVaultEnvelope>(Encoding.UTF8.GetString(fileBytes))
+            ?? throw new InvalidDataException("Tệp Vault không hợp lệ.");
+        var payload = DecryptFromBytes(fileBytes, password);
+        return new VaultBackupPreviewDto
+        {
+            AppVersion = payload.AppVersion,
+            ExportedAtUtc = payload.ExportedAtUtc,
+            UserEmail = payload.UserEmail,
+            Portable = env.Portable,
+            ViaCount = payload.Vias?.Count ?? 0,
+            SecretCount = payload.LocalSecrets?.Count ?? 0,
+            StewardshipCount = payload.StewardshipSnapshot?.Records?.Count ?? 0,
+        };
+    }
+
+    public static string ResolveAutoBackupsFolder(DesktopConfig? config, string? customFolder = null)
+    {
+        if (!string.IsNullOrWhiteSpace(customFolder)) return customFolder.Trim();
+        if (!string.IsNullOrWhiteSpace(config?.CustomAutoBackupFolder)) return config.CustomAutoBackupFolder.Trim();
+        return AutoBackupsFolder;
+    }
+
+    public static List<VaultBackupFileInfoDto> ListAutoBackupFiles(DesktopConfig? config, int limit = 14)
+    {
+        var list = new List<VaultBackupFileInfoDto>();
+        try
+        {
+            var folder = ResolveAutoBackupsFolder(config);
+            if (!Directory.Exists(folder)) return list;
+            foreach (var fi in new DirectoryInfo(folder)
+                .GetFiles("*.adsopsvault")
+                .OrderByDescending(f => f.LastWriteTimeUtc)
+                .Take(Math.Clamp(limit, 1, 50)))
+            {
+                bool portable = false;
+                try
+                {
+                    using var doc = JsonDocument.Parse(File.ReadAllText(fi.FullName));
+                    if (doc.RootElement.TryGetProperty("portable", out var pEl) &&
+                        (pEl.ValueKind == JsonValueKind.True || pEl.ValueKind == JsonValueKind.False))
+                    {
+                        portable = pEl.GetBoolean();
+                    }
+                }
+                catch { }
+                list.Add(new VaultBackupFileInfoDto
+                {
+                    FileName = fi.Name,
+                    FullPath = fi.FullName,
+                    SizeBytes = fi.Length,
+                    LastWriteLocal = fi.LastWriteTime.ToString("dd/MM HH:mm"),
+                    Portable = portable,
+                });
+            }
+        }
+        catch { }
+        return list;
     }
 
     public static VaultBackupPayload DecryptFromBytes(byte[] fileBytes, string password)
@@ -103,7 +186,7 @@ public static class VaultBackupService
         string? customFolder = null,
         int maxRetainedFiles = 14)
     {
-        var folder = customFolder ?? AutoBackupsFolder;
+        var folder = ResolveAutoBackupsFolder(config, customFolder);
         Directory.CreateDirectory(folder);
 
         var todayKey = DateTime.Now.ToString("yyyy-MM-dd");
@@ -122,14 +205,24 @@ public static class VaultBackupService
             LocalSecrets = LocalSecretVaultStore.Default.ExportPlainEntries(),
         };
 
-        // Derive deterministic machine-bound passphrase from the DPAPI-protected bridge token
-        var autoPass = config.GetOrCreateBridgeToken();
-        if (string.IsNullOrWhiteSpace(autoPass) || autoPass.Length < 8)
+        var portablePass = config.GetPortableBackupPassphrase();
+        bool isPortable = portablePass.Length >= 6;
+        string autoPass;
+        if (isPortable)
         {
-            autoPass = $"adsops-dpapi-{Environment.MachineName}-{Environment.UserName}";
+            autoPass = portablePass;
+        }
+        else
+        {
+            // Fallback to deterministic machine-bound passphrase from DPAPI bridge token
+            autoPass = config.GetOrCreateBridgeToken();
+            if (string.IsNullOrWhiteSpace(autoPass) || autoPass.Length < 8)
+            {
+                autoPass = $"adsops-dpapi-{Environment.MachineName}-{Environment.UserName}";
+            }
         }
 
-        var encrypted = EncryptToBytes(payload, autoPass);
+        var encrypted = EncryptToBytes(payload, autoPass, portable: isPortable);
         File.WriteAllBytes(targetFile, encrypted);
 
         var allFiles = new DirectoryInfo(folder)

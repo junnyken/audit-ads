@@ -272,6 +272,20 @@ class Settings(BaseSettings):
     community_free_max_ad_accounts: int = 5
     community_free_max_members: int = 2
 
+    # ---- Transactional SMTP (password reset links) ----------------------------------
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
+    smtp_use_tls: bool = True
+    smtp_timeout_seconds: int = 10
+
+    @property
+    def smtp_configured(self) -> bool:
+        """Whether SMTP credentials are minimally configured for sending transactional mail."""
+        return bool((self.smtp_host or "").strip() and (self.smtp_from_email or "").strip())
+
     @property
     def retry_backoff_minutes(self) -> list[int]:
         return [

@@ -535,6 +535,14 @@ export interface WebDeviceSessionDto {
   isCurrent: boolean
 }
 
+export interface VaultBackupFileInfoDto {
+  fileName: string
+  fullPath: string
+  sizeBytes: number
+  lastWriteLocal: string
+  portable: boolean
+}
+
 export interface WebSettingsDto {
   backendBaseUrl: string
   userEmail: string
@@ -589,6 +597,20 @@ export interface WebSettingsDto {
   latestAvailableVersion: string
   hasUpdateManifest: boolean
   isNewerUpdate: boolean
+  updateRequired?: boolean
+  minSupportedVersion?: string
+  hasPortableBackupPassphrase?: boolean
+  customAutoBackupFolder?: string
+  effectiveAutoBackupFolder?: string
+  autoBackupFiles?: VaultBackupFileInfoDto[]
+  portableBackupStatusMessage?: string
+  portableBackupPreviewJson?: string
+  licenseStatus?: string
+  licenseIsReadOnly?: boolean
+  licenseDaysRemaining?: number | null
+  licenseExpiresAt?: string
+  maxDesktopDevices?: number
+  activeDesktopDevices?: number
 }
 
 export interface AppShellWebStateDto {

@@ -288,6 +288,17 @@ export interface SystemStatus {
   server_time: string
 }
 
+export interface WorkspaceLicenseInfo {
+  status: 'unlimited' | 'active' | 'expiring' | 'grace' | 'read_only'
+  is_read_only: boolean
+  plan_tier: string
+  plan_expires_at: string | null
+  grace_ends_at: string | null
+  days_remaining: number | null
+  max_desktop_devices: number
+  active_desktop_devices?: number | null
+}
+
 export interface CurrentUser {
   id: string
   email: string
@@ -302,7 +313,10 @@ export interface CurrentUser {
     max_vias?: number
     max_ad_accounts?: number
     max_members?: number
+    max_desktop_devices?: number | null
+    plan_expires_at?: string | null
     community_status?: string
+    license?: WorkspaceLicenseInfo
   }
 }
 
@@ -1261,6 +1275,7 @@ export type A9Role = 'admin' | 'operator' | 'viewer'
 export interface DeviceSession {
   id: string
   session_type: 'web'
+  client_channel?: 'web' | 'desktop'
   label: string
   browser_family: string | null
   os_family: string | null

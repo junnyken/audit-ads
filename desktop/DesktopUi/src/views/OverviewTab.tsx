@@ -163,6 +163,24 @@ export function OverviewTab({ state }: { state: AppShellWebStateDto }) {
 
   return (
     <div className="space-y-4">
+      {state.vias.length > 0 && !state.settings.hasPortableBackupPassphrase && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/35 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-800 dark:text-amber-200">
+          <div className="flex items-center gap-2">
+            <KeyRound className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <span>
+              <strong>Chưa đặt Mật khẩu Két Backup Portable:</strong> Nếu cài lại Windows hoặc đổi máy, bản Auto-Backup DPAPI cục bộ sẽ không giải mã được. Hãy đặt mật khẩu Portable 1 lần!
+            </span>
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => sendDesktopCommand('switch_view', { view: 'settings' })}
+          >
+            Đặt mật khẩu Két ngay
+          </Button>
+        </div>
+      )}
+
       {/* Workstation Status & Quick Tools Bar */}
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-2.5 px-4 py-2.5">

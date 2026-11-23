@@ -6120,35 +6120,49 @@ internal sealed partial class MainWindow
         return UiComponents.CreateCard(p);
     }
 
-    internal async Task CheckForAppUpdatesAsync()
+    internal async Task CheckForAppUpdatesAsync(bool silent = false)
     {
         try
         {
-            SetBusy(true);
+            _lastAutoUpdateCheckUtc = DateTime.UtcNow;
+            if (!silent) SetBusy(true);
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
             var res = await SelfUpdateService.FetchManifestAsync(http, DesktopAppInfo.DefaultManifestUrl);
             if (!res.Ok || res.Manifest == null)
             {
-                _updateStatusText = $"Không kiểm tra được manifest: {res.Error}";
-                AppendLog(_updateStatusText);
+                if (!silent)
+                {
+                    _updateStatusText = $"Không kiểm tra được manifest: {res.Error}";
+                    AppendLog(_updateStatusText);
+                }
             }
             else
             {
                 _latestUpdateManifest = res.Manifest;
-                _updateStatusText = res.UpdateAvailable
-                    ? $"Có bản mới v{res.LatestVersion} (Ext v{res.Manifest.ExtVersion})! {res.Manifest.ReleaseNotes}"
-                    : $"Bạn đang dùng bản mới nhất (v{DesktopAppInfo.Version}). {res.Manifest.ReleaseNotes}";
-                AppendLog(_updateStatusText);
+                _updateRequired = res.UpdateRequired;
+                _minSupportedVersion = res.MinSupportedVersion ?? "";
+                _updateStatusText = res.UpdateRequired
+                    ? $"BẮT BUỘC CẬP NHẬT lên v{res.LatestVersion} (bản tối thiểu v{_minSupportedVersion})! {res.Manifest.ReleaseNotes}"
+                    : res.UpdateAvailable
+                        ? $"Có bản mới v{res.LatestVersion} (Ext v{res.Manifest.ExtVersion})! {res.Manifest.ReleaseNotes}"
+                        : $"Bạn đang dùng bản mới nhất (v{DesktopAppInfo.Version}). {res.Manifest.ReleaseNotes}";
+                if (!silent || res.UpdateAvailable || res.UpdateRequired)
+                {
+                    AppendLog(_updateStatusText);
+                }
             }
         }
         catch (Exception ex)
         {
-            _updateStatusText = $"Lỗi kiểm tra cập nhật: {ex.Message}";
-            AppendLog(_updateStatusText);
+            if (!silent)
+            {
+                _updateStatusText = $"Lỗi kiểm tra cập nhật: {ex.Message}";
+                AppendLog(_updateStatusText);
+            }
         }
         finally
         {
-            SetBusy(false);
+            if (!silent) SetBusy(false);
             RenderCurrentView();
         }
     }
@@ -6159,9 +6173,9 @@ internal sealed partial class MainWindow
         var ok = UiComponents.ShowConfirmActionDialog(
             this,
             "Cập nhật & Khởi động lại",
-            $"Tải bản v{_latestUpdateManifest.Version} và ghi đè AdsOpsDesktop.exe?",
+            $"Tải bản v{_latestUpdateManifest.Version} và cập nhật AdsOpsDesktop.exe (có sao lưu .bak an toàn)?",
             new (string, string)[] { ("Phiên bản mới:", _latestUpdateManifest.Version), ("Nguồn:", _latestUpdateManifest.DownloadUrl) },
-            "Ứng dụng sẽ tự đóng trong vài giây, thay thế tệp và tự khởi động lại.",
+            "Ứng dụng tải stream về đĩa, đối chiếu SHA-256, sao lưu tệp cũ sang .bak rồi thay thế và tự khởi động lại.",
             "Cập nhật ngay");
         if (!ok) return;
 
@@ -6169,7 +6183,7 @@ internal sealed partial class MainWindow
         {
             SetBusy(true);
             var appDir = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
+            using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
             await SelfUpdateService.DownloadValidateExtractAndSpawnUpdaterAsync(
                 http,
                 _latestUpdateManifest,

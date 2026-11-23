@@ -691,7 +691,9 @@ internal sealed partial class MainWindow
                     ? "Trình duyệt / App"
                     : sess.BrowserFamily!;
                 var osDisp = string.IsNullOrWhiteSpace(sess.OsFamily) || sess.OsFamily == "?" ? "Cloud API" : sess.OsFamily!;
-                var stypeDisp = string.Equals(sess.SessionType, "web", StringComparison.OrdinalIgnoreCase) ? "Web" : (string.IsNullOrWhiteSpace(sess.SessionType) ? "Phiên" : sess.SessionType!);
+                var stypeDisp = string.Equals(sess.ClientChannel, "desktop", StringComparison.OrdinalIgnoreCase)
+                    ? "Desktop App"
+                    : (string.Equals(sess.SessionType, "web", StringComparison.OrdinalIgnoreCase) ? "Web" : (string.IsNullOrWhiteSpace(sess.SessionType) ? "Phiên" : sess.SessionType!));
                 var title = isGenericUnknown
                     ? (sess.IsCurrent ? "Phiên làm việc hiện tại (AdsOps Cloud / Desktop)" : "Phiên đăng nhập AdsOps Cloud / Web")
                     : rawLabel;
@@ -717,6 +719,9 @@ internal sealed partial class MainWindow
                 Detail = string.IsNullOrWhiteSpace(l.Detail) ? l.CreatedAt : l.Detail,
                 CreatedAt = l.CreatedAt,
             }).ToList();
+
+        var effectiveLic = _communityQuota?.License ?? _currentUser?.Workspace?.License;
+        var devSessionsCount = _deviceSessions.Count(ds => !ds.RevokedAt.HasValue && string.Equals(ds.ClientChannel, "desktop", StringComparison.OrdinalIgnoreCase));
 
         return new AppShellWebStateDto
         {
@@ -1031,6 +1036,20 @@ internal sealed partial class MainWindow
                 LatestAvailableVersion = _latestUpdateManifest?.Version ?? "",
                 HasUpdateManifest = _latestUpdateManifest != null && !string.IsNullOrWhiteSpace(_latestUpdateManifest.DownloadUrl),
                 IsNewerUpdate = _latestUpdateManifest != null && SelfUpdateService.IsNewerVersion(_latestUpdateManifest.Version, DesktopAppInfo.Version),
+                UpdateRequired = _updateRequired,
+                MinSupportedVersion = _minSupportedVersion,
+                HasPortableBackupPassphrase = _config.HasPortableBackupPassphrase,
+                CustomAutoBackupFolder = _config.CustomAutoBackupFolder ?? "",
+                EffectiveAutoBackupFolder = VaultBackupService.ResolveAutoBackupsFolder(_config),
+                AutoBackupFiles = VaultBackupService.ListAutoBackupFiles(_config),
+                PortableBackupStatusMessage = _portableBackupStatusMessage,
+                PortableBackupPreviewJson = _portableBackupPreviewJson,
+                LicenseStatus = effectiveLic?.Status ?? "unlimited",
+                LicenseIsReadOnly = effectiveLic?.IsReadOnly ?? false,
+                LicenseDaysRemaining = effectiveLic?.DaysRemaining,
+                LicenseExpiresAt = effectiveLic?.PlanExpiresAt ?? _currentUser?.Workspace?.PlanExpiresAt ?? "",
+                MaxDesktopDevices = effectiveLic?.MaxDesktopDevices ?? _communityQuota?.MaxDesktopDevices ?? _currentUser?.Workspace?.MaxDesktopDevices ?? 10,
+                ActiveDesktopDevices = effectiveLic?.ActiveDesktopDevices ?? _communityQuota?.ActiveDesktopDevices ?? devSessionsCount,
             },
             LiveRunner = BuildLiveRunnerStatusDto(),
             OperationalTelemetry = OperationalTelemetryCalculator.Compute(
@@ -1131,9 +1150,15 @@ internal sealed partial class MainWindow
         if (string.IsNullOrWhiteSpace(path)) return;
         var pwd = PromptPasswordDialog("Nhập Mật khẩu giải mã Full Backup", $"Giải mã & khôi phục trọn gói từ: {Path.GetFileName(path)}", confirmMatch: false);
         if (string.IsNullOrWhiteSpace(pwd)) return;
+        ExecuteRestoreVaultBackupFromFile(path, pwd, showSuccessDialog: true);
+    }
 
+    private void ExecuteRestoreVaultBackupFromFile(string path, string pwd, bool showSuccessDialog = true)
+    {
         try
         {
+            if (File.Exists(path) == false) throw new FileNotFoundException("Không tìm thấy tệp Vault backup.", path);
+            try { VaultBackupService.CreateDailyAutoBackup(_config, _vias); } catch { }
             var bytes = File.ReadAllBytes(path);
             var payload = VaultBackupService.DecryptFromBytes(bytes, pwd);
 
@@ -1163,20 +1188,29 @@ internal sealed partial class MainWindow
             try { ProtocolRegistrar.RegisterUriProtocol(); } catch { }
             var provisionedExt = ProvisionAllViaExtensions(silent: true);
 
-            AppendLog($"Đã khôi phục Full Backup sang máy mới: {importedSecrets} Cookie/2FA DPAPI, {importedStew} hồ sơ Ngâm 72h, {_vias.Count} Via, cấp lại {provisionedExt} Extension.");
+            _portableBackupStatusMessage = $"✓ Đã khôi phục từ {Path.GetFileName(path)}: {importedSecrets} Cookie/2FA DPAPI, {importedStew} hồ sơ Ngâm 72h, {_vias.Count} Via.";
+            AppendLog($"Đã khôi phục Full Backup: {importedSecrets} Cookie/2FA DPAPI, {importedStew} hồ sơ Ngâm 72h, {_vias.Count} Via, cấp lại {provisionedExt} Extension.");
             if (!string.IsNullOrWhiteSpace(_config.GetJwt())) _ = SyncCloudAsync(silent: true);
 
-            MessageBox.Show(
-                this,
-                $"Khôi phục trọn gói sang máy mới thành công!\n\n• Cookie & 2FA nạp vào Két DPAPI: {importedSecrets}\n• Hồ sơ Ngâm 72h / Cooldown: {importedStew}\n• Danh sách Via sẵn sàng: {_vias.Count}\n• Đã gắn Protocol & cấp lại {provisionedExt} Chrome Extension v{DesktopAppInfo.ExtVersion}\n• Phiên Cloud: {(jwtRestored ? "Đã khôi phục (tự đồng bộ nền)" : "Giữ nguyên cài đặt")}",
-                "Khôi phục Hoàn tất",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
+            if (showSuccessDialog)
+            {
+                MessageBox.Show(
+                    this,
+                    $"Khôi phục trọn gói sang máy mới thành công!\n\n• Cookie & 2FA nạp vào Két DPAPI: {importedSecrets}\n• Hồ sơ Ngâm 72h / Cooldown: {importedStew}\n• Danh sách Via sẵn sàng: {_vias.Count}\n• Đã gắn Protocol & cấp lại {provisionedExt} Chrome Extension v{DesktopAppInfo.ExtVersion}\n• Phiên Cloud: {(jwtRestored ? "Đã khôi phục (tự đồng bộ nền)" : "Giữ nguyên cài đặt")}",
+                    "Khôi phục Hoàn tất",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
             _webUiConfigRev++;
             RefreshHeaderAndSidebar();
             RenderCurrentView();
         }
-        catch (Exception ex) { MessageBox.Show(this, $"Không giải mã được file Backup (sai mật khẩu hoặc hỏng file): {ex.Message}", "Lỗi Giải mã", MessageBoxButton.OK, MessageBoxImage.Error); }
+        catch (Exception ex)
+        {
+            _portableBackupStatusMessage = $"Không giải mã được Backup ({Path.GetFileName(path)}): {ex.Message}";
+            MessageBox.Show(this, $"Không giải mã được file Backup (sai mật khẩu hoặc hỏng file): {ex.Message}", "Lỗi Giải mã", MessageBoxButton.OK, MessageBoxImage.Error);
+            PushOverviewStateToWebView();
+        }
     }
 
     private List<ViaWorkspaceEntry> ResolveSelectedViasFromPayload(JsonElement root)
@@ -1883,6 +1917,12 @@ internal sealed partial class MainWindow
 
                     case "run_natural_flow":
                         {
+                            if (IsLicenseReadOnly(out var roFlowMsg))
+                            {
+                                AppendLog($"🔒 {roFlowMsg}");
+                                MessageBox.Show(this, roFlowMsg, "Workspace ở chế độ Chỉ-đọc", MessageBoxButton.OK, MessageBoxImage.Warning);
+                                break;
+                            }
                             if (root.TryGetProperty("enableInternalPageCrossWarmup", out _))
                             {
                                 _config.EnableInternalPageCrossWarmup = GetBool(root, "enableInternalPageCrossWarmup", _config.EnableInternalPageCrossWarmup);
@@ -1959,6 +1999,12 @@ internal sealed partial class MainWindow
 
                     case "run_playbook_batch":
                         {
+                            if (IsLicenseReadOnly(out var roPbMsg))
+                            {
+                                AppendLog($"🔒 {roPbMsg}");
+                                MessageBox.Show(this, roPbMsg, "Workspace ở chế độ Chỉ-đọc", MessageBoxButton.OK, MessageBoxImage.Warning);
+                                break;
+                            }
                             var pbId = GetStr(root, "playbookId");
                             var effectivePbs = _playbooks.Count > 0 ? _playbooks : AutomationPlaybookDto.GetDefaultBuiltinPlaybooks();
                             var activePb = effectivePbs.FirstOrDefault(p => string.Equals(p.Id, pbId, StringComparison.OrdinalIgnoreCase)) ?? effectivePbs.FirstOrDefault();
@@ -2050,6 +2096,12 @@ internal sealed partial class MainWindow
 
                     case "run_batch_create_pages":
                         {
+                            if (IsLicenseReadOnly(out var roBpMsg))
+                            {
+                                AppendLog($"🔒 {roBpMsg}");
+                                MessageBox.Show(this, roBpMsg, "Workspace ở chế độ Chỉ-đọc", MessageBoxButton.OK, MessageBoxImage.Warning);
+                                break;
+                            }
                             if (_queue.Current.Phase is QueuePhase.Running or QueuePhase.Paused)
                             {
                                 MessageBox.Show(this, "Hàng đợi khác đang chạy. Vui lòng tạm dừng hoặc dừng trước.", "Đang bận", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -2164,8 +2216,11 @@ internal sealed partial class MainWindow
 
                     case "open_auto_backup_folder":
                         _ = RunDailyAutoVaultBackupIfNeeded(force: true);
-                        Directory.CreateDirectory(VaultBackupService.AutoBackupsFolder);
-                        try { Process.Start(new ProcessStartInfo("explorer.exe", VaultBackupService.AutoBackupsFolder) { UseShellExecute = true }); } catch { }
+                        {
+                            var bkDir = VaultBackupService.ResolveAutoBackupsFolder(_config);
+                            Directory.CreateDirectory(bkDir);
+                            try { Process.Start(new ProcessStartInfo("explorer.exe", bkDir) { UseShellExecute = true }); } catch { }
+                        }
                         break;
 
                     case "save_anti_checkpoint_shield":
@@ -2369,6 +2424,12 @@ internal sealed partial class MainWindow
 
                     case "page_nurture_batch_run":
                         {
+                            if (IsLicenseReadOnly(out var roPnMsg))
+                            {
+                                AppendLog($"🔒 {roPnMsg}");
+                                MessageBox.Show(this, roPnMsg, "Workspace ở chế độ Chỉ-đọc", MessageBoxButton.OK, MessageBoxImage.Warning);
+                                break;
+                            }
                             var mode = GetStr(root, "mode", _config.PageNurtureMode).ToLowerInvariant();
                             var viaBrowser = GetBool(root, "viaBrowser", true);
                             StartPageNurtureBatchQueue(mode, viaBrowser);
@@ -2426,6 +2487,12 @@ internal sealed partial class MainWindow
 
                     case "silent_page_nurture_single":
                         {
+                            if (IsLicenseReadOnly(out var roSpnMsg))
+                            {
+                                AppendLog($"🔒 {roSpnMsg}");
+                                MessageBox.Show(this, roSpnMsg, "Workspace ở chế độ Chỉ-đọc", MessageBoxButton.OK, MessageBoxImage.Warning);
+                                break;
+                            }
                             var pg = (_pagesSummary?.Items ?? new()).FirstOrDefault(p => string.Equals(p.Id, GetStr(root, "pageId"), StringComparison.OrdinalIgnoreCase));
                             var mode = GetStr(root, "mode", "post");
                             if (pg != null)
@@ -2437,6 +2504,12 @@ internal sealed partial class MainWindow
 
                     case "silent_page_nurture_batch":
                         {
+                            if (IsLicenseReadOnly(out var roSpnbMsg))
+                            {
+                                AppendLog($"🔒 {roSpnbMsg}");
+                                MessageBox.Show(this, roSpnbMsg, "Workspace ở chế độ Chỉ-đọc", MessageBoxButton.OK, MessageBoxImage.Warning);
+                                break;
+                            }
                             var mode = GetStr(root, "mode", _config.PageNurtureMode);
                             _ = RunSilentPageNurtureBatchAsync(mode, isScheduled: false);
                             break;
@@ -2580,6 +2653,12 @@ internal sealed partial class MainWindow
                         break;
 
                     case "quick_sync_meta":
+                        if (IsLicenseReadOnly(out var roQsMsg))
+                        {
+                            AppendLog($"🔒 {roQsMsg}");
+                            MessageBox.Show(this, roQsMsg, "Workspace ở chế độ Chỉ-đọc", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            break;
+                        }
                         try
                         {
                             SetBusy(true);
@@ -2858,6 +2937,7 @@ internal sealed partial class MainWindow
                             var url = GetStr(root, "backendUrl", _config.BackendBaseUrl).Trim().TrimEnd('/');
                             var email = GetStr(root, "email").Trim();
                             var pass = GetStr(root, "password");
+                            var replaceOldest = GetBool(root, "replaceOldestDevice", false);
                             if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(pass))
                             {
                                 _authErrorMessage = "Vui lòng nhập đầy đủ Email và Mật khẩu.";
@@ -2873,8 +2953,29 @@ internal sealed partial class MainWindow
                             {
                                 _config.BackendBaseUrl = string.IsNullOrWhiteSpace(url) ? DesktopConfig.DefaultBackendUrl : url;
                                 _config.UserEmail = email;
-                                _api.Configure(_config.BackendBaseUrl, "");
-                                var loginRes = await _api.LoginAsync(_config.UserEmail, pass);
+                                _api.Configure(_config.BackendBaseUrl, "", installationId: _config.GetOrCreateInstallationId());
+                                LoginResponseDto loginRes;
+                                try
+                                {
+                                    loginRes = await _api.LoginAsync(_config.UserEmail, pass, replaceOldestDevice: replaceOldest);
+                                }
+                                catch (DeviceLimitReachedException dlEx) when (!replaceOldest)
+                                {
+                                    var replaceOk = UiComponents.ShowConfirmActionDialog(
+                                        this,
+                                        "Đã đạt giới hạn Thiết bị Desktop",
+                                        dlEx.Message,
+                                        new (string, string)[] { ("Giải pháp:", "Đăng xuất máy Desktop cũ nhất và đăng nhập máy này") },
+                                        "Dữ liệu Chrome Profile và Két DPAPI trên máy cũ không bị xóa, chỉ thu hồi phiên Cloud của máy cũ nhất.",
+                                        "Thay thế & Đăng nhập");
+                                    if (!replaceOk)
+                                    {
+                                        _authErrorMessage = dlEx.Message;
+                                        PushOverviewStateToWebView();
+                                        break;
+                                    }
+                                    loginRes = await _api.LoginAsync(_config.UserEmail, pass, replaceOldestDevice: true);
+                                }
                                 _config.SetJwt(loginRes.AccessToken);
                                 _config.SetSavedPassword(pass);
                                 _config.Save();
@@ -2891,6 +2992,13 @@ internal sealed partial class MainWindow
                                 PushOverviewStateToWebView();
                             }
                             finally { SetBusy(false); }
+                            break;
+                        }
+
+                    case "open_forgot_password_web":
+                        {
+                            var loginUrl = (_config.WebAppUrl ?? DesktopConfig.DefaultWebAppUrl).Trim().TrimEnd('/') + "/login";
+                            try { Process.Start(new ProcessStartInfo { FileName = loginUrl, UseShellExecute = true }); } catch { }
                             break;
                         }
 
@@ -3106,6 +3214,105 @@ internal sealed partial class MainWindow
                     case "import_full_vault":
                         ExecuteImportFullVaultBackup();
                         break;
+
+                    case "pick_backup_folder":
+                        {
+                            var picked = SystemTrayService.ShowPickFolderDialog(
+                                "Chọn thư mục lưu Auto-Backup Két khóa Portable (gợi ý OneDrive / Google Drive)",
+                                VaultBackupService.ResolveAutoBackupsFolder(_config));
+                            if (!string.IsNullOrWhiteSpace(picked))
+                            {
+                                _config.CustomAutoBackupFolder = picked.Trim();
+                                _config.Save();
+                                _webUiConfigRev++;
+                                _portableBackupStatusMessage = $"Đã chọn thư mục Auto-Backup: {_config.CustomAutoBackupFolder}";
+                                PushOverviewStateToWebView();
+                            }
+                            break;
+                        }
+
+                    case "save_portable_backup_config":
+                        {
+                            var pass = GetStr(root, "passphrase").Trim();
+                            var customDir = GetStr(root, "customFolder").Trim();
+                            if (!string.IsNullOrEmpty(pass) && pass.Length < 6)
+                            {
+                                _portableBackupStatusMessage = "⚠️ Mật khẩu khôi phục Két Portable phải có ít nhất 6 ký tự.";
+                                PushOverviewStateToWebView();
+                                break;
+                            }
+                            if (!string.IsNullOrEmpty(pass))
+                            {
+                                _config.SetPortableBackupPassphrase(pass);
+                            }
+                            _config.CustomAutoBackupFolder = customDir;
+                            _config.Save();
+                            try
+                            {
+                                var (created, bkPath, retained) = VaultBackupService.CreateDailyAutoBackup(_config, _vias);
+                                _portableBackupStatusMessage = created
+                                    ? $"✓ Đã lưu & tạo ngay bản sao lưu {(_config.HasPortableBackupPassphrase ? "Portable (khôi phục mọi máy)" : "DPAPI cục bộ")}: {Path.GetFileName(bkPath)} (giữ {retained} bản)."
+                                    : "Đã lưu cấu hình Auto-Backup.";
+                                AppendLog(_portableBackupStatusMessage);
+                            }
+                            catch (Exception ex)
+                            {
+                                _portableBackupStatusMessage = $"Lỗi tạo Auto-Backup: {ex.Message}";
+                            }
+                            _webUiConfigRev++;
+                            PushOverviewStateToWebView();
+                            break;
+                        }
+
+                    case "preview_vault_backup":
+                        {
+                            var path = GetStr(root, "filePath").Trim();
+                            if (string.IsNullOrWhiteSpace(path)) path = SystemTrayService.ShowOpenVaultDialog() ?? "";
+                            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                            {
+                                _portableBackupStatusMessage = "Chưa chọn hoặc không tìm thấy file .adsopsvault.";
+                                PushOverviewStateToWebView();
+                                break;
+                            }
+                            var pwd = GetStr(root, "password");
+                            if (string.IsNullOrWhiteSpace(pwd))
+                            {
+                                pwd = _config.GetPortableBackupPassphrase();
+                                if (string.IsNullOrWhiteSpace(pwd))
+                                {
+                                    pwd = PromptPasswordDialog("Xem trước Nội dung Backup", $"Nhập mật khẩu cho tệp: {Path.GetFileName(path)}", confirmMatch: false) ?? "";
+                                }
+                            }
+                            if (string.IsNullOrWhiteSpace(pwd)) break;
+                            try
+                            {
+                                var prev = VaultBackupService.PreviewFromBytes(File.ReadAllBytes(path), pwd);
+                                _portableBackupPreviewJson = JsonSerializer.Serialize(prev);
+                                _portableBackupStatusMessage = $"👁️ Xem trước {Path.GetFileName(path)} ({(prev.Portable ? "Portable" : "DPAPI")} · v{prev.AppVersion}): {prev.ViaCount} Via · {prev.SecretCount} Cookie/2FA · {prev.StewardshipCount} hồ sơ ngâm.";
+                                PushOverviewStateToWebView();
+                            }
+                            catch (Exception ex)
+                            {
+                                _portableBackupStatusMessage = $"❌ Không mở được {Path.GetFileName(path)}: {ex.Message}";
+                                PushOverviewStateToWebView();
+                            }
+                            break;
+                        }
+
+                    case "restore_vault_backup_file":
+                        {
+                            var path = GetStr(root, "filePath").Trim();
+                            if (string.IsNullOrWhiteSpace(path)) path = SystemTrayService.ShowOpenVaultDialog() ?? "";
+                            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) break;
+                            var pwd = GetStr(root, "password");
+                            if (string.IsNullOrWhiteSpace(pwd))
+                            {
+                                pwd = PromptPasswordDialog("Khôi phục Két từ Auto-Backup", $"Nhập mật khẩu giải mã cho: {Path.GetFileName(path)}", confirmMatch: false) ?? "";
+                            }
+                            if (string.IsNullOrWhiteSpace(pwd)) break;
+                            ExecuteRestoreVaultBackupFromFile(path, pwd, showSuccessDialog: true);
+                            break;
+                        }
 
                     case "detect_telegram_chats":
                         {

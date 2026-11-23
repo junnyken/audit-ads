@@ -2091,9 +2091,9 @@ internal static class Program
                 }
             }
 
-            // 35. v4.2.0 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
+            // 35. v4.4.0 Full 8-Tab shadcn/ui AppShellWebStateDto, LiveTickDto & Bundle Verification
             {
-                if (DesktopAppInfo.Version != "4.2.0" || DesktopAppInfo.ExtVersion != "2.10.4")
+                if (DesktopAppInfo.Version != "4.4.0" || DesktopAppInfo.ExtVersion != "2.10.4")
                 {
                     throw new InvalidOperationException(
                         $"DesktopAppInfo version mismatch: app={DesktopAppInfo.Version}, ext={DesktopAppInfo.ExtVersion}");
@@ -2143,7 +2143,7 @@ internal static class Program
                 foreach (var reqKey in new[]
                          {
                              "\"type\":\"full_state\"",
-                             "\"appVersion\":\"4.2.0\"",
+                             "\"appVersion\":\"4.4.0\"",
                              "\"extVersion\":\"2.10.4\"",
                              "\"activeView\":\"settings\"",
                              "\"totpMap\"",
@@ -3059,6 +3059,98 @@ internal static class Program
                     calc.EarlyAccountRisks.Any(r => r.AdAccountId == "a2" && r.Kind == "spend_cap_85"))
                 {
                     throw new InvalidOperationException("EarlyAccountRisks threshold/spike detection or Google Ads cap exclusion failed.");
+                }
+            }
+
+            // 49. v4.4.0 Commercial License DTO, Portable Auto-Backup Passphrase & Safe Streaming Updater Rollback
+            {
+                var instCfgPath = Path.Combine(tempRoot, "cfg_v440.json");
+                var cfg49 = new DesktopConfig();
+                var inst1 = cfg49.GetOrCreateInstallationId(instCfgPath);
+                if (string.IsNullOrWhiteSpace(inst1) || inst1.Length != 32)
+                {
+                    throw new InvalidOperationException("GetOrCreateInstallationId must yield a 32-hex identifier.");
+                }
+                var reloaded49 = DesktopConfig.Load(instCfgPath);
+                if (!string.Equals(inst1, reloaded49.GetOrCreateInstallationId(instCfgPath), StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("InstallationId must remain stable across Save/Load.");
+                }
+
+                var customBkDir = Path.Combine(tempRoot, "CustomPortableBackups");
+                reloaded49.CustomAutoBackupFolder = customBkDir;
+                reloaded49.SetPortableBackupPassphrase("MasterVault#2026");
+                if (!reloaded49.HasPortableBackupPassphrase)
+                {
+                    throw new InvalidOperationException("HasPortableBackupPassphrase must be true after setting >=6 char passphrase.");
+                }
+
+                var sampleVias = new List<ViaWorkspaceEntry>
+                {
+                    new() { ViaId = "via-p1", Label = "Via Portable Test", ProfileDir = "Profile 1" },
+                };
+                var (bkCreated, bkPath, _) = VaultBackupService.CreateDailyAutoBackup(reloaded49, sampleVias);
+                if (!bkCreated || string.IsNullOrWhiteSpace(bkPath) || !File.Exists(bkPath))
+                {
+                    throw new InvalidOperationException("CreateDailyAutoBackup failed in custom portable folder.");
+                }
+                var listedFiles = VaultBackupService.ListAutoBackupFiles(reloaded49);
+                if (listedFiles.Count == 0 || !listedFiles[0].Portable)
+                {
+                    throw new InvalidOperationException("ListAutoBackupFiles must detect Portable = true on envelope.");
+                }
+                var bkBytes = File.ReadAllBytes(bkPath);
+                var preview = VaultBackupService.PreviewFromBytes(bkBytes, "MasterVault#2026");
+                if (!preview.Portable || preview.ViaCount != 1)
+                {
+                    throw new InvalidOperationException("PreviewFromBytes failed for portable backup.");
+                }
+                var decrypted = VaultBackupService.DecryptFromBytes(bkBytes, "MasterVault#2026");
+                if (decrypted.Vias.Count != 1 || decrypted.Vias[0].ViaId != "via-p1")
+                {
+                    throw new InvalidOperationException("Portable Vault decrypt failed on fresh passphrase check.");
+                }
+
+                if (!SelfUpdateService.IsNewerVersion("4.5.0", "4.4.0") || SelfUpdateService.IsNewerVersion("4.4.0", "4.4.0"))
+                {
+                    throw new InvalidOperationException("SelfUpdateService.IsNewerVersion comparison failed.");
+                }
+                var psRollback = SelfUpdateService.BuildSafeApplyUpdateScript(12345, @"C:\Temp\Stg", @"C:\App", @"C:\Temp\upd.zip");
+                if (!psRollback.Contains("$bak = \"$exe.bak\"", StringComparison.Ordinal) ||
+                    !psRollback.Contains("Copy-Item -Path $bak -Destination $exe", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("BuildSafeApplyUpdateScript missing .bak backup/rollback protection.");
+                }
+
+                var meJson = """
+                    {
+                      "id": "u1",
+                      "email": "ops@adsops.local",
+                      "role": "owner",
+                      "workspace": {
+                        "id": "w1",
+                        "name": "Agency Pro",
+                        "slug": "agency-pro",
+                        "plan_tier": "pro",
+                        "max_desktop_devices": 2,
+                        "license": {
+                          "status": "read_only",
+                          "is_read_only": true,
+                          "plan_tier": "pro",
+                          "days_remaining": -5,
+                          "max_desktop_devices": 2,
+                          "active_desktop_devices": 1
+                        }
+                      }
+                    }
+                    """;
+                var parsedMe = JsonSerializer.Deserialize<CurrentUserDto>(meJson);
+                if (parsedMe?.Workspace?.License == null ||
+                    !parsedMe.Workspace.License.IsReadOnly ||
+                    parsedMe.Workspace.License.Status != "read_only" ||
+                    parsedMe.Workspace.License.MaxDesktopDevices != 2)
+                {
+                    throw new InvalidOperationException("WorkspaceLicenseDto deserialization check failed.");
                 }
             }
 

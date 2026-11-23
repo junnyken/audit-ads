@@ -684,6 +684,20 @@ public sealed class WebSettingsDto
     public string LatestAvailableVersion { get; set; } = "";
     public bool HasUpdateManifest { get; set; }
     public bool IsNewerUpdate { get; set; }
+    public bool UpdateRequired { get; set; }
+    public string MinSupportedVersion { get; set; } = "";
+    public bool HasPortableBackupPassphrase { get; set; }
+    public string CustomAutoBackupFolder { get; set; } = "";
+    public string EffectiveAutoBackupFolder { get; set; } = "";
+    public List<VaultBackupFileInfoDto> AutoBackupFiles { get; set; } = new();
+    public string PortableBackupStatusMessage { get; set; } = "";
+    public string PortableBackupPreviewJson { get; set; } = "";
+    public string LicenseStatus { get; set; } = "unlimited";
+    public bool LicenseIsReadOnly { get; set; }
+    public int? LicenseDaysRemaining { get; set; }
+    public string LicenseExpiresAt { get; set; } = "";
+    public int MaxDesktopDevices { get; set; } = 10;
+    public int ActiveDesktopDevices { get; set; }
 }
 
 public sealed class WebNavBadgesDto

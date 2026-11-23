@@ -8,13 +8,13 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>AdsOpsDesktop</AssemblyName>
     <RootNamespace>AdsOpsDesktop</RootNamespace>
-    <Version>4.2.0</Version>
-    <AssemblyVersion>4.2.0.0</AssemblyVersion>
-    <FileVersion>4.2.0.0</FileVersion>
+    <Version>4.4.0</Version>
+    <AssemblyVersion>4.4.0.0</AssemblyVersion>
+    <FileVersion>4.4.0.0</FileVersion>
     <Product>AdsOps Desktop Pro</Product>
     <Company>AdsOps</Company>
     <CodePage>65001</CodePage>
-    <Description>AdsOps Desktop Pro v4.2.0 — 7d Operational Telemetry, Proxy Cluster Health Ranking, Early ≥80% Card Threshold &amp; Spend Spike Alerts, Option A Graphite/Cobalt UI &amp; Extension v2.10.4</Description>
+    <Description>AdsOps Desktop Pro v4.4.0 — Commercial SaaS Auth Recovery, Subscription License Guard, Desktop Device Limit, Portable AES-256-GCM Vault Auto-Backup &amp; Streaming Self-Updater with .bak Rollback</Description>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 

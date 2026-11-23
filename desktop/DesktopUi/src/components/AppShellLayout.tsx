@@ -517,6 +517,58 @@ export function AppShellLayout({
           </div>
         )}
 
+        {/* UPDATE AVAILABLE / MANDATORY BANNER */}
+        {(state.settings.isNewerUpdate || state.settings.updateRequired) && state.settings.hasUpdateManifest && (
+          <div
+            className={cn(
+              'flex shrink-0 flex-wrap items-center justify-between gap-2 border-b px-5 py-2 text-xs',
+              state.settings.updateRequired
+                ? 'border-rose-500/35 bg-rose-500/10 text-rose-800 dark:text-rose-200'
+                : 'border-blue-500/30 bg-blue-500/10 text-blue-800 dark:text-blue-200',
+            )}
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <Zap className="h-4 w-4 shrink-0" />
+              <span className="font-medium">
+                {state.settings.updateRequired
+                  ? `Cập nhật bắt buộc: Phiên bản v${state.appVersion} cũ hơn bản tối thiểu v${state.settings.minSupportedVersion}.`
+                  : `Đã có bản cập nhật mới v${state.settings.latestAvailableVersion} (có tự sao lưu .bak an toàn).`}
+              </span>
+            </div>
+            <Button size="sm" onClick={() => sendDesktopCommand('apply_self_update')}>
+              <RefreshCw className="h-3 w-3" /> Cập nhật lên v{state.settings.latestAvailableVersion}
+            </Button>
+          </div>
+        )}
+
+        {/* LICENSE EXPIRY / GRACE / READ-ONLY BANNER */}
+        {(state.settings.licenseStatus === 'read_only' ||
+          state.settings.licenseStatus === 'grace' ||
+          state.settings.licenseStatus === 'expiring') && (
+          <div
+            className={cn(
+              'flex shrink-0 flex-wrap items-center justify-between gap-2 border-b px-5 py-2 text-xs',
+              state.settings.licenseIsReadOnly
+                ? 'border-rose-500/35 bg-rose-500/10 text-rose-800 dark:text-rose-200'
+                : 'border-amber-500/35 bg-amber-500/10 text-amber-800 dark:text-amber-200',
+            )}
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <Lock className="h-4 w-4 shrink-0" />
+              <span>
+                {state.settings.licenseIsReadOnly
+                  ? 'Workspace đang ở chế độ Chỉ-đọc (quá ân hạn 3 ngày). Mở Chrome Profile, lấy 2FA & Sao lưu Két vẫn dùng được; Auto-Pilot & Đồng bộ tạm khóa.'
+                  : state.settings.licenseStatus === 'grace'
+                    ? 'Gói thuê bao đang trong thời gian ân hạn 3 ngày. Vui lòng nhập Mã gia hạn sớm để tránh chuyển sang Chỉ-đọc.'
+                    : `Gói thuê bao còn ${Math.max(0, state.settings.licenseDaysRemaining ?? 0)} ngày sử dụng.`}
+              </span>
+            </div>
+            <Button variant="secondary" size="sm" onClick={() => sendDesktopCommand('switch_view', { view: 'settings' })}>
+              <KeyRound className="h-3 w-3" /> Nhập mã gia hạn
+            </Button>
+          </div>
+        )}
+
         {/* CONTENT SCROLL AREA */}
         <ScrollArea className="flex-1">
           <main className="mx-auto w-full max-w-[1480px] space-y-4 p-4 sm:p-5">

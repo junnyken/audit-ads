@@ -49,6 +49,12 @@ class DeviceSession(UUIDPrimaryKey, Timestamped, Base):
     os_family: Mapped[str | None] = mapped_column(sa.String(60))
     #: Salted hash only — the raw IP is never persisted or returned (A9 guardrail 20).
     ip_hash: Mapped[str | None] = mapped_column(sa.String(64))
+    client_channel: Mapped[str] = mapped_column(
+        sa.String(20), nullable=False, default="web", server_default="web"
+    )
+    installation_hash: Mapped[str | None] = mapped_column(
+        sa.String(64), nullable=True, index=True
+    )
     last_seen_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
@@ -61,7 +67,8 @@ class DeviceSession(UUIDPrimaryKey, Timestamped, Base):
     def is_active(self) -> bool:
         if self.revoked_at is not None:
             return False
-        return self.expires_at > datetime.now(UTC)
+        exp = self.expires_at if self.expires_at.tzinfo is not None else self.expires_at.replace(tzinfo=UTC)
+        return exp > datetime.now(UTC)
 
 
 class WorkspaceSeatPlan(UUIDPrimaryKey, Timestamped, Archivable, Base):

@@ -310,12 +310,12 @@ def _build_billing_meta_map(
     )
     overrides_by_id: dict[str, dict[str, Any]] = {}
     for row in audit_rows:
-        meta = row.metadata_json or row.after_json or {}
-        if isinstance(meta, dict):
-            cur = overrides_by_id.setdefault(row.entity_id, {})
-            for k, v in meta.items():
-                if v is not None and v != "":
-                    cur[k] = v
+        cur = overrides_by_id.setdefault(row.entity_id, {})
+        for src in (row.after_json, row.metadata_json):
+            if isinstance(src, dict):
+                for k, v in src.items():
+                    if k != "source" and v is not None and v != "":
+                        cur[k] = v
 
     out: dict[uuid.UUID, dict[str, Any]] = {}
     for acc in accounts:
