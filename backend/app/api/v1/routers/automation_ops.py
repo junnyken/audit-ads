@@ -194,7 +194,7 @@ def send_telegram_test_message(ctx: OwnerCtx, payload: dict[str, Any] | None = N
     public_url = resolve_workspace_public_url(ctx.session, ctx.workspace_id, settings)
     text = "\n".join(
         [
-            f"✅ ADSOPS CONTROL CENTER — KẾT NỐI TELEGRAM THÀNH CÔNG",
+            "✅ ADSOPS CONTROL CENTER — KẾT NỐI TELEGRAM THÀNH CÔNG",
             f"Workspace: {ctx.workspace.name}",
             f"Quy mô hiện tại: {acc_cnt} TKQC · {via_cnt} Via · {page_cnt} Fanpage",
             f"Trạng thái cảnh báo: {'Đang bật' if cfg.get('enabled') else 'Đang tạm tắt'}",
@@ -450,7 +450,7 @@ def check_all_workspace_proxies_live(ctx: WriteCtx) -> dict[str, Any]:
 # ---- 4. Custom Domain & SEO Readiness ---------------------------------------------------
 
 
-def _get_saved_custom_domain(session, workspace_id: uuid.UUID) -> tuple[str, str | None]:
+def _get_saved_custom_domain(session, workspace_id: uuid.UUID) -> tuple[str, str | None, bool]:
     row = (
         session.execute(
             sa.select(AuditLog)
@@ -468,24 +468,48 @@ def _get_saved_custom_domain(session, workspace_id: uuid.UUID) -> tuple[str, str
         return (
             str(row.metadata_json.get("custom_domain") or "").strip(),
             row.created_at.isoformat() if row.created_at else None,
+            bool(row.metadata_json.get("cors_trusted") is True),
         )
-    return "", None
+    return "", None, False
+
+
+def _is_valid_public_custom_domain_host(host: str, public_app_url: str) -> bool:
+    import ipaddress
+
+    if not host or host in ("localhost", "127.0.0.1") or not _DOMAIN_HOST_RE.match(host):
+        return False
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+        return False
+    except ValueError:
+        pass
+    if "." not in host or host.endswith((".local", ".internal", ".localhost")):
+        return False
+    api_host = (urlparse(public_app_url or "").hostname or "").lower()
+    if api_host and host == api_host:
+        return True
+    return True
 
 
 @router.get("/domain-seo/config")
 def get_domain_seo_config(ctx: Ctx) -> dict[str, Any]:
     settings = get_settings()
-    custom_domain, updated_at = _get_saved_custom_domain(ctx.session, ctx.workspace_id)
+    custom_domain, updated_at, cors_trusted = _get_saved_custom_domain(ctx.session, ctx.workspace_id)
     effective_url = custom_domain or (settings.public_app_url or "https://adsops-app.vibe.tinhgon.xyz").rstrip("/")
     return {
         "custom_domain": custom_domain,
+        "cors_trusted": cors_trusted,
         "effective_public_url": effective_url,
         "default_env_cors_count": len(settings.cors_origins),
         "updated_at": updated_at,
         "seo_checklist": [
             {"key": "og_banner", "label": "Ảnh chia sẻ Zalo / Facebook 1200x630 (/og-banner.png)", "ready": True},
             {"key": "sitemap_robots", "label": "Sitemap.xml & Robots.txt tự nhận diện tên miền mới", "ready": True},
-            {"key": "dynamic_cors", "label": "Tự mở khóa Backend CORS & Link Telegram theo tên miền riêng", "ready": True},
+            {
+                "key": "dynamic_cors",
+                "label": "Mở khóa CORS an toàn cho tên miền đã xác thực",
+                "ready": bool(cors_trusted or not custom_domain),
+            },
             {"key": "gzip_cache", "label": "Nén Gzip + Cache tài sản tĩnh 1 năm + Code Splitting", "ready": True},
         ],
     }
@@ -493,6 +517,10 @@ def get_domain_seo_config(ctx: Ctx) -> dict[str, Any]:
 
 @router.post("/domain-seo/config")
 def save_domain_seo_config(ctx: OwnerCtx, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    from app.core.email_and_bot_guard import is_bootstrap_owner_workspace
+    from app.services.community_quota import is_user_platform_admin
+
+    settings = get_settings()
     body = payload or {}
     raw = str(body.get("custom_domain") or "").strip().rstrip("/")
     normalized = ""
@@ -500,7 +528,7 @@ def save_domain_seo_config(ctx: OwnerCtx, payload: dict[str, Any] | None = None)
         cand = raw if "://" in raw else f"https://{raw}"
         parsed = urlparse(cand)
         host = (parsed.hostname or "").lower()
-        if parsed.scheme != "https" or not host or host in ("localhost", "127.0.0.1") or not _DOMAIN_HOST_RE.match(host):
+        if parsed.scheme != "https" or not _is_valid_public_custom_domain_host(host, settings.public_app_url):
             raise ValidationError(
                 "Tên miền phải là địa chỉ HTTPS hợp lệ (VD: https://app.thuonghieu.vn).",
                 details={"field": "custom_domain"},
@@ -508,11 +536,23 @@ def save_domain_seo_config(ctx: OwnerCtx, payload: dict[str, Any] | None = None)
         port_part = f":{parsed.port}" if parsed.port and parsed.port != 443 else ""
         normalized = f"https://{host}{port_part}"
 
+    cors_trusted = bool(
+        normalized
+        and (
+            is_user_platform_admin(ctx.user, settings)
+            or is_bootstrap_owner_workspace(ctx.session, ctx.workspace_id)
+        )
+    )
+
     ctx.audit.record(
         action="workspace_domain_seo.updated",
         entity_type="workspace_domain_seo",
         entity_id=str(ctx.workspace_id),
-        metadata={"custom_domain": normalized, "updated_at": datetime.now(UTC).isoformat()},
+        metadata={
+            "custom_domain": normalized,
+            "cors_trusted": cors_trusted,
+            "updated_at": datetime.now(UTC).isoformat(),
+        },
     )
     ctx.commit()
 

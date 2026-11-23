@@ -241,8 +241,11 @@ def admin_overview(ctx: Ctx) -> dict[str, Any]:
                 "created_at": ws.created_at.isoformat() if ws.created_at else None,
             }
         )
+    from app.bootstrap import check_db_email_guard_status
+
     return {
         "require_invite_code": is_require_invite_code_enabled(ctx.session, settings),
+        "db_email_guard_status": check_db_email_guard_status(ctx.session),
         "total_workspaces": len(ws_rows),
         "active_workspaces": sum(1 for w in ws_rows if w["community_status"] == "active"),
         "invite_codes_count": codes_count,
@@ -454,3 +457,86 @@ def admin_put_policy(ctx: Ctx, payload: CommunityPolicyPutRequest) -> dict[str, 
     )
     ctx.commit()
     return {"require_invite_code": bool(payload.require_invite_code)}
+
+
+class AllowlistEmailRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: str = Field(min_length=3, max_length=320)
+    note: str = Field(default="", max_length=240)
+
+
+@router.get("/admin/email-allowlist")
+def admin_list_email_allowlist(ctx: Ctx) -> dict[str, Any]:
+    _require_platform_admin(ctx)
+    from app.bootstrap import check_db_email_guard_status
+    from app.models.entities import SignupEmailAllowlist
+
+    rows = (
+        ctx.session.execute(sa.select(SignupEmailAllowlist).order_by(SignupEmailAllowlist.created_at.desc()))
+        .scalars()
+        .all()
+    )
+    return {
+        "db_email_guard_status": check_db_email_guard_status(ctx.session),
+        "items": [
+            {
+                "email": r.email,
+                "note": r.note,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.post("/admin/email-allowlist", status_code=201)
+def admin_add_email_allowlist(ctx: Ctx, payload: AllowlistEmailRequest) -> dict[str, Any]:
+    _require_platform_admin(ctx)
+    from app.core.errors import ValidationError
+    from app.models.entities import SignupEmailAllowlist
+
+    clean = (payload.email or "").strip().lower()
+    if "@" not in clean or "." not in clean.split("@", 1)[1]:
+        raise ValidationError("Địa chỉ email ngoại lệ không hợp lệ.", details={"field": "email"})
+    row = ctx.session.get(SignupEmailAllowlist, clean)
+    if row is None:
+        row = SignupEmailAllowlist(
+            email=clean,
+            note=payload.note.strip()[:240],
+            created_by_user_id=ctx.user.id,
+        )
+        ctx.session.add(row)
+    else:
+        row.note = payload.note.strip()[:240]
+    ctx.audit.record(
+        action="community.email_allowlist_added",
+        entity_type="signup_email_allowlist",
+        entity_id=clean,
+        metadata={"note": row.note},
+    )
+    ctx.commit()
+    return {"email": row.email, "note": row.note}
+
+
+class AllowlistRemoveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: str = Field(min_length=3, max_length=320)
+
+
+@router.post("/admin/email-allowlist/remove")
+def admin_remove_email_allowlist(ctx: Ctx, payload: AllowlistRemoveRequest) -> dict[str, Any]:
+    _require_platform_admin(ctx)
+    from app.models.entities import SignupEmailAllowlist
+
+    clean = (payload.email or "").strip().lower()
+    row = ctx.session.get(SignupEmailAllowlist, clean)
+    if row is None:
+        raise NotFoundError("Email is not in allowlist.")
+    ctx.session.delete(row)
+    ctx.audit.record(
+        action="community.email_allowlist_removed",
+        entity_type="signup_email_allowlist",
+        entity_id=clean,
+    )
+    ctx.commit()
+    return {"removed": clean}

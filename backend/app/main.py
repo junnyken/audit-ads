@@ -3,15 +3,15 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from contextlib import asynccontextmanager, suppress
 from typing import Any
-from contextlib import asynccontextmanager
 
 import sqlalchemy as sa
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
+from app.api.middleware import MaxBodySizeMiddleware, RequestContextMiddleware, SecurityHeadersMiddleware
 from app.api.rate_limit_middleware import RateLimitMiddleware
 from app.api.v1 import api_router
 from app.bootstrap import bootstrap_owner
@@ -21,7 +21,6 @@ from app.core.logging import configure_logging
 from app.core.production_checks import enforce, is_production
 from app.db.session import SessionLocal, engine
 from app.startup_migration import run_if_requested
-
 
 _DOMAIN_CACHE: dict[str, Any] = {"expires_at": 0.0, "origins": set()}
 
@@ -55,7 +54,9 @@ def _load_custom_domain_origins() -> set[str]:
             latest_by_ws: dict[str, str] = {}
             for r in rows:
                 meta = r.metadata_json if isinstance(r.metadata_json, dict) else {}
-                latest_by_ws[str(r.workspace_id)] = str(meta.get("custom_domain") or "").strip().rstrip("/").lower()
+                dom = str(meta.get("custom_domain") or "").strip().rstrip("/").lower()
+                # Security gate (F-03): never elevate unverified tenant domains into global API CORS.
+                latest_by_ws[str(r.workspace_id)] = dom if meta.get("cors_trusted") is True else ""
             found = {v for v in latest_by_ws.values() if v.startswith("https://")}
     except Exception:
         found = set()
@@ -145,10 +146,8 @@ async def lifespan(app: FastAPI):
     finally:
         if cron_task is not None:
             cron_task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await cron_task
-            except asyncio.CancelledError:
-                pass
 
 
 def create_app() -> FastAPI:
@@ -177,6 +176,7 @@ def create_app() -> FastAPI:
     # and request-context layers, the refusal would lose its headers and its request id. It
     # still short-circuits before any route, session or database work.
     app.add_middleware(RateLimitMiddleware, settings=settings)
+    app.add_middleware(MaxBodySizeMiddleware, max_body_bytes=settings.max_request_body_bytes)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(
         DynamicDomainCORSMiddleware,

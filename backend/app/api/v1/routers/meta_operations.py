@@ -44,6 +44,7 @@ from app.services.early_risk_detector import evaluate_and_reconcile_early_risks
 from app.services.meta_access_share import AccessShareBatchService, DraftShareItem
 from app.services.meta_account_creation import AccountCreationBatchService, DraftAccountItem
 from app.services.meta_discovery import MetaDiscoveryService, ReconciliationRow
+from app.services.meta_graph_transport import claim_page_to_bm
 from app.services.meta_pixel_share import DraftPixelShareItem, PixelShareBatchService
 from app.services.meta_provider import DiscoveredAsset, get_fake_provider
 from app.services.meta_reader_credentials import MetaReaderCredentialService, derived_state
@@ -3055,9 +3056,9 @@ def _sync_workspace_pages_from_meta(
             if not target_bm_ext:
                 continue
             for tr_claim in sync_transports:
-                if not hasattr(tr_claim, "claim_page_to_bm"):
+                if not (hasattr(tr_claim, "_claim_page_to_bm") or hasattr(tr_claim, "claim_page_to_bm")):
                     continue
-                ok_claim, _msg_claim = tr_claim.claim_page_to_bm(target_bm_ext, ext_pid)
+                ok_claim, _msg_claim = claim_page_to_bm(tr_claim, target_bm_ext, ext_pid)
                 if ok_claim:
                     bm_claimed_count += 1
                     already_bm_owned_ext_ids.add(ext_pid)
@@ -4699,9 +4700,9 @@ def claim_page_to_business_manager(
     claimed_ok = False
     last_msg = "Không gom được Page vào BM."
     for tr in transports:
-        if not hasattr(tr, "claim_page_to_bm"):
+        if not (hasattr(tr, "_claim_page_to_bm") or hasattr(tr, "claim_page_to_bm")):
             continue
-        ok, msg = tr.claim_page_to_bm(bm_ext_raw, ext_pid)
+        ok, msg = claim_page_to_bm(tr, bm_ext_raw, ext_pid)
         last_msg = msg
         if ok:
             claimed_ok = True
@@ -5053,9 +5054,9 @@ def ingest_browser_event(
                 target_bm, bm_ext_raw = _resolve_target_bm_for_page(ctx.session, ctx.workspace_id, matched_pg)
                 if bm_ext_raw:
                     for tr in _collect_workspace_meta_transports(ctx.session, ctx.workspace_id):
-                        if not hasattr(tr, "claim_page_to_bm"):
+                        if not (hasattr(tr, "_claim_page_to_bm") or hasattr(tr, "claim_page_to_bm")):
                             continue
-                        ok, _ = tr.claim_page_to_bm(bm_ext_raw, bound_ext_pid)
+                        ok, _ = claim_page_to_bm(tr, bm_ext_raw, bound_ext_pid)
                         if ok:
                             auto_claimed = True
                             if target_bm is not None:

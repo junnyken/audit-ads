@@ -14,13 +14,14 @@ export interface RegisterPayload {
   human_confirmed: boolean
   website_honeypot?: string
   invite_code?: string
+  turnstile_token?: string
 }
 
 interface AuthState {
   user: CurrentUser | null
   loading: boolean
-  signIn: (email: string, password: string) => Promise<void>
-  registerAccount: (payload: RegisterPayload) => Promise<void>
+  signIn: (email: string, password: string, turnstileToken?: string) => Promise<void>
+  registerAccount: (payload: RegisterPayload) => Promise<{ verificationRequired: boolean }>
   signOut: () => void
 }
 
@@ -51,10 +52,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [load])
 
   const signIn = useCallback(
-    async (email: string, password: string) => {
+    async (email: string, password: string, turnstileToken?: string) => {
       const response = await api.post<{ access_token: string }>('/api/v1/auth/login', {
         email,
         password,
+        ...(turnstileToken ? { turnstile_token: turnstileToken } : {}),
       })
       setToken(response.access_token)
       setLoading(true)
@@ -65,15 +67,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const registerAccount = useCallback(
     async (payload: RegisterPayload) => {
-      const response = await api.post<{ access_token: string }>('/api/v1/auth/register', payload)
+      const response = await api.post<{
+        access_token: string
+        verification_required?: boolean
+      }>('/api/v1/auth/register', payload)
+      if (response.verification_required || !response.access_token) {
+        return { verificationRequired: true }
+      }
       setToken(response.access_token)
       setLoading(true)
       await load()
+      return { verificationRequired: false }
     },
     [load],
   )
 
   const signOut = useCallback(() => {
+    if (getToken()) {
+      void api.post('/api/v1/auth/logout', {}).catch(() => {})
+    }
     setToken(null)
     setUser(null)
   }, [])

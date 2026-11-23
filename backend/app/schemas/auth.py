@@ -15,18 +15,52 @@ class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=200)
     replace_oldest_device: bool = False
+    turnstile_token: str | None = Field(default=None, max_length=2048)
 
 
 class ForgotPasswordRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     email: EmailStr
+    turnstile_token: str | None = Field(default=None, max_length=2048)
 
 
 class ResetPasswordRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     token: str = Field(min_length=16, max_length=512)
+    new_password: str = Field(min_length=8, max_length=200)
+
+
+class PrecheckSignupRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(min_length=3, max_length=320)
+
+
+class PrecheckSignupResponse(BaseModel):
+    ok: bool
+    reason: str | None = None
+    message: str | None = None
+    normalized_email: str
+
+
+class VerifyEmailRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=16, max_length=512)
+
+
+class ResendVerificationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr | None = None
+
+
+class ChangePasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: str = Field(min_length=8, max_length=200)
     new_password: str = Field(min_length=8, max_length=200)
 
 
@@ -43,6 +77,7 @@ class RegisterRequest(BaseModel):
     human_confirmed: bool = False
     website_honeypot: str | None = Field(default="", max_length=200)
     invite_code: str | None = Field(default=None, max_length=64)
+    turnstile_token: str | None = Field(default=None, max_length=2048)
 
 
 class BotChallengeResponse(BaseModel):
@@ -50,12 +85,16 @@ class BotChallengeResponse(BaseModel):
     captcha_svg: str
     math_question: str
     expires_in_seconds: int
+    turnstile_enabled: bool = False
+    turnstile_site_key: str = ""
 
 
 class TokenResponse(BaseModel):
-    access_token: str
+    access_token: str = ""
     token_type: str = "bearer"
     expires_at: datetime
+    email_verified: bool = True
+    verification_required: bool = False
 
 
 class WorkspaceSummary(BaseModel):
@@ -78,4 +117,5 @@ class CurrentUserResponse(BaseModel):
     full_name: str
     role: WorkspaceRole
     is_platform_admin: bool = False
+    email_verified: bool = True
     workspace: WorkspaceSummary

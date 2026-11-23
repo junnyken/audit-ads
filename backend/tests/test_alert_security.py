@@ -240,6 +240,7 @@ def test_only_named_modules_may_make_an_outbound_request():
         "services/proxy_health_transport.py",
         "services/meta_graph_transport.py",
         "services/ai_provider_transport.py",
+        "services/turnstile_verifier.py",
     }
 
     browser_offenders, http_offenders = [], []

@@ -5,9 +5,10 @@ import time
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 from app.core.context import set_request_id
+from app.core.errors import error_payload
 
 logger = logging.getLogger("app.request")
 
@@ -46,6 +47,80 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class _PayloadTooLargeError(Exception):
+    pass
+
+
+class MaxBodySizeMiddleware:
+    """Enforce maximum request body size without buffering unbounded payloads into RAM."""
+
+    def __init__(self, app, *, max_body_bytes: int = 2 * 1024 * 1024) -> None:
+        self.app = app
+        self.max_body_bytes = max(1024, int(max_body_bytes))
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = dict(scope.get("headers") or [])
+        raw_cl = headers.get(b"content-length")
+        if raw_cl:
+            try:
+                if int(raw_cl.decode("ascii")) > self.max_body_bytes:
+                    await self._send_413(scope, send)
+                    return
+            except ValueError:
+                pass
+
+        received_bytes = 0
+        response_started = False
+        sent_413 = False
+
+        async def wrapped_send(message):
+            nonlocal response_started
+            if sent_413:
+                return
+            if message.get("type") == "http.response.start":
+                response_started = True
+            await send(message)
+
+        async def bounded_receive():
+            nonlocal received_bytes, sent_413
+            message = await receive()
+            if message.get("type") == "http.request":
+                body = message.get("body") or b""
+                received_bytes += len(body)
+                if received_bytes > self.max_body_bytes:
+                    if not response_started and not sent_413:
+                        sent_413 = True
+                        await self._send_413(scope, send)
+                    raise _PayloadTooLargeError()
+            return message
+
+        try:
+            await self.app(scope, bounded_receive, wrapped_send)
+        except _PayloadTooLargeError:
+            if not response_started and not sent_413:
+                sent_413 = True
+                await self._send_413(scope, send)
+
+    async def _send_413(self, scope, send) -> None:
+        resp = JSONResponse(
+            status_code=413,
+            content=error_payload(
+                "payload_too_large",
+                "Request payload exceeds maximum allowed size.",
+                {"max_bytes": self.max_body_bytes},
+            ),
+        )
+        await resp(scope, _empty_receive, send)
+
+
+async def _empty_receive():
+    return {"type": "http.disconnect"}
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         response = await call_next(request)
@@ -53,6 +128,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        response.headers.setdefault("X-Permitted-Cross-Domain-Policies", "none")
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'none'; frame-ancestors 'none'",
+        )
+        if request.url.path.startswith("/api/"):
+            response.headers.setdefault("Cache-Control", "no-store")
         response.headers.setdefault(
             "Permissions-Policy",
             "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",

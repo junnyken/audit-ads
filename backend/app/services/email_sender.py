@@ -18,14 +18,23 @@ def build_password_reset_url(settings: Any, raw_token: str) -> str:
     return f"{base}/?reset_token={raw_token}"
 
 
-def send_password_reset_email(
+def build_email_verification_url(settings: Any, raw_token: str) -> str:
+    """Build email verification link strictly from server-configured public_app_url."""
+    base = (getattr(settings, "public_app_url", "") or "").strip()
+    if not base.startswith(("https://", "http://")):
+        base = "https://adsops-app.vibe.tinhgon.xyz"
+    base = base.rstrip("/")
+    return f"{base}/?verify_token={raw_token}"
+
+
+def _send_smtp_text_email(
     settings: Any,
     to_email: str,
-    reset_url: str,
+    subject: str,
+    body: str,
     *,
-    full_name: str = "",
+    log_event: str,
 ) -> tuple[bool, str | None]:
-    """Send password reset email via configured SMTP. Never logs tokens or credentials."""
     if not getattr(settings, "smtp_configured", False):
         return False, "smtp_not_configured"
 
@@ -38,17 +47,9 @@ def send_password_reset_email(
     use_tls = bool(getattr(settings, "smtp_use_tls", True))
 
     msg = EmailMessage()
-    msg["Subject"] = "[AdsOps Control Center] Đặt lại mật khẩu tài khoản"
+    msg["Subject"] = subject
     msg["From"] = from_addr
     msg["To"] = to_email
-    greeting = f"Chào {full_name.strip()}," if full_name.strip() else "Chào bạn,"
-    body = (
-        f"{greeting}\n\n"
-        "Hệ thống đã nhận yêu cầu đặt lại mật khẩu cho tài khoản AdsOps Control Center của bạn.\n"
-        "Liên kết bên dưới chỉ sử dụng 1 lần và có hiệu lực trong 30 phút:\n\n"
-        f"{reset_url}\n\n"
-        "Nếu bạn không gửi yêu cầu này, hãy bỏ qua email — mật khẩu và phiên đăng nhập hiện tại vẫn an toàn.\n"
-    )
     msg.set_content(body)
 
     try:
@@ -68,5 +69,55 @@ def send_password_reset_email(
                 smtp.send_message(msg)
         return True, None
     except Exception as exc:
-        logger.warning("smtp_password_reset_failed", extra={"error_type": type(exc).__name__})
+        logger.warning(log_event, extra={"error_type": type(exc).__name__})
         return False, type(exc).__name__
+
+
+def send_password_reset_email(
+    settings: Any,
+    to_email: str,
+    reset_url: str,
+    *,
+    full_name: str = "",
+) -> tuple[bool, str | None]:
+    """Send password reset email via configured SMTP. Never logs tokens or credentials."""
+    greeting = f"Chào {full_name.strip()}," if full_name.strip() else "Chào bạn,"
+    body = (
+        f"{greeting}\n\n"
+        "Hệ thống đã nhận yêu cầu đặt lại mật khẩu cho tài khoản AdsOps Control Center của bạn.\n"
+        "Liên kết bên dưới chỉ sử dụng 1 lần và có hiệu lực trong 30 phút:\n\n"
+        f"{reset_url}\n\n"
+        "Nếu bạn không gửi yêu cầu này, hãy bỏ qua email — mật khẩu và phiên đăng nhập hiện tại vẫn an toàn.\n"
+    )
+    return _send_smtp_text_email(
+        settings,
+        to_email,
+        "[AdsOps Control Center] Đặt lại mật khẩu tài khoản",
+        body,
+        log_event="smtp_password_reset_failed",
+    )
+
+
+def send_email_verification_email(
+    settings: Any,
+    to_email: str,
+    verify_url: str,
+    *,
+    full_name: str = "",
+) -> tuple[bool, str | None]:
+    """Send 1-time email address confirmation link without logging tokens."""
+    greeting = f"Chào {full_name.strip()}," if full_name.strip() else "Chào bạn,"
+    body = (
+        f"{greeting}\n\n"
+        "Cảm ơn bạn đã đăng ký tài khoản AdsOps Control Center.\n"
+        "Vui lòng bấm vào liên kết xác nhận email dưới đây (hiệu lực 24 giờ, sử dụng 1 lần):\n\n"
+        f"{verify_url}\n\n"
+        "Nếu bạn không thực hiện đăng ký này, hãy bỏ qua email này.\n"
+    )
+    return _send_smtp_text_email(
+        settings,
+        to_email,
+        "[AdsOps Control Center] Xác nhận địa chỉ email tài khoản",
+        body,
+        log_event="smtp_email_verification_failed",
+    )

@@ -118,6 +118,7 @@ export default function Settings() {
           </section>
 
           <section id="sec-security" className="scroll-mt-20 space-y-4">
+            <AccountPasswordAndEmailSecuritySection user={me.data} />
             <RevealPinSection />
             <ReaderCredentialsSection isOwner={isOwner} />
             <ConnectedBrowsersSection />
@@ -1548,12 +1549,170 @@ interface AdminWorkspaceRow {
   invited_by_code: string | null
 }
 
+function AccountPasswordAndEmailSecuritySection({ user }: { user: CurrentUser }) {
+  const qc = useQueryClient()
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [formError, setFormError] = useState<string | null>(null)
+  const [formNotice, setFormNotice] = useState<string | null>(null)
+
+  const resendMut = useMutation({
+    mutationFn: () => api.post<{ status: string; message?: string }>('/api/v1/auth/resend-verification', {}),
+    onSuccess: (res) => {
+      setFormError(null)
+      setFormNotice(res?.message || 'Đã gửi yêu cầu cấp lại liên kết xác nhận email.')
+    },
+    onError: (err) => {
+      setFormError(err instanceof Error ? err.message : 'Không gửi lại được email xác nhận.')
+    },
+  })
+
+  const changePwdMut = useMutation({
+    mutationFn: () =>
+      api.post<{ status: string; revoked_other_sessions: number }>('/api/v1/auth/change-password', {
+        current_password: currentPassword,
+        new_password: newPassword,
+      }),
+    onSuccess: (res) => {
+      setFormError(null)
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+      setFormNotice(
+        `Đã cập nhật mật khẩu tài khoản và đăng xuất ${res.revoked_other_sessions ?? 0} phiên thiết bị khác.`,
+      )
+      void qc.invalidateQueries({ queryKey: ['me'] })
+    },
+    onError: (err) => {
+      setFormError(err instanceof Error ? err.message : 'Đổi mật khẩu thất bại.')
+    },
+  })
+
+  function handleChangePassword(event: React.FormEvent) {
+    event.preventDefault()
+    setFormError(null)
+    setFormNotice(null)
+    if (newPassword.length < 8 || !/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword) || !/\d/.test(newPassword)) {
+      setFormError('Mật khẩu mới phải từ 8 ký tự, gồm chữ Hoa, chữ thường và chữ số.')
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      setFormError('Mật khẩu xác nhận không trùng khớp.')
+      return
+    }
+    changePwdMut.mutate()
+  }
+
+  const verified = user.email_verified !== false
+
+  return (
+    <Panel
+      title={
+        <span className="inline-flex items-center gap-2">
+          <KeyRound className="h-4 w-4 shrink-0 text-ink-muted" />
+          <span>Bảo mật Tài khoản &amp; Xác nhận Email</span>
+        </span>
+      }
+    >
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-line bg-surface-sunken px-3 py-2.5 text-xs">
+          <div className="space-y-0.5">
+            <div className="font-semibold text-ink">Email đăng nhập: {user.email}</div>
+            <div className="flex items-center gap-2 text-ink-muted">
+              <span>Trạng thái xác thực:</span>
+              <Badge tone={verified ? 'positive' : 'caution'}>
+                {verified ? 'Email đã xác nhận' : 'Chưa xác nhận email'}
+              </Badge>
+            </div>
+          </div>
+          {!verified && (
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={resendMut.isPending}
+              onClick={() => resendMut.mutate()}
+            >
+              {resendMut.isPending ? 'Đang gửi...' : 'Gửi lại email xác nhận'}
+            </Button>
+          )}
+        </div>
+
+        <form onSubmit={handleChangePassword} className="space-y-3 rounded-md border border-line p-3">
+          <div className="text-xs font-semibold text-ink">Đổi mật khẩu tài khoản</div>
+          {formError && (
+            <div role="alert" className="rounded border px-3 py-2 text-xs tone-attention">
+              {formError}
+            </div>
+          )}
+          {formNotice && (
+            <div role="status" className="rounded border px-3 py-2 text-xs font-medium tone-positive">
+              {formNotice}
+            </div>
+          )}
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label="Mật khẩu hiện tại" htmlFor="acct-pwd-current" required>
+              <input
+                id="acct-pwd-current"
+                type="password"
+                autoComplete="current-password"
+                required
+                minLength={8}
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                className="input text-xs"
+              />
+            </Field>
+            <Field label="Mật khẩu mới" htmlFor="acct-pwd-new" required>
+              <input
+                id="acct-pwd-new"
+                type="password"
+                autoComplete="new-password"
+                required
+                minLength={8}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className="input text-xs"
+              />
+            </Field>
+            <Field label="Xác nhận mật khẩu mới" htmlFor="acct-pwd-confirm" required>
+              <input
+                id="acct-pwd-confirm"
+                type="password"
+                autoComplete="new-password"
+                required
+                minLength={8}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="input text-xs"
+              />
+            </Field>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Note>Đổi mật khẩu sẽ tự động thu hồi toàn bộ phiên đăng nhập trên các thiết bị khác.</Note>
+            <Button type="submit" disabled={changePwdMut.isPending}>
+              {changePwdMut.isPending ? 'Đang cập nhật...' : 'Cập nhật mật khẩu'}
+            </Button>
+          </div>
+        </form>
+      </div>
+    </Panel>
+  )
+}
+
 interface AdminOverviewResp {
   require_invite_code: boolean
+  db_email_guard_status?: string
   total_workspaces: number
   active_workspaces: number
   invite_codes_count: number
   workspaces: AdminWorkspaceRow[]
+}
+
+interface AllowlistItem {
+  email: string
+  note: string
+  created_at?: string | null
 }
 
 interface InviteCodeRow {
@@ -1580,6 +1739,13 @@ function CommunitySuperAdminSection() {
     queryKey: ['community-admin-codes'],
     queryFn: () => api.get<InviteCodeRow[]>('/api/v1/community/admin/invite-codes'),
   })
+  const allowlistQ = useQuery({
+    queryKey: ['community-admin-email-allowlist'],
+    queryFn: () =>
+      api.get<{ db_email_guard_status?: string; items: AllowlistItem[] }>(
+        '/api/v1/community/admin/email-allowlist',
+      ),
+  })
 
   const [newLabel, setNewLabel] = useState('Thành viên Cộng đồng Pro')
   const [newTier, setNewTier] = useState<'community_free' | 'pro' | 'agency'>('pro')
@@ -1587,8 +1753,35 @@ function CommunitySuperAdminSection() {
   const [newMaxAds, setNewMaxAds] = useState('30')
   const [newMaxUses, setNewMaxUses] = useState('25')
   const [newDurationDays, setNewDurationDays] = useState('30')
+  const [allowEmail, setAllowEmail] = useState('')
+  const [allowNote, setAllowNote] = useState('')
   const [adminNotice, setAdminNotice] = useState('')
   const [generatedResetUrl, setGeneratedResetUrl] = useState<{ email: string; url: string } | null>(null)
+
+  const addAllowMut = useMutation({
+    mutationFn: () =>
+      api.post<{ email: string; note: string }>('/api/v1/community/admin/email-allowlist', {
+        email: allowEmail.trim(),
+        note: allowNote.trim(),
+      }),
+    onSuccess: (res) => {
+      setAllowEmail('')
+      setAllowNote('')
+      setAdminNotice(`Đã thêm ${res.email} vào danh sách ngoại lệ đăng ký (Allowlist).`)
+      void qc.invalidateQueries({ queryKey: ['community-admin-email-allowlist'] })
+    },
+  })
+
+  const removeAllowMut = useMutation({
+    mutationFn: (emailAddr: string) =>
+      api.post<{ removed: string }>('/api/v1/community/admin/email-allowlist/remove', {
+        email: emailAddr,
+      }),
+    onSuccess: (res) => {
+      setAdminNotice(`Đã gỡ ${res.removed} khỏi danh sách ngoại lệ đăng ký.`)
+      void qc.invalidateQueries({ queryKey: ['community-admin-email-allowlist'] })
+    },
+  })
 
   const policyMut = useMutation({
     mutationFn: (requireCode: boolean) =>
@@ -1700,7 +1893,17 @@ function CommunitySuperAdminSection() {
               <div className="text-ink-muted">
                 Tổng Workspace: <strong className="text-ink">{ov.total_workspaces}</strong> · Đang hoạt động:{' '}
                 <strong className="text-ink">{ov.active_workspaces}</strong> · Tổng Mã mời:{' '}
-                <strong className="text-ink">{ov.invite_codes_count}</strong>
+                <strong className="text-ink">{ov.invite_codes_count}</strong>{' '}
+                {ov.db_email_guard_status && (
+                  <>
+                    · DB Email Trigger:{' '}
+                    <Badge tone={ov.db_email_guard_status === 'installed' ? 'positive' : 'caution'}>
+                      {ov.db_email_guard_status === 'installed'
+                        ? 'PG Trigger Active'
+                        : ov.db_email_guard_status}
+                    </Badge>
+                  </>
+                )}
               </div>
             </div>
             <Button
@@ -1711,6 +1914,59 @@ function CommunitySuperAdminSection() {
             >
               {ov.require_invite_code ? 'Chuyển sang Mở tự do' : 'Bật khóa Invite-Only'}
             </Button>
+          </div>
+
+          <div className="rounded-md border border-line p-3 space-y-2.5">
+            <div className="text-xs font-semibold text-ink">
+              Ngoại lệ Email Đăng ký (Admin Allowlist cho domain riêng)
+            </div>
+            <div className="grid gap-2 sm:grid-cols-4">
+              <input
+                type="email"
+                className="input text-xs sm:col-span-2"
+                value={allowEmail}
+                onChange={(e) => setAllowEmail(e.target.value)}
+                placeholder="email@partner-domain.io"
+                aria-label="Email ngoại lệ Allowlist"
+              />
+              <input
+                type="text"
+                className="input text-xs"
+                value={allowNote}
+                onChange={(e) => setAllowNote(e.target.value)}
+                placeholder="Ghi chú đối tác"
+                aria-label="Ghi chú Allowlist"
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={addAllowMut.isPending || !allowEmail.trim().includes('@')}
+                onClick={() => addAllowMut.mutate()}
+              >
+                {addAllowMut.isPending ? 'Đang thêm...' : 'Thêm Allowlist'}
+              </Button>
+            </div>
+            {(allowlistQ.data?.items ?? []).length > 0 && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {(allowlistQ.data?.items ?? []).map((item) => (
+                  <span
+                    key={item.email}
+                    className="inline-flex items-center gap-2 rounded-md border border-line bg-surface-sunken px-2.5 py-1 text-[11px]"
+                  >
+                    <span className="font-mono font-medium text-ink">{item.email}</span>
+                    {item.note && <span className="text-ink-muted">({item.note})</span>}
+                    <button
+                      type="button"
+                      className="font-semibold text-ink-muted hover:text-ink"
+                      onClick={() => removeAllowMut.mutate(item.email)}
+                      aria-label={`Gỡ ${item.email} khỏi allowlist`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="rounded-md border border-line p-3 space-y-2">

@@ -46,7 +46,7 @@ _BUILTIN_TEMPLATES: list[dict[str, Any]] = [
         "jitter_pct": 35,
         "steps": [
             {"action": "open_url", "target": "https://www.facebook.com/accountquality/", "wait_sec": 10, "note": "Kiểm tra Chất lượng Tài khoản & Hạn chế"},
-            {"action": "open_url", "target": "https://adsmanager.facebook.com/adsmanager/manage/campaigns", "wait_sec": 14, "note": "Rà bài Rejected / Đỏ thẻ"},
+            {"action": "open_url", "target": "https://business.facebook.com/accountquality", "wait_sec": 14, "note": "Rà bài Rejected / Đỏ thẻ"},
             {"action": "open_url", "target": "https://business.facebook.com/billing_hub/accounts", "wait_sec": 10, "note": "Kiểm tra số dư và ngưỡng thanh toán"},
         ],
     },

@@ -515,8 +515,22 @@ def normalize_canonical_email(raw_email: str) -> str:
     return f"{local_part}@{domain}"
 
 
-def validate_reputable_registration_email(raw_email: str) -> str:
-    # Validate that an email belongs to a reputable provider or verified VN corporate domain.
+def _is_allowlisted_email(session: Session | None, email: str) -> bool:
+    if session is None or not email:
+        return False
+    try:
+        from app.models.entities import SignupEmailAllowlist
+
+        row = session.execute(
+            sa.select(SignupEmailAllowlist.email).where(sa.func.lower(SignupEmailAllowlist.email) == email.lower())
+        ).scalar_one_or_none()
+        return row is not None
+    except Exception:
+        return False
+
+
+def validate_reputable_registration_email(raw_email: str, *, session: Session | None = None) -> str:
+    # Validate that an email belongs to a reputable provider, allowlist exception, or verified VN corporate domain.
     email = (raw_email or "").strip().lower()
     if not email or "@" not in email:
         raise ValidationError(
@@ -525,6 +539,8 @@ def validate_reputable_registration_email(raw_email: str) -> str:
         )
 
     local_part, domain = email.rsplit("@", 1)
+    domain = domain.rstrip(".")
+    normalized_raw = f"{local_part}@{domain}"
 
     if "+" in local_part:
         raise ValidationError(
@@ -532,11 +548,14 @@ def validate_reputable_registration_email(raw_email: str) -> str:
             details={"field": "email", "reason": "alias_not_allowed"},
         )
 
-    if ".." in email or not _EMAIL_REGEX.match(email):
+    if ".." in normalized_raw or not _EMAIL_REGEX.match(normalized_raw):
         raise ValidationError(
             "Định dạng địa chỉ email không hợp lệ.",
             details={"field": "email", "reason": "invalid_format"},
         )
+
+    if _is_allowlisted_email(session, normalized_raw):
+        return normalize_canonical_email(normalized_raw)
 
     if len(local_part) < 3 or local_part.isdigit():
         raise ValidationError(
@@ -567,10 +586,10 @@ def validate_reputable_registration_email(raw_email: str) -> str:
         raise ValidationError(
             f"Tên miền email '@{domain}' chưa được xác thực nguồn gốc. "
             "Chỉ cho phép đăng ký bằng các nhà cung cấp email uy tín (gmail.com, outlook.com, hotmail.com, live.com, icloud.com, yahoo.com, proton.me, zoho.com) hoặc email doanh nghiệp Việt Nam (.vn, .com.vn).",
-            details={"field": "email", "reason": "untrusted_email_domain", "domain": domain},
+            details={"field": "email", "reason": "provider_not_allowed", "domain": domain},
         )
 
-    canonical = normalize_canonical_email(email)
+    canonical = normalize_canonical_email(normalized_raw)
     canon_local = canonical.rsplit("@", 1)[0]
     if len(canon_local) < 3 or canon_local.isdigit():
         raise ValidationError(
@@ -579,6 +598,66 @@ def validate_reputable_registration_email(raw_email: str) -> str:
         )
 
     return canonical
+
+
+def precheck_registration_email(raw_email: str, session: Session | None = None) -> dict[str, Any]:
+    """Fail-open signup precheck aligned 1:1 with backend & DB signup rules."""
+    canonical = normalize_canonical_email(raw_email)
+    try:
+        canonical = validate_reputable_registration_email(raw_email, session=session)
+    except ValidationError as exc:
+        reason = str((exc.details or {}).get("reason") or "invalid_format")
+        return {
+            "ok": False,
+            "reason": reason,
+            "message": exc.message,
+            "normalized_email": canonical,
+        }
+
+    if session is not None:
+        try:
+            from app.models.entities import User
+
+            exact_hit = session.execute(
+                sa.select(User.id).where(sa.func.lower(User.email) == canonical)
+            ).scalar_one_or_none()
+            if exact_hit is not None:
+                return {
+                    "ok": False,
+                    "reason": "duplicate_gmail" if canonical.endswith("@gmail.com") else "email_already_registered",
+                    "message": "Địa chỉ email này (hoặc biến thể dấu chấm Gmail tương đương) đã được đăng ký.",
+                    "normalized_email": canonical,
+                }
+            if canonical.endswith("@gmail.com"):
+                gmail_rows = (
+                    session.execute(
+                        sa.select(User.email).where(
+                            sa.or_(
+                                sa.func.lower(User.email).like("%@gmail.com"),
+                                sa.func.lower(User.email).like("%@googlemail.com"),
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                for existing_email in gmail_rows:
+                    if normalize_canonical_email(existing_email) == canonical:
+                        return {
+                            "ok": False,
+                            "reason": "duplicate_gmail",
+                            "message": "Hộp thư Gmail này đã tồn tại trên hệ thống (không phân biệt dấu chấm).",
+                            "normalized_email": canonical,
+                        }
+        except Exception as exc:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "precheck_signup_db_failopen", extra={"error_type": type(exc).__name__}
+            )
+            return {"ok": True, "reason": None, "message": None, "normalized_email": canonical}
+
+    return {"ok": True, "reason": None, "message": None, "normalized_email": canonical}
 
 
 def validate_strong_password(password: str) -> None:
@@ -601,6 +680,7 @@ def validate_strong_password(password: str) -> None:
 
 _USED_NONCES_LOCK = threading.Lock()
 _USED_NONCES: dict[str, float] = {}
+_MAX_TRACKED_NONCES = 10_000
 _CHALLENGE_TTL_SECONDS = 300  # 5 minutes
 _MIN_HUMAN_SOLVE_SECONDS = 2.0
 _ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -610,6 +690,10 @@ def _prune_used_nonces(now: float) -> None:
     expired = [k for k, exp in _USED_NONCES.items() if exp <= now]
     for k in expired:
         _USED_NONCES.pop(k, None)
+    if len(_USED_NONCES) >= _MAX_TRACKED_NONCES:
+        overflow = len(_USED_NONCES) - _MAX_TRACKED_NONCES + 1
+        for k, _ in sorted(_USED_NONCES.items(), key=lambda item: item[1])[:overflow]:
+            _USED_NONCES.pop(k, None)
 
 
 def _render_captcha_svg_data_uri(code: str, math_label: str) -> str:
@@ -675,7 +759,7 @@ def create_bot_challenge() -> dict[str, Any]:
         "n": nonce,
         "iat": issued_at,
         "exp": issued_at + _CHALLENGE_TTL_SECONDS,
-        "c_hash": hashlib.sha256(f"{code.upper()}:{math_sum}:{nonce}".encode("utf-8")).hexdigest(),
+        "c_hash": hashlib.sha256(f"{code.upper()}:{math_sum}:{nonce}".encode()).hexdigest(),
     }
     payload_bytes = json.dumps(payload_obj, separators=(",", ":")).encode("utf-8")
     payload_b64 = base64.urlsafe_b64encode(payload_bytes).decode("ascii").rstrip("=")
@@ -770,7 +854,7 @@ def verify_bot_challenge(
 
     clean_code = (captcha_code or "").strip().upper()
     clean_math = (math_answer or "").strip()
-    actual_hash = hashlib.sha256(f"{clean_code}:{clean_math}:{nonce}".encode("utf-8")).hexdigest()
+    actual_hash = hashlib.sha256(f"{clean_code}:{clean_math}:{nonce}".encode()).hexdigest()
     if not hmac.compare_digest(actual_hash, expected_hash):
         raise ValidationError(
             "Mã xác thực hình ảnh (5 ký tự) hoặc kết quả phép tính chưa chính xác. Vui lòng nhập lại mã mới.",

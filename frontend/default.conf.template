@@ -14,9 +14,10 @@ server {
     add_header X-Frame-Options "DENY" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Cross-Origin-Opener-Policy "same-origin" always;
+    add_header X-Permitted-Cross-Domain-Policies "none" always;
     add_header Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()" always;
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.fbcdn.net https://graph.facebook.com https://*.facebook.com; font-src 'self' data:; connect-src 'self' ${API_ORIGIN} http://127.0.0.1:17890 http://localhost:17890; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.fbcdn.net https://graph.facebook.com https://*.facebook.com; font-src 'self' data:; frame-src https://challenges.cloudflare.com; connect-src 'self' ${API_ORIGIN} https://challenges.cloudflare.com http://127.0.0.1:17890 http://127.0.0.1:17891 http://127.0.0.1:17892 http://127.0.0.1:17893 http://127.0.0.1:17894 http://127.0.0.1:17895 http://localhost:17890 http://localhost:17891 http://localhost:17892 http://localhost:17893 http://localhost:17894 http://localhost:17895; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" always;
 
     server_tokens off;
     client_max_body_size 2m;
@@ -27,24 +28,24 @@ server {
     gzip_vary on;
     gzip_types text/plain text/css application/javascript application/json image/svg+xml application/manifest+json;
 
-    # Runtime API configuration
+    # Runtime API configuration (use expires so server-level OWASP add_header directives are inherited)
     location = /config.js {
         default_type application/javascript;
-        add_header Cache-Control "no-store" always;
+        expires -1;
         return 200 'window.__ADSOPS_API_BASE__ = "${API_ORIGIN}";';
     }
 
     # Dynamic domain-aware robots.txt (automatically adapts when custom domain is changed)
     location = /robots.txt {
         default_type text/plain;
-        add_header Cache-Control "public, max-age=3600" always;
+        expires 1h;
         return 200 "User-agent: *\nAllow: /\nAllow: /login\nDisallow: /accounts\nDisallow: /retainers\nDisallow: /business-managers\nDisallow: /assets\nDisallow: /facebook-accounts\nDisallow: /pages\nDisallow: /alerts\nDisallow: /operations\nDisallow: /team\nDisallow: /settings\nDisallow: /audit-log\n\nSitemap: https://$http_host/sitemap.xml\n";
     }
 
     # Dynamic domain-aware sitemap.xml (automatically adapts when custom domain is changed)
     location = /sitemap.xml {
         default_type application/xml;
-        add_header Cache-Control "public, max-age=3600" always;
+        expires 1h;
         return 200 '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url>\n    <loc>https://$http_host/</loc>\n    <changefreq>daily</changefreq>\n    <priority>1.0</priority>\n  </url>\n  <url>\n    <loc>https://$http_host/login</loc>\n    <changefreq>weekly</changefreq>\n    <priority>0.9</priority>\n  </url>\n</urlset>\n';
     }
 

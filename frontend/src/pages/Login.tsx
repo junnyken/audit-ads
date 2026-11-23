@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowRight,
   Building2,
@@ -51,13 +51,23 @@ export default function Login() {
   const isEn = language === 'en'
   const initialResetToken =
     typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('reset_token') ?? '' : ''
+  const initialVerifyToken =
+    typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('verify_token') ?? '' : ''
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot' | 'reset'>(
     initialResetToken.trim().length > 0 ? 'reset' : 'login',
   )
   const [resetToken, setResetToken] = useState(initialResetToken)
   const [confirmPassword, setConfirmPassword] = useState('')
   const [infoNotice, setInfoNotice] = useState<string | null>(null)
+  const [pendingVerifyEmail, setPendingVerifyEmail] = useState<string | null>(null)
+  const [resendBusy, setResendBusy] = useState(false)
+  const verifyAttemptedRef = useRef(false)
   const [email, setEmail] = useState('')
+  const [precheckResult, setPrecheckResult] = useState<{
+    ok: boolean
+    reason?: string | null
+    message?: string | null
+  } | null>(null)
   const [password, setPassword] = useState('')
   const [fullName, setFullName] = useState('')
   const [workspaceName, setWorkspaceName] = useState('')
@@ -70,7 +80,11 @@ export default function Login() {
     challenge_token: string
     captcha_svg: string
     math_question: string
+    turnstile_enabled?: boolean
+    turnstile_site_key?: string
   } | null>(null)
+  const [turnstileToken, setTurnstileToken] = useState('')
+  const turnstileContainerRef = useRef<HTMLDivElement | null>(null)
   const [loadingChallenge, setLoadingChallenge] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -83,6 +97,8 @@ export default function Login() {
         challenge_token: string
         captcha_svg: string
         math_question: string
+        turnstile_enabled?: boolean
+        turnstile_site_key?: string
       }>('/api/v1/auth/bot-challenge')
       setChallenge(res)
       setCaptchaCode('')
@@ -99,6 +115,131 @@ export default function Login() {
       void loadBotChallenge()
     }
   }, [authMode, challenge, loadBotChallenge])
+
+  useEffect(() => {
+    const token = initialVerifyToken.trim()
+    if (!token || verifyAttemptedRef.current) return
+    verifyAttemptedRef.current = true
+    void (async () => {
+      try {
+        await api.post('/api/v1/auth/verify-email', { token })
+        if (typeof window !== 'undefined' && window.history?.replaceState) {
+          window.history.replaceState({}, '', window.location.pathname)
+        }
+        setAuthMode('login')
+        setInfoNotice(
+          isEn
+            ? 'Email verified successfully. You can sign in to your Workspace now.'
+            : 'Xác nhận địa chỉ email thành công. Bạn có thể đăng nhập vào Workspace ngay.',
+        )
+      } catch (caught) {
+        setError(
+          caught instanceof ApiError
+            ? caught.message
+            : isEn
+              ? 'Email verification link is invalid or expired.'
+              : 'Liên kết xác nhận email không hợp lệ hoặc đã hết hạn.',
+        )
+      }
+    })()
+  }, [initialVerifyToken, isEn])
+
+  const effectiveTurnstileKey = (
+    ((import.meta.env as Record<string, string | undefined>).VITE_TURNSTILE_SITE_KEY ?? '').trim() ||
+    (challenge?.turnstile_enabled ? challenge.turnstile_site_key?.trim() ?? '' : '')
+  )
+
+  useEffect(() => {
+    if (!effectiveTurnstileKey || authMode === 'reset') {
+      setTurnstileToken('')
+      return
+    }
+    let widgetId: string | null = null
+    let cancelled = false
+    const w = window as unknown as {
+      turnstile?: {
+        render: (el: HTMLElement, opts: Record<string, unknown>) => string
+        remove?: (id: string) => void
+      }
+    }
+    const mountWidget = () => {
+      if (cancelled || !turnstileContainerRef.current || !w.turnstile) return
+      turnstileContainerRef.current.innerHTML = ''
+      widgetId = w.turnstile.render(turnstileContainerRef.current, {
+        sitekey: effectiveTurnstileKey,
+        callback: (tok: string) => setTurnstileToken(tok),
+        'expired-callback': () => setTurnstileToken(''),
+        'error-callback': () => setTurnstileToken(''),
+      })
+    }
+    if (w.turnstile) {
+      mountWidget()
+    } else {
+      const existing = document.querySelector<HTMLScriptElement>('script[data-adsops-turnstile="1"]')
+      if (existing) {
+        existing.addEventListener('load', mountWidget, { once: true })
+      } else {
+        const script = document.createElement('script')
+        script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
+        script.async = true
+        script.defer = true
+        script.dataset.adsopsTurnstile = '1'
+        script.onload = mountWidget
+        document.head.appendChild(script)
+      }
+    }
+    return () => {
+      cancelled = true
+      if (widgetId && w.turnstile?.remove) {
+        w.turnstile.remove(widgetId)
+      }
+    }
+  }, [effectiveTurnstileKey, authMode])
+
+  const precheckEmailOnBlur = useCallback(async () => {
+    if (authMode !== 'register') return
+    const trimmed = email.trim()
+    if (!trimmed || !trimmed.includes('@')) return
+    const domainPart = trimmed.split('@').pop() ?? ''
+    if (!domainPart.includes('.')) return
+    try {
+      const res = await api.post<{ ok: boolean; reason?: string | null; message?: string | null }>(
+        '/api/v1/auth/precheck-signup',
+        { email: normalizeCanonicalEmail(trimmed) },
+      )
+      setPrecheckResult(res)
+    } catch {
+      /* fail-open if transient precheck network error */
+      setPrecheckResult(null)
+    }
+  }, [authMode, email])
+
+  const handleResendVerification = useCallback(async () => {
+    if (!pendingVerifyEmail) return
+    setResendBusy(true)
+    setError(null)
+    try {
+      const res = await api.post<{ status: string; message?: string }>('/api/v1/auth/resend-verification', {
+        email: pendingVerifyEmail,
+      })
+      setInfoNotice(
+        res?.message ||
+          (isEn
+            ? 'A new verification email has been dispatched (valid 24h).'
+            : 'Liên kết xác nhận email mới đã được gửi lại (hiệu lực 24 giờ).'),
+      )
+    } catch (caught) {
+      setError(
+        caught instanceof ApiError
+          ? caught.message
+          : isEn
+            ? 'Could not resend verification email right now.'
+            : 'Chưa thể gửi lại email xác nhận lúc này.',
+      )
+    } finally {
+      setResendBusy(false)
+    }
+  }, [pendingVerifyEmail, isEn])
 
   const emailCheckStatus = useMemo(() => {
     const raw = email.trim().toLowerCase()
@@ -209,6 +350,25 @@ export default function Login() {
     }
   }, [email, isEn])
 
+  const effectiveEmailStatus = useMemo(() => {
+    if (precheckResult) {
+      if (!precheckResult.ok) {
+        return { ok: false, msg: precheckResult.message ?? (emailCheckStatus?.msg || '') }
+      }
+      return {
+        ok: true,
+        msg:
+          precheckResult.message ||
+          (emailCheckStatus?.ok
+            ? emailCheckStatus.msg
+            : isEn
+              ? '✓ Verified / allowlisted email — eligible for Workspace registration.'
+              : '✓ Email hợp lệ / nằm trong Allowlist — đủ điều kiện khởi tạo Workspace.'),
+      }
+    }
+    return emailCheckStatus
+  }, [emailCheckStatus, isEn, precheckResult])
+
   const currentHost =
     typeof window !== 'undefined' && window.location.hostname
       ? window.location.hostname
@@ -221,11 +381,12 @@ export default function Login() {
     setInfoNotice(null)
     try {
       if (authMode === 'login') {
-        await signIn(normalizeCanonicalEmail(email), password)
+        await signIn(normalizeCanonicalEmail(email), password, turnstileToken || undefined)
       } else if (authMode === 'forgot') {
         const canonical = normalizeCanonicalEmail(email)
         const res = await api.post<{ status: string; message?: string }>('/api/v1/auth/forgot-password', {
           email: canonical,
+          ...(turnstileToken ? { turnstile_token: turnstileToken } : {}),
         })
         setInfoNotice(
           res?.message ||
@@ -278,10 +439,11 @@ export default function Login() {
               : 'Vui lòng nhập mã xác thực chống Bot.',
           )
         }
-        await registerAccount({
+        const canonicalEmail = normalizeCanonicalEmail(email)
+        const regRes = await registerAccount({
           full_name: fullName.trim(),
           workspace_name: workspaceName.trim(),
-          email: normalizeCanonicalEmail(email),
+          email: canonicalEmail,
           password,
           challenge_token: challenge.challenge_token,
           captcha_code: captchaCode.trim(),
@@ -289,19 +451,36 @@ export default function Login() {
           human_confirmed: humanConfirmed,
           website_honeypot: websiteHoneypot,
           invite_code: inviteCode.trim() ? inviteCode.trim().toUpperCase() : undefined,
+          ...(turnstileToken ? { turnstile_token: turnstileToken } : {}),
         })
+        if (regRes && regRes.verificationRequired) {
+          setPendingVerifyEmail(canonicalEmail)
+          setPassword('')
+          setCaptchaCode('')
+          setMathAnswer('')
+          setHumanConfirmed(false)
+          setAuthMode('login')
+          setInfoNotice(
+            isEn
+              ? `Account created! Please check ${canonicalEmail} and click the verification link (valid 24h) before signing in.`
+              : `Tài khoản đã được tạo! Vui lòng kiểm tra hộp thư ${canonicalEmail} và nhấn vào liên kết xác nhận (hiệu lực 24 giờ) trước khi đăng nhập.`,
+          )
+        }
       }
     } catch (caught) {
       if (authMode === 'register') {
         void loadBotChallenge()
       }
-      setError(
+      const msg =
         caught instanceof ApiError
           ? caught.message
           : caught instanceof Error
             ? caught.message
-            : t('login.failed'),
-      )
+            : t('login.failed')
+      if (authMode === 'login' && msg.includes('xác nhận địa chỉ email')) {
+        setPendingVerifyEmail(normalizeCanonicalEmail(email))
+      }
+      setError(msg)
     } finally {
       setBusy(false)
     }
@@ -681,9 +860,43 @@ export default function Login() {
                   {error && (
                     <div
                       role="alert"
-                      className="rounded-md border px-3 py-2 text-xs tone-attention"
+                      className="rounded-md border px-3 py-2 text-xs tone-attention space-y-2"
                     >
-                      {error}
+                      <div>{error}</div>
+                      {pendingVerifyEmail && (
+                        <button
+                          type="button"
+                          disabled={resendBusy}
+                          onClick={() => void handleResendVerification()}
+                          className="font-semibold text-brand-text underline disabled:opacity-60"
+                        >
+                          {resendBusy
+                            ? isEn
+                              ? 'Resending...'
+                              : 'Đang gửi lại...'
+                            : isEn
+                              ? 'Resend verification email'
+                              : 'Gửi lại email xác nhận'}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {!error && pendingVerifyEmail && authMode === 'login' && (
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        disabled={resendBusy}
+                        onClick={() => void handleResendVerification()}
+                        className="text-[11px] font-semibold text-brand-text hover:underline disabled:opacity-60"
+                      >
+                        {resendBusy
+                          ? isEn
+                            ? 'Resending...'
+                            : 'Đang gửi lại...'
+                          : isEn
+                            ? 'Did not get email? Resend verification link'
+                            : 'Chưa nhận được thư? Gửi lại liên kết xác nhận'}
+                      </button>
                     </div>
                   )}
 
@@ -745,7 +958,11 @@ export default function Login() {
                         autoComplete="email"
                         required
                         value={email}
-                        onChange={(e) => setEmail(e.target.value)}
+                        onChange={(e) => {
+                          setEmail(e.target.value)
+                          if (precheckResult) setPrecheckResult(null)
+                        }}
+                        onBlur={() => void precheckEmailOnBlur()}
                         placeholder={
                           authMode === 'register'
                             ? 'tenban@gmail.com / outlook.com / icloud.com'
@@ -753,13 +970,13 @@ export default function Login() {
                         }
                         className="input text-sm"
                       />
-                      {authMode === 'register' && emailCheckStatus && (
+                      {authMode === 'register' && effectiveEmailStatus && (
                         <div
                           className={`mt-1.5 rounded border px-2.5 py-1 text-[11px] font-medium ${
-                            emailCheckStatus.ok ? 'tone-positive' : 'tone-attention'
+                            effectiveEmailStatus.ok ? 'tone-positive' : 'tone-attention'
                           }`}
                         >
-                          {emailCheckStatus.msg}
+                          {effectiveEmailStatus.msg}
                         </div>
                       )}
                     </Field>
@@ -952,9 +1169,15 @@ export default function Login() {
                     </div>
                   )}
 
+                  {effectiveTurnstileKey && authMode !== 'reset' && (
+                    <div className="rounded-lg border border-line bg-surface-sunken/50 p-2.5">
+                      <div ref={turnstileContainerRef} data-testid="turnstile-widget" />
+                    </div>
+                  )}
+
                   <button
                     type="submit"
-                    disabled={busy || (authMode === 'register' && emailCheckStatus?.ok === false)}
+                    disabled={busy || (authMode === 'register' && effectiveEmailStatus?.ok === false)}
                     className="btn-primary w-full py-2.5 text-sm"
                   >
                     {busy

@@ -57,6 +57,12 @@ class User(UUIDPrimaryKey, Timestamped, Base):
     reveal_pin_hash: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
     reveal_pin_failed_count: Mapped[int] = mapped_column(sa.Integer(), nullable=False, default=0)
     reveal_pin_locked_until: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
+    email_verified: Mapped[bool] = mapped_column(
+        sa.Boolean(), nullable=False, default=True, server_default=sa.text("true")
+    )
+    email_verified_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
+    failed_login_count: Mapped[int] = mapped_column(sa.Integer(), nullable=False, default=0, server_default="0")
+    login_locked_until: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
     is_platform_admin: Mapped[bool] = mapped_column(
         sa.Boolean(), nullable=False, default=False, server_default=sa.text("false")
     )
@@ -630,3 +636,34 @@ class PasswordResetToken(UUIDPrimaryKey, Timestamped, Base):
     expires_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
     requested_ip_hash: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
+
+
+class EmailVerificationToken(UUIDPrimaryKey, Timestamped, Base):
+    """Single-use email verification token; only its SHA-256 hash is persisted."""
+
+    __tablename__ = "email_verification_tokens"
+    __table_args__ = (
+        sa.UniqueConstraint("token_hash", name="uq_email_verification_tokens_hash"),
+        sa.Index("ix_email_verification_tokens_user_id", "user_id"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    email: Mapped[str] = mapped_column(sa.String(320), nullable=False)
+    token_hash: Mapped[str] = mapped_column(sa.String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
+    requested_ip_hash: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
+
+
+class SignupEmailAllowlist(Timestamped, Base):
+    """Explicit owner/super-admin exception table for corporate email registration."""
+
+    __tablename__ = "signup_email_allowlist"
+
+    email: Mapped[str] = mapped_column(sa.String(320), primary_key=True)
+    note: Mapped[str] = mapped_column(sa.String(240), nullable=False, default="")
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid(), sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )

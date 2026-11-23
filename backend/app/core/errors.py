@@ -65,6 +65,11 @@ class ArchivedEntityError(ConflictError):
     code = "entity_archived"
 
 
+class TooManyRequestsError(DomainError):
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    code = "account_temporarily_locked"
+
+
 def error_payload(code: str, message: str, details: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "error": {
@@ -79,9 +84,15 @@ def error_payload(code: str, message: str, details: dict[str, Any] | None = None
 def install_exception_handlers(app: Any) -> None:
     @app.exception_handler(DomainError)
     async def _domain(_: Request, exc: DomainError) -> JSONResponse:
+        headers: dict[str, str] | None = None
+        if isinstance(exc, TooManyRequestsError) and isinstance(exc.details, dict):
+            retry_after = exc.details.get("retry_after_seconds")
+            if retry_after is not None:
+                headers = {"Retry-After": str(max(1, int(retry_after)))}
         return JSONResponse(
             status_code=exc.status_code,
             content=error_payload(exc.code, exc.message, exc.details),
+            headers=headers,
         )
 
     @app.exception_handler(RequestValidationError)

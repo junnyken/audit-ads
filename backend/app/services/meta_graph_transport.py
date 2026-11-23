@@ -210,7 +210,7 @@ class MetaGraphTransport:
                 failure_summary="The Meta API could not be reached. The account may or may not have been created.",
             )
 
-    def claim_page_to_bm(self, bm_external_id: str, external_page_id: str) -> tuple[bool, str]:
+    def _claim_page_to_bm(self, bm_external_id: str, external_page_id: str) -> tuple[bool, str]:
         """Claim an existing Meta Page into a Business Manager (`{bm_id}/owned_pages`)."""
         clean_bm = (bm_external_id or "").strip()
         clean_page = (external_page_id or "").strip()
@@ -404,3 +404,51 @@ def publish_page_photo_post(
     except Exception:
         return None
     return None
+
+
+def claim_page_to_bm(transport: Any, bm_external_id: str, external_page_id: str) -> tuple[bool, str]:
+    """Delegate BM Page claim via module helper so MetaGraphTransport keeps a minimal public API."""
+    if hasattr(transport, "_claim_page_to_bm"):
+        return transport._claim_page_to_bm(bm_external_id, external_page_id)
+    if hasattr(transport, "claim_page_to_bm"):
+        return transport.claim_page_to_bm(bm_external_id, external_page_id)
+    return (False, "Transport không hỗ trợ claim_page_to_bm.")
+
+
+def fetch_facebook_identity_and_businesses(
+    access_token: str,
+    *,
+    api_base_url: str = "https://graph.facebook.com",
+    api_version: str = "v21.0",
+    timeout_seconds: int = 15,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Read /me and /me/businesses through the central Graph transport with Bearer header."""
+    clean_tok = (access_token or "").strip()
+    if not clean_tok:
+        raise ValueError("Missing access token")
+
+    def _get(path: str, params: dict[str, str]) -> dict[str, Any]:
+        qs = urllib.parse.urlencode(params)
+        url = f"{api_base_url.rstrip('/')}/{api_version}/{path.strip('/')}?{qs}"
+        req = urllib.request.Request(  # noqa: S310 - scheme and host fixed by configuration
+            url,
+            method="GET",
+            headers={
+                "Authorization": f"Bearer {clean_tok}",
+                "Accept": "application/json",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
+            data = json.loads((resp.read() or b"{}").decode("utf-8"))
+            return data if isinstance(data, dict) else {}
+
+    me_data = _get("me", {"fields": "id,name,email"})
+    businesses: list[dict[str, Any]] = []
+    try:
+        bm_resp = _get("me/businesses", {"fields": "id,name,permitted_roles", "limit": "50"})
+        raw_list = bm_resp.get("data")
+        if isinstance(raw_list, list):
+            businesses = [item for item in raw_list if isinstance(item, dict)]
+    except Exception:
+        businesses = []
+    return me_data, businesses

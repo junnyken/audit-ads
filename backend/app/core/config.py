@@ -272,7 +272,7 @@ class Settings(BaseSettings):
     community_free_max_ad_accounts: int = 5
     community_free_max_members: int = 2
 
-    # ---- Transactional SMTP (password reset links) ----------------------------------
+    # ---- Transactional SMTP (password reset & verification links) -------------------
     smtp_host: str = ""
     smtp_port: int = 587
     smtp_username: str = ""
@@ -280,6 +280,16 @@ class Settings(BaseSettings):
     smtp_from_email: str = ""
     smtp_use_tls: bool = True
     smtp_timeout_seconds: int = 10
+
+    # ---- WebApp Security & Auth Hardening (v5.2) -----------------------------------
+    require_email_verification: bool = False
+    max_request_body_bytes: int = 2 * 1024 * 1024
+    rate_limit_precheck_attempts: int = 10
+    rate_limit_precheck_window_seconds: int = 60
+    login_max_failed_attempts: int = 8
+    login_lockout_minutes: int = 15
+    turnstile_site_key: str = ""
+    turnstile_secret_key: str = ""
 
     @property
     def smtp_configured(self) -> bool:

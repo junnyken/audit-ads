@@ -35,12 +35,19 @@ AUTH_PATH_SUFFIXES = (
     "/auth/forgot-password",
     "/auth/reset-password",
     "/auth/bot-challenge",
+    "/auth/verify-email",
+    "/auth/resend-verification",
+    "/auth/logout",
+    "/auth/change-password",
     "/extension/connect",
     "/meta-reader-credentials/callback",
+    "/google-ads/script-report",
+    "/community/redeem-code",
     # F1: a PIN guess is a credential guess; the per-user lockout is the main guard, this is the second.
     "/reveal-email",
     "/me/reveal-pin",
 )
+PRECHECK_PATH_SUFFIXES = ("/auth/precheck-signup",)
 
 #: Never limited. A failing health probe restarts the container, so limiting one converts a
 #: traffic spike into an outage.
@@ -57,6 +64,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             name="auth",
             limit=settings.rate_limit_auth_attempts,
             window_seconds=float(settings.rate_limit_auth_window_seconds),
+        ).scaled(count)
+        self._precheck_policy = RateLimitPolicy(
+            name="precheck",
+            limit=settings.rate_limit_precheck_attempts,
+            window_seconds=float(settings.rate_limit_precheck_window_seconds),
         ).scaled(count)
         self._api_policy = RateLimitPolicy(
             name="api",
@@ -107,6 +119,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return None
         if not path.startswith(self._settings.api_prefix):
             return None
+        if any(path.endswith(suffix) for suffix in PRECHECK_PATH_SUFFIXES):
+            return self._precheck_policy
         if any(path.endswith(suffix) for suffix in AUTH_PATH_SUFFIXES):
             return self._auth_policy
         return self._api_policy
@@ -119,7 +133,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         )
         # Credential exchange is always limited by address: there is no trustworthy subject
         # yet, and keying on the submitted email would let anyone lock out a named operator.
-        if policy.name == "auth":
+        if policy.name in ("auth", "precheck"):
             return f"addr:{address}"
         subject = _verified_subject(request.headers.get("Authorization"))
         return f"sub:{subject}" if subject else f"addr:{address}"
