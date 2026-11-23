@@ -2091,9 +2091,9 @@ internal static class Program
                 }
             }
 
-            // 35. v5.0.0 Full 8-Tab Impeccable Studio AppShellWebStateDto, LiveTickDto & Bundle Verification
+            // 35. v5.1.0 Full 8-Tab Impeccable Studio AppShellWebStateDto, LiveTickDto & Bundle Verification
             {
-                if (DesktopAppInfo.Version != "5.0.0" || DesktopAppInfo.ExtVersion != "2.10.4")
+                if (DesktopAppInfo.Version != "5.1.0" || DesktopAppInfo.ExtVersion != "2.11.0")
                 {
                     throw new InvalidOperationException(
                         $"DesktopAppInfo version mismatch: app={DesktopAppInfo.Version}, ext={DesktopAppInfo.ExtVersion}");
@@ -2143,8 +2143,8 @@ internal static class Program
                 foreach (var reqKey in new[]
                          {
                              "\"type\":\"full_state\"",
-                             "\"appVersion\":\"5.0.0\"",
-                             "\"extVersion\":\"2.10.4\"",
+                             "\"appVersion\":\"5.1.0\"",
+                             "\"extVersion\":\"2.11.0\"",
                              "\"activeView\":\"settings\"",
                              "\"totpMap\"",
                              "\"automationConfig\"",
@@ -2956,13 +2956,22 @@ internal static class Program
                 }
 
                 var tpl46 = ExtensionProvisioner.LoadTemplates();
-                if (tpl46.Version != "2.10.4" ||
+                if (tpl46.Version != "2.11.0" ||
                     !tpl46.ContentJs.Contains("performNativePagePostDomFallback", StringComparison.Ordinal) ||
                     !tpl46.ContentJs.Contains("performNativePageShareDomFallback", StringComparison.Ordinal) ||
                     !tpl46.ContentJs.Contains("data-adsops-cdp-busy", StringComparison.Ordinal) ||
-                    !tpl46.ContentJs.Contains("proactive_native_visit", StringComparison.Ordinal))
+                    !tpl46.ContentJs.Contains("proactive_native_visit", StringComparison.Ordinal) ||
+                    !tpl46.ContentJs.Contains("enforceAdsManagerRoleGuardrailDom", StringComparison.Ordinal))
                 {
-                    throw new InvalidOperationException("Companion v2.10.4 Native DOM fallback / proactive cookie sync tokens missing.");
+                    throw new InvalidOperationException("Companion v2.11.0 Native DOM fallback / Role Guardrail tokens missing.");
+                }
+
+                if (MainWindow.EvaluateDesktopViaRoleGuardrail("vault", false, true, "https://adsmanager.facebook.com/adsmanager/manage/campaigns", null).Allowed ||
+                    !MainWindow.EvaluateDesktopViaRoleGuardrail("vault", false, true, "https://business.facebook.com/settings", null).Allowed ||
+                    MainWindow.EvaluateDesktopViaRoleGuardrail("standby", true, true, "https://business.facebook.com/overview", null).Allowed ||
+                    !MainWindow.EvaluateDesktopViaRoleGuardrail("vault", false, true, "https://adsmanager.facebook.com/adsmanager/manage/campaigns", "vgo1.owner").Allowed)
+                {
+                    throw new InvalidOperationException("EvaluateDesktopViaRoleGuardrail behavioral contract failed.");
                 }
             }
 

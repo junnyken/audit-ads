@@ -239,6 +239,7 @@ def test_only_named_modules_may_make_an_outbound_request():
         "services/preflight_safe_http.py",
         "services/proxy_health_transport.py",
         "services/meta_graph_transport.py",
+        "services/ai_provider_transport.py",
     }
 
     browser_offenders, http_offenders = [], []

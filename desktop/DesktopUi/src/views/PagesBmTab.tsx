@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { PolicyPreCheckPanel } from '@/components/ui/policy-precheck-panel'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -392,6 +393,16 @@ export function PagesBmTab({ state }: { state: AppShellWebStateDto }) {
                 />
               </div>
             </div>
+
+            <PolicyPreCheckPanel
+              compact
+              mode="page_warmup"
+              initialText={captionSpin}
+              pageName={state.fanpages[0]?.name || 'Fanpage Thương hiệu'}
+              category={state.automationConfig.batchNicheKey || 'Dịch vụ & Tư vấn'}
+              isNewPage
+              onApplyText={(next) => setCaptionSpin(next)}
+            />
 
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/65 pt-3.5">
               <div className="flex items-center gap-2.5">

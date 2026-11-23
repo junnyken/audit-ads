@@ -8,13 +8,13 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>AdsOpsDesktop</AssemblyName>
     <RootNamespace>AdsOpsDesktop</RootNamespace>
-    <Version>5.0.0</Version>
-    <AssemblyVersion>5.0.0.0</AssemblyVersion>
-    <FileVersion>5.0.0.0</FileVersion>
+    <Version>5.1.0</Version>
+    <AssemblyVersion>5.1.0.0</AssemblyVersion>
+    <FileVersion>5.1.0.0</FileVersion>
     <Product>AdsOps Desktop Pro</Product>
     <Company>AdsOps</Company>
     <CodePage>65001</CodePage>
-    <Description>AdsOps Desktop Pro v5.0.0 — Impeccable Studio UX/UI, Commercial SaaS Auth Recovery, Subscription License Guard, Portable AES-256-GCM Vault Auto-Backup &amp; Streaming Self-Updater</Description>
+    <Description>AdsOps Desktop Pro v5.1.0 — Hybrid AI Policy &amp; Content Studio + Multi-Layer Via Role Guardrail + Companion Extension v2.11.0</Description>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 

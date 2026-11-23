@@ -3478,9 +3478,9 @@ public sealed class ChromeSessionTracker
 
 public static class DesktopAppInfo
 {
-    public const string Version = "5.0.0";
-    public const string DisplayVersion = "v5.0.0";
-    public const string ExtVersion = "2.10.4";
+    public const string Version = "5.1.0";
+    public const string DisplayVersion = "v5.1.0";
+    public const string ExtVersion = "2.11.0";
     public const string DefaultManifestUrl = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.json";
 
     /// <summary>

@@ -48,6 +48,7 @@ import {
 import { Badge } from './primitives/badge'
 import { Button } from './primitives/button'
 import { Card, CardContent, CardHeader, CardTitle } from './primitives/card'
+import { PolicyPreCheckStudio } from './PolicyPreCheckStudio'
 
 export interface LinkedAdAccountItem {
   id: string
@@ -257,6 +258,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
   const [createOpen, setCreateOpen] = useState(false)
 
   // Via Page Creator, Quota Guardrails & Auto-Rotation Batch Studio state
+  const [showPolicyStudio, setShowPolicyStudio] = useState(false)
   const [studioOpen, setStudioOpen] = useState(false)
   const [studioTab, setStudioTab] = useState<'batch' | 'create' | 'warmup' | 'logs'>('batch')
   const [studioViaId, setStudioViaId] = useState('')
@@ -1278,6 +1280,15 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                   : 'Tạo Page bằng Via & Nuôi Page Sống Lâu (Định mức & Nhật ký)'}
               </span>
             </Button>
+            <Button
+              size="sm"
+              variant={showPolicyStudio ? 'default' : 'secondary'}
+              onClick={() => setShowPolicyStudio((prev) => !prev)}
+              className="gap-1.5 font-semibold"
+            >
+              <ShieldCheck className="h-3.5 w-3.5" />
+              <span>{isEn ? 'AI Policy Pre-Check' : 'Kiểm duyệt Chính sách & AI'}</span>
+            </Button>
             <Button size="sm" onClick={openCreateModal} className="gap-1.5 font-semibold">
               <Plus className="h-3.5 w-3.5" />
               <span>{isEn ? 'Add Fanpage' : 'Thêm Fanpage mới'}</span>
@@ -1388,6 +1399,13 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
+      )}
+
+      {showPolicyStudio && (
+        <PolicyPreCheckStudio
+          mode="ad_copy"
+          onClose={() => setShowPolicyStudio(false)}
+        />
       )}
 
       {/* VIA PAGE CREATOR, QUOTA GUARDRAIL & MULTI-VIA BATCH STUDIO */}
@@ -1503,7 +1521,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                     title={`Ứng dụng Windows AdsOps Desktop Pro đang chạy ngầm trên máy (127.0.0.1:${bridgeProbe.port || 17890})`}
                   >
                     <span className="h-1.5 w-1.5 rounded-full bg-tone-positive-fg" aria-hidden="true" />
-                    <span>App Windows Desktop Pro Đang Chạy (v{bridgeProbe.version || '5.0.0'})</span>
+                    <span>App Windows Desktop Pro Đang Chạy (v{bridgeProbe.version || '5.1.0'})</span>
                   </span>
                 ) : bridgeProbe?.online ? (
                   <span className="inline-flex items-center gap-1 rounded border border-tone-info-border bg-tone-info-bg px-2 py-1 font-semibold text-tone-info-fg">
@@ -1514,9 +1532,9 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                   href="/downloads/AdsOps-Desktop-Pro-latest.zip"
                   download
                   className="rounded border border-line bg-surface px-2 py-1 font-semibold text-ink transition hover:border-line-strong hover:bg-surface-muted"
-                  title="Tải App Windows AdsOps Desktop Pro v5.0.0 (.exe chạy ngầm System Tray 24/7, tự gia hạn phiên DPAPI 24/7, nhận diện thông minh Chrome Profile gốc & cô lập, Extension v2.10.4)"
+                  title="Tải App Windows AdsOps Desktop Pro v5.1.0 (.exe chạy ngầm System Tray 24/7, tự gia hạn phiên DPAPI 24/7, nhận diện thông minh Chrome Profile gốc & cô lập, Extension v2.11.0)"
                 >
-                  Tải App Windows v5.0 (.zip)
+                  Tải App Windows v5.1 (.zip)
                 </a>
                 <button
                   type="button"
@@ -1530,7 +1548,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                   to="/chrome-extension"
                   className="rounded border border-line bg-surface px-2 py-1 font-semibold text-brand-text hover:underline"
                 >
-                  Cài Extension v2.10.4
+                  Cài Extension v2.11.0
                 </Link>
               </div>
             </div>
@@ -1850,7 +1868,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                             Cấu hình Proxy Via
                           </Link>
                           <Link to="/chrome-extension" className="underline hover:opacity-80">
-                            Tải Bộ Extension v2.10.4
+                            Tải Bộ Extension v2.11.0
                           </Link>
                         </span>
                       </div>
@@ -1976,7 +1994,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                           Hàng đợi {batchQueue.length} Page đã lưu vào Hệ thống
                         </div>
                         <p className="text-[11px] text-ink-muted">
-                          Bấm <strong>Chạy Full Automatic</strong> để Web tự mở từng Via giãn nhịp ({batchStaggerSeconds}s + ngẫu nhiên), Extension v2.10.4 tự bấm Tạo Trang và tự quét Page ID sau khi xong.
+                          Bấm <strong>Chạy Full Automatic</strong> để Web tự mở từng Via giãn nhịp ({batchStaggerSeconds}s + ngẫu nhiên), Extension v2.11.0 tự bấm Tạo Trang và tự quét Page ID sau khi xong.
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
@@ -2320,7 +2338,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
 
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                     <span className="text-[11px] text-ink-muted">
-                      Hệ thống sẽ: (1) Lưu Page &amp; Nhật ký Via, (2) Mở đúng Chrome của Via đã chọn và (3) {autoSubmitMode ? 'Extension v2.10.4 tự điền + tự bấm Tạo Trang giãn nhịp an toàn (tự quét Page ID sau 26s).' : 'Extension v2.10.4 tự điền sẵn Tên + Tiểu sử chờ bạn kiểm tra & bấm Tạo Trang.'}
+                      Hệ thống sẽ: (1) Lưu Page &amp; Nhật ký Via, (2) Mở đúng Chrome của Via đã chọn và (3) {autoSubmitMode ? 'Extension v2.11.0 tự điền + tự bấm Tạo Trang giãn nhịp an toàn (tự quét Page ID sau 26s).' : 'Extension v2.11.0 tự điền sẵn Tên + Tiểu sử chờ bạn kiểm tra & bấm Tạo Trang.'}
                     </span>
                     <div className="flex flex-wrap items-center gap-2">
                     <Button
@@ -2470,6 +2488,21 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                         ))}
                       </div>
                     </div>
+
+                    {(() => {
+                      const activeWarmupPage = items.find((x) => x.id === (warmupTargetPageId || items[0]?.id))
+                      return (
+                        <PolicyPreCheckStudio
+                          compact
+                          mode="page_warmup"
+                          initialText={warmupMessage}
+                          pageName={activeWarmupPage?.name || ''}
+                          category={activeWarmupPage?.category || ''}
+                          isNewPage
+                          onApplyText={(next) => setWarmupMessage(next)}
+                        />
+                      )
+                    })()}
 
                     <div>
                       <label className="label text-xs">Nội dung bài đăng nuôi Page *</label>

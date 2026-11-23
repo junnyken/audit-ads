@@ -24,6 +24,7 @@ import { Button } from '../components/primitives/button'
 import { Card } from '../components/primitives/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/primitives/table'
 import { FacebookAccountFormSheet } from '../components/facebook/FacebookAccountFormSheet'
+import { ViaGuardrailDialog } from '../components/ViaGuardrailDialog'
 import { twoFactorTone } from '../lib/readiness'
 import { useMaxViasPerProxy } from '../lib/proxyClusterPrefs'
 import {
@@ -32,6 +33,7 @@ import {
   canMemberLaunchVia,
   downloadSwitchyOmegaConfig,
   downloadWindowsChromeLauncherBat,
+  evaluateViaActionGuardrail,
   fetchAntidetectBenchmark,
   fetchRealLocalChromeProfiles,
   fetchWorkstationTelemetry,
@@ -40,6 +42,7 @@ import {
   normalizeProxyKey,
   parseAntidetectFromNotes,
   probeLocalDesktopBridge,
+  type GuardrailBlockedDecision,
 } from '../lib/chromeProfileLauncher'
 
 const LEGACY_MOCK_NETWORKS = [
@@ -383,6 +386,20 @@ export default function FacebookAccounts() {
   const [creating, setCreating] = useState(false)
   const [editingRecord, setEditingRecord] = useState<ReferenceRecord | null>(null)
   const [syncNotice, setSyncNotice] = useState<string | null>(null)
+  const [guardrailBlocked, setGuardrailBlocked] = useState<{
+    decision: GuardrailBlockedDecision
+    pendingLaunch: {
+      targetUrl: string
+      browserLabel: string
+      viaLabel: string
+      networkLabel: string
+      viaId: string
+      antidetectEngine: string
+      antidetectProfileId: string
+      viaTier: ViaRoleTier
+      isSoaking72h: boolean
+    }
+  } | null>(null)
 
   const list = useQuery({
     queryKey: ['personal-account-references', 'facebook-list', search],
@@ -744,16 +761,16 @@ export default function FacebookAccounts() {
                 title={`AdsOps Desktop Pro đang chạy ngầm tại 127.0.0.1:${bridgeProbe.port || 17890}`}
               >
                 <span className="h-1.5 w-1.5 rounded-full bg-tone-positive-fg" aria-hidden="true" />
-                <span>App Windows v{bridgeProbe.version || '5.0.0'} Đang Chạy</span>
+                <span>App Windows v{bridgeProbe.version || '5.1.0'} Đang Chạy</span>
               </span>
             )}
             <a
               href="/downloads/AdsOps-Desktop-Pro-latest.zip"
               download
               className="inline-flex h-9 items-center gap-1.5 rounded-md border border-line bg-surface px-3 text-xs font-semibold text-ink transition hover:border-line-strong hover:bg-surface-muted"
-              title="Tải App Windows AdsOps Desktop Pro v5.0.0 (Tự gia hạn phiên 24/7 DPAPI, Chrome Profile gốc & Cô lập, Broker PID Tracking, Chia Proxy 1:4, Watchdog, 5 Engine Antidetect & Extension v2.10.4)"
+              title="Tải App Windows AdsOps Desktop Pro v5.1.0 (Tự gia hạn phiên 24/7 DPAPI, Khiên Bảo Vệ Via Lớp 1 / Ngâm 72h, Broker PID Tracking, Chia Proxy 1:4, 5 Engine Antidetect & Extension v2.11.0)"
             >
-              Tải App Windows v5.0 (.zip)
+              Tải App Windows v5.1 (.zip)
             </a>
             <Button
               type="button"
@@ -1209,21 +1226,15 @@ export default function FacebookAccounts() {
                 const activeSess = workstationQ.data?.sessions?.find(
                   (ws) => ws.alive && (ws.via_id === row.id || ws.via_label === String(row.label)),
                 )
-                const safeLaunchChrome = (targetUrl: string) => {
-                  if (!launchPerm.allowed) {
-                    setSyncNotice(launchPerm.reason)
-                    return
-                  }
-                  if (proxyHealth?.status === 'DEAD') {
-                    const proceed = window.confirm(
-                      'CẢNH BÁO PROXY ĐÃ CHẾT / LỖI: Lần kiểm tra gần nhất cho thấy Proxy của Via này không phản hồi. Mở Chrome lúc này có thể lộ IP thật hoặc gây Checkpoint! Bạn vẫn muốn mở?',
-                    )
-                    if (!proceed) return
-                  }
+                const isSoaking72h = warmup?.phase === '72h_lock'
+                const executeChromeLaunch = (targetUrl: string, overrideGrant?: string | null) => {
                   void launchInAssignedChromeProfile(targetUrl, browserLabel, String(row.label), networkLabel, {
                     viaId: row.id,
                     antidetectEngine: adMeta.engine,
                     antidetectProfileId: adMeta.profileId,
+                    viaTier: meta.tier,
+                    isSoaking72h,
+                    overrideGrant: overrideGrant || undefined,
                   })
                   void api
                     .post('/api/v1/facebook-pages/browser-event', {
@@ -1237,6 +1248,43 @@ export default function FacebookAccounts() {
                       target_url: targetUrl,
                     })
                     .catch(() => {})
+                }
+                const safeLaunchChrome = (targetUrl: string) => {
+                  if (!launchPerm.allowed) {
+                    setSyncNotice(launchPerm.reason)
+                    return
+                  }
+                  const guardrailCheck = evaluateViaActionGuardrail({
+                    viaId: row.id,
+                    viaLabel: String(row.label),
+                    viaTier: meta.tier,
+                    isSoaking72h,
+                    targetUrl,
+                  })
+                  if (!guardrailCheck.allowed) {
+                    setGuardrailBlocked({
+                      decision: guardrailCheck,
+                      pendingLaunch: {
+                        targetUrl,
+                        browserLabel,
+                        viaLabel: String(row.label),
+                        networkLabel,
+                        viaId: row.id,
+                        antidetectEngine: adMeta.engine,
+                        antidetectProfileId: adMeta.profileId,
+                        viaTier: meta.tier,
+                        isSoaking72h,
+                      },
+                    })
+                    return
+                  }
+                  if (proxyHealth?.status === 'DEAD') {
+                    const proceed = window.confirm(
+                      'CẢNH BÁO PROXY ĐÃ CHẾT / LỖI: Lần kiểm tra gần nhất cho thấy Proxy của Via này không phản hồi. Mở Chrome lúc này có thể lộ IP thật hoặc gây Checkpoint! Bạn vẫn muốn mở?',
+                    )
+                    if (!proceed) return
+                  }
+                  executeChromeLaunch(targetUrl)
                 }
                 const ownership = String(row.ownership_type ?? 'agency_owned')
                 const clientName = String(row.client_name ?? '').trim()
@@ -1375,6 +1423,25 @@ export default function FacebookAccounts() {
                                 }
                               >
                                 {launchPerm.allowed ? `Mở ${getAntidetectEngineLabel(adMeta.engine)}` : 'Phân quyền khác'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={!launchPerm.allowed}
+                                onClick={() => safeLaunchChrome('https://adsmanager.facebook.com/adsmanager/manage/campaigns')}
+                                className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-semibold transition ${
+                                  !launchPerm.allowed
+                                    ? 'cursor-not-allowed border-line bg-surface-muted text-ink-muted'
+                                    : meta.tier === 'vault' || isSoaking72h
+                                      ? 'border-tone-caution-border bg-tone-caution-bg text-tone-caution-fg hover:opacity-90'
+                                      : 'border-line bg-surface text-ink hover:border-line-strong hover:bg-surface-muted'
+                                }`}
+                                title={
+                                  meta.tier === 'vault' || isSoaking72h
+                                    ? 'Được bảo vệ bởi Khiên Vai Trò Via (sẽ chặn mở Ads Manager nếu chưa có Ngoại lệ Owner)'
+                                    : 'Mở Trình quản lý Quảng cáo (Ads Manager) trên đúng Hồ sơ Via này'
+                                }
+                              >
+                                Ads Manager
                               </button>
                               <button
                                 type="button"
@@ -1637,6 +1704,33 @@ export default function FacebookAccounts() {
         }}
         members={members.data ?? []}
         canAssignOwner={canAssignOwner}
+      />
+      <ViaGuardrailDialog
+        open={Boolean(guardrailBlocked)}
+        onOpenChange={(open) => {
+          if (!open) setGuardrailBlocked(null)
+        }}
+        decision={guardrailBlocked?.decision ?? null}
+        isOwner={role === 'owner'}
+        onOverrideGranted={(grant) => {
+          if (!guardrailBlocked) return
+          const pending = guardrailBlocked.pendingLaunch
+          setGuardrailBlocked(null)
+          void launchInAssignedChromeProfile(
+            pending.targetUrl,
+            pending.browserLabel,
+            pending.viaLabel,
+            pending.networkLabel,
+            {
+              viaId: pending.viaId,
+              antidetectEngine: pending.antidetectEngine,
+              antidetectProfileId: pending.antidetectProfileId,
+              viaTier: pending.viaTier,
+              isSoaking72h: pending.isSoaking72h,
+              overrideGrant: grant,
+            },
+          )
+        }}
       />
     </div>
   )

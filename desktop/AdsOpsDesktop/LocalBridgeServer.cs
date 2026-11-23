@@ -24,6 +24,9 @@ public sealed class OpenChromeBridgeRequest
     [JsonPropertyName("url")] public string? Url { get; set; }
     [JsonPropertyName("antidetect_engine")] public string? AntidetectEngine { get; set; }
     [JsonPropertyName("antidetect_profile_id")] public string? AntidetectProfileId { get; set; }
+    [JsonPropertyName("via_tier")] public string? ViaTier { get; set; }
+    [JsonPropertyName("soak_72h")] public bool? Soak72h { get; set; }
+    [JsonPropertyName("override_grant")] public string? OverrideGrant { get; set; }
 }
 public sealed class LocalVaultSaveRequest
 {

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, Building2, Crown, Globe, KeyRound, Plus, Save, SlidersHorizontal, Zap } from 'lucide-react'
+import { Bell, Building2, Crown, Globe, KeyRound, Plus, Save, SlidersHorizontal, Sparkles, Zap } from 'lucide-react'
 import { api } from '../lib/api'
+import { aiStudioApi } from '../lib/policyScanner'
 import type { CurrentUser, ExtensionInstallation, NotificationPolicy, WorkspaceLicenseInfo } from '../lib/types'
 import { Badge } from '../components/primitives/badge'
 import { Button } from '../components/primitives/button'
@@ -145,6 +146,7 @@ export default function Settings() {
               </Panel>
             </div>
 
+            <AiPolicyStudioSection isOwner={isOwner} />
             <DomainSeoSection isOwner={isOwner} />
             <ProxyClusterCapacitySection />
           </section>
@@ -1137,7 +1139,7 @@ function ProxyClusterCapacitySection() {
       <div className="space-y-3">
         <p className="text-xs leading-relaxed text-ink-muted">
           Tùy chỉnh số tài khoản Via tối đa dùng chung 1 Proxy trước khi Web UI hiển thị cảnh báo quá tải (mặc định{' '}
-          <strong className="text-ink">{DEFAULT_MAX_VIAS_PER_PROXY} Via/Proxy</strong> cho Proxy Dân cư; bạn có thể nâng lên tới 50 nếu vận hành proxy xoay hoặc dải đặc biệt). Trên App Windows Desktop v5.0, bạn có thể chỉnh thêm thông số Antidetect / RAM &amp; xuất Full Backup <code>.adsopsvault</code>.
+          <strong className="text-ink">{DEFAULT_MAX_VIAS_PER_PROXY} Via/Proxy</strong> cho Proxy Dân cư; bạn có thể nâng lên tới 50 nếu vận hành proxy xoay hoặc dải đặc biệt). Trên App Windows Desktop v5.1, bạn có thể chỉnh thêm thông số Antidetect / RAM &amp; xuất Full Backup <code>.adsopsvault</code>.
         </p>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -1329,6 +1331,198 @@ function CommunityQuotaSection({ isOwner }: { isOwner: boolean }) {
           )}
         </div>
       ) : null}
+    </Panel>
+  )
+}
+
+function AiPolicyStudioSection({ isOwner }: { isOwner: boolean }) {
+  const qc = useQueryClient()
+  const configQ = useQuery({
+    queryKey: ['workspace-ai-studio-config'],
+    queryFn: aiStudioApi.getConfig,
+  })
+
+  const [provider, setProvider] = useState<'gemini' | 'openai' | 'claude'>('gemini')
+  const [model, setModel] = useState('')
+  const [providerKey, setProviderKey] = useState('')
+  const [enabled, setEnabled] = useState(true)
+  const [statusNote, setStatusNote] = useState<{ tone: 'positive' | 'caution' | 'attention'; text: string } | null>(
+    null,
+  )
+
+  useEffect(() => {
+    if (configQ.data) {
+      setProvider(configQ.data.provider)
+      setModel(configQ.data.model)
+      setEnabled(configQ.data.enabled)
+    }
+  }, [configQ.data])
+
+  const saveMut = useMutation({
+    mutationFn: () =>
+      aiStudioApi.saveConfig({
+        provider,
+        model: model.trim() || undefined,
+        enabled,
+        provider_key: providerKey.trim() || undefined,
+      }),
+    onSuccess: (res) => {
+      setProviderKey('')
+      void qc.invalidateQueries({ queryKey: ['workspace-ai-studio-config'] })
+      setStatusNote({
+        tone: 'positive',
+        text: res.key_configured
+          ? `Đã lưu khóa AI (${res.provider}/${res.model} · ${res.key_mask}) được mã hóa bảo mật cho Workspace.`
+          : `Đã lưu cấu hình ${res.provider}/${res.model} (chưa nhập API Key riêng — hệ thống tiếp tục dùng Bộ Luật Chính Sách 0đ).`,
+      })
+    },
+    onError: (err) => {
+      setStatusNote({
+        tone: 'attention',
+        text: err instanceof Error ? err.message : 'Không thể lưu cấu hình AI Workspace.',
+      })
+    },
+  })
+
+  const testMut = useMutation({
+    mutationFn: () =>
+      aiStudioApi.testConnection({
+        provider,
+        model: model.trim() || undefined,
+        provider_key: providerKey.trim() || undefined,
+      }),
+    onSuccess: (res) => {
+      setStatusNote({
+        tone: 'positive',
+        text: `Kết nối thành công tới ${res.provider}/${res.model}: "${res.reply_preview || 'OK'}"`,
+      })
+    },
+    onError: (err) => {
+      setStatusNote({
+        tone: 'attention',
+        text: err instanceof Error ? err.message : 'Kết nối AI thất bại. Vui lòng kiểm tra lại API Key.',
+      })
+    },
+  })
+
+  const cfg = configQ.data
+  const defaultModelHint = cfg?.available_models?.[provider] || 'gemini-2.0-flash'
+
+  return (
+    <Panel
+      title={
+        <span className="inline-flex items-center gap-2">
+          <Sparkles className="h-4 w-4 shrink-0 text-brand-text" aria-hidden="true" />
+          <span>Cấu hình AI Kiểm duyệt Chính sách &amp; Sinh Nội dung Workspace (BYOK)</span>
+        </span>
+      }
+    >
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone={cfg?.key_configured ? 'positive' : 'neutral'}>
+            {cfg?.key_configured
+              ? `Đã gắn API Key (${cfg.provider} · ${cfg.key_mask})`
+              : 'Chưa gắn Key riêng (Đang dùng Bộ Luật 0đ)'}
+          </Badge>
+          <Badge tone={cfg?.enabled ? 'info' : 'muted'}>
+            {cfg?.enabled ? 'BYOK AI đang bật' : 'BYOK AI đang tạm tắt'}
+          </Badge>
+        </div>
+
+        <p className="text-xs leading-relaxed text-ink-muted">
+          Bộ quét 7 nhóm lỗi Meta Ads chạy tức thời hoàn toàn 0đ không cần Key. Khi muốn{' '}
+          <strong className="text-ink">AI tự viết lại bài sạch chính sách</strong> hoặc sinh bài nuôi Fanpage đa dạng theo ngành,{' '}
+          <strong className="text-ink">Owner</strong> có thể gắn khóa Gemini / OpenAI / Claude dùng chung cho cả team (được mã hóa bảo mật trên server).
+        </p>
+
+        {!isOwner ? (
+          <Note role="note" tone="caution">
+            Chỉ tài khoản Owner Workspace mới có quyền nhập hoặc thay đổi API Key AI dùng chung cho cả team.
+          </Note>
+        ) : (
+          <div className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Field label="Nhà cung cấp AI">
+                <select
+                  className="input text-xs"
+                  value={provider}
+                  onChange={(e) => {
+                    const nextP = e.target.value as 'gemini' | 'openai' | 'claude'
+                    setProvider(nextP)
+                    if (cfg?.available_models?.[nextP]) {
+                      setModel(cfg.available_models[nextP])
+                    }
+                  }}
+                >
+                  <option value="gemini">Google Gemini</option>
+                  <option value="openai">OpenAI (GPT)</option>
+                  <option value="claude">Anthropic Claude</option>
+                </select>
+              </Field>
+              <Field label="Model" hint={`Mặc định: ${defaultModelHint}`}>
+                <input
+                  type="text"
+                  className="input text-xs font-mono"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  placeholder={defaultModelHint}
+                />
+              </Field>
+              <Field label="API Key mới (tùy chọn cập nhật)">
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  className="input text-xs font-mono"
+                  value={providerKey}
+                  onChange={(e) => setProviderKey(e.target.value)}
+                  placeholder={cfg?.key_configured ? `Đang lưu: ${cfg.key_mask}` : 'Dán khóa API...'}
+                />
+              </Field>
+            </div>
+
+            <label className="inline-flex items-center gap-2 text-xs font-medium text-ink">
+              <input
+                type="checkbox"
+                checked={enabled}
+                onChange={(e) => setEnabled(e.target.checked)}
+              />
+              <span>Cho phép thành viên trong Workspace dùng AI này để viết lại bài Ads &amp; nuôi Page</span>
+            </label>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                disabled={saveMut.isPending}
+                onClick={() => {
+                  setStatusNote(null)
+                  saveMut.mutate()
+                }}
+              >
+                {saveMut.isPending ? 'Đang lưu...' : 'Lưu Cấu Hình AI'}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={testMut.isPending || (!providerKey.trim() && !cfg?.key_configured)}
+                onClick={() => {
+                  setStatusNote(null)
+                  testMut.mutate()
+                }}
+              >
+                {testMut.isPending ? 'Đang kiểm tra...' : 'Kiểm tra kết nối AI'}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {statusNote && (
+          <Note role="note" tone={statusNote.tone}>
+            {statusNote.text}
+          </Note>
+        )}
+      </div>
     </Panel>
   )
 }

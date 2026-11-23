@@ -639,6 +639,118 @@ export async function fetchAntidetectBenchmark(timeoutMs = 7000): Promise<{
   }
 }
 
+export interface GuardrailBlockedDecision {
+  allowed: false
+  code: 'vault_ads_blocked' | 'soak_72h_blocked'
+  viaId: string
+  viaLabel: string
+  viaTier: 'vault' | '72h_lock'
+  targetUrl: string
+  targetScope: string
+  reason: string
+  recommendedAlternative?: string
+}
+
+const GUARDRAIL_OVERRIDE_PREFIX = 'adsops_guardrail_override_'
+
+export function storeOwnerOverrideGrant(viaKey: string, grant: string, expiresInSeconds = 900): void {
+  if (typeof window === 'undefined' || !viaKey.trim() || !grant.trim()) return
+  try {
+    const expiresAt = Date.now() + Math.max(60, expiresInSeconds) * 1000
+    window.sessionStorage.setItem(
+      `${GUARDRAIL_OVERRIDE_PREFIX}${viaKey.trim()}`,
+      JSON.stringify({ grant: grant.trim(), expiresAt }),
+    )
+  } catch {
+    // Ignore storage quota / private mode errors
+  }
+}
+
+export function getValidOwnerOverrideGrant(viaKey: string): string | null {
+  if (typeof window === 'undefined' || !viaKey.trim()) return null
+  try {
+    const raw = window.sessionStorage.getItem(`${GUARDRAIL_OVERRIDE_PREFIX}${viaKey.trim()}`)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { grant?: string; expiresAt?: number }
+    if (!parsed.grant || !parsed.expiresAt || parsed.expiresAt <= Date.now()) {
+      window.sessionStorage.removeItem(`${GUARDRAIL_OVERRIDE_PREFIX}${viaKey.trim()}`)
+      return null
+    }
+    return parsed.grant
+  } catch {
+    return null
+  }
+}
+
+export function evaluateViaActionGuardrail(params: {
+  viaId: string
+  viaLabel: string
+  viaTier?: string | null
+  isSoaking72h?: boolean
+  targetUrl: string
+}): { allowed: true } | GuardrailBlockedDecision {
+  const viaKey = (params.viaId || params.viaLabel || '').trim()
+  if (viaKey && getValidOwnerOverrideGrant(viaKey)) {
+    return { allowed: true }
+  }
+
+  const cleanUrl = (params.targetUrl || '').trim()
+  const urlLower = cleanUrl.toLowerCase()
+  const isKeepalive = urlLower.includes('adsops_keepalive_session=1')
+
+  if (params.isSoaking72h) {
+    const hitsAdsManager = urlLower.includes('adsmanager.facebook.com')
+    const hitsBm = urlLower.includes('business.facebook.com') && !isKeepalive
+    const hitsSecurity = urlLower.includes('accountscenter.facebook.com/password_and_security')
+    if (hitsAdsManager || hitsBm || hitsSecurity) {
+      return {
+        allowed: false,
+        code: 'soak_72h_blocked',
+        viaId: params.viaId,
+        viaLabel: params.viaLabel,
+        viaTier: '72h_lock',
+        targetUrl: cleanUrl,
+        targetScope: 'soak_72h_quarantine',
+        reason:
+          'Via này đang ở giai đoạn Ngâm 72h Vàng (cách ly trình duyệt mới). Thao tác Trình quản lý Quảng cáo, Business Manager hoặc Đổi mật khẩu/Passkey lúc này rất dễ kích hoạt Checkpoint.',
+        recommendedAlternative:
+          'Chỉ nên chạy Đảo Ấm Cookie (lướt News Feed tự nhiên) hoặc chờ hết đủ 72h trước khi mở BM / Ads Manager.',
+      }
+    }
+  }
+
+  const normTier = (params.viaTier || '').trim().toLowerCase()
+  if (normTier === 'vault' && urlLower.includes('adsmanager.facebook.com')) {
+    return {
+      allowed: false,
+      code: 'vault_ads_blocked',
+      viaId: params.viaId,
+      viaLabel: params.viaLabel,
+      viaTier: 'vault',
+      targetUrl: cleanUrl,
+      targetScope: 'ads_manager_campaign',
+      reason:
+        'Via Lớp 1 (Via Tổng Hold BM / Giữ Fanpage) được bảo vệ không cho mở Trình quản lý Quảng cáo hay lên chiến dịch để tránh chết liên đới toàn bộ BM và dàn Fanpage gốc.',
+      recommendedAlternative:
+        'Hãy Share quyền TKQC sang Via Lớp 2 (Via Lên Camp) để chạy quảng cáo; Via Lớp 1 chỉ dùng vào Cài đặt BM (business.facebook.com) hoặc giữ tài sản.',
+    }
+  }
+
+  return { allowed: true }
+}
+
+function appendGuardrailOverrideParam(targetUrl: string): string {
+  const clean = (targetUrl || '').trim()
+  if (!clean.startsWith('http://') && !clean.startsWith('https://')) return clean
+  try {
+    const parsed = new URL(clean)
+    parsed.searchParams.set('adsops_guard_override', '1')
+    return parsed.toString()
+  } catch {
+    return clean.includes('?') ? `${clean}&adsops_guard_override=1` : `${clean}?adsops_guard_override=1`
+  }
+}
+
 export async function launchInAssignedChromeProfile(
   targetUrl: string,
   browserProfileLabel?: string | null,
@@ -648,14 +760,20 @@ export async function launchInAssignedChromeProfile(
     viaId?: string | null
     antidetectEngine?: string | null
     antidetectProfileId?: string | null
+    viaTier?: string | null
+    isSoaking72h?: boolean
+    overrideGrant?: string | null
   },
 ): Promise<'bridge' | 'protocol'> {
   const profileDir = resolveChromeProfileDirectory(browserProfileLabel, viaLabel)
   const nameHint = (browserProfileLabel || viaLabel || '').trim()
   const cleanProxy = (proxyLabel || '').trim()
+  const viaLookupKey = (extra?.viaId || viaLabel || '').trim()
+  const effectiveGrant = extra?.overrideGrant || (viaLookupKey ? getValidOwnerOverrideGrant(viaLookupKey) : null)
+  const effectiveUrl = effectiveGrant ? appendGuardrailOverrideParam(targetUrl) : targetUrl
 
   if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-    void navigator.clipboard.writeText(targetUrl).catch(() => {})
+    void navigator.clipboard.writeText(effectiveUrl).catch(() => {})
   }
 
   try {
@@ -670,9 +788,12 @@ export async function launchInAssignedChromeProfile(
         profile: profileDir,
         name: nameHint,
         proxy: cleanProxy,
-        url: targetUrl,
+        url: effectiveUrl,
         antidetect_engine: extra?.antidetectEngine || undefined,
         antidetect_profile_id: extra?.antidetectProfileId || undefined,
+        via_tier: extra?.viaTier || undefined,
+        soak_72h: Boolean(extra?.isSoaking72h),
+        override_grant: effectiveGrant || undefined,
       }),
       signal: controller.signal,
     })
@@ -684,7 +805,7 @@ export async function launchInAssignedChromeProfile(
     // Fallback to adsops-chrome:// protocol
   }
 
-  const protocolUrl = buildAdsOpsChromeProtocolUrl(targetUrl, browserProfileLabel, viaLabel, cleanProxy)
+  const protocolUrl = buildAdsOpsChromeProtocolUrl(effectiveUrl, browserProfileLabel, viaLabel, cleanProxy)
   const anchor = document.createElement('a')
   anchor.href = protocolUrl
   anchor.style.display = 'none'
@@ -1089,9 +1210,9 @@ export function buildExtensionFilesForVia(
       ? `AdsOps Companion Pro · ${profileDir} · Proxy ${parsed!.host}:${parsed!.port}`
       : `AdsOps Companion Pro · ${profileDir} (${viaName})`,
     short_name: 'AdsOps Companion Pro',
-    version: '2.10.2',
+    version: '2.11.0',
     description:
-      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.10.2 Pro: Tự động sao lưu Cookie về Két DPAPI, Đa Engine Antidetect, Benchmark & Auto-Failover, Zero-Trust Bridge Token, IP-Timezone Guard, Ngâm 72h.',
+      'Tiện ích Quản lý TKQC & Hộ Chiếu Via v2.11.0 Pro: Tự động sao lưu Cookie về Két DPAPI, Khiên Khóa Vai Trò Via Lớp 1 / Ngâm 72h trên Ads Manager, Đa Engine Antidetect, Zero-Trust Bridge Token, IP-Timezone Guard.',
     permissions: [
       'proxy',
       'privacy',
@@ -5055,8 +5176,107 @@ recheckGeoAlignment();`
     }
   }
 
+  function enforceAdsManagerRoleGuardrailDom() {
+    try {
+      const href = window.location.href || "";
+      if (href.indexOf("adsops_guard_override=1") !== -1) {
+        try {
+          sessionStorage.setItem("adsops_guard_override_until", String(Date.now() + 900000));
+        } catch (e) {}
+      }
+      const host = (window.location.hostname || "").toLowerCase();
+      if (host.indexOf("adsmanager.facebook.com") === -1) {
+        window.__adsopsRoleGuardActive = false;
+        return;
+      }
+
+      let overrideUntil = 0;
+      try {
+        overrideUntil = Number(sessionStorage.getItem("adsops_guard_override_until") || "0");
+      } catch (e) {}
+      if (overrideUntil > Date.now()) {
+        window.__adsopsRoleGuardActive = false;
+        const old = document.getElementById("adsops-role-guardrail-banner");
+        if (old) old.remove();
+        return;
+      }
+
+      if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) return;
+      chrome.storage.local.get(["viaTier", "warmupPhase", "viaName"], (st) => {
+        const tier = String((st && st.viaTier) || "").toLowerCase();
+        const phase = String((st && st.warmupPhase) || "").toLowerCase();
+        const blocked = tier === "vault" || phase === "72h_lock";
+        window.__adsopsRoleGuardActive = blocked;
+        if (!blocked) {
+          const old = document.getElementById("adsops-role-guardrail-banner");
+          if (old) old.remove();
+          return;
+        }
+        const viaLabel = String((st && st.viaName) || "Via");
+        const reasonLabel = phase === "72h_lock" ? "Via dang Ngam 72h Vang" : "Via Lop 1 (Hold BM)";
+        let banner = document.getElementById("adsops-role-guardrail-banner");
+        if (!banner && document.body) {
+          banner = document.createElement("div");
+          banner.id = "adsops-role-guardrail-banner";
+          banner.style.cssText =
+            "position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#7f1d1d;color:#fef2f2;padding:8px 14px;font:600 12px/1.4 system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:2px solid #fca5a5;box-shadow:0 4px 12px rgba(0,0,0,0.28);";
+          banner.textContent =
+            "KHIEN BAO VE VAI TRO ADSOPS v2.11.0 (" +
+            viaLabel +
+            " - " +
+            reasonLabel +
+            "): Dang khoa nut Tao & Dang Chien dich. Hay chuyen sang Via Lop 2 Len Camp hoac nho Owner cap quyen ngoai le 15 phut.";
+          document.body.appendChild(banner);
+        }
+
+        if (!window.__adsopsRoleGuardBound) {
+          window.__adsopsRoleGuardBound = true;
+          const btnPattern = /^(?:\+\s*)?(?:tạo|create|đăng|publish|xét duyệt và đăng|review and publish)$/i;
+          document.addEventListener(
+            "click",
+            (ev) => {
+              if (!window.__adsopsRoleGuardActive) return;
+              let ov = 0;
+              try {
+                ov = Number(sessionStorage.getItem("adsops_guard_override_until") || "0");
+              } catch (e) {}
+              if (ov > Date.now()) {
+                window.__adsopsRoleGuardActive = false;
+                return;
+              }
+              const target =
+                ev.target && ev.target.closest
+                  ? ev.target.closest('[role="button"], button, a[role="button"]')
+                  : null;
+              if (!target) return;
+              const txt = (target.textContent || "").trim();
+              const aria = (target.getAttribute("aria-label") || "").trim();
+              if (btnPattern.test(txt) || btnPattern.test(aria)) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                if (typeof ev.stopImmediatePropagation === "function") ev.stopImmediatePropagation();
+                const b = document.getElementById("adsops-role-guardrail-banner");
+                if (b) {
+                  b.style.outline = "3px solid #fef08a";
+                  setTimeout(() => {
+                    const cur = document.getElementById("adsops-role-guardrail-banner");
+                    if (cur) cur.style.outline = "none";
+                  }, 1200);
+                }
+              }
+            },
+            true
+          );
+        }
+      });
+    } catch (e) {}
+  }
+
+  enforceAdsManagerRoleGuardrailDom();
+
   setTimeout(() => {
     injectFloatingHud();
+    enforceAdsManagerRoleGuardrailDom();
     handlePasskeyDom();
     handleTwoFactorAssistDom();
     handleSessionWarmupAndKeepAlive();
@@ -5065,6 +5285,7 @@ recheckGeoAlignment();`
     handlePageReactorAutoInviteDom();
   }, 900);
   setInterval(() => {
+    enforceAdsManagerRoleGuardrailDom();
     scanBillingDom();
     handleTwoFactorAssistDom();
     handleSessionWarmupAndKeepAlive();

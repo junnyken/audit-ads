@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BarChart3, Code2, Eye, FileSpreadsheet, RefreshCw, Rocket, Search } from 'lucide-react'
+import { BarChart3, Code2, Eye, FileSpreadsheet, RefreshCw, Rocket, Search, ShieldCheck } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { InspectorDrawer, InspectorSection } from '@/components/ui/inspector-drawer'
+import { PolicyPreCheckPanel } from '@/components/ui/policy-precheck-panel'
 import { FinancialValue, SegmentedTabs, StatusDot } from '@/components/ui/studio-primitives'
 import {
   Table,
@@ -36,6 +37,7 @@ export function AdAccountsTab({
   const [statusFilter, setStatusFilter] = useState(initialFilter || 'all')
   const [platformFilter, setPlatformFilter] = useState<'all' | 'meta' | 'google_ads'>(platformScope)
   const [inspected, setInspected] = useState<WebAdAccountDto | null>(null)
+  const [showPolicyPanel, setShowPolicyPanel] = useState(false)
 
   useEffect(() => {
     setPlatformFilter(platformScope)
@@ -148,6 +150,14 @@ export function AdAccountsTab({
           </div>
 
           <Button
+            variant={showPolicyPanel ? 'default' : 'secondary'}
+            size="sm"
+            className="h-8 gap-1.5 text-xs"
+            onClick={() => setShowPolicyPanel((prev) => !prev)}
+          >
+            <ShieldCheck className="h-3.5 w-3.5" /> Kiểm duyệt Chính sách
+          </Button>
+          <Button
             variant="ghost"
             size="sm"
             className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
@@ -169,6 +179,13 @@ export function AdAccountsTab({
           </Button>
         </div>
       </div>
+
+      {showPolicyPanel && (
+        <PolicyPreCheckPanel
+          mode="ad_copy"
+          onClose={() => setShowPolicyPanel(false)}
+        />
+      )}
 
       {/* Financial Table (Bloomberg / Stripe precision) */}
       {state.adAccounts.length === 0 ? (

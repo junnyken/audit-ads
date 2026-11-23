@@ -929,6 +929,53 @@ internal sealed partial class MainWindow : Window
         };
     }
 
+    public static (bool Allowed, string DenyReason) EvaluateDesktopViaRoleGuardrail(
+        string? roleTier,
+        bool isInSoakQuarantine,
+        bool enforceSoakQuarantine,
+        string? targetUrl,
+        string? overrideGrant)
+    {
+        if (!string.IsNullOrWhiteSpace(overrideGrant) &&
+            overrideGrant.Trim().StartsWith("vgo1.", StringComparison.Ordinal))
+        {
+            return (true, string.Empty);
+        }
+
+        var url = (targetUrl ?? string.Empty).Trim().ToLowerInvariant();
+        var isKeepalive = url.Contains("adsops_keepalive_session=1", StringComparison.Ordinal);
+
+        if (isInSoakQuarantine && enforceSoakQuarantine)
+        {
+            if (url.Contains("adsmanager.facebook.com", StringComparison.Ordinal) ||
+                (url.Contains("business.facebook.com", StringComparison.Ordinal) && !isKeepalive) ||
+                url.Contains("accountscenter.facebook.com/password_and_security", StringComparison.Ordinal))
+            {
+                return (false, "Via đang trong giai đoạn Ngâm 72h Vàng (cách ly trình duyệt mới) — bị khóa mở Ads Manager / BM / Bảo mật để tránh Checkpoint.");
+            }
+        }
+
+        if (string.Equals((roleTier ?? string.Empty).Trim(), "vault", StringComparison.OrdinalIgnoreCase) &&
+            url.Contains("adsmanager.facebook.com", StringComparison.Ordinal))
+        {
+            return (false, "Via Lớp 1 (Hold BM / Kho tài sản) bị khóa truy cập Trình quản lý Quảng cáo để chống chết liên đới BM & Fanpage gốc.");
+        }
+
+        return (true, string.Empty);
+    }
+
+    private static string AppendGuardrailOverrideQuery(string targetUrl)
+    {
+        if (string.IsNullOrWhiteSpace(targetUrl) ||
+            targetUrl.Contains("adsops_guard_override=1", StringComparison.OrdinalIgnoreCase))
+        {
+            return targetUrl;
+        }
+        return targetUrl.Contains('?')
+            ? $"{targetUrl}&adsops_guard_override=1"
+            : $"{targetUrl}?adsops_guard_override=1";
+    }
+
     private Task<(bool Ok, string Message)> OnBridgeOpenChromeAsync(OpenChromeBridgeRequest req)
     {
         var tcs = new TaskCompletionSource<(bool Ok, string Message)>();
@@ -952,9 +999,45 @@ internal sealed partial class MainWindow : Window
                         tcs.TrySetResult((false, denyReason));
                         return;
                     }
-                    LaunchViaChromeSafe(match, url);
+                    var effectiveTier = !string.IsNullOrWhiteSpace(match.ViaTier) ? match.ViaTier : req.ViaTier;
+                    var effectiveSoak = match.IsInSoakQuarantine || (req.Soak72h == true);
+                    var (guardOk, guardDeny) = EvaluateDesktopViaRoleGuardrail(
+                        effectiveTier,
+                        effectiveSoak,
+                        _config.EnforceSoakQuarantine,
+                        url,
+                        req.OverrideGrant);
+                    if (!guardOk)
+                    {
+                        AppendLog($"[Khiên Vai Trò] Đã chặn mở URL rủi ro cho Via '{match.Label}': {guardDeny}");
+                        tcs.TrySetResult((false, guardDeny));
+                        return;
+                    }
+                    if (!string.IsNullOrWhiteSpace(req.OverrideGrant) && req.OverrideGrant.Trim().StartsWith("vgo1.", StringComparison.Ordinal))
+                    {
+                        url = AppendGuardrailOverrideQuery(url);
+                        AppendLog($"[Khiên Vai Trò] Owner ngoại lệ 15p từ Web cho Via '{match.Label}'.");
+                    }
+                    LaunchViaChromeSafe(match, url, req.OverrideGrant, interactivePrompt: false);
                     tcs.TrySetResult((true, $"Đã mở {AntidetectBrowserConnector.GetDisplayName(match.AntidetectEngine)} cho Via '{match.Label}'."));
                     return;
+                }
+
+                var (tempGuardOk, tempGuardDeny) = EvaluateDesktopViaRoleGuardrail(
+                    req.ViaTier,
+                    req.Soak72h == true,
+                    _config.EnforceSoakQuarantine,
+                    url,
+                    req.OverrideGrant);
+                if (!tempGuardOk)
+                {
+                    AppendLog($"[Khiên Vai Trò] Đã chặn cầu nối mở URL rủi ro ({req.Name ?? req.Profile}): {tempGuardDeny}");
+                    tcs.TrySetResult((false, tempGuardDeny));
+                    return;
+                }
+                if (!string.IsNullOrWhiteSpace(req.OverrideGrant) && req.OverrideGrant.Trim().StartsWith("vgo1.", StringComparison.Ordinal))
+                {
+                    url = AppendGuardrailOverrideQuery(url);
                 }
 
                 var fallbackProfile = ExtensionProvisioner.ResolveProfileDirectory(req.Profile, req.Name);
@@ -969,6 +1052,8 @@ internal sealed partial class MainWindow : Window
                     NetworkLabel = req.Proxy ?? "",
                     AntidetectEngine = eng,
                     AntidetectProfileId = adId,
+                    ViaTier = string.IsNullOrWhiteSpace(req.ViaTier) ? "camp" : req.ViaTier!.Trim(),
+                    IsInSoakQuarantine = req.Soak72h == true,
                 };
                 _ = LaunchViaBrowserAsync(tempVia, url, interactiveAlerts: false);
                 var dispTarget = eng != "chrome_native" && !string.IsNullOrWhiteSpace(adId)
@@ -2571,16 +2656,61 @@ internal sealed partial class MainWindow : Window
         return _activeRunnersCts.Token;
     }
 
-    private void LaunchViaChromeSafe(ViaWorkspaceEntry via, string targetUrl)
+    private void LaunchViaChromeSafe(ViaWorkspaceEntry via, string targetUrl, string? overrideGrant = null, bool interactivePrompt = true)
     {
+        var launchTarget = targetUrl;
+        if (!via.IsGoogleAdsAccount)
+        {
+            var (guardOk, guardDeny) = EvaluateDesktopViaRoleGuardrail(
+                via.ViaTier,
+                via.IsInSoakQuarantine,
+                _config.EnforceSoakQuarantine,
+                launchTarget,
+                overrideGrant);
+            if (!guardOk)
+            {
+                AppendLog($"[Khiên Vai Trò] Chặn mở '{launchTarget}' trên Via '{via.Label}': {guardDeny}");
+                if (!interactivePrompt) return;
+
+                var isOwnerRole = string.Equals(_currentUser?.Role, "owner", StringComparison.OrdinalIgnoreCase);
+                if (isOwnerRole)
+                {
+                    var ans = System.Windows.MessageBox.Show(
+                        this,
+                        $"{guardDeny}\n\nBạn đang đăng nhập quyền OWNER. Bạn có muốn mở ngoại lệ 15 phút (và ghi nhận vào nhật ký vận hành) không?",
+                        "Khiên Bảo Vệ Vai Trò Via — AdsOps Desktop Pro",
+                        System.Windows.MessageBoxButton.YesNo,
+                        System.Windows.MessageBoxImage.Warning);
+                    if (ans != System.Windows.MessageBoxResult.Yes) return;
+
+                    launchTarget = AppendGuardrailOverrideQuery(launchTarget);
+                    AppendLog($"[Khiên Vai Trò] Owner xác nhận mở ngoại lệ 15p cho Via '{via.Label}' -> '{launchTarget}'.");
+                }
+                else
+                {
+                    System.Windows.MessageBox.Show(
+                        this,
+                        $"{guardDeny}\n\nChỉ tài khoản Owner mới có quyền mở ngoại lệ vượt rào Via Lớp 1 / Ngâm 72h.",
+                        "Khiên Bảo Vệ Vai Trò Via Đã Chặn",
+                        System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Stop);
+                    return;
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(overrideGrant) && overrideGrant.Trim().StartsWith("vgo1.", StringComparison.Ordinal))
+            {
+                launchTarget = AppendGuardrailOverrideQuery(launchTarget);
+            }
+        }
+
         var effectiveUrl = via.IsGoogleAdsAccount
-            ? targetUrl
-            : WrapWithPreAdsWarmupIfEnabled(targetUrl);
-        if (!string.Equals(effectiveUrl, targetUrl, StringComparison.Ordinal))
+            ? launchTarget
+            : WrapWithPreAdsWarmupIfEnabled(launchTarget);
+        if (!string.Equals(effectiveUrl, launchTarget, StringComparison.Ordinal))
         {
             AppendLog($"🛡️ [Bước đệm Chống Checkpoint] Via '{via.Label}' sẽ lướt Newsfeed tự nhiên {_config.PreAdsWarmupSeconds}s trước khi vào Ads Manager / BM.");
         }
-        _ = LaunchViaBrowserAsync(via, effectiveUrl, interactiveAlerts: true);
+        _ = LaunchViaBrowserAsync(via, effectiveUrl, interactiveAlerts: interactivePrompt);
     }
 
     private async Task<(bool Live, string Reason)> PreCheckProxyAsync(QueueTaskItem item)

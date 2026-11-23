@@ -20,7 +20,17 @@ from fastapi import APIRouter
 from app.api.deps import Ctx, OwnerCtx, WriteCtx
 from app.core.config import get_settings
 from app.core.errors import ValidationError
+from app.core.secret_vault import SecretDecryptionError, open_ai_provider_key
 from app.models.entities import AdAccount, AuditLog, Page, PersonalAccountReference, ProxyReference
+from app.services.ai_policy_studio import (
+    generate_studio_content,
+    get_workspace_ai_record,
+    issue_owner_guardrail_override,
+    save_workspace_ai_config,
+    scan_ad_policy_compliance,
+    serialize_workspace_ai_config,
+)
+from app.services.ai_provider_transport import call_ai_provider_chat, normalize_model, normalize_provider
 from app.services.automation_cron import (
     get_workspace_cron_status,
     run_workspace_automation_cycle,
@@ -515,3 +525,165 @@ def save_domain_seo_config(ctx: OwnerCtx, payload: dict[str, Any] | None = None)
 @router.get("/automation/operational-telemetry")
 def get_operational_telemetry(ctx: Ctx) -> dict[str, Any]:
     return build_workspace_operational_telemetry(ctx.session, ctx.workspace_id)
+
+
+# ---- 5. Hybrid AI Policy & Content Studio + Audited Via Role Guardrail ------------------
+
+
+@router.get("/ai-studio/config")
+def get_ai_studio_config(ctx: Ctx) -> dict[str, Any]:
+    return serialize_workspace_ai_config(ctx.session, ctx.workspace_id)
+
+
+@router.post("/ai-studio/config")
+def save_ai_studio_config_route(ctx: OwnerCtx, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    body = payload or {}
+    settings = get_settings()
+    raw_provider = body.get("provider")
+    raw_model = body.get("model")
+    raw_enabled = body.get("enabled")
+    raw_key = body.get("provider_key")
+    clear_key = bool(body.get("clear_key"))
+
+    try:
+        res = save_workspace_ai_config(
+            ctx.session,
+            ctx.workspace_id,
+            ctx.audit,
+            settings,
+            provider=None if raw_provider is None else str(raw_provider),
+            model=None if raw_model is None else str(raw_model),
+            enabled=None if raw_enabled is None else bool(raw_enabled),
+            provider_key=None if raw_key is None else str(raw_key),
+            clear_key=clear_key,
+        )
+    except ValueError as exc:
+        raise ValidationError(str(exc), details={"field": "provider_key"}) from exc
+
+    ctx.commit()
+    return res
+
+
+@router.post("/ai-studio/test")
+def test_ai_studio_connection(ctx: OwnerCtx, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    body = payload or {}
+    settings = get_settings()
+    rec = get_workspace_ai_record(ctx.session, ctx.workspace_id)
+    provider = normalize_provider(str(body.get("provider") or rec["provider"]))
+    model = normalize_model(provider, str(body.get("model") or rec["model"]))
+
+    plain_key = str(body.get("provider_key") or "").strip()
+    if not plain_key and rec["ai_envelope"]:
+        try:
+            plain_key = open_ai_provider_key(settings, rec["ai_envelope"])
+        except SecretDecryptionError:
+            plain_key = ""
+
+    if not plain_key:
+        raise ValidationError(
+            "Chưa có API Key để kiểm tra kết nối AI Studio.",
+            details={"field": "provider_key"},
+        )
+
+    probe = call_ai_provider_chat(
+        provider=provider,
+        model=model,
+        provider_key=plain_key,
+        system_prompt="Trả lời đúng 1 câu ngắn gọn bằng tiếng Việt.",
+        user_prompt="Xác nhận kết nối AdsOps AI Studio hoạt động bình thường.",
+        max_output_tokens=80,
+        timeout=15.0,
+    )
+    if not probe.get("ok"):
+        raise ValidationError(
+            str(probe.get("error_summary") or "Không thể kết nối tới nhà cung cấp AI."),
+            details={"provider": provider, "model": model},
+        )
+    return {
+        "ok": True,
+        "provider": provider,
+        "model": model,
+        "reply_preview": str(probe.get("text") or "")[:180],
+    }
+
+
+@router.post("/ai-studio/policy-check")
+def check_ad_policy_compliance_route(ctx: Ctx, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    body = payload or {}
+    text = str(body.get("text") or "")
+    headline = str(body.get("headline") or "")
+    mode = str(body.get("mode") or "ad_copy").strip().lower()
+    if mode not in ("ad_copy", "page_warmup"):
+        mode = "ad_copy"
+    is_new_page = bool(body.get("is_new_page", False))
+    return scan_ad_policy_compliance(
+        text,
+        headline=headline,
+        mode=mode,
+        is_new_page=is_new_page,
+    )
+
+
+@router.post("/ai-studio/generate")
+def generate_ai_studio_content_route(ctx: WriteCtx, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    body = payload or {}
+    settings = get_settings()
+    task = str(body.get("task") or "rewrite_safe")
+    text = str(body.get("text") or "")
+    headline = str(body.get("headline") or "")
+    page_name = str(body.get("page_name") or "")
+    category = str(body.get("category") or "")
+    mode = str(body.get("mode") or ("page_warmup" if task == "page_warmup" else "ad_copy")).strip().lower()
+    if mode not in ("ad_copy", "page_warmup"):
+        mode = "ad_copy"
+    tone = str(body.get("tone") or "professional_natural").strip()[:64]
+
+    if task == "rewrite_safe" and not text.strip():
+        raise ValidationError("Vui lòng nhập nội dung bài viết cần kiểm duyệt & sửa.", details={"field": "text"})
+
+    return generate_studio_content(
+        ctx.session,
+        ctx.workspace_id,
+        settings,
+        task=task,
+        text=text,
+        headline=headline,
+        page_name=page_name,
+        category=category,
+        mode=mode,
+        tone=tone,
+    )
+
+
+@router.post("/via-guardrail/override")
+def issue_via_guardrail_override_route(ctx: OwnerCtx, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    body = payload or {}
+    settings = get_settings()
+    via_id = str(body.get("via_id") or "").strip()[:80]
+    via_label = str(body.get("via_label") or "").strip()[:120]
+    via_tier = str(body.get("via_tier") or "vault").strip().lower()
+    target_scope = str(body.get("target_scope") or "ads_manager_campaign").strip()[:64]
+    reason = str(body.get("reason") or "").strip()
+
+    if via_tier not in ("vault", "72h_lock"):
+        raise ValidationError("Loại bảo vệ Via không hợp lệ.", details={"field": "via_tier"})
+    if len(reason) < 4:
+        raise ValidationError(
+            "Owner bắt buộc nhập lý do mở khóa ngoại lệ (tối thiểu 4 ký tự).",
+            details={"field": "reason"},
+        )
+
+    res = issue_owner_guardrail_override(
+        ctx.session,
+        ctx.workspace_id,
+        ctx.actor_id,
+        ctx.audit,
+        settings,
+        via_id=via_id,
+        via_label=via_label,
+        via_tier=via_tier,
+        target_scope=target_scope,
+        reason=reason,
+    )
+    ctx.commit()
+    return res

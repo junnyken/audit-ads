@@ -174,3 +174,55 @@ def open_telegram_token(settings, ciphertext: str) -> str:
         return _telegram_fernet(settings).decrypt(ciphertext.encode("ascii")).decode("utf-8")
     except (InvalidToken, ValueError, UnicodeError):
         raise SecretDecryptionError("The stored Telegram bot envelope cannot be opened.") from None
+
+
+# ---- Workspace AI BYOK key encryption & Via Role Guardrail grant signing --------------------
+# Uses a dedicated derived domain key (`adsops-ai-studio-v1`) when `CREDENTIAL_VAULT_KEY` is unset,
+# keeping O4 `decrypt_secret` strictly isolated to `meta_real_provider.resolve_reader`.
+
+
+def _ai_studio_fernet(settings) -> Fernet:
+    try:
+        return _fernet(settings)
+    except VaultNotConfiguredError:
+        secret_seed = (getattr(settings, "jwt_secret", "") or "").strip()
+        if not secret_seed:
+            raise
+        digest = hashlib.sha256(f"adsops-ai-studio-v1:{secret_seed}".encode()).digest()
+        return Fernet(base64.urlsafe_b64encode(digest))
+
+
+def encrypt_ai_provider_key(settings, plaintext: str) -> str:
+    clean = (plaintext or "").strip()
+    if not clean:
+        raise ValueError("Refusing to store an empty AI provider key.")
+    return _ai_studio_fernet(settings).encrypt(clean.encode("utf-8")).decode("ascii")
+
+
+def open_ai_provider_key(settings, envelope: str) -> str:
+    if not envelope:
+        raise SecretDecryptionError("There is no stored AI provider envelope to open.")
+    try:
+        return _ai_studio_fernet(settings).decrypt(envelope.encode("ascii")).decode("utf-8")
+    except (InvalidToken, ValueError, UnicodeError):
+        raise SecretDecryptionError("The stored AI provider envelope cannot be opened.") from None
+
+
+def sign_guardrail_override(settings, payload: dict) -> str:
+    return _ai_studio_fernet(settings).encrypt(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).decode("ascii")
+
+
+def verify_guardrail_override(settings, grant: str, *, ttl_seconds: int = 900) -> dict:
+    if not grant:
+        raise StateInvalidError("No guardrail override grant provided.")
+    try:
+        fernet = _ai_studio_fernet(settings)
+        raw = fernet.decrypt(grant.encode("ascii"), ttl=ttl_seconds)
+        payload = json.loads(raw.decode("utf-8"))
+    except (VaultNotConfiguredError, InvalidToken, ValueError, UnicodeError):
+        raise StateInvalidError("The guardrail override grant is expired or not valid.") from None
+    if not isinstance(payload, dict):
+        raise StateInvalidError("The guardrail override grant is not valid.")
+    return payload

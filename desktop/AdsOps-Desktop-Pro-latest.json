@@ -1,15 +1,15 @@
 {
-    "version":  "5.0.0",
+    "version":  "5.1.0",
     "min_supported_version":  "4.2.0",
-    "ext_version":  "2.10.4",
+    "ext_version":  "2.11.0",
     "authenticode_signed":  true,
     "download_url":  "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.zip",
     "mirror_urls":  [
                         "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.zip",
                         "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
                     ],
-    "sha256":  "8e809670aa809c23f5f41f0bf3e1bc68c6cc61a6f85d63f8160320dab97760a5",
-    "size_bytes":  67339300,
-    "published_at":  "2026-11-23T07:21:02.2224288Z",
-    "release_notes":  "AdsOps Desktop Pro v5.0.0 (Impeccable Studio UX/UI Overhaul: Obsidian Dark \u0026 Alabaster Light, Density Toggle, Luminous Status Primitives, Commercial Auth Sync, License Guard, Portable Backup \u0026 Streaming Self-Updater)."
+    "sha256":  "2fabd1b7016b7504a6402980c1cfdb93c25b52954b46343dec622c8b21bc8bb6",
+    "size_bytes":  67348469,
+    "published_at":  "2026-11-23T08:33:31.8965189Z",
+    "release_notes":  "AdsOps Desktop Pro v5.1.0 (Hybrid AI Policy \u0026 Content Studio + Multi-Layer Via Role Guardrail + Companion Extension v2.11.0)."
 }

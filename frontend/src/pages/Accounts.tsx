@@ -11,9 +11,13 @@ import AccountSpendCell from '../components/AccountSpendCell'
 import PlatformStatusBadge from '../components/PlatformStatusBadge'
 import {
   downloadWindowsChromeLauncherBat,
+  evaluateViaActionGuardrail,
   formatShortProfileBadge,
   launchInAssignedChromeProfile,
+  type GuardrailBlockedDecision,
 } from '../lib/chromeProfileLauncher'
+import { PolicyPreCheckStudio } from '../components/PolicyPreCheckStudio'
+import { ViaGuardrailDialog } from '../components/ViaGuardrailDialog'
 import { ChecklistProgress } from '../components/dashboard/ChecklistProgress'
 import { Badge } from '../components/primitives/badge'
 import { Button } from '../components/primitives/button'
@@ -82,6 +86,19 @@ export default function Accounts() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editingAccount, setEditingAccount] = useState<AdAccount | null>(null)
   const [inspectedAccount, setInspectedAccount] = useState<AdAccount | null>(null)
+  const [showPolicyStudio, setShowPolicyStudio] = useState(false)
+  const [guardrailBlocked, setGuardrailBlocked] = useState<{
+    decision: GuardrailBlockedDecision
+    launchParams: {
+      targetUrl: string
+      browserProfile?: string | null
+      viaLabel?: string | null
+      networkLabel?: string | null
+      viaId?: string | null
+      viaTier?: string | null
+      isSoaking72h?: boolean
+    }
+  } | null>(null)
   const [viewMode, setViewMode] = useState<'all' | 'bm' | 'via' | 'client'>('all')
 
   const filters = {
@@ -129,6 +146,51 @@ export default function Accounts() {
     queryKey: ['personal-account-references', 'facebook-options'],
     queryFn: () => api.get<Paged<ReferenceRecord>>('/api/v1/personal-account-references?page_size=200'),
   })
+
+  function launchAccountViaChrome(
+    identity: { id: string; label: string; browser_profile_label?: string | null; network_label?: string | null },
+    targetUrl: string,
+  ) {
+    const matchedRef = (facebookIdentities.data?.items ?? []).find(
+      (r) => r.id === identity.id || String(r.label) === identity.label,
+    )
+    const notesStr = String(matchedRef?.notes ?? '')
+    const tierMatch = notesStr.match(/\[TIER:(vault|camp|standby)\]/i)
+    const warmupMatch = notesStr.match(/\[WARMUP:([0-9T:.-]+Z?)\]/i)
+    const viaTier = tierMatch ? tierMatch[1].toLowerCase() : undefined
+    const warmupMs = warmupMatch ? Date.parse(warmupMatch[1]) : Number.NaN
+    const isSoaking72h = !Number.isNaN(warmupMs) && Date.now() - warmupMs < 72 * 3600_000
+
+    const guard = evaluateViaActionGuardrail({
+      viaId: identity.id,
+      viaLabel: identity.label,
+      viaTier,
+      isSoaking72h,
+      targetUrl,
+    })
+    if (!guard.allowed) {
+      setGuardrailBlocked({
+        decision: guard,
+        launchParams: {
+          targetUrl,
+          browserProfile: identity.browser_profile_label,
+          viaLabel: identity.label,
+          networkLabel: identity.network_label,
+          viaId: identity.id,
+          viaTier,
+          isSoaking72h,
+        },
+      })
+      return
+    }
+    void launchInAssignedChromeProfile(
+      targetUrl,
+      identity.browser_profile_label,
+      identity.label,
+      identity.network_label,
+      { viaId: identity.id, viaTier, isSoaking72h },
+    )
+  }
 
   const accounts = useQuery({
     queryKey: ['accounts', 'list', filters],
@@ -343,13 +405,7 @@ export default function Accounts() {
                         {identity.browser_profile_label && (
                           <button
                             type="button"
-                            onClick={() =>
-                              launchInAssignedChromeProfile(
-                                adsMgrUrl,
-                                identity.browser_profile_label,
-                                identity.label,
-                              )
-                            }
+                            onClick={() => launchAccountViaChrome(identity, adsMgrUrl)}
                             className="inline-flex items-center rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-ink transition hover:border-line-strong hover:bg-surface-muted"
                             title={`Mở Trình quản lý quảng cáo bằng đúng Chrome Profile (${identity.browser_profile_label})`}
                           >
@@ -709,6 +765,15 @@ export default function Accounts() {
         <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
+            variant={showPolicyStudio ? 'default' : 'secondary'}
+            onClick={() => setShowPolicyStudio((prev) => !prev)}
+            data-testid="accounts-policy-precheck-toggle"
+          >
+            <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+            Kiểm duyệt bài Ads
+          </Button>
+          <Button
+            type="button"
             variant="secondary"
             onClick={downloadWindowsChromeLauncherBat}
             title="Tải và chạy 1 lần trên máy Windows để khi bấm nút Mở Chrome / Kháng nghị / Thanh toán trên web sẽ tự động bật đúng cửa sổ Chrome Profile của Via đó"
@@ -732,6 +797,13 @@ export default function Accounts() {
           </Button>
         </div>
       </header>
+
+      {showPolicyStudio && (
+        <PolicyPreCheckStudio
+          mode="ad_copy"
+          onClose={() => setShowPolicyStudio(false)}
+        />
+      )}
 
       <QuickMetaSyncBanner />
 
@@ -1281,12 +1353,7 @@ export default function Accounts() {
                                       const targetUrl = actRaw
                                         ? `https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${encodeURIComponent(actRaw)}`
                                         : 'https://business.facebook.com/overview'
-                                      launchInAssignedChromeProfile(
-                                        targetUrl,
-                                        account.facebook_identities![0].browser_profile_label,
-                                        account.facebook_identities![0].label,
-                                        account.facebook_identities![0].network_label,
-                                      )
+                                      launchAccountViaChrome(account.facebook_identities![0], targetUrl)
                                     }}
                                     className="inline-flex items-center rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-ink transition hover:border-line-strong hover:bg-surface-muted"
                                     title={`Mở TKQC này bằng đúng cửa sổ Chrome (${account.facebook_identities[0].browser_profile_label})`}
@@ -1631,6 +1698,25 @@ export default function Accounts() {
           })()}
         </SheetContent>
       </Sheet>
+      <ViaGuardrailDialog
+        open={Boolean(guardrailBlocked)}
+        onOpenChange={(open) => {
+          if (!open) setGuardrailBlocked(null)
+        }}
+        decision={guardrailBlocked?.decision ?? null}
+        isOwner={user?.role === 'owner'}
+        onOverrideGranted={(grant) => {
+          if (!guardrailBlocked) return
+          const p = guardrailBlocked.launchParams
+          setGuardrailBlocked(null)
+          void launchInAssignedChromeProfile(p.targetUrl, p.browserProfile, p.viaLabel, p.networkLabel, {
+            viaId: p.viaId,
+            viaTier: p.viaTier,
+            isSoaking72h: p.isSoaking72h,
+            overrideGrant: grant,
+          })
+        }}
+      />
     </div>
   )
 }
