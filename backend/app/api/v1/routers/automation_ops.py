@@ -49,8 +49,6 @@ from app.services.telegram_bot_helper import (
     resolve_workspace_public_url,
     save_workspace_telegram_config,
     serialize_workspace_telegram_config,
-    validate_bot_token_format,
-    verify_telegram_bot,
 )
 from app.services.telegram_transport import TelegramTransport
 
@@ -62,6 +60,14 @@ _DOMAIN_HOST_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9
 # ---- 1. Telegram Bot Instant Alerting ---------------------------------------------------
 
 
+def _telegram_settings_body(payload: dict[str, Any] | None, allowed: set[str]) -> dict[str, Any]:
+    body = payload or {}
+    if body.keys() - allowed:
+        # Never echo untrusted field names or values in validation errors.
+        raise ValidationError("Telegram bot credentials are server configuration only; unsupported fields.")
+    return body
+
+
 @router.get("/telegram-bot/config")
 def get_telegram_bot_config(ctx: Ctx) -> dict[str, Any]:
     settings = get_settings()
@@ -70,27 +76,12 @@ def get_telegram_bot_config(ctx: Ctx) -> dict[str, Any]:
 
 @router.post("/telegram-bot/config")
 def save_telegram_bot_settings(ctx: OwnerCtx, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    body = _telegram_settings_body(payload, {
+        "chat_id", "enabled", "notify_ad_account_disabled", "notify_billing_failed",
+        "notify_page_restricted", "notify_retainer_overspend", "notify_threshold_80",
+        "notify_spend_spike", "quiet_hours_respect",
+    })
     settings = get_settings()
-    body = payload or {}
-    raw_bot_token = str(body.get("bot_token") or "").strip()
-    clear_bot_token = bool(body.get("clear_bot_token"))
-
-    bot_username: str | None = None
-    bot_name: str | None = None
-    if raw_bot_token:
-        ver = verify_telegram_bot(
-            raw_bot_token,
-            api_base_url=settings.telegram_api_base_url,
-            timeout=settings.telegram_timeout_seconds,
-        )
-        if not ver.get("ok"):
-            raise ValidationError(
-                str(ver.get("error_summary") or "Bot Token Telegram không hợp lệ."),
-                details={"field": "bot_token"},
-            )
-        bot_username = str(ver.get("bot_username") or "")
-        bot_name = str(ver.get("bot_name") or "")
-
     raw_chat_id = body.get("chat_id")
     chat_id: str | None = None if raw_chat_id is None else str(raw_chat_id).strip()[:64]
 
@@ -99,8 +90,6 @@ def save_telegram_bot_settings(ctx: OwnerCtx, payload: dict[str, Any] | None = N
         ctx.workspace_id,
         ctx.audit,
         settings,
-        bot_token=raw_bot_token or None,
-        clear_bot_token=clear_bot_token,
         chat_id=chat_id,
         enabled=body.get("enabled"),
         notify_ad_account_disabled=body.get("notify_ad_account_disabled"),
@@ -110,8 +99,6 @@ def save_telegram_bot_settings(ctx: OwnerCtx, payload: dict[str, Any] | None = N
         notify_threshold_80=body.get("notify_threshold_80"),
         notify_spend_spike=body.get("notify_spend_spike"),
         quiet_hours_respect=body.get("quiet_hours_respect"),
-        bot_username=bot_username,
-        bot_name=bot_name,
     )
     ctx.commit()
     return res
@@ -119,19 +106,12 @@ def save_telegram_bot_settings(ctx: OwnerCtx, payload: dict[str, Any] | None = N
 
 @router.post("/telegram-bot/detect-chat")
 def detect_telegram_chats(ctx: OwnerCtx, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    _telegram_settings_body(payload, set())
     settings = get_settings()
-    body = payload or {}
-    supplied = str(body.get("bot_token") or "").strip()
-    if supplied and not validate_bot_token_format(supplied):
-        raise ValidationError(
-            "Bot Token không đúng định dạng (VD: 123456789:ABCdef...).",
-            details={"field": "bot_token"},
-        )
-    tok = supplied or resolve_workspace_bot_token(ctx.session, ctx.workspace_id, settings)
+    tok = resolve_workspace_bot_token(ctx.session, ctx.workspace_id, settings)
     if not tok:
         raise ValidationError(
-            "Vui lòng dán Bot Token vào ô bên trên rồi bấm Tự lấy ID nhóm Telegram.",
-            details={"field": "bot_token"},
+            "Telegram chưa được cấu hình tại máy chủ.",
         )
     res = detect_recent_telegram_chats(
         tok,
@@ -152,11 +132,9 @@ def detect_telegram_chats(ctx: OwnerCtx, payload: dict[str, Any] | None = None) 
 
 @router.post("/telegram-bot/test-send")
 def send_telegram_test_message(ctx: OwnerCtx, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    body = _telegram_settings_body(payload, {"chat_id"})
     settings = get_settings()
-    body = payload or {}
-    tok = str(body.get("bot_token") or "").strip() or resolve_workspace_bot_token(
-        ctx.session, ctx.workspace_id, settings
-    )
+    tok = resolve_workspace_bot_token(ctx.session, ctx.workspace_id, settings)
     if not tok:
         raise ValidationError("Chưa cấu hình Telegram Bot Token.")
     cfg = serialize_workspace_telegram_config(ctx.session, ctx.workspace_id, settings)

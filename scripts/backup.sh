@@ -10,6 +10,7 @@
 # The database password is never passed on the command line and never appears in shell
 # history: it is read from the env file into PGPASSWORD for the child process only.
 set -euo pipefail
+umask 077
 
 ENV_FILE="${ADSOPS_ENV_FILE:-.env}"
 BACKUP_DIR="${ADSOPS_BACKUP_DIR:-./backups}"
@@ -51,15 +52,15 @@ if [[ "$AVAIL_KB" -lt 524288 ]]; then
 fi
 
 echo "==> dumping ${POSTGRES_DB} to ${TARGET}"
-if docker compose "${COMPOSE_FILES[@]}" ps --status running --services 2>/dev/null | grep -qx "$DB_SERVICE"; then
-  docker compose "${COMPOSE_FILES[@]}" exec -T \
+if docker compose "${COMPOSE_FILES[@]}" --env-file "$ENV_FILE" ps --status running --services 2>/dev/null | grep -qx "$DB_SERVICE"; then
+  docker compose "${COMPOSE_FILES[@]}" --env-file "$ENV_FILE" exec -T \
     -e PGPASSWORD="$POSTGRES_PASSWORD" "$DB_SERVICE" \
-    pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists | gzip -9 > "$TARGET"
+    pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner --no-acl | gzip -9 > "$TARGET"
 else
   # Managed database, or the stack is not up: fall back to a direct connection.
   : "${PGHOST:?PGHOST must be set when the db service is not running locally}"
   PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -h "$PGHOST" -p "${PGPORT:-5432}" \
-    -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists | gzip -9 > "$TARGET"
+    -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner --no-acl | gzip -9 > "$TARGET"
 fi
 
 SIZE="$(stat -c%s "$TARGET")"

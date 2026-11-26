@@ -86,12 +86,12 @@ export default function Operations() {
       <QuickMetaSyncBanner />
 
       {bannerMsg && (
-        <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3.5 py-2.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-tone-positive-border/40 bg-tone-positive-bg/10 px-3.5 py-2.5 text-xs font-semibold text-tone-positive-fg dark:text-tone-positive-fg">
           <span>{bannerMsg}</span>
           <button
             type="button"
             onClick={() => setBannerMsg(null)}
-            className="rounded p-0.5 hover:bg-emerald-500/20"
+            className="rounded p-0.5 hover:bg-tone-positive-bg/20"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -126,10 +126,11 @@ export default function Operations() {
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface p-3">
             <div className="flex flex-wrap items-center gap-2.5">
               <Building2 className="h-4 w-4 text-brand-text" />
-              <span className="text-xs font-bold text-ink">
+              <label htmlFor="operations-target-bm" className="text-xs font-bold text-ink">
                 {isEn ? 'Select Target Business Manager:' : 'Chọn Business Manager cần thao tác:'}
-              </span>
+              </label>
               <select
+                id="operations-target-bm"
                 value={activeBm?.id ?? ''}
                 onChange={(e) => setSelectedBmId(e.target.value)}
                 className="input h-8 w-auto text-xs font-bold"
@@ -143,7 +144,7 @@ export default function Operations() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 font-semibold text-emerald-700 dark:text-emerald-300">
+              <span className="rounded border border-tone-positive-border/30 bg-tone-positive-bg/10 px-2 py-1 font-semibold text-tone-positive-fg dark:text-tone-positive-fg">
                 🛡️ {isEn ? 'Admin Via:' : 'Via Tổng giữ BM:'} {holderLabel}
               </span>
               <span className="rounded bg-surface-muted px-2 py-1 font-mono text-[11px] text-ink">
@@ -261,7 +262,7 @@ export default function Operations() {
             >
               <div className="flex items-center justify-between text-xs font-bold text-ink">
                 <span>{isEn ? '5. Account Quality' : '5. Kháng Nghị BM / Page'}</span>
-                <ShieldAlert className="h-4 w-4 text-amber-500" />
+                <ShieldAlert className="h-4 w-4 text-tone-caution-fg" />
               </div>
               <p className="mt-1 text-[11px] text-ink-muted">
                 {isEn

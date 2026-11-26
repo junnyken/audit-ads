@@ -61,6 +61,11 @@ jobs:
         working-directory: backend
         # One run, in one process, against one database — running the suite twice concurrently on
         # a shared Postgres produces false reds, and the migration tests drop tables as they go.
+        # Dedicated ephemeral PostgreSQL service declared above; never a production target.
+        env:
+          ENVIRONMENT: test
+          ADSOPS_ALLOW_TEST_SCHEMA_RESET: '1'
+          DATABASE_URL: postgresql+psycopg://adsops:adsops@localhost:5434/adsops_test
         run: python -m pytest -q
 
   frontend:

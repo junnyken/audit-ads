@@ -236,6 +236,7 @@ export default function AccountFormDrawer({
         </header>
 
         <div className="flex-1 overflow-y-auto px-4 py-4">
+          <p className="mb-4 text-xs text-ink-muted">{t('form.refs.note')}</p>
           <form
             id="account-form"
             className="space-y-6"

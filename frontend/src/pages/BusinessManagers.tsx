@@ -193,7 +193,7 @@ export default function BusinessManagers() {
                       <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
                         <div
                           className={`h-full rounded-full ${
-                            pct >= 90 ? 'bg-amber-500' : 'bg-brand'
+                            pct >= 90 ? 'bg-tone-caution-bg' : 'bg-brand'
                           }`}
                           style={{ width: `${Math.max(8, pct)}%` }}
                         />
@@ -205,7 +205,7 @@ export default function BusinessManagers() {
                         🟢 <strong>{bm.activeCount}</strong> chạy · 🟡 <strong>{bm.restrictedCount}</strong> nợ · 🔴{' '}
                         <strong>{bm.disabledCount}</strong> tắt
                       </span>
-                      <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
+                      <span className="font-mono font-bold text-tone-caution-fg dark:text-tone-caution-fg">
                         Nợ: {bm.totalDebtVnd.toLocaleString('vi-VN')} ₫
                       </span>
                     </div>

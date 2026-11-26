@@ -3839,3 +3839,55 @@ ReaderSource, ReaderCredentialsSection, ConnectionReaderSwitch, NotObservableRea
 ## 2026-10-29 ? Nolimit-Inspired Agency Operations Upgrades
 - Backend: `ruff check .` passed; `pytest tests/test_readiness_api.py tests/test_s1_accounts_list_spend.py tests/test_s1_spend_api.py tests/test_s2_platform_status_api.py` passed (57 passed).
 - Frontend: `npm run typecheck`, `npx eslint .`, `npx vitest run` (120 passed across 6 suites including `u1b.overview-accounts.test.tsx`, `i18n.parity.test.ts`, `no-raw-palette.test.ts`, `tone-classes.test.ts`), and `npm run build` passed.
+
+## 2026-11-26 — P0 initial execution (local source + public read-only probes)
+
+- Local baseline: 3f886e69e5401f4edc846d9ee2c397a5c26e6a4b; production revision unknown.
+- Public UI /, config.js, API /health/live and /health/ready: HTTP 200; readiness database reachable. API /api/v1/system/status without auth: 401. Login CORS preflight with current UI origin: 200. Point-in-time checks, not uptime/workflow proof.
+- Frontend npm run typecheck and npm run build: exit 0. First attempted invocation from repo root failed (no root package script), rerun from frontend succeeded.
+- Frontend npm test -- --maxWorkers=2 --minWorkers=1: exit 1; 9 failed / 34 passed / 1 skipped files, 22 failed / 616 passed / 20 skipped tests. No assertions altered.
+- Frontend npm run lint: exit 1, 27 errors / 10 warnings.
+- Baseline actual helper extracted from git HEAD: fake businesses TimeoutError reproduced successful empty inventory. Patched helper: python3 -I scripts/check_inventory_transport.py -> 7 passed, no DB/network/app import. Isolated AST checks are not full integration coverage. git diff --check passed.
+- Backend pytest not run: no venv/pytest/SQLAlchemy; autouse fixture drops public schema and no staging target verified. No ADSOPS_LIVE_* credentials set. No production login, backup restore drill, DB write, migration, Meta call, Telegram send, deployment or new server/stack.
+- Native Codex read worker failed codex_turn_failed without a report. Main performed scoped verification directly.
+
+## 2026-11-26 — P0 follow-up execution
+- Installed temporary venv under /tmp/adsops-p0-20261126/venv, no persistent service/DB started.
+- Legacy-token tombstone + reset guard + v5.2 security, v5.3 security, commercial auth/license, operational telemetry, threshold sync, browser events: one sequential --noconftest SQLite/provider-fake run -> 41 passed in 56.19s. No live provider or DB endpoint used.
+- python3 -I scripts/check_inventory_transport.py: 7 passed.
+- Real conftest without opt-in: expected refusal before DB connection, exit 1 with Test schema reset refused; this negative check is not reported as passing full PostgreSQL suite.
+- Alembic heads: 0026_v52_security_and_verification; upgrade head --sql exit 0 (offline generation only, no real migration).
+- Backend ruff check . -> All checks passed after mechanical lint cleanup. Worker lint ended codex_turn_failed despite edits; main reviewed diff/retested.
+- Frontend measured after first repairs: 623 passed, 17 failed, 20 skipped. Targeted spend/F1/generated script suites after money/coverage fix: 23 passed. Full subsequent results recorded in P0_EXECUTION_2026-11-26.md. Typecheck/lint/build rerun pending at this entry. No old assertion was skipped or weakened.
+- Both new code worker attempts ended codex_turn_failed; output claims are not used. Production hosting remains unavailable in session; get_project audit-ads returned not found. No production write/deploy/migration, no backup exception inherited.
+
+- P0 follow-up: full frontend 626 passed / 15 failed / 20 skipped before semantic-token and axe repairs; focused palette/spend/form 19 passed; focused axe 2 passed (35 deselected). Remaining failures are not waived. Full final rerun pending.
+
+Checkpoint 13:43 +07:00: four targeted frontend suites 21 passed (money, palette, generated escaping, token capture); focused axe 2 passed. Backend ruff entire directory passed. Git diff whitespace check with cr-at-eol passed. No commit/push/deploy. Final complete suite still tracked separately.
+
+## Last completed P0 verification, 2026-11-26 13:44 +07:00
+- Final full frontend: **628 passed, 13 failed, 20 skipped** (5 failed, 40 passed, 1 skipped files). Baseline 616/22/20; two generated-escape tests and one no-token-form test added, no existing assertion weakened or skipped.
+- Final typecheck/build: exit 0. ESLint: exit 0, 0 errors / 10 warnings. Backend ruff: all passed. Backend selected SQLite/API regression suite 41 passed, isolated transport 7 passed.
+- Palette/axe failures resolved; 13 open failures remain in Overview historical T1 surfaces, Accounts T2 columns/chooser, Operations/Assets navigation/labels, Alerts delivery columns, Settings credential controls. Do not label them all stale; decisions/implementation work remain. No live browser UAT or PostgreSQL full suite verified.
+- P0 status remains INCOMPLETE / RELEASE NO-GO. Missing production identity/schema, hosting access, authenticated live login, backup restore/rollback evidence are still blockers. No commit, push, deploy or production changes.
+
+## P0 continuation — backup/restore safety
+- Found restore script accepted missing checksum, ON_ERROR_STOP=0 and omitted --env-file on DB exec. Fixed checksum/gzip preflight, strict SQL abort and consistent target configuration; new dumps --no-owner --no-acl; backup/restore umask077. No existing archive/data changed.
+- python3 -I scripts/check_restore_safety.py: 5 passed with fake Docker only (missing/mismatched checksum, corrupt gzip, SQL failure, success control flow). This is NOT a production restore drill.
+- Bash syntax checks backup/restore/release_migrate passed; isolated inventory checks 7 passed.
+- Selected A4 pure configuration/operational tests: 34 passed. Initial name-filter run had 34 pass/8 setup errors/6 deselected because DB fixtures unavailable under --noconftest; corrected selection based on fixture arguments ran 34/34. No DB connected.
+- Session still has no ADSOPS_LIVE_EMAIL/PASSWORD and no VAYS/Vibe/Coolify environment configuration. AI Factory project lookup adsops-control-center returned not found; do not infer no registered production app from it.
+
+## P0 Telegram verification (main rerun)
+- Native Sol Telegram worker successful run 162d2d0f979747d58958240f5758261a; main reviewed API/helper/UI diff.
+- Main combined P0 Telegram, legacy-import guards, telemetry, commercial auth suite: first 65 pass/1 fail (auth 429 due test rate-limit settings); rerun with explicit RATE_LIMIT_ENABLED=false ENVIRONMENT=test and unused network DB -> **66 passed in 16.89s** (--noconftest, SQLite/mocks). Rate limiter product code not changed.
+- Old Telegram audit preserved; no live send, provider call, database migration or production configuration action.
+
+P0 continuation (local, 2026-11-26): restored Overview T1 attention/error/readiness/Meta-freshness/discovery permission surfaces using existing components, Accounts T2 default columns and saved-preference fallback, and Alerts delivery/notified visibility. Existing telemetry/navigation retained. Proxy safety note restored. Historical navigation/Settings selectors reconciled with current functionality; final suite result recorded in P0 execution report. Not deployed.
+
+## Final local verification — 2026-11-26 14:01 +07:00
+- Frontend full suite: **641 passed / 0 failed / 20 skipped**, 45 passed/1 skipped files. Existing 20 skips unchanged; three source-backed contract reconciliations documented above. Last focused three-suite run before restoring proxy note had 135 pass/1 fail; proxy note restored then final full suite passed.
+- Main combined backend --noconftest SQLite/API security/auth/telemetry/billing/P0: **91 passed in 53.24s**. Not the complete PostgreSQL/migration suite. Process explicitly set ENVIRONMENT=test RATE_LIMIT_ENABLED=false DATABASE_URL to unreachable dummy target; no live DB connection/provider/send.
+- Frontend typecheck/build exit0; eslint exit0 with **0 errors / 10 Hooks warnings**. Backend ruff full directory passed. Script syntax and CRLF-aware git diff check passed. Separate inventory 7 tests, fake-Docker restore 5 tests, pure A4 config/operational 34 tests passed; overlapping runs not summed.
+- Public existing release smoke at 13:59: API ready HTTP200 full38bytes in0.150s, UI200 in0.219s. No claim these probes exercise local patch.
+- Local source repair batch validated. Entire P0 remains operationally BLOCKED/NO-GO: hosting identity/revision/schema, secure live login, existing staging isolation, backup real restore and rollback evidence absent. No commit/push/deploy, no production writes, no servers left running. See P0_RELEASE_GATE_2026-11-26.md.

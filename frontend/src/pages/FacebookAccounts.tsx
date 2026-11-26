@@ -87,7 +87,6 @@ function parseViaMetaFromNotes(
   label: string,
   bmCount: number,
   adCount: number,
-  _createdAt?: string | null,
 ): {
   tier: ViaRoleTier
   warmupStartIso: string
@@ -586,7 +585,7 @@ export default function FacebookAccounts() {
       const browserLabel = String(row.browser_profile_label ?? '').trim()
       const rawNetwork = String(row.network_label ?? '').trim()
       const networkLabel = isRealNetworkLabel(rawNetwork) ? rawNetwork : ''
-      const meta = parseViaMetaFromNotes(String(row.notes ?? ''), String(row.label ?? ''), bmCount, adCount, row.created_at)
+      const meta = parseViaMetaFromNotes(String(row.notes ?? ''), String(row.label ?? ''), bmCount, adCount)
       const warmup = meta.warmupStartIso ? computeWarmupStatus(meta.warmupStartIso) : null
 
       const sharedBrowser =

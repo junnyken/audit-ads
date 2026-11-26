@@ -13,17 +13,9 @@ import { useEnumLabel } from '../i18n/labels'
 const ORDER: SpendFreshness[] = ['current', 'stale', 'never_observed', 'not_observable']
 
 function formatCleanMoney(amountRaw?: string | null, currency?: string | null): string {
-  if (!amountRaw) return '—'
-  const num = Number(amountRaw)
-  const curr = (currency || '').toUpperCase()
-  if (!Number.isFinite(num)) return `${amountRaw} ${curr}`.trim()
-  if (curr === 'VND') {
-    return `${Math.round(num).toLocaleString('vi-VN')} ₫`
-  }
-  if (curr === 'USD') {
-    return `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-  }
-  return `${num.toLocaleString('vi-VN')} ${curr}`.trim()
+  if (amountRaw == null || amountRaw === '') return '—'
+  // Preserve provider precision; Number/rounding can silently alter financial evidence.
+  return `${amountRaw} ${(currency || '').toUpperCase()}`.trim()
 }
 
 export function SpendFreshnessCounts({ counts }: { counts: SpendSummary['freshness_counts'] }) {
@@ -51,6 +43,8 @@ export function SpendSummaryView({ data }: { data: SpendSummary }) {
 
   return (
     <div className="grid gap-3 sm:grid-cols-2" data-testid="spend-period-breakdown">
+      {!data.complete && <p role="note" className="text-sm text-tone-caution-fg sm:col-span-2">{t('overview.spend.overallIncomplete')}</p>}
+      {data.accounts_unattributed > 0 && <p className="text-sm text-ink-muted sm:col-span-2">{t('overview.spend.unattributed', { count: data.accounts_unattributed })}</p>}
       {data.currencies.map((group) => {
         const latestDayLabel = group.days.map((day) => formatDay(day, language)).join(', ') || 'Gần nhất'
         return (
@@ -92,6 +86,12 @@ export function SpendSummaryView({ data }: { data: SpendSummary }) {
                 </dd>
               </div>
             </dl>
+            {!group.complete && <Badge tone="caution">{t('overview.spend.incomplete')}</Badge>}
+            <p className="text-xs text-ink-muted">{[
+              group.accounts_not_current > 0 ? t('overview.spend.notCurrent', { count: group.accounts_not_current }) : null,
+              group.accounts_without_row > 0 ? t('overview.spend.withoutRow', { count: group.accounts_without_row }) : null,
+              group.accounts_currency_conflict > 0 ? t('overview.spend.conflict', { count: group.accounts_currency_conflict }) : null,
+            ].filter(Boolean).join(' · ')}</p>
           </div>
         )
       })}

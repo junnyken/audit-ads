@@ -1,5 +1,4 @@
 import { useEffect, useId, useState } from 'react'
-import { Sparkles } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import type {
@@ -50,8 +49,6 @@ export function FacebookAccountFormSheet({
   const queryClient = useQueryClient()
   const formId = useId()
 
-  const [autoToken, setAutoToken] = useState('')
-  const [autoConnectMsg, setAutoConnectMsg] = useState<string | null>(null)
   const [proxyCheckResult, setProxyCheckResult] = useState<{
     status: string
     exit_ip: string | null
@@ -111,8 +108,6 @@ export function FacebookAccountFormSheet({
 
   useEffect(() => {
     if (!open) return
-    setAutoToken('')
-    setAutoConnectMsg(null)
     setProxyCheckResult(null)
     setLabel(String(record?.label ?? ''))
     setDisplayName(String(record?.display_name ?? ''))
@@ -138,37 +133,6 @@ export function FacebookAccountFormSheet({
     setSelectedBmId('')
     setSelectedBmRole('admin')
   }, [open, record])
-
-  const autoConnect = useMutation({
-    mutationFn: () =>
-      api.post<{
-        id: string
-        label: string
-        external_reference_id: string
-        email_hint: string | null
-        linked_business_managers: string[]
-      }>('/api/v1/facebook-identities/auto-connect-token', {
-        access_token: autoToken.trim(),
-        browser_profile_label: browserProfileLabel.trim(),
-        network_label: networkLabel.trim(),
-      }),
-    onSuccess: (res) => {
-      setLabel(res.label)
-      setDisplayName(res.label)
-      setExternalId(res.external_reference_id || '')
-      setAutoConnectMsg(
-        `Đã kết nối tự động: ${res.label} (ID: ${res.external_reference_id})${
-          res.linked_business_managers.length > 0 ? ` · BM: ${res.linked_business_managers.join(', ')}` : ''
-        }`,
-      )
-      void queryClient.invalidateQueries({ queryKey: ['personal-account-references'] })
-      void queryClient.invalidateQueries({ queryKey: ['facebook-identities'] })
-      void queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      if (!record) {
-        setTimeout(() => onClose(), 900)
-      }
-    },
-  })
 
   const testProxyMut = useMutation({
     mutationFn: () =>
@@ -256,7 +220,7 @@ export function FacebookAccountFormSheet({
       open={open}
       onClose={onClose}
       title={record ? t('fb.form.editTitle') : t('fb.form.addTitle')}
-      description="Chỉ cần chọn Hồ sơ Chrome thật (và Proxy nếu có), hoặc dán Token để tự động điền toàn bộ thông tin từ Meta."
+      description={t('fb.form.desc')}
       footer={
         <>
           <Button type="button" variant="secondary" onClick={onClose}>
@@ -276,35 +240,6 @@ export function FacebookAccountFormSheet({
           if (label.trim()) save.mutate()
         }}
       >
-        {/* KHỐI 1: TỰ ĐỘNG LẤY THÔNG TIN BẰNG TOKEN (KHÔNG CẦN NHẬP TAY) */}
-        <div className="rounded-md border border-brand/40 bg-brand-soft/15 p-3 space-y-2">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-brand-text">
-            <Sparkles className="h-3.5 w-3.5" />
-            <span>Kết nối tự động bằng Token Facebook (Tự động lấy Tên, ID, Email & BM)</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <input
-              type="password"
-              className="input flex-1 font-mono text-xs"
-              placeholder="Dán Token EAAB... của Via vào đây để tự động tạo & điền hết thông tin"
-              value={autoToken}
-              onChange={(e) => setAutoToken(e.target.value)}
-            />
-            <Button
-              type="button"
-              size="sm"
-              disabled={!autoToken.trim() || autoConnect.isPending}
-              onClick={() => autoConnect.mutate()}
-            >
-              {autoConnect.isPending ? 'Đang lấy...' : '⚡ Tự động lấy'}
-            </Button>
-          </div>
-          {autoConnectMsg && (
-            <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">✓ {autoConnectMsg}</p>
-          )}
-          {autoConnect.isError && <ErrorState error={autoConnect.error} compact />}
-        </div>
-
         {/* KHỐI 2: 3 TRƯỜNG CỐT LÕI (TÊN VIA · HỒ SƠ CHROME THẬT · PROXY THẬT) */}
         <Field htmlFor={`${formId}-label`} label="1. Tên Via / Tài khoản Facebook" required>
           <input
@@ -414,8 +349,8 @@ export function FacebookAccountFormSheet({
               <div
                 className={`rounded border px-2.5 py-1 text-[11px] font-medium ${
                   proxyCheckResult.status === 'LIVE'
-                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
-                    : 'border-rose-500/40 bg-rose-500/10 text-rose-800 dark:text-rose-200'
+                    ? 'border-tone-positive-border/40 bg-tone-positive-bg/10 text-tone-positive-fg dark:text-tone-positive-fg'
+                    : 'border-tone-attention-border/40 bg-tone-attention-bg/10 text-tone-attention-fg dark:text-tone-attention-fg'
                 }`}
               >
                 {proxyCheckResult.status === 'LIVE'

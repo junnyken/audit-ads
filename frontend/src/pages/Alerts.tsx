@@ -40,7 +40,7 @@ const DELIVERY_OPTIONS = ['pending', 'sent', 'failed_transient', 'failed_final',
 
 const COLUMN_IDS = ['severity', 'account', 'facebook_identity', 'health', 'readiness', 'source', 'status', 'first', 'last', 'delivery', 'notified', 'suppression'] as const
 type ColumnId = (typeof COLUMN_IDS)[number]
-const DEFAULT_COLUMNS: ColumnId[] = ['severity', 'account', 'facebook_identity', 'status', 'last']
+const DEFAULT_COLUMNS: ColumnId[] = ['severity', 'account', 'facebook_identity', 'status', 'last', 'delivery', 'notified']
 const COLUMN_LABEL: Record<ColumnId, TranslationKey> = {
   severity: 'al.col.severity',
   account: 'al.col.account',
@@ -239,7 +239,7 @@ export default function Alerts() {
                         primary.network_label,
                       )
                     }
-                    className="inline-flex items-center rounded border border-emerald-600/50 bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-bold text-emerald-800 hover:bg-emerald-500/25 dark:text-emerald-300"
+                    className="inline-flex items-center rounded border border-tone-positive-border/50 bg-tone-positive-bg/15 px-1.5 py-0.5 text-[11px] font-bold text-tone-positive-fg hover:bg-tone-positive-bg/25 dark:text-tone-positive-fg"
                     title={`Mở trang Chất lượng tài khoản trên đúng Chrome Profile (${primary.browser_profile_label})`}
                   >
                     🚀 Mở Chrome xử lý
@@ -331,18 +331,32 @@ export default function Alerts() {
   return (
     <div className="space-y-4">
       <PageHeader title={t('al.title')} />
+      <p className="text-xs text-ink-muted">{t('al.disclaimer')}</p>
+      {summary.isError ? (
+        <p role="note" className="text-xs text-ink-muted">{t('al.partial.summary')}</p>
+      ) : summary.data ? (
+        <div className="space-y-1 text-xs text-ink-muted">
+          {(!summary.data.telegram_transport_configured || !summary.data.recipient_configured) && (
+            <p>{t('al.transport')}</p>
+          )}
+          <p>{summary.data.last_successful_notification_at
+            ? t('al.lastSuccess', { time: formatDateTime(summary.data.last_successful_notification_at) })
+            : t('al.lastSuccessNone')}</p>
+        </div>
+      ) : null}
+
 
       {telegramCfg.data && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-surface px-3.5 py-2 text-xs">
           <div className="flex flex-wrap items-center gap-2">
             {telegramCfg.data.bot_configured && telegramCfg.data.chat_configured && telegramCfg.data.enabled ? (
-              <span className="font-medium text-emerald-700 dark:text-emerald-300">
+              <span className="font-medium text-tone-positive-fg dark:text-tone-positive-fg">
                 🟢 Báo động Telegram đang bật
                 {telegramCfg.data.bot_username ? ` (@${telegramCfg.data.bot_username})` : ''} · Nhóm{' '}
                 {telegramCfg.data.chat_id_masked}
               </span>
             ) : (
-              <span className="font-medium text-amber-700 dark:text-amber-300">
+              <span className="font-medium text-tone-caution-fg dark:text-tone-caution-fg">
                 ⚠️ Chưa gắn Bot Telegram hoặc Chat ID để nhận báo động tức thời khi TKQC / Page có sự cố
               </span>
             )}

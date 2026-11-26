@@ -14,6 +14,7 @@ import socket
 import ssl
 import struct
 import time
+from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Any
 
@@ -237,10 +238,8 @@ def _check_socks5(spec: dict[str, Any], target_ip: str, timeout: float) -> dict[
         data = json.loads(body[start_idx : end_idx + 1])
         return _parse_geo_json(data)
     finally:
-        try:
+        with suppress(Exception):
             sock.close()
-        except Exception:
-            pass
 
 
 def check_proxy_live(raw_proxy: str, timeout_seconds: float = 6.0) -> dict[str, Any]:
@@ -326,7 +325,7 @@ def check_proxy_live(raw_proxy: str, timeout_seconds: float = 6.0) -> dict[str, 
                 except Exception:
                     resp2 = client.get("http://ip-api.com/json/?fields=status,query,country,countryCode,city,isp,timezone")
                     if resp2.status_code != 200:
-                        raise RuntimeError(f"Proxy HTTP {resp2.status_code}")
+                        raise RuntimeError(f"Proxy HTTP {resp2.status_code}") from None
                     geo = _parse_geo_json(resp2.json())
 
         latency_ms = int(round((time.monotonic() - t0) * 1000))

@@ -1177,3 +1177,15 @@ Rejected again in A3:
 - Migration `0021_c1_client_budget_and_pacing`: adds nullable `client_name`, `planned_daily_budget_raw`, and `planned_monthly_budget_raw` columns to `ad_accounts`.
 - `evaluate_budget_pacing` in `app/services/spend_engine.py`: pure, deterministic calculation operating on decimal strings in the account's native currency (`BudgetPacingFacts`), keeping missing daily rows separate from `0` and never combining currencies.
 - `from_budget_pacing` in `app/services/alert_rules.py` and `AlertDerivationService._candidates` in `app/services/alert_service.py`: derives `AlertCandidate(alert_key=f"budget_pacing:{account.id}", source_type="health_signal", rule_key="spend_budget_pacing_drift")` whenever an unarchived account with configured budgets is in `overspending`, `approaching_monthly_budget`, or `underspending`, and auto-resolves the alert when the condition clears.
+
+## P0 inventory transport — 2026-11-26
+
+fetch_facebook_identity_and_businesses retains its success tuple but rejects malformed/error responses, missing identity IDs, invalid/repeated cursors and page-limit exhaustion. Pagination reconstructs the fixed me/businesses path; provider next URLs are never followed. No model/schema changes. This does not resolve the separately documented manual-token/identity-merge issues.
+
+### P0 test safety and retirement — 2026-11-26
+Legacy manual-token import implementation removed; StrictPayload rejects secrets before the tombstone executes. UI no longer offers manual token capture. PostgreSQL destructive fixtures now require ENVIRONMENT=test, ADSOPS_ALLOW_TEST_SCHEMA_RESET=1 and a *_test database; isolation must still be verified by operator. CI opts in only for its ephemeral PostgreSQL service. This is not a migration or production configuration change.
+
+## P0 Telegram credential boundary (local, 2026-11-26)
+Legacy workspace Telegram credentials are no longer read/decrypted/reserialized. Resolver takes server configuration only; workspace enable/chat/notification choices remain. Old audit records are preserved, not copied into new config audit. Requires server credential configuration before deployment if production depended on legacy workspace credential; no automatic secret migration. Backup/restore scripts fail closed with checksums and strict SQL (see updated runbook).
+
+P0 continuation (local, 2026-11-26): restored Overview T1 attention/error/readiness/Meta-freshness/discovery permission surfaces using existing components, Accounts T2 default columns and saved-preference fallback, and Alerts delivery/notified visibility. Existing telemetry/navigation retained. Proxy safety note restored. Historical navigation/Settings selectors reconciled with current functionality; final suite result recorded in P0 execution report. Not deployed.

@@ -53,6 +53,7 @@ from app.services.notification_transport import reset_fake_transport  # noqa: E4
 from tests.o3_helpers import sweep_env  # noqa: E402,F401 - O3 fixture, shared
 from tests.o4_helpers import o4_env  # noqa: E402,F401 - O4 fixture, shared
 from tests.s1_spend_helpers import spend_env  # noqa: E402,F401 - S1 fixture, shared
+from tests.schema_reset_guard import require_test_schema_reset  # noqa: E402
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -64,6 +65,7 @@ def migrated_database():
     Running the real migration (instead of `metadata.create_all`) means every test session is
     also a clean-database migration verification.
     """
+    require_test_schema_reset(engine.url.render_as_string(hide_password=False), os.environ)
     with engine.begin() as connection:
         connection.execute(sa.text("DROP SCHEMA public CASCADE"))
         connection.execute(sa.text("CREATE SCHEMA public"))
@@ -81,6 +83,7 @@ def db_session(migrated_database):
     finally:
         session.rollback()
         session.close()
+        require_test_schema_reset(engine.url.render_as_string(hide_password=False), os.environ)
         with engine.begin() as connection:
             tables = connection.execute(
                 sa.text(

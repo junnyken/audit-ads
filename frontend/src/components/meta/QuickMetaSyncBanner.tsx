@@ -119,14 +119,14 @@ export function QuickMetaSyncBanner() {
           kind: 'personal_ad_account' as const,
           badge: '[TKQC Cá nhân]',
           detail: `${matchedAcc.display_name} (${digits})`,
-          tone: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+          tone: 'border-tone-positive-border/40 bg-tone-positive-bg/10 text-tone-positive-fg dark:text-tone-positive-fg',
         }
       }
       return {
         kind: 'bm_ad_account' as const,
         badge: '[TKQC BM]',
         detail: `${matchedAcc.display_name} (${digits}) · BM ${matchedAcc.business_manager_name || ''}`,
-        tone: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+        tone: 'border-tone-positive-border/40 bg-tone-positive-bg/10 text-tone-positive-fg dark:text-tone-positive-fg',
       }
     }
 
@@ -135,7 +135,7 @@ export function QuickMetaSyncBanner() {
         kind: 'new_ad_account' as const,
         badge: '[TKQC Mới]',
         detail: `act_${digits}`,
-        tone: 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+        tone: 'border-tone-caution-border/40 bg-tone-caution-bg/10 text-tone-caution-fg dark:text-tone-caution-fg',
       }
     }
 
@@ -319,7 +319,7 @@ export function QuickMetaSyncBanner() {
                   >
                     <span className="font-sans font-semibold">{bm.name}:</span>
                     <span>{bm.external_id}</span>
-                    <span className="font-sans text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
+                    <span className="font-sans text-[10px] font-bold text-tone-positive-fg dark:text-tone-positive-fg">
                       ({count})
                     </span>
                   </button>

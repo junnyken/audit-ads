@@ -31,7 +31,13 @@ from app.api.deps import ApiContext, get_context  # noqa: E402
 from app.core.enums import WorkspaceRole  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
 from app.main import create_app  # noqa: E402
-from app.models.entities import AuditLog, PersonalAccountReference, User, Workspace, WorkspaceMember  # noqa: E402
+from app.models.entities import (  # noqa: E402
+    AuditLog,
+    PersonalAccountReference,
+    User,
+    Workspace,
+    WorkspaceMember,
+)
 from app.services.audit import AuditLogService  # noqa: E402
 from app.services.notification_transport import reset_fake_transport  # noqa: E402
 

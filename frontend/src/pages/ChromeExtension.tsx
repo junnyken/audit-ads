@@ -345,7 +345,7 @@ export default function ChromeExtension() {
               <Button
                 type="button"
                 variant="secondary"
-                className="border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300 font-bold"
+                className="border-tone-positive-border/40 bg-tone-positive-bg/10 text-tone-positive-fg hover:bg-tone-positive-bg/20 dark:text-tone-positive-fg font-bold"
                 onClick={() => {
                   const specs = vias.map((v) => {
                     const vLbl = String(v.label ?? 'Via')
@@ -427,9 +427,9 @@ export default function ChromeExtension() {
         </div>
 
         {/* WINDOWS DESKTOP PRO CALLOUT */}
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-500/35 bg-indigo-500/10 px-4 py-3 text-xs">
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-tone-info-border/35 bg-tone-info-bg/10 px-4 py-3 text-xs">
           <div className="space-y-0.5">
-            <div className="font-extrabold text-indigo-800 dark:text-indigo-200">
+            <div className="font-extrabold text-tone-info-fg dark:text-tone-info-fg">
               💻 App Windows AdsOps Desktop Pro v3.2.0 — Tự gia hạn phiên 24/7 DPAPI, Nhận diện Chrome Profile gốc &amp; Cô lập, Sửa tràn lề &amp; Full Backup 5 Lớp
             </div>
             <p className="text-[11px] text-ink-muted">
@@ -731,7 +731,7 @@ export default function ChromeExtension() {
               <span className="font-mono text-ink-muted truncate">business.facebook.com/billing_hub/accounts</span>
               <span className="inline-flex items-center gap-1.5 font-mono text-[11px] font-bold text-brand-text">
                 <Puzzle className="h-3.5 w-3.5" aria-hidden="true" />
-                <span className={`rounded px-1.5 py-0.5 text-[10px] text-white ${parsedProxy ? 'bg-emerald-700' : 'bg-blue-700'}`}>
+                <span className={`rounded px-1.5 py-0.5 text-[10px] text-tone-info-fg ${parsedProxy ? 'bg-tone-positive-bg' : 'bg-tone-info-bg'}`}>
                   {parsedProxy ? 'PRX' : shortFolder.replace('Profile ', 'P').slice(0, 3).toUpperCase()}
                 </span>
               </span>
@@ -756,7 +756,7 @@ export default function ChromeExtension() {
                 <span
                   className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${
                     parsedProxy
-                      ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
+                      ? 'border-tone-positive-border/40 bg-tone-positive-bg/15 text-tone-positive-fg dark:text-tone-positive-fg'
                       : 'border-brand/40 bg-brand-light text-brand-text'
                   }`}
                 >
@@ -768,12 +768,12 @@ export default function ChromeExtension() {
               <div className="rounded-md border border-line bg-surface p-2.5 space-y-2">
                 <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-ink-muted">
                   <span>1. 🚫 Chặn Passkey · 🔑 2FA &amp; Khóa WebRTC</span>
-                  <span className="inline-flex items-center gap-1 font-mono text-emerald-600 dark:text-emerald-400">
+                  <span className="inline-flex items-center gap-1 font-mono text-tone-positive-fg dark:text-tone-positive-fg">
                     <ShieldCheck className="h-3 w-3" /> Passkey &amp; WebRTC Lock
                   </span>
                 </div>
-                <div className="flex items-center justify-between gap-2 rounded border border-rose-500/30 bg-rose-500/10 px-2.5 py-1.5 text-xs">
-                  <span className="text-[11px] font-bold text-rose-700 dark:text-rose-300">
+                <div className="flex items-center justify-between gap-2 rounded border border-tone-attention-border/30 bg-tone-attention-bg/10 px-2.5 py-1.5 text-xs">
+                  <span className="text-[11px] font-bold text-tone-attention-fg dark:text-tone-attention-fg">
                     🚫 Đã chặn bảng Windows Hello / Passkey
                   </span>
                   <button
@@ -786,16 +786,16 @@ export default function ChromeExtension() {
                         proxyInput,
                       )
                     }
-                    className="rounded bg-rose-600 px-2 py-0.5 text-[10px] font-bold text-white hover:bg-rose-700"
+                    className="rounded bg-tone-attention-bg px-2 py-0.5 text-[10px] font-bold text-tone-attention-fg hover:bg-tone-attention-bg"
                     title="Mở Account Center trên đúng Chrome của Via này và tự động bấm Xoá Passkey"
                   >
                     🗑️ 1 Chạm Tự Xoá Passkey
                   </button>
                 </div>
                 {liveOtp ? (
-                  <div className="flex items-center justify-between gap-2 rounded border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5">
+                  <div className="flex items-center justify-between gap-2 rounded border border-tone-positive-border/40 bg-tone-positive-bg/10 px-2.5 py-1.5">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-sm font-extrabold tracking-widest text-emerald-700 dark:text-emerald-300">
+                      <span className="font-mono text-sm font-extrabold tracking-widest text-tone-positive-fg dark:text-tone-positive-fg">
                         {liveOtp.slice(0, 3)} {liveOtp.slice(3)}
                       </span>
                       <span className="font-mono text-[10px] text-ink-muted">({secondsLeft}s)</span>
@@ -837,13 +837,13 @@ export default function ChromeExtension() {
                 <div className="grid grid-cols-3 gap-2">
                   <div className="rounded-md border border-line bg-surface p-2 text-center">
                     <div className="text-[10px] text-ink-muted">Đang hoạt động</div>
-                    <div className="mt-0.5 font-mono text-xs font-extrabold text-emerald-600 dark:text-emerald-400">
+                    <div className="mt-0.5 font-mono text-xs font-extrabold text-tone-positive-fg dark:text-tone-positive-fg">
                       {kpiStats.active} TK
                     </div>
                   </div>
                   <div className="rounded-md border border-line bg-surface p-2 text-center">
                     <div className="text-[10px] text-ink-muted">Nợ / Hạn chế</div>
-                    <div className="mt-0.5 font-mono text-xs font-extrabold text-amber-600 dark:text-amber-400">
+                    <div className="mt-0.5 font-mono text-xs font-extrabold text-tone-caution-fg dark:text-tone-caution-fg">
                       {kpiStats.restricted} TK
                     </div>
                   </div>
@@ -918,7 +918,7 @@ export default function ChromeExtension() {
                               onClick={() =>
                                 launchInAssignedChromeProfile(adsUrl, selectedProfile, selectedViaLabel, proxyInput)
                               }
-                              className="text-emerald-600 dark:text-emerald-400 hover:underline"
+                              className="text-tone-positive-fg dark:text-tone-positive-fg hover:underline"
                             >
                               Ads ↗
                             </button>
@@ -936,7 +936,7 @@ export default function ChromeExtension() {
                   <span className="text-[10px] font-bold uppercase tracking-wider text-ink-muted">
                     3. Mở nhanh trang Meta trên đúng Chrome ({shortFolder})
                   </span>
-                  <span className="font-mono text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                  <span className="font-mono text-[10px] font-semibold text-tone-positive-fg dark:text-tone-positive-fg">
                     {parsedProxy ? `Proxy: ${parsedProxy.host}:${parsedProxy.port}` : '🌐 Mạng gốc'}
                   </span>
                 </div>

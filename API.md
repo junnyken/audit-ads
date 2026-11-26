@@ -1332,3 +1332,15 @@ requests return `409 conflict`.
   - `GET /api/v1/personal-account-references?search=...` searches across `label`, `display_name`, `external_reference_id`, `notes`, `email_hint`, `client_name`, `device_label`, `browser_profile_label`, and `network_label`.
 - `AccountIdentityOut` (on `GET /api/v1/ad-accounts/{id}/overview`, `GET /api/v1/alerts`, `GET /api/v1/alerts/{id}`):
   - Includes `ownership_type`, `client_name`, `device_label`, `browser_profile_label`, and `network_label`.
+
+## P0 inventory note — 2026-11-26 (not deployed)
+
+No new endpoint. The existing auto-connect-token caller catches transport failures before entity mutation. Business enumeration now raises on failed/incomplete reads instead of returning a successful empty or truncated list. Manual token acceptance remains a documented release blocker against CLAUDE.md, not a newly approved credential flow.
+
+### P0 legacy import tombstone — local only, 2026-11-26
+POST /facebook-identities/auto-connect-token remains authenticated but now accepts StrictPayload: credential-bearing bodies receive forbidden_field (422); an empty body receives validation_error with reason official_login_required. No provider request or database mutation occurs. Official Login for Business routes are unchanged. Previous note about this route calling the inventory transport is superseded.
+
+## P0 Telegram server-only (local, not deployed)
+POST /telegram-bot/config allows nonsecret chat/notification options only; config/detect-chat/test-send reject token or unsupported fields before settings/provider/DB handling. Token source is server configuration only. GET config reports server_env or none, never legacy workspace token masks. Existing audit history is immutable; fresh config records exclude legacy credential envelopes.
+
+P0 continuation (local, 2026-11-26): restored Overview T1 attention/error/readiness/Meta-freshness/discovery permission surfaces using existing components, Accounts T2 default columns and saved-preference fallback, and Alerts delivery/notified visibility. Existing telemetry/navigation retained. Proxy safety note restored. Historical navigation/Settings selectors reconciled with current functionality; final suite result recorded in P0 execution report. Not deployed.

@@ -135,7 +135,7 @@ function ConnectionCard({ connection }: { connection: MetaConnection }) {
                         connection.reader_credential?.label || 'Tài Khoản Chính',
                       )
                     }
-                    className="inline-flex items-center gap-1 rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-bold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+                    className="inline-flex items-center gap-1 rounded border border-tone-positive-border/40 bg-tone-positive-bg/10 px-2 py-0.5 text-[11px] font-bold text-tone-positive-fg hover:bg-tone-positive-bg/20 dark:text-tone-positive-fg"
                     title="Mở thẳng trang Cài đặt BM này trên đúng cửa sổ Chrome Profile của Via"
                   >
                     🚀 Mở Cài đặt BM trên Chrome ↗

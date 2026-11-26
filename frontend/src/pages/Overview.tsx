@@ -21,6 +21,7 @@ import { api, query } from '../lib/api'
 import type {
   AdAccount,
   AlertSummary,
+  HealthSummary,
   OperationalTelemetrySummary,
   Paged,
   ReadinessSummary,
@@ -31,7 +32,7 @@ import { Button } from '../components/primitives/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/primitives/card'
 import { Skeleton } from '../components/primitives/skeleton'
 import { EmptyState, ErrorState, LoadingRegion } from '../components/states'
-import { accountStatusTone } from '../lib/readiness'
+import { accountStatusTone, READINESS_META } from '../lib/readiness'
 import {
   downloadChromeExtensionZip,
   downloadDesktopProSecure,
@@ -44,13 +45,18 @@ import { useAuth } from '../hooks/useAuth'
 import { usePlatformScope } from '../hooks/usePlatformScope'
 import { useI18n } from '../i18n'
 import { useEnumLabel } from '../i18n/labels'
-import SpendSummaryCard from '../components/SpendSummaryCard'
+import SpendSummaryCard, { SpendFreshnessCounts } from '../components/SpendSummaryCard'
+import { StatTile, type StatTileState } from '../components/dashboard/StatTile'
+import { SegmentBar } from '../components/dashboard/SegmentBar'
+import PlatformStatusSummaryCard from '../components/PlatformStatusSummaryCard'
+import { DiscoveryOverview } from '../components/meta/DiscoveryOverview'
 
 function useOverview() {
   const summary = useQuery({
     queryKey: ['readiness-summary'],
     queryFn: () => api.get<ReadinessSummary>('/api/v1/ad-accounts/readiness/summary'),
   })
+  const health = useQuery({ queryKey: ['health-summary'], queryFn: () => api.get<HealthSummary>('/api/v1/account-health/summary') })
   const attention = useQuery({
     queryKey: ['accounts', 'attention'],
     queryFn: () =>
@@ -77,7 +83,7 @@ function useOverview() {
     queryKey: ['automation-operational-telemetry'],
     queryFn: () => api.get<OperationalTelemetrySummary>('/api/v1/automation/operational-telemetry'),
   })
-  return { summary, attention, recent, alertSummary, spend, opsTelemetry }
+  return { summary, health, attention, recent, alertSummary, spend, opsTelemetry }
 }
 
 export default function Overview() {
@@ -85,7 +91,7 @@ export default function Overview() {
   const enumLabel = useEnumLabel()
   const { user } = useAuth()
   const { platformScope } = usePlatformScope()
-  const { summary, attention, recent, alertSummary, spend, opsTelemetry } = useOverview()
+  const { summary, health, attention, recent, alertSummary, spend, opsTelemetry } = useOverview()
 
   const tel = opsTelemetry.data
   const scopedRisks = (Array.isArray(tel?.early_risks) ? tel.early_risks : []).filter((r) =>
@@ -99,10 +105,15 @@ export default function Overview() {
 
   const readiness = summary.data
   const registryEmpty = readiness !== undefined && readiness.total_active === 0 && readiness.archived === 0
-  const openCriticalAlerts = alertSummary.data?.open_critical ?? 0
-  const metaActiveCount = spend.data?.platform_status_counts?.active ?? readiness?.inventory?.ad_account_counts.active ?? 0
-  const metaBlockedCount = spend.data?.platform_status_counts?.blocking ?? readiness?.inventory?.ad_account_counts.blocked ?? 0
+  const openCriticalAlerts = alertSummary.isError ? null : alertSummary.data?.open_critical ?? null
+  const metaActiveCount = spend.isError ? null : spend.data?.platform_status_counts?.active ?? null
+  const metaBlockedCount = spend.isError ? null : spend.data?.platform_status_counts?.blocking ?? null
 
+  function tileState(source: { isLoading: boolean; isError: boolean; refetch: () => unknown }, value: number | undefined): StatTileState {
+    if (source.isLoading) return { status: 'loading' }
+    if (source.isError || value === undefined) return { status: 'error', onRetry: () => { void source.refetch() } }
+    return { status: 'ready', value }
+  }
   return (
     <div className="space-y-4">
       <header className="flex flex-wrap items-baseline justify-between gap-2">
@@ -130,13 +141,7 @@ export default function Overview() {
             </span>
           </div>
           <div className="flex items-center gap-3">
-            <Link
-              to="/operations-guide"
-              className="inline-flex items-center gap-1 text-xs font-bold text-brand-text hover:underline"
-            >
-              <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
-              Cẩm nang Chống Die →
-            </Link>
+
             <span className="rounded bg-surface-muted px-2 py-0.5 text-[11px] font-semibold text-ink-muted group-open:hidden">
               Mở hướng dẫn ▾
             </span>
@@ -145,6 +150,13 @@ export default function Overview() {
             </span>
           </div>
         </summary>
+            <Link
+              to="/operations-guide"
+              className="inline-flex items-center gap-1 text-xs font-bold text-brand-text hover:underline"
+            >
+              <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
+              Cẩm nang Chống Die →
+            </Link>
 
         <div className="mt-3 grid gap-2.5 border-t border-line pt-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-lg border border-line bg-surface-muted/40 p-2.5 text-xs space-y-1.5">
@@ -263,6 +275,43 @@ export default function Overview() {
         />
       ) : (
         <>
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold">{t('overview.todo.title')}</h2>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <StatTile label={t('overview.kpi.notReady')} tone="attention" to="/accounts?readiness_status=not_ready" state={tileState(summary, readiness?.not_ready)} />
+              <StatTile label={t('overview.kpi.critical')} tone="attention" to="/account-health?health_status=critical" state={tileState(health, health.data?.critical)} />
+              <StatTile label={t('overview.kpi.alerts')} tone="attention" to="/alerts?severity=critical&status=open" state={tileState(alertSummary, alertSummary.data?.open_critical)} />
+              <StatTile label={t('overview.kpi.failed')} tone="attention" to="/alerts?delivery_status=failed_final" state={tileState(alertSummary, alertSummary.data?.failed_final_notifications)} />
+            </div>
+          </section>
+          <Card>
+            <CardHeader><CardTitle>{t('overview.dist.readinessTitle')}</CardTitle></CardHeader>
+            <CardContent>
+              {summary.isLoading ? <LoadingRegion><Skeleton className="h-8 w-full" /></LoadingRegion> : summary.isError ? <ErrorState error={summary.error} onRetry={() => summary.refetch()} /> : readiness && <SegmentBar ariaPrefix={t('overview.dist.readinessTitle')} segments={(['operationally_ready', 'ready_with_warnings', 'not_ready', 'unknown'] as const).map((key) => ({ key, label: enumLabel('readiness', key), count: readiness[key], tone: READINESS_META[key].tone, to: `/accounts?readiness_status=${key}` }))} />}
+            </CardContent>
+          </Card>
+          <PlatformStatusSummaryCard />
+          <Card>
+            <CardHeader><CardTitle>{t('overview.sources.spendFreshness')}</CardTitle></CardHeader>
+            <CardContent>
+              {spend.isLoading ? <LoadingRegion><Skeleton className="h-8 w-full" /></LoadingRegion> : spend.isError ? <ErrorState error={spend.error} onRetry={() => spend.refetch()} /> : spend.data && <SpendFreshnessCounts counts={spend.data.freshness_counts} />}
+            </CardContent>
+          </Card>
+          {user?.role === 'owner' ? <DiscoveryOverview isOwner /> : (
+            <Card><CardHeader><CardTitle>{t('overview.discovery.title')}</CardTitle></CardHeader><CardContent>{t('overview.discovery.ownerOnly')}</CardContent></Card>
+          )}
+          {readiness?.inventory && readiness.inventory.ad_account_counts.unassigned_via_count > 0 && (
+            <div data-testid="overview-orphan-banner" className="rounded-lg border border-tone-caution-border bg-tone-caution-bg p-3 text-sm text-tone-caution-fg">
+              {t('overview.inventory.orphanWarning', { count: readiness.inventory.ad_account_counts.unassigned_via_count })}{' '}
+              <Link to="/accounts?unassigned_identity=true" className="underline">{t('overview.inventory.orphanAction')}</Link>
+            </div>
+          )}
+          {readiness?.inventory && (
+            <nav aria-label={t('accounts.viewMode.label')} className="flex flex-wrap gap-3 text-sm text-brand-text">
+              <Link to="/accounts?view_mode=bm" className="hover:underline">{t('accounts.viewMode.byBm')}</Link>
+              <Link to="/accounts?view_mode=via" className="hover:underline">{t('accounts.viewMode.byVia')}</Link>
+            </nav>
+          )}
           {/* Hàng 1: 4 Thẻ Tổng Quan Tài Sản & Cảnh Báo */}
           {readiness?.inventory && (
             <section aria-label={t('overview.inventory.title')} data-testid="overview-inventory-section">
@@ -359,17 +408,17 @@ export default function Overview() {
                   </div>
                   <div className="flex items-baseline gap-2">
                     <span className="font-mono text-2xl font-bold tabular-nums text-ink">
-                      {formatCount(metaBlockedCount)}
+                      {metaBlockedCount == null ? '—' : formatCount(metaBlockedCount)}
                     </span>
                     <span className="text-xs font-medium text-ink-muted">TKQC cần kiểm tra</span>
                   </div>
                   <div className="flex flex-wrap gap-1.5 text-xs">
                     <Link to="/accounts">
-                      <Badge tone="positive">Meta hoạt động: {formatCount(metaActiveCount)}</Badge>
+                      <Badge tone="neutral">Meta hoạt động: {metaActiveCount == null ? '—' : formatCount(metaActiveCount)}</Badge>
                     </Link>
                     <Link to="/alerts?status=open">
-                      <Badge tone={openCriticalAlerts > 0 ? 'attention' : 'neutral'}>
-                        Cảnh báo mở: {formatCount(openCriticalAlerts)}
+                      <Badge tone={openCriticalAlerts != null && openCriticalAlerts > 0 ? 'attention' : 'neutral'}>
+                        Cảnh báo mở: {openCriticalAlerts == null ? '—' : formatCount(openCriticalAlerts)}
                       </Badge>
                     </Link>
                   </div>

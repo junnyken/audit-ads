@@ -111,3 +111,9 @@ next to the decision about whether to accept that window.
 
 No verified backup within 26 hours, or a failed restore drill, blocks the next deployment.
 Raise it with the product owner rather than deploying past it.
+
+## P0 script hardening — 2026-11-26 (local, not deployed)
+
+New dumps use --no-owner --no-acl so an isolated restore does not depend on source roles. Restore requires the .sha256 sidecar, verifies gzip before any Docker action, selects the supplied --env-file for every Compose call, and aborts on SQL errors (ON_ERROR_STOP=1). A failure cannot be waived by the table-count floor. Existing archives remain unchanged; an older role-dependent dump may fail strictly and needs operator assessment, not ignoring SQL errors.
+
+Control-flow regression: python3 -I scripts/check_restore_safety.py (5 tests, fake Docker only). These checks do not constitute a real restore drill. Before production release, run and record a genuine isolated restore using the authorized existing hosting/staging target, schema/revision/count evidence and cleanup outcome.

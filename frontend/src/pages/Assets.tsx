@@ -415,12 +415,12 @@ export default function Assets() {
       </div>
 
       {bannerMsg && (
-        <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3.5 py-2.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-tone-positive-border/40 bg-tone-positive-bg/10 px-3.5 py-2.5 text-xs font-semibold text-tone-positive-fg dark:text-tone-positive-fg">
           <span>{bannerMsg}</span>
           <button
             type="button"
             onClick={() => setBannerMsg(null)}
-            className="rounded p-0.5 hover:bg-emerald-500/20"
+            className="rounded p-0.5 hover:bg-tone-positive-bg/20"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -474,7 +474,7 @@ export default function Assets() {
         >
           <div className="flex items-center justify-between text-xs font-bold text-ink-muted">
             <span>{isEn ? 'Payment Cards' : 'Thẻ Thanh Toán'}</span>
-            <CreditCard className="h-3.5 w-3.5 text-emerald-500" />
+            <CreditCard className="h-3.5 w-3.5 text-tone-positive-fg" />
           </div>
           <div className="mt-1 font-mono text-lg font-extrabold text-ink">{summary.cards_total}</div>
           <div className="text-[11px] text-ink-muted">
@@ -514,7 +514,7 @@ export default function Assets() {
         >
           <div className="flex items-center justify-between text-xs font-bold text-ink-muted">
             <span>{isEn ? 'Static IPv4 Proxies' : 'Proxy IPv4 Tĩnh'}</span>
-            <Globe className="h-3.5 w-3.5 text-amber-500" />
+            <Globe className="h-3.5 w-3.5 text-tone-caution-fg" />
           </div>
           <div className="mt-1 font-mono text-lg font-extrabold text-ink">{summary.proxies_total}</div>
           <div className="text-[11px] text-ink-muted">
@@ -622,7 +622,7 @@ export default function Assets() {
                                   className="inline-flex items-center gap-0.5 rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] font-sans hover:border-brand"
                                 >
                                   {copiedId === extId ? (
-                                    <Check className="h-3 w-3 text-emerald-500" />
+                                    <Check className="h-3 w-3 text-tone-positive-fg" />
                                   ) : (
                                     <Copy className="h-3 w-3" />
                                   )}
@@ -667,7 +667,7 @@ export default function Assets() {
                                       to={`/accounts/${acc.id}`}
                                       className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium hover:underline ${
                                         isBad
-                                          ? 'border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300'
+                                          ? 'border-tone-attention-border/40 bg-tone-attention-bg/10 text-tone-attention-fg dark:text-tone-attention-fg'
                                           : 'border-line bg-surface-muted/60 text-ink'
                                       }`}
                                     >
@@ -747,7 +747,7 @@ export default function Assets() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <CardTitle className="flex items-center gap-2 text-sm">
-                    <CreditCard className="h-4 w-4 text-emerald-500" />
+                    <CreditCard className="h-4 w-4 text-tone-positive-fg" />
                     <span>
                       {isEn
                         ? `Payment Cards & Contagion Guard: 1 Card ≤ 3 Ad Accounts (${cards.length})`
@@ -794,7 +794,7 @@ export default function Assets() {
                       <tr key={c.id} className="align-top hover:bg-surface-muted/30 transition">
                         <td className="px-3.5 py-3">
                           <div className="flex items-center gap-2">
-                            <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
+                            <span className="rounded border border-tone-positive-border/30 bg-tone-positive-bg/10 px-2 py-0.5 font-mono text-[11px] font-bold text-tone-positive-fg dark:text-tone-positive-fg">
                               💳 {c.provider}
                             </span>
                             <span className="font-bold text-ink">{c.label}</span>
@@ -847,7 +847,7 @@ export default function Assets() {
                                     to={`/accounts/${acc.id}`}
                                     className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium hover:underline ${
                                       isBad
-                                        ? 'border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300'
+                                        ? 'border-tone-attention-border/40 bg-tone-attention-bg/10 text-tone-attention-fg dark:text-tone-attention-fg'
                                         : 'border-line bg-surface-muted/60 text-ink'
                                     }`}
                                   >
@@ -876,7 +876,7 @@ export default function Assets() {
                                     notes: c.notes,
                                   })
                                 }}
-                                className="rounded bg-rose-600 px-2 py-1 text-[11px] font-bold text-white hover:bg-rose-700"
+                                className="rounded bg-tone-attention-bg px-2 py-1 text-[11px] font-bold text-tone-attention-fg hover:bg-tone-attention-bg"
                               >
                                 {isEn ? '⚡ Unlink Disabled Now' : '⚡ Gỡ TKQC lỗi ngay'}
                               </button>
@@ -1028,12 +1028,13 @@ export default function Assets() {
 
         {/* TAB 5: STATIC PROXIES */}
         <TabsContent value={PROXY_REFERENCES.key}>
+          <p className="text-xs text-ink-muted">{t('res.proxy.note')}</p>
           <Card>
             <CardHeader className="pb-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <CardTitle className="flex items-center gap-2 text-sm">
-                    <Globe className="h-4 w-4 text-amber-500" />
+                    <Globe className="h-4 w-4 text-tone-caution-fg" />
                     <span>
                       {isEn
                         ? `Static Residential IPv4 Proxy Clusters: 1 Proxy ≤ 2 Vias (${proxies.length})`
@@ -1091,7 +1092,7 @@ export default function Assets() {
                         </td>
 
                         <td className="px-3.5 py-3">
-                          <span className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-semibold text-amber-700 dark:text-amber-300">
+                          <span className="rounded border border-tone-caution-border/30 bg-tone-caution-bg/10 px-2 py-0.5 font-semibold text-tone-caution-fg dark:text-tone-caution-fg">
                             🌐 {pr.provider} · {pr.country}-{pr.region} ({pr.protocol})
                           </span>
                         </td>
@@ -1348,7 +1349,7 @@ export default function Assets() {
                     : `Chọn TKQC Gắn Thẻ Này (${cardAccIds.length}/3 Ngưỡng An Toàn)`}
                 </span>
                 {cardAccIds.length > 3 && (
-                  <span className="text-[11px] font-bold text-rose-600">
+                  <span className="text-[11px] font-bold text-tone-attention-fg">
                     ⚠️ {isEn ? 'Exceeds 3 Ad Accounts safety rule!' : 'Đang vượt quá 3 TKQC/Thẻ!'}
                   </span>
                 )}

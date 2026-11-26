@@ -531,6 +531,7 @@ interface DetectedChatItem {
 }
 
 function TelegramInstantBotSection({ isOwner }: { isOwner: boolean }) {
+  const { t } = useI18n()
   const qc = useQueryClient()
   const cfgQ = useQuery({
     queryKey: ['telegram-bot-config'],
@@ -538,7 +539,6 @@ function TelegramInstantBotSection({ isOwner }: { isOwner: boolean }) {
   })
 
   const [enabled, setEnabled] = useState(true)
-  const [botToken, setBotToken] = useState('')
   const [chatId, setChatId] = useState('')
   const [notifyDisabled, setNotifyDisabled] = useState(true)
   const [notifyBilling, setNotifyBilling] = useState(true)
@@ -566,7 +566,6 @@ function TelegramInstantBotSection({ isOwner }: { isOwner: boolean }) {
     mutationFn: () =>
       api.post<TelegramBotConfigResp>('/api/v1/telegram-bot/config', {
         enabled,
-        ...(botToken.trim() ? { bot_token: botToken.trim() } : {}),
         ...(chatId.trim() ? { chat_id: chatId.trim() } : {}),
         notify_ad_account_disabled: notifyDisabled,
         notify_billing_failed: notifyBilling,
@@ -577,7 +576,6 @@ function TelegramInstantBotSection({ isOwner }: { isOwner: boolean }) {
         quiet_hours_respect: quietRespect,
       }),
     onSuccess: (res) => {
-      setBotToken('')
       setChatId('')
       void qc.invalidateQueries({ queryKey: ['telegram-bot-config'] })
       void qc.invalidateQueries({ queryKey: ['notification-policy'] })
@@ -594,7 +592,6 @@ function TelegramInstantBotSection({ isOwner }: { isOwner: boolean }) {
   const detectMut = useMutation({
     mutationFn: () =>
       api.post<{ chats: DetectedChatItem[]; hint: string }>('/api/v1/telegram-bot/detect-chat', {
-        ...(botToken.trim() ? { bot_token: botToken.trim() } : {}),
       }),
     onSuccess: (res) => {
       setDetectedChats(res.chats)
@@ -611,7 +608,6 @@ function TelegramInstantBotSection({ isOwner }: { isOwner: boolean }) {
   const testMut = useMutation({
     mutationFn: () =>
       api.post<{ ok: boolean; message: string }>('/api/v1/telegram-bot/test-send', {
-        ...(botToken.trim() ? { bot_token: botToken.trim() } : {}),
         ...(chatId.trim() ? { chat_id: chatId.trim() } : {}),
       }),
     onSuccess: (res) => {
@@ -654,14 +650,11 @@ function TelegramInstantBotSection({ isOwner }: { isOwner: boolean }) {
           </div>
 
           <div className="rounded-md border border-line bg-surface-sunken px-3 py-2 text-xs text-ink-muted">
-            <strong>3 bước gắn nhanh:</strong> B1: Mở <code className="font-mono">@BotFather</code> trên Telegram gõ{' '}
-            <code className="font-mono">/newbot</code> lấy Token · B2: Thêm Bot vào nhóm Telegram của bạn &amp; nhắn{' '}
-            <code className="font-mono">/start</code> · B3: Bấm <strong>Tự lấy ID nhóm</strong> rồi bấm{' '}
-            <strong>Gửi Tin Nhắn Test Ngay</strong>.
+            {t('set.notif.tokenNote')}
           </div>
 
           {!isOwner ? (
-            <NoPermissionState compact description="Chỉ Chủ Workspace (Owner) mới được sửa Bot Token Telegram." />
+            <NoPermissionState compact description={t('set.notif.ownerOnly')} />
           ) : (
             <div className="space-y-3">
               <label className="flex items-center gap-2 text-sm font-medium">
@@ -675,21 +668,6 @@ function TelegramInstantBotSection({ isOwner }: { isOwner: boolean }) {
               </label>
 
               <div className="grid gap-3 md:grid-cols-2">
-                <Field
-                  label="Bot Token Telegram (Mã hóa AES tại máy chủ)"
-                  hint={cfg?.bot_configured ? `Đang lưu: ${cfg.bot_mask} (Để trống nếu giữ nguyên)` : 'VD: 123456789:ABCdef...'}
-                >
-                  <input
-                    type="password"
-                    autoComplete="off"
-                    className="input font-mono text-xs"
-                    value={botToken}
-                    onChange={(e) => setBotToken(e.target.value)}
-                    placeholder={cfg?.bot_configured ? `Đã lưu (${cfg.bot_mask})` : '123456789:ABCdefGHIjkl...'}
-                    maxLength={140}
-                  />
-                </Field>
-
                 <Field
                   label="Chat ID / ID Nhóm Telegram nhận tin"
                   hint={cfg?.chat_configured ? `Đang lưu: ${cfg.chat_id_masked} (Để trống nếu giữ nguyên)` : 'VD: -1001234567890'}
@@ -799,7 +777,7 @@ function TelegramInstantBotSection({ isOwner }: { isOwner: boolean }) {
                 <Button
                   type="button"
                   variant="secondary"
-                  disabled={testMut.isPending || (!cfg?.bot_configured && !botToken.trim())}
+                  disabled={testMut.isPending || !cfg?.bot_configured}
                   onClick={() => {
                     setNotice(null)
                     testMut.mutate()

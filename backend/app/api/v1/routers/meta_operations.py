@@ -1551,16 +1551,13 @@ def run_workspace_quick_sync(
         from app.core.enums import (
             AccountType,
             AssetType,
-            ChecklistReviewStatus,
             EvaluationTrigger,
-            EvidenceStatus,
         )
         from app.models.entities import (
             AccountAssetLink,
             BrowserProfileReference,
             PaymentProfileReference,
             ProxyReference,
-            ReadinessEvidence,
         )
         from app.services.health_service import AccountHealthEvaluationService
         from app.services.rollup import ReadinessRollupService
@@ -2606,7 +2603,6 @@ def _sync_workspace_pages_from_meta(
     actor_id: uuid.UUID | None = None,
     raw_token: str | None = None,
 ) -> dict[str, int]:
-    from app.api.deps import Ctx
     from app.core.enums import AccountStatus, AssetType, IdentityBusinessRole, ReferenceStatus
     from app.models.entities import (
         AccountAssetLink,
@@ -3201,7 +3197,7 @@ def _build_pages_summary(
     for lnk in page_links:
         links_by_page.setdefault(lnk.asset_id, []).append(lnk)
 
-    page_ids_str = [str(p.id) for p in pages]
+    [str(p.id) for p in pages]
     page_by_id_str: dict[str, Page] = {str(p.id): p for p in pages}
     overrides_by_page: dict[str, dict[str, Any]] = {}
     warmup_count_by_page: dict[str, int] = {}
@@ -3501,9 +3497,13 @@ def _build_pages_summary(
             if via_id_str not in last_act_by_via or iso_dt > last_act_by_via[via_id_str]:
                 last_act_by_via[via_id_str] = iso_dt
 
-        if row.action in ("page.via_created", "page.warmup_posted", "page.via_keepalive") and via_id_str and row_dt:
-            if via_id_str not in last_human_via_act_dt or row_dt > last_human_via_act_dt[via_id_str]:
-                last_human_via_act_dt[via_id_str] = row_dt
+        if (
+            row.action in ("page.via_created", "page.warmup_posted", "page.via_keepalive")
+            and via_id_str
+            and row_dt
+            and (via_id_str not in last_human_via_act_dt or row_dt > last_human_via_act_dt[via_id_str])
+        ):
+            last_human_via_act_dt[via_id_str] = row_dt
         if row.action == "page.via_keepalive" and via_id_str and row_dt:
             ka_iso = row_dt.isoformat()
             if via_id_str not in last_keepalive_at_by_via or ka_iso >= last_keepalive_at_by_via[via_id_str]:
@@ -4102,6 +4102,7 @@ def create_page_via_profile_and_log(
     payload: dict[str, Any],
 ) -> dict[str, Any]:
     from urllib.parse import quote
+
     from app.core.enums import ReferenceStatus
     from app.core.errors import ValidationError
     from app.models.entities import BusinessManager, Page, PersonalAccountReference
@@ -4370,9 +4371,10 @@ def batch_create_pages_auto_rotate_vias(
     payload: dict[str, Any],
 ) -> dict[str, Any]:
     from urllib.parse import quote
+
     from app.core.enums import ReferenceStatus
     from app.core.errors import ValidationError
-    from app.models.entities import BusinessManager, Page, PersonalAccountReference
+    from app.models.entities import BusinessManager, Page
 
     try:
         raw_cnt = payload.get("count")
@@ -4673,7 +4675,7 @@ def claim_page_to_business_manager(
     payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from app.core.errors import ValidationError
-    from app.models.entities import BusinessManager, Page
+    from app.models.entities import Page
 
     pg = get_or_404(ctx.session, Page, page_id, ctx.workspace_id, label="Page")
     ext_pid = (pg.external_page_id or "").strip()
@@ -5273,8 +5275,6 @@ def _reconcile_workspace_assets(
         AdAccount,
         BrowserProfileReference,
         BusinessManager,
-        Page,
-        PaymentProfileReference,
         PersonalAccountReference,
         Pixel,
         ProxyReference,
@@ -5379,12 +5379,14 @@ def _reconcile_workspace_assets(
 
     for p_key_str, p_obj in existing_proxies.items():
         p_lbl_low = (p_obj.label or p_key_str).strip().lower()
-        if any(m in p_key_str.lower() or m in p_lbl_low for m in _LEGACY_PRESET_NETWORK_LABELS):
-            if p_obj.archived_at is None:
-                p_obj.archived_at = now_dt
+        if (
+            any(m in p_key_str.lower() or m in p_lbl_low for m in _LEGACY_PRESET_NETWORK_LABELS)
+            and p_obj.archived_at is None
+        ):
+            p_obj.archived_at = now_dt
 
     proxies_synced = 0
-    for idx, v in enumerate(vias):
+    for _idx, v in enumerate(vias):
         cur_net = (v.network_label or "").strip()
         if cur_net and any(m in cur_net.lower() for m in _LEGACY_PRESET_NETWORK_LABELS):
             v.network_label = ""
@@ -5509,7 +5511,7 @@ def _reconcile_workspace_assets(
 
 
 def _build_unified_assets_overview(session, workspace_id: uuid.UUID) -> dict[str, Any]:
-    from app.core.enums import AccountStatus, AssetType, IdentityBusinessRole, ReferenceStatus
+    from app.core.enums import AssetType, IdentityBusinessRole
     from app.models.entities import (
         AccountAssetLink,
         AdAccount,

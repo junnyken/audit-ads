@@ -161,11 +161,11 @@ describe('Ownership references (BusinessManagers)', () => {
     wrap(<Assets />)
     const tabs = await screen.findAllByRole('tab')
     expect(tabs.map((tab) => tab.textContent)).toEqual([
-      'Page',
-      'Pixel',
-      'Tham chiếu hồ sơ thanh toán',
-      'Tham chiếu hồ sơ trình duyệt',
-      'Tham chiếu proxy',
+      '🚩 Trang Fanpage (0)',
+      '🎯 Datasets / Pixel (0)',
+      '💳 Thẻ Thanh Toán (0)',
+      '💻 Hồ Sơ Chrome (0)',
+      '🌐 Proxy IPv4 Tĩnh (0)',
     ])
     tabs[0].focus()
     await user.keyboard('{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}')

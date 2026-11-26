@@ -165,9 +165,9 @@ export default function OverviewTab({
 
               {/* Bạn sẽ thanh toán khi */}
               <div className="space-y-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
                   Bạn sẽ thanh toán khi
-                </h3>
+                </h2>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="flex items-center gap-3 rounded-lg border border-line bg-surface-muted/50 p-3">
                     <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-line bg-surface text-ink-muted">
@@ -195,7 +195,7 @@ export default function OverviewTab({
                     <div className="h-2 flex-1 overflow-hidden rounded-full bg-line">
                       <div
                         className={`h-full rounded-full ${
-                          pctThresh >= 90 ? 'bg-rose-500' : pctThresh >= 65 ? 'bg-amber-500' : 'bg-emerald-500'
+                          pctThresh >= 90 ? 'bg-tone-attention-bg' : pctThresh >= 65 ? 'bg-tone-caution-bg' : 'bg-tone-positive-bg'
                         }`}
                         style={{ width: `${pctThresh}%` }}
                       />
@@ -217,20 +217,20 @@ export default function OverviewTab({
                     </strong>
                   </span>
                 </div>
-                <p className="mt-1 flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
+                <p className="mt-1 flex items-center gap-1.5 text-xs font-medium text-tone-positive-fg dark:text-tone-positive-fg">
+                  <span className="h-2 w-2 rounded-full bg-tone-positive-bg" aria-hidden="true" />
                   Mức chi tiêu dự kiến hôm nay của bạn nằm trong giới hạn này
                 </p>
               </div>
 
               {/* Phương thức thanh toán */}
               <div className="space-y-2 border-t border-line pt-3">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
                   Phương thức thanh toán
-                </h3>
+                </h2>
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface-muted/40 p-3">
                   <div className="flex items-center gap-3">
-                    <span className="inline-flex h-8 items-center rounded bg-blue-700 px-2.5 font-mono text-xs font-extrabold tracking-wider text-white">
+                    <span className="inline-flex h-8 items-center rounded bg-tone-info-bg px-2.5 font-mono text-xs font-extrabold tracking-wider text-tone-info-fg">
                       {cardDisplay?.toLowerCase().includes('master') ? 'MASTERCARD' : 'VISA'}
                     </span>
                     <div>
@@ -265,15 +265,15 @@ export default function OverviewTab({
                 <div className="flex items-center justify-between border-b border-line pb-3">
                   <div className="flex items-center gap-2">
                     <Building2 className="h-4 w-4 text-brand-text" aria-hidden="true" />
-                    <h3 className="text-base font-semibold text-ink">Thông tin doanh nghiệp</h3>
+                    <h2 className="text-base font-semibold text-ink">Thông tin doanh nghiệp</h2>
                   </div>
                   {bm.bm_verified ? (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-300">
+                    <span className="inline-flex items-center gap-1 rounded-full border border-tone-positive-border/40 bg-tone-positive-bg/10 px-2.5 py-0.5 text-xs font-bold text-tone-positive-fg dark:text-tone-positive-fg">
                       <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
                       BM Đã XMDN
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
+                    <span className="inline-flex items-center gap-1 rounded-full border border-tone-caution-border/40 bg-tone-caution-bg/10 px-2.5 py-0.5 text-xs font-semibold text-tone-caution-fg dark:text-tone-caution-fg">
                       BM Chưa XMDN
                     </span>
                   )}
@@ -302,7 +302,7 @@ export default function OverviewTab({
                     <div className="flex items-center gap-1.5 text-xs font-semibold text-ink-muted">
                       <span>Mã số thuế</span>
                       {bm.tax_id_verified && (
-                        <span className="h-2 w-2 rounded-full bg-emerald-500" title="Đã xác minh" />
+                        <span className="h-2 w-2 rounded-full bg-tone-positive-bg" title="Đã xác minh" />
                       )}
                     </div>
                     <div className="mt-1 font-mono text-sm font-bold text-ink">

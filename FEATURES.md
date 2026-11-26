@@ -1246,3 +1246,17 @@ configuration findings rather than left for someone to discover.
 - **Orphaned Ad Accounts Warning & Filter (`/`, `/accounts`)**: Highlights ad accounts that have no active Facebook identity (VIA) reaching them directly or via BM, with 1-click filtering via `?unassigned_identity=true`.
 - **Multi-Horizon Spend Breakdown (`Today partial ? Latest complete day ? Last 7d ? MTD`) & CSV/Excel Reconciliation Export**: `GET /api/v1/spend/summary` and `GET /api/v1/ad-accounts` expose `today_partial_raw`, `last_7d_raw`, and `mtd_raw` per currency (never summing across currencies and never substituting 0 for missing rows), plus a UTF-8 BOM CSV export button on `/accounts`.
 - **View Mode Grouping (`All | By BM | By VIA | By Client`) & Payment Profile (`PTTT`) / Currency Badges (`/accounts`)**: Instant grouping switcher on `Accounts.tsx`, plus zero-extra-query `payment_profile_labels` and currency badges on every account row.
+
+## P0 inventory hardening — 2026-11-26 (local only)
+
+The identity/business inventory helper now fails rather than returning empty success on upstream errors and reads cursor pages on the fixed Graph endpoint (maximum 20 pages). No deployment or production parity verified. See docs/P0_EXECUTION_2026-11-26.md.
+
+### P0 follow-up — local changes, 2026-11-26
+Legacy pasted-token import is retired with a strict authenticated rejection; its UI input is removed. This eliminates name-based identity merge and automatic archive restoration in that path, rather than authorizing credential intake. Spend summary preserves provider raw strings and reports incomplete coverage again. Not deployed.
+
+- P0 follow-up: full frontend 626 passed / 15 failed / 20 skipped before semantic-token and axe repairs; focused palette/spend/form 19 passed; focused axe 2 passed (35 deselected). Remaining failures are not waived. Full final rerun pending.
+
+## P0 continuation — Telegram and recovery scripts
+Local Telegram UI no longer accepts bot token, API rejects supplied credentials and service resolves server configuration only. Backup/restore scripts require verified archive checksum and strict SQL success. Neither change is deployed; real production backup restore and authenticated workflow remain unverified.
+
+P0 continuation (local, 2026-11-26): restored Overview T1 attention/error/readiness/Meta-freshness/discovery permission surfaces using existing components, Accounts T2 default columns and saved-preference fallback, and Alerts delivery/notified visibility. Existing telemetry/navigation retained. Proxy safety note restored. Historical navigation/Settings selectors reconciled with current functionality; final suite result recorded in P0 execution report. Not deployed.

@@ -292,7 +292,7 @@ export default function OperationsGuide() {
                 className="rounded-lg border border-line bg-surface p-2.5 hover:border-brand transition"
               >
                 <div className="text-[11px] text-ink-muted">🛡️ Via Tổng</div>
-                <div className="mt-0.5 font-mono text-base font-extrabold text-emerald-600 dark:text-emerald-400">
+                <div className="mt-0.5 font-mono text-base font-extrabold text-tone-positive-fg dark:text-tone-positive-fg">
                   {stats.vault}
                 </div>
                 <div className="text-[10px] text-ink-faint">Giữ BM gốc</div>
@@ -312,7 +312,7 @@ export default function OperationsGuide() {
                 className="rounded-lg border border-line bg-surface p-2.5 hover:border-brand transition"
               >
                 <div className="text-[11px] text-ink-muted">🌱 Dự Phòng</div>
-                <div className="mt-0.5 font-mono text-base font-extrabold text-amber-600 dark:text-amber-400">
+                <div className="mt-0.5 font-mono text-base font-extrabold text-tone-caution-fg dark:text-tone-caution-fg">
                   {stats.standby}
                 </div>
                 <div className="text-[10px] text-ink-faint">Ngâm sẵn &gt; 7N</div>

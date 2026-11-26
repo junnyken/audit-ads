@@ -2658,7 +2658,7 @@ recheckGeoAlignment();`
         ctx.globalAlpha = 1;
 
         const cleanTitle = (titleText || "Brand Studio").trim();
-        const words = cleanTitle.split(/\s+/).filter(Boolean);
+        const words = cleanTitle.split(/\\s+/).filter(Boolean);
         const initials = words.length >= 2
           ? (words[0][0] + words[1][0]).toUpperCase()
           : cleanTitle.slice(0, 2).toUpperCase();
@@ -3810,7 +3810,7 @@ recheckGeoAlignment();`
         for (let depth = 0; depth < 6 && container; depth++) {
           const texts = Array.from(container.querySelectorAll("span, div"))
             .map((x) => (x.textContent || "").trim())
-            .filter((t) => /^\d{1,4}$/.test(t));
+            .filter((t) => /^\\d{1,4}$/.test(t));
           if (texts.length > 0) {
             const cnt = parseInt(texts[0], 10);
             if (!isNaN(cnt) && cnt !== lastReportedReactorCount) {

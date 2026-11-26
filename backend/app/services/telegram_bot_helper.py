@@ -1,11 +1,4 @@
-"""Workspace-scoped Telegram Bot verification, chat discovery, encrypted storage, and instant alerts.
-
-Structural security boundary:
-* Imports zero cryptographic libraries (`encrypt_telegram_token` / `open_telegram_token` stay in `core/secret_vault.py`).
-* Never logs, raises, or returns a bot token or bot request URL.
-* AuditLog metadata keys omit sensitive fragments (`token`, `secret`, `ciphertext`, `credential`) so redaction
-  preserves the encrypted Fernet envelope (`telegram_bot_envelope`) and masked preview (`telegram_bot_mask`).
-"""
+"""Workspace Telegram settings with credentials resolved only from server configuration."""
 from __future__ import annotations
 
 import json
@@ -21,11 +14,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from app.core.enums import ACTIVE_ALERT_STATUSES, AccountStatus, AlertSeverity, ReferenceStatus
-from app.core.secret_vault import (
-    SecretDecryptionError,
-    encrypt_telegram_token,
-    open_telegram_token,
-)
+from app.core.errors import ValidationError
 from app.models.alerts import Alert, AlertPolicy
 from app.models.entities import AdAccount, AuditLog, Page
 from app.services import quiet_hours
@@ -105,7 +94,7 @@ def get_workspace_telegram_record(session: Session, workspace_id: uuid.UUID) -> 
         .scalars()
         .first()
     )
-    meta = dict(row.metadata_json or {}) if row and isinstance(row.metadata_json, dict) else {}
+    meta = row.metadata_json if row and isinstance(row.metadata_json, dict) else {}
     policy = session.execute(
         sa.select(AlertPolicy).where(AlertPolicy.workspace_id == workspace_id)
     ).scalar_one_or_none()
@@ -113,8 +102,6 @@ def get_workspace_telegram_record(session: Session, workspace_id: uuid.UUID) -> 
     return {
         "enabled": bool(meta.get("enabled", True if not policy else policy.enabled)),
         "chat_id": chat_id,
-        "telegram_bot_envelope": str(meta.get("telegram_bot_envelope") or "").strip(),
-        "telegram_bot_mask": str(meta.get("telegram_bot_mask") or "").strip(),
         "bot_username": str(meta.get("bot_username") or "").strip(),
         "bot_name": str(meta.get("bot_name") or "").strip(),
         "notify_ad_account_disabled": bool(meta.get("notify_ad_account_disabled", True)),
@@ -136,12 +123,11 @@ def serialize_workspace_telegram_config(
 ) -> dict[str, Any]:
     rec = get_workspace_telegram_record(session, workspace_id)
     has_env_bot = bool(getattr(settings, "telegram_transport_configured", False))
-    has_ws_bot = bool(rec["telegram_bot_envelope"])
     return {
         "enabled": rec["enabled"],
-        "bot_configured": has_ws_bot or has_env_bot,
-        "bot_source": "workspace" if has_ws_bot else ("server_env" if has_env_bot else "none"),
-        "bot_mask": rec["telegram_bot_mask"] or ("server-configured" if has_env_bot else ""),
+        "bot_configured": has_env_bot,
+        "bot_source": "server_env" if has_env_bot else "none",
+        "bot_mask": "server-configured" if has_env_bot else "",
         "bot_username": rec["bot_username"] or None,
         "bot_name": rec["bot_name"] or None,
         "chat_configured": bool(rec["chat_id"]),
@@ -161,13 +147,6 @@ def serialize_workspace_telegram_config(
 
 
 def resolve_workspace_bot_token(session: Session, workspace_id: uuid.UUID, settings) -> str | None:
-    rec = get_workspace_telegram_record(session, workspace_id)
-    env_blob = rec.get("telegram_bot_envelope") or ""
-    if env_blob:
-        try:
-            return open_telegram_token(settings, env_blob)
-        except SecretDecryptionError:
-            logger.warning("workspace_telegram_envelope_unreadable", extra={"workspace_id": str(workspace_id)})
     if getattr(settings, "telegram_transport_configured", False):
         tok = (getattr(settings, "telegram_bot_token", "") or "").strip()
         return tok or None
@@ -182,13 +161,7 @@ def resolve_workspace_telegram_transport(
     rec = get_workspace_telegram_record(session, workspace_id)
     if not rec.get("enabled", True):
         return None
-    env_blob = rec.get("telegram_bot_envelope") or ""
-    if not env_blob:
-        return None
-    try:
-        bot_token = open_telegram_token(settings, env_blob)
-    except SecretDecryptionError:
-        return None
+    bot_token = resolve_workspace_bot_token(session, workspace_id, settings)
     if not bot_token:
         return None
     return TelegramTransport(
@@ -218,16 +191,12 @@ def save_workspace_telegram_config(
     bot_username: str | None = None,
     bot_name: str | None = None,
 ) -> dict[str, Any]:
+    # Keep empty legacy arguments compatible, but never accept a credential or clear request.
+    if bot_token is not None and bot_token != "" or clear_bot_token:
+        raise ValidationError("Telegram bot credentials are server configuration only.")
     cur = get_workspace_telegram_record(session, workspace_id)
-    next_envelope = "" if clear_bot_token else cur["telegram_bot_envelope"]
-    next_mask = "" if clear_bot_token else cur["telegram_bot_mask"]
-    next_username = "" if clear_bot_token else (bot_username if bot_username is not None else cur["bot_username"])
-    next_bot_name = "" if clear_bot_token else (bot_name if bot_name is not None else cur["bot_name"])
-
-    clean_new_bot = (bot_token or "").strip()
-    if clean_new_bot:
-        next_envelope = encrypt_telegram_token(settings, clean_new_bot)
-        next_mask = mask_bot_token(clean_new_bot)
+    next_username = bot_username if bot_username is not None else cur["bot_username"]
+    next_bot_name = bot_name if bot_name is not None else cur["bot_name"]
 
     next_chat = cur["chat_id"] if chat_id is None else str(chat_id).strip()[:64]
     next_enabled = cur["enabled"] if enabled is None else bool(enabled)
@@ -244,8 +213,6 @@ def save_workspace_telegram_config(
     meta_payload = {
         "enabled": next_enabled,
         "chat_id": next_chat,
-        "telegram_bot_envelope": next_envelope,
-        "telegram_bot_mask": next_mask,
         "bot_username": next_username[:80],
         "bot_name": next_bot_name[:120],
         "notify_ad_account_disabled": (

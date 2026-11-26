@@ -7,6 +7,7 @@
 # schema and the alembic revision came back, prints a table count, and drops it again. A
 # backup that has never been restored is an assumption, not a recovery plan.
 set -euo pipefail
+umask 077
 
 ENV_FILE="${ADSOPS_ENV_FILE:-.env}"
 COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.production.yml)
@@ -34,10 +35,10 @@ POSTGRES_DB="$(read_env_var POSTGRES_DB "$ENV_FILE" || echo adsops)"
 POSTGRES_PASSWORD="$(read_env_var POSTGRES_PASSWORD "$ENV_FILE" || true)"
 [[ -n "$POSTGRES_PASSWORD" ]] || { echo "POSTGRES_PASSWORD must be set in the env file" >&2; exit 1; }
 
-if [[ -f "${ARCHIVE}.sha256" ]]; then
-  echo "==> verifying checksum"
-  (cd "$(dirname "$ARCHIVE")" && sha256sum -c "$(basename "$ARCHIVE").sha256")
-fi
+[[ -f "${ARCHIVE}.sha256" ]] || { echo "checksum file is required" >&2; exit 1; }
+echo "==> verifying checksum"
+(cd "$(dirname "$ARCHIVE")" && sha256sum -c "$(basename "$ARCHIVE").sha256")
+gzip -t "$ARCHIVE"
 
 DRILL_DB="adsops_restore_drill_$(date -u +%Y%m%d%H%M%S)"
 # A guard, not a formality: this name must never be able to collide with a real database.
@@ -46,7 +47,7 @@ case "$DRILL_DB" in
 esac
 
 psql_exec() {
-  docker compose "${COMPOSE_FILES[@]}" exec -T -e PGPASSWORD="$POSTGRES_PASSWORD" \
+  docker compose "${COMPOSE_FILES[@]}" --env-file "$ENV_FILE" exec -T -e PGPASSWORD="$POSTGRES_PASSWORD" \
     "$DB_SERVICE" psql -U "$POSTGRES_USER" "$@"
 }
 
@@ -64,7 +65,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "==> restoring"
-gunzip -c "$ARCHIVE" | psql_exec -v ON_ERROR_STOP=0 -d "$DRILL_DB" >/dev/null
+gunzip -c "$ARCHIVE" | psql_exec -v ON_ERROR_STOP=1 -d "$DRILL_DB" >/dev/null
 
 TABLES="$(psql_exec -tAd "$DRILL_DB" -c \
   "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'" | tr -d '[:space:]')"

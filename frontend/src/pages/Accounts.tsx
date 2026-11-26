@@ -52,7 +52,7 @@ const SORT_KEYS = ['updated_at', 'last_manual_review_at', 'readiness_status', 'd
  */
 const COLUMN_IDS = ['recorded', 'platform', 'readiness', 'checklist', 'spend', 'facebookIdentity', 'paymentProfile', 'currency', 'updated', 'type', 'browserRef', 'proxyRef', 'review'] as const
 type ColumnId = (typeof COLUMN_IDS)[number]
-const DEFAULT_COLUMNS: ColumnId[] = ['paymentProfile', 'spend', 'platform']
+const DEFAULT_COLUMNS: ColumnId[] = ['recorded', 'platform', 'readiness', 'checklist', 'spend', 'updated']
 
 const COLUMN_LABEL: Record<ColumnId, TranslationKey> = {
   recorded: 'col.recorded',
@@ -99,7 +99,10 @@ export default function Accounts() {
       isSoaking72h?: boolean
     }
   } | null>(null)
-  const [viewMode, setViewMode] = useState<'all' | 'bm' | 'via' | 'client'>('all')
+  const [viewMode, setViewMode] = useState<'all' | 'bm' | 'via' | 'client'>(() => {
+    const mode = params.get('view_mode')
+    return mode === 'bm' || mode === 'via' || mode === 'client' ? mode : 'all'
+  })
 
   const filters = {
     search: params.get('search') ?? '',
@@ -129,8 +132,8 @@ export default function Accounts() {
   }
 
   // ---- columns (persisted per viewer; storage may throw, see lib/columnPrefs) -------------------
-  const storageKey = columnsStorageKey('accounts_v3', user?.id)
-  const [visible, setVisible] = useState<ColumnId[]>(() => loadColumns(storageKey, COLUMN_IDS, DEFAULT_COLUMNS))
+  const storageKey = columnsStorageKey('accounts', user?.id)
+  const [visible, setVisible] = useState<ColumnId[]>(() => loadColumns(storageKey, COLUMN_IDS, loadColumns(columnsStorageKey('accounts_v3', user?.id), COLUMN_IDS, DEFAULT_COLUMNS)))
   const shown = COLUMN_IDS.filter((id) => visible.includes(id))
   function chooseColumns(next: ColumnId[]) {
     setVisible(next)

@@ -440,15 +440,36 @@ def fetch_facebook_identity_and_businesses(
         )
         with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
             data = json.loads((resp.read() or b"{}").decode("utf-8"))
-            return data if isinstance(data, dict) else {}
+            if not isinstance(data, dict) or "error" in data:
+                raise ValueError("Invalid Graph response")
+            return data
 
     me_data = _get("me", {"fields": "id,name,email"})
+    if not str(me_data.get("id") or "").strip():
+        raise ValueError("Missing Graph identity id")
     businesses: list[dict[str, Any]] = []
-    try:
-        bm_resp = _get("me/businesses", {"fields": "id,name,permitted_roles", "limit": "50"})
+    params = {"fields": "id,name,permitted_roles", "limit": "50"}
+    seen_cursors: set[str] = set()
+    # Bound the whole read; incomplete inventory must never look like complete success.
+    for _page in range(20):
+        bm_resp = _get("me/businesses", params)
         raw_list = bm_resp.get("data")
-        if isinstance(raw_list, list):
-            businesses = [item for item in raw_list if isinstance(item, dict)]
-    except Exception:
-        businesses = []
-    return me_data, businesses
+        if not isinstance(raw_list, list) or any(
+            not isinstance(item, dict) or not str(item.get("id") or "").strip()
+            for item in raw_list
+        ):
+            raise ValueError("Invalid Graph businesses response")
+        businesses.extend(raw_list)
+        paging = bm_resp.get("paging", {})
+        if not isinstance(paging, dict):
+            raise ValueError("Invalid Graph pagination")
+        if not paging.get("next"):
+            return me_data, businesses
+        cursors = paging.get("cursors")
+        cursor = cursors.get("after") if isinstance(cursors, dict) else None
+        if not isinstance(cursor, str) or not cursor or cursor in seen_cursors:
+            raise ValueError("Invalid Graph pagination cursor")
+        seen_cursors.add(cursor)
+        # Never follow provider URLs: they may contain a token or name another host.
+        params = {**params, "after": cursor}
+    raise ValueError("Graph businesses pagination limit reached")

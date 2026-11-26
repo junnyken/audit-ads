@@ -94,7 +94,12 @@ describe('Operations hub', () => {
     wrap(<Operations />, '/operations')
     expect(screen.getByRole('heading', { level: 1, name: 'Vận hành' })).toBeInTheDocument()
     const links = screen.getAllByRole('link')
+    // Setup/help navigation was added alongside the four operation cards.
+    // Pin the complete current destination set rather than removing useful new links.
     expect(links.map((link) => link.getAttribute('href'))).toEqual([
+      '/meta-connections',
+      '/chrome-extension',
+      '/operations-guide',
       '/operations/create-accounts',
       '/operations/share-access',
       '/operations/pixel-share',

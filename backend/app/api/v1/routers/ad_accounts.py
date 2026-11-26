@@ -236,10 +236,9 @@ def _reconcile_production_bm_links(session, workspace_id) -> None:
         sa.select(BrowserProfileReference).where(BrowserProfileReference.workspace_id == workspace_id)
     ).scalars().all():
         ref_b = (bad_brw.profile_reference or "").strip()
-        if ref_b.startswith("PROF-VIA-") or ref_b == "CHROME-QCT-01":
-            if bad_brw.archived_at is None:
-                bad_brw.archived_at = now_ts
-                changed = True
+        if (ref_b.startswith("PROF-VIA-") or ref_b == "CHROME-QCT-01") and bad_brw.archived_at is None:
+            bad_brw.archived_at = now_ts
+            changed = True
 
     for ident_row in session.execute(
         sa.select(PersonalAccountReference).where(PersonalAccountReference.workspace_id == workspace_id)
@@ -327,9 +326,13 @@ def _build_billing_meta_map(
 
         sp_periods = (reads.get(acc.id) or {}).get("spend_periods") or {}
         live_bal = sp_periods.get("balance_raw")
-        if live_bal is not None and str(live_bal).strip() != "" and "balance_raw" not in ov:
-            if str(live_bal) != "0" or not base.get("balance_raw"):
-                base["balance_raw"] = str(live_bal)
+        if (
+            live_bal is not None
+            and str(live_bal).strip() != ""
+            and "balance_raw" not in ov
+            and (str(live_bal) != "0" or not base.get("balance_raw"))
+        ):
+            base["balance_raw"] = str(live_bal)
 
         linked_cards = [c for c in (payment_labels.get(acc.id) or []) if not c.startswith("VISA-QCT-")]
         if not base.get("payment_card_display") and linked_cards:

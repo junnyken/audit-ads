@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import UTC, datetime
 
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://adsops:adsops@localhost:5434/adsops_test")
 os.environ.setdefault("JWT_SECRET", "test-secret-not-used-in-production")

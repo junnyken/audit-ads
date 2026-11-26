@@ -414,12 +414,12 @@ export default function ClientRetainers() {
       </div>
 
       {bannerMsg && (
-        <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3.5 py-2.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-tone-positive-border/40 bg-tone-positive-bg/10 px-3.5 py-2.5 text-xs font-semibold text-tone-positive-fg dark:text-tone-positive-fg">
           <span>{bannerMsg}</span>
           <button
             type="button"
             onClick={() => setBannerMsg(null)}
-            className="rounded p-0.5 hover:bg-emerald-500/20"
+            className="rounded p-0.5 hover:bg-tone-positive-bg/20"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -454,8 +454,8 @@ export default function ClientRetainers() {
           </div>
         </div>
 
-        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3.5">
-          <div className="flex items-center justify-between text-xs font-bold text-emerald-600 dark:text-emerald-400">
+        <div className="rounded-xl border border-tone-positive-border/30 bg-tone-positive-bg/5 p-3.5">
+          <div className="flex items-center justify-between text-xs font-bold text-tone-positive-fg dark:text-tone-positive-fg">
             <span>
               {periodMode === 'MTD'
                 ? isEn
@@ -467,7 +467,7 @@ export default function ClientRetainers() {
             </span>
             <TrendingUp className="h-4 w-4" />
           </div>
-          <div className="mt-1.5 font-mono text-lg font-extrabold text-emerald-600 dark:text-emerald-400">
+          <div className="mt-1.5 font-mono text-lg font-extrabold text-tone-positive-fg dark:text-tone-positive-fg">
             {fmtVnd(periodMode === 'MTD' ? summary.total_mtd_spend_vnd : summary.total_lifetime_spend_vnd)}
           </div>
           <div data-detail-only="true" className="mt-0.5 text-[11px] text-ink-muted">
@@ -504,12 +504,12 @@ export default function ClientRetainers() {
           </div>
         </div>
 
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3.5">
-          <div className="flex items-center justify-between text-xs font-bold text-amber-600 dark:text-amber-400">
+        <div className="rounded-xl border border-tone-caution-border/30 bg-tone-caution-bg/5 p-3.5">
+          <div className="flex items-center justify-between text-xs font-bold text-tone-caution-fg dark:text-tone-caution-fg">
             <span>{isEn ? 'Unpaid Meta Card Balance' : 'Dư Nợ Thẻ Chưa Thanh Toán'}</span>
             <CreditCard className="h-4 w-4" />
           </div>
-          <div className="mt-1.5 font-mono text-lg font-extrabold text-amber-600 dark:text-amber-400">
+          <div className="mt-1.5 font-mono text-lg font-extrabold text-tone-caution-fg dark:text-tone-caution-fg">
             {fmtVnd(summary.total_unpaid_balance_vnd)}
           </div>
           <div data-detail-only="true" className="mt-0.5 text-[11px] text-ink-muted">
@@ -655,7 +655,7 @@ export default function ClientRetainers() {
                       <button
                         type="button"
                         onClick={() => exportSingleClientCsv(item)}
-                        className="inline-flex items-center gap-1 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+                        className="inline-flex items-center gap-1 rounded-md border border-tone-positive-border/40 bg-tone-positive-bg/10 px-2.5 py-1.5 text-xs font-bold text-tone-positive-fg hover:bg-tone-positive-bg/20 dark:text-tone-positive-fg"
                       >
                         <FileSpreadsheet className="h-3.5 w-3.5" />
                         <span>{isEn ? 'Export Excel/CSV' : 'Xuất Excel/CSV'}</span>
@@ -667,7 +667,7 @@ export default function ClientRetainers() {
                         className="inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs font-semibold text-ink hover:border-brand"
                       >
                         {copiedId === item.id ? (
-                          <Check className="h-3.5 w-3.5 text-emerald-500" />
+                          <Check className="h-3.5 w-3.5 text-tone-positive-fg" />
                         ) : (
                           <Copy className="h-3.5 w-3.5 text-brand-text" />
                         )}
@@ -694,7 +694,7 @@ export default function ClientRetainers() {
                       <button
                         type="button"
                         onClick={() => deleteMut.mutate(item.id)}
-                        className="inline-flex items-center rounded-md border border-line bg-surface p-1.5 text-ink-muted hover:border-rose-500 hover:text-rose-600"
+                        className="inline-flex items-center rounded-md border border-line bg-surface p-1.5 text-ink-muted hover:border-tone-attention-border hover:text-tone-attention-fg"
                         title={isEn ? 'Delete Contract' : 'Xóa hợp đồng'}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -721,10 +721,10 @@ export default function ClientRetainers() {
                         <div
                           className={`h-full rounded-full transition-all ${
                             item.pacing_status === 'OVER_BUDGET'
-                              ? 'bg-rose-500'
+                              ? 'bg-tone-attention-bg'
                               : item.pacing_status === 'NEAR_CAP'
-                                ? 'bg-amber-500'
-                                : 'bg-emerald-500'
+                                ? 'bg-tone-caution-bg'
+                                : 'bg-tone-positive-bg'
                           }`}
                           style={{ width: `${barWidth}%` }}
                         />
@@ -743,7 +743,7 @@ export default function ClientRetainers() {
                           <div className="text-ink-muted">
                             {isEn ? 'Remaining (MTD):' : 'Ngân sách còn lại:'}
                           </div>
-                          <div className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                          <div className="font-mono font-bold text-tone-positive-fg dark:text-tone-positive-fg">
                             {fmtVnd(item.remaining_budget_vnd)}
                           </div>
                         </div>
@@ -869,11 +869,11 @@ export default function ClientRetainers() {
                               </span>
                             </td>
                             <td className="px-3 py-2 text-right font-mono">{fmtVnd(acc.today_vnd)}</td>
-                            <td className="px-3 py-2 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                            <td className="px-3 py-2 text-right font-mono font-bold text-tone-positive-fg dark:text-tone-positive-fg">
                               {fmtVnd(acc.mtd_vnd)}
                             </td>
                             <td className="px-3 py-2 text-right font-mono">{fmtVnd(acc.lifetime_vnd)}</td>
-                            <td className="px-3 py-2 text-right font-mono font-semibold text-amber-600 dark:text-amber-400">
+                            <td className="px-3 py-2 text-right font-mono font-semibold text-tone-caution-fg dark:text-tone-caution-fg">
                               {fmtVnd(acc.balance_vnd)}
                             </td>
                           </tr>

@@ -51,7 +51,9 @@ def community_client():
             db.close()
 
     from datetime import UTC, datetime
+
     from sqlalchemy.orm.attributes import set_committed_value
+
     from app.models.entities import CommunityInviteCode, User, Workspace
     from app.models.team import DeviceSession
 
@@ -95,13 +97,14 @@ def _solve_challenge(client: TestClient) -> tuple[str, str, str]:
     import json
     import time
     import uuid
+
     from app.core.config import get_settings
 
     nonce = uuid.uuid4().hex
     now = int(time.time())
     cap = "ADSO9"
     math_ans = "12"
-    c_hash = hashlib.sha256(f"{cap}:{math_ans}:{nonce}".encode("utf-8")).hexdigest()
+    c_hash = hashlib.sha256(f"{cap}:{math_ans}:{nonce}".encode()).hexdigest()
     payload = {"n": nonce, "iat": now - 5, "exp": now + 300, "c_hash": c_hash}
     payload_b64 = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("ascii").rstrip("=")
     sig = hmac.new(get_settings().jwt_secret.encode("utf-8"), payload_b64.encode("ascii"), hashlib.sha256).hexdigest()

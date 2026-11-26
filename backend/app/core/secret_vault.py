@@ -156,7 +156,7 @@ def _telegram_fernet(settings) -> Fernet:
         secret_seed = (getattr(settings, "jwt_secret", "") or "").strip()
         if not secret_seed:
             raise
-        digest = hashlib.sha256(f"adsops-tg-bot-v1:{secret_seed}".encode("utf-8")).digest()
+        digest = hashlib.sha256(f"adsops-tg-bot-v1:{secret_seed}".encode()).digest()
         return Fernet(base64.urlsafe_b64encode(digest))
 
 
