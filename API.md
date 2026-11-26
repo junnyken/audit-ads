@@ -1344,3 +1344,7 @@ POST /facebook-identities/auto-connect-token remains authenticated but now accep
 POST /telegram-bot/config allows nonsecret chat/notification options only; config/detect-chat/test-send reject token or unsupported fields before settings/provider/DB handling. Token source is server configuration only. GET config reports server_env or none, never legacy workspace token masks. Existing audit history is immutable; fresh config records exclude legacy credential envelopes.
 
 P0 continuation (local, 2026-11-26): restored Overview T1 attention/error/readiness/Meta-freshness/discovery permission surfaces using existing components, Accounts T2 default columns and saved-preference fallback, and Alerts delivery/notified visibility. Existing telemetry/navigation retained. Proxy safety note restored. Historical navigation/Settings selectors reconciled with current functionality; final suite result recorded in P0 execution report. Not deployed.
+
+## P2 CSV serialization — 2026-11-26
+
+No endpoint/payload/schema change. Accounts frontend export now serializes absent money values/currency using the existing em-dash marker rather than fabricated 0/VND. Observed zero and raw decimal strings remain intact. This is not a claim that every historical CSV column has been audited.

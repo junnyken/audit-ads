@@ -1189,3 +1189,7 @@ Legacy manual-token import implementation removed; StrictPayload rejects secrets
 Legacy workspace Telegram credentials are no longer read/decrypted/reserialized. Resolver takes server configuration only; workspace enable/chat/notification choices remain. Old audit records are preserved, not copied into new config audit. Requires server credential configuration before deployment if production depended on legacy workspace credential; no automatic secret migration. Backup/restore scripts fail closed with checksums and strict SQL (see updated runbook).
 
 P0 continuation (local, 2026-11-26): restored Overview T1 attention/error/readiness/Meta-freshness/discovery permission surfaces using existing components, Accounts T2 default columns and saved-preference fallback, and Alerts delivery/notified visibility. Existing telemetry/navigation retained. Proxy safety note restored. Historical navigation/Settings selectors reconciled with current functionality; final suite result recorded in P0 execution report. Not deployed.
+
+## P2 CSV evidence boundary — 2026-11-26
+
+The existing Accounts export uses the current authorized account payload; no new query or backend export service. Unknown money/currency must remain unknown in serialization, without Number/parseFloat conversion. Existing balance and currency source precedence stays unchanged. No model, API or migration change. See docs/AUDIT_BEFORE_BUILD_P2_CSV.md for the approved slice and verification status.

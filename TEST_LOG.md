@@ -3891,3 +3891,15 @@ P0 continuation (local, 2026-11-26): restored Overview T1 attention/error/readin
 - Frontend typecheck/build exit0; eslint exit0 with **0 errors / 10 Hooks warnings**. Backend ruff full directory passed. Script syntax and CRLF-aware git diff check passed. Separate inventory 7 tests, fake-Docker restore 5 tests, pure A4 config/operational 34 tests passed; overlapping runs not summed.
 - Public existing release smoke at 13:59: API ready HTTP200 full38bytes in0.150s, UI200 in0.219s. No claim these probes exercise local patch.
 - Local source repair batch validated. Entire P0 remains operationally BLOCKED/NO-GO: hosting identity/revision/schema, secure live login, existing staging isolation, backup real restore and rollback evidence absent. No commit/push/deploy, no production writes, no servers left running. See P0_RELEASE_GATE_2026-11-26.md.
+
+## P2 CSV missing-value hardening — 2026-11-26
+
+Approved scope: seven final fallbacks in Accounts exportCsv only; missing six money values/currency now use em dash, real zero/raw decimal precision and existing source precedence preserved. No backend/API/DB/UI-layout changes, no production deploy.
+
+Main verification: actual Accounts click -> generated Blob download tests cover missing/explicit null, observed zero, large exact decimal strings, mixed/fallback currency, billing balance precedence, UTF-8 BOM bytes, CRLF records, 19 headers/columns and comma/quote/newline escaping. New CSV tests 2 passed; combined accounts CSV/spend/T1-T2 regression 48 passed (3 files), exit0, 7.75s. No existing assertions/skips modified. Full frontend rerun started separately; result to append.
+
+Typecheck/build/lint chain exit0. Lint 0 errors/10 existing Hooks warnings; build warns about runtime config.js script and large bundle. Source Accounts.tsx 7 additions/7 deletions; LF line endings retained exactly (1753 lines). Worker native Sol ended codex_turn_failed after leaving edits; main inspected code/test and ran verification independently, no worker success claimed.
+
+Limits: jsdom component/download serialization tests, not real browser or live production export; backend suite not rerun because backend unchanged. Formula injection/other metadata columns are outside this approved slice. See docs/AUDIT_BEFORE_BUILD_P2_CSV.md. Existing P0 operational gaps not waived.
+
+P2 final main verification: full frontend suite 643 passed / 20 skipped, 46 passed / 1 skipped files, exit0 in 71.00s. Existing skips unchanged. Final eslint on Accounts.tsx and new CSV test exit0; final typecheck exit0. No production deploy or push performed.

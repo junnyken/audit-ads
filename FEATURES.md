@@ -1260,3 +1260,7 @@ Legacy pasted-token import is retired with a strict authenticated rejection; its
 Local Telegram UI no longer accepts bot token, API rejects supplied credentials and service resolves server configuration only. Backup/restore scripts require verified archive checksum and strict SQL success. Neither change is deployed; real production backup restore and authenticated workflow remain unverified.
 
 P0 continuation (local, 2026-11-26): restored Overview T1 attention/error/readiness/Meta-freshness/discovery permission surfaces using existing components, Accounts T2 default columns and saved-preference fallback, and Alerts delivery/notified visibility. Existing telemetry/navigation retained. Proxy safety note restored. Historical navigation/Settings selectors reconciled with current functionality; final suite result recorded in P0 execution report. Not deployed.
+
+## P2 CSV missing-value hardening — 2026-11-26
+
+Local patch implemented: Accounts CSV distinguishes unknown amounts/currency from observed zero. No new UI, endpoint or schema; see docs/AUDIT_BEFORE_BUILD_P2_CSV.md. Test/release status is recorded separately in TEST_LOG.md; not deployed by this patch session.

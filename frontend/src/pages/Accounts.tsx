@@ -690,7 +690,7 @@ export default function Accounts() {
       headers.map(esc).join(','),
       ...rows.map((a) => {
         const bm = a.billing_meta ?? {}
-        const curr = a.spend?.observed_currency || a.currency || 'VND'
+        const curr = a.spend?.observed_currency || a.currency || '—'
         const vias =
           a.facebook_identities
             ?.map((i) => `${i.label}${i.browser_profile_label ? ` (${i.browser_profile_label})` : ''}`)
@@ -706,16 +706,16 @@ export default function Accounts() {
           bm.tax_id ? `${bm.tax_id}${bm.tax_id_verified ? ' (Đã xác minh)' : ''}` : '—',
           vias,
           curr,
-          bm.balance_raw ?? a.spend_periods?.balance_raw ?? '0',
+          bm.balance_raw ?? a.spend_periods?.balance_raw ?? '—',
           bm.billing_threshold_raw ?? '—',
           bm.next_bill_date ?? '—',
           bm.meta_daily_limit_raw ?? '—',
           cardTxt,
-          a.spend_periods?.today_partial_raw ?? '0',
-          a.spend?.latest_complete_day?.spend_raw ?? '0',
-          a.spend_periods?.last_7d_raw ?? '0',
-          a.spend_periods?.mtd_raw ?? '0',
-          a.spend_periods?.amount_spent_raw ?? '0',
+          a.spend_periods?.today_partial_raw ?? '—',
+          a.spend?.latest_complete_day?.spend_raw ?? '—',
+          a.spend_periods?.last_7d_raw ?? '—',
+          a.spend_periods?.mtd_raw ?? '—',
+          a.spend_periods?.amount_spent_raw ?? '—',
           a.platform_status?.status ?? enumLabel('accountStatus', a.status),
         ]
           .map(esc)
