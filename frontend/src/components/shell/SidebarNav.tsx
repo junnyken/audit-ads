@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom'
+import { useAuth } from '../../hooks/useAuth'
 import { useI18n } from '../../i18n'
 import { cn } from '../../lib/cn'
 import { NAV_GROUPS } from './nav'
@@ -11,10 +12,11 @@ export function SidebarNav({
   collapsed?: boolean
 }) {
   const { t } = useI18n()
+  const { user } = useAuth()
   return (
     <nav aria-label={t('shell.mainNavLabel')} className={cn('flex flex-col gap-3.5 pb-4', collapsed ? 'px-2' : 'px-3')}>
       {NAV_GROUPS.map((group) => {
-        const visibleItems = group.items.filter((item) => !item.hiddenInSidebar)
+        const visibleItems = group.items.filter((item) => !item.hiddenInSidebar && (!item.roles || item.roles.includes(user?.role ?? '')))
         if (visibleItems.length === 0) return null
         const headingId = `nav-group-${group.id}`
         return (

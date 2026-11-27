@@ -8,6 +8,7 @@ import {
   Code2,
   Flag,
   LayoutDashboard,
+  Mail,
   Link2,
   ListChecks,
   Package,
@@ -33,6 +34,7 @@ export interface NavItem {
   icon: LucideIcon
   end?: boolean
   hiddenInSidebar?: boolean
+  roles?: string[]
 }
 
 export interface NavGroup {
@@ -55,7 +57,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/accounts', labelKey: 'nav.item.accounts', icon: Wallet },
       { to: '/business-managers', labelKey: 'nav.item.businessManagers', icon: Building2 },
       { to: '/pages', labelKey: 'nav.item.pages', icon: Flag },
-      { to: '/assets', labelKey: 'nav.item.assets', icon: Package },
+      { to: '/assets', labelKey: 'nav.item.assets', icon: Package, end: true },
+      { to: '/assets/emails', labelKey: 'er.title', icon: Mail, roles: ['owner', 'admin', 'buyer'] },
       { to: '/retainers', labelKey: 'nav.item.retainers', icon: Calculator },
     ],
   },

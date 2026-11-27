@@ -54,6 +54,21 @@ server {
         return 200 '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url>\n    <loc>https://$http_host/</loc>\n    <changefreq>daily</changefreq>\n    <priority>1.0</priority>\n  </url>\n  <url>\n    <loc>https://$http_host/login</loc>\n    <changefreq>weekly</changefreq>\n    <priority>0.9</priority>\n  </url>\n</urlset>\n';
     }
 
+    # SPA pages share the /assets namespace with Vite's static directory.
+    # Match pages exactly; never fall back to HTML for missing JS/CSS files.
+    location = /assets {
+        expires -1;
+        try_files /index.html =404;
+    }
+    location = /assets/emails {
+        expires -1;
+        try_files /index.html =404;
+    }
+    location = /assets/emails/ {
+        expires -1;
+        try_files /index.html =404;
+    }
+
     # Note: Do not use add_header here so nginx preserves server-level OWASP headers.
     location /assets/ {
         expires 1y;

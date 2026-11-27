@@ -43,16 +43,17 @@ function renderShell(path = '/') {
 
 beforeEach(() => {
   localStorage.clear()
+  authMock.role = 'owner'
   vi.clearAllMocks()
 })
 
 describe('AppShell navigation', () => {
-  it('renders four labelled groups and twenty-one links, in Vietnamese', () => {
+  it('renders four labelled groups and twenty-two links, in Vietnamese', () => {
     renderShell()
     const nav = screen.getByRole('navigation', { name: 'Điều hướng chính' })
     expect(within(nav).getAllByRole('heading', { level: 2 })).toHaveLength(4)
     expect(NAV_GROUPS).toHaveLength(4)
-    expect(within(nav).getAllByRole('link')).toHaveLength(21)
+    expect(within(nav).getAllByRole('link')).toHaveLength(22)
     for (const label of [
       'Tài khoản quảng cáo',
       'Trang Fanpage',
@@ -70,7 +71,19 @@ describe('AppShell navigation', () => {
     }
   })
 
-  it('links every route the app declares (all twenty-one destinations)', () => {
+  it.each(['owner','admin','buyer','viewer','auditor'])('email navigation respects %s role', role => {
+    authMock.role = role
+    renderShell('/assets/emails')
+    const nav = screen.getByRole('navigation', {name:'Điều hướng chính'})
+    const link = within(nav).queryByRole('link', {name:'Danh sách email'})
+    if (['owner','admin','buyer'].includes(role)) {
+      expect(link).toHaveAttribute('href','/assets/emails')
+      expect(link).toHaveAttribute('aria-current','page')
+      expect(within(nav).getByRole('link', {name:'Tài sản'})).not.toHaveAttribute('aria-current')
+    } else expect(link).not.toBeInTheDocument()
+  })
+
+  it('links every route the app declares (all declared destinations)', () => {
     const app = readFileSync(join(process.cwd(), 'src/App.tsx'), 'utf8')
     const paths = [...app.matchAll(/path="([^"]+)"/g)].map((m) => `/${m[1]}`).filter((p) => p !== '/*')
     expect(paths.length).toBeGreaterThanOrEqual(21)
@@ -141,7 +154,7 @@ describe('AppShell mobile menu (Sheet)', () => {
     const opener = screen.getByRole('button', { name: 'Mở menu điều hướng' })
     await userEvent.click(opener)
     const dialog = await screen.findByRole('dialog', { name: 'Menu điều hướng' })
-    expect(within(dialog).getAllByRole('link')).toHaveLength(21)
+    expect(within(dialog).getAllByRole('link')).toHaveLength(22)
     await userEvent.keyboard('{Escape}')
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(opener).toHaveFocus()
