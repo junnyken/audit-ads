@@ -230,3 +230,28 @@ def test_equivalent_unique_name_is_accepted_without_ddl(db, monkeypatch):
         return result
     monkeypatch.setattr(inspector, "get_unique_constraints", renamed)
     assert m._preflight(db, inspector, "main") == []
+
+
+@pytest.mark.parametrize("length,changed", [(32, True), (64, True), (128, False), (None, False)])
+def test_pg_version_capacity_widens_only_small_varchar(monkeypatch, length, changed):
+    connection = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+    inspector = Mock()
+    inspector.get_columns.return_value = [{"name": "version_num", "type": pg.VARCHAR(length), "nullable": False}]
+    alter = Mock()
+    monkeypatch.setattr(m.op, "alter_column", alter)
+    m._ensure_version_capacity(connection, inspector, "public")
+    assert alter.called is changed
+    if changed:
+        assert alter.call_args.kwargs["type_"].length == 128
+        assert alter.call_args.args == ("alembic_version", "version_num")
+
+
+def test_pg_version_capacity_rejects_unexpected_definition(monkeypatch):
+    connection = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+    inspector = Mock()
+    inspector.get_columns.return_value = [{"name": "version_num", "type": pg.INTEGER(), "nullable": False}]
+    alter = Mock()
+    monkeypatch.setattr(m.op, "alter_column", alter)
+    with pytest.raises(RuntimeError, match="definition incompatible"):
+        m._ensure_version_capacity(connection, inspector, "public")
+    alter.assert_not_called()

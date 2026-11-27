@@ -253,6 +253,23 @@ def _preflight(connection, inspector, schema: str, require_complete: bool = Fals
     return planned
 
 
+def _ensure_version_capacity(connection, inspector, schema: str) -> None:
+    """Alembic's default VARCHAR(32) cannot hold revision 0026 (34 chars)."""
+    if connection.dialect.name != "postgresql":
+        return
+    columns = inspector.get_columns("alembic_version", schema=schema)
+    if len(columns) != 1 or columns[0]["name"] != "version_num":
+        _fail("alembic_version", "columns")
+    column = columns[0]
+    typ = column["type"]
+    if not isinstance(typ, sa.VARCHAR) or column["nullable"] or column.get("computed") or column.get("identity"):
+        _fail("alembic_version.version_num", "definition")
+    if typ.length is not None and typ.length < 128:
+        # Widen only migration bookkeeping, never truncate/stamp business data.
+        op.alter_column("alembic_version", "version_num", schema=schema,
+                        existing_type=typ, type_=sa.String(128), existing_nullable=False)
+
+
 def upgrade() -> None:
     if op.get_context().as_sql:
         raise RuntimeError("0025 reconciliation: offline mode unsupported")
@@ -260,6 +277,7 @@ def upgrade() -> None:
     inspector = sa.inspect(connection)
     schema = inspector.default_schema_name
     planned = _preflight(connection, inspector, schema)
+    _ensure_version_capacity(connection, inspector, schema)
     for action in planned:
         if action[0] == "column":
             op.add_column(action[1], action[2], schema=schema)
