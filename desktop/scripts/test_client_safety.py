@@ -116,7 +116,7 @@ class ClientSafety(unittest.TestCase):
         for forbidden in ['new MainWindow', 'DesktopConfig.', 'RunSelfTest', 'GetFolderPath', 'HandleProtocolInvocation']:
             self.assertNotIn(forbidden, smoke)
         for required in ['new Application', 'new Window', 'EnsureCoreWebView2Async',
-                         'Path.GetTempPath()', 'Guid.NewGuid()', 'TimeSpan.FromSeconds(6)',
+                         'Path.GetTempPath()', 'Guid.NewGuid()', 'TimeSpan.FromSeconds(20)',
                          'DispatcherUnhandledException', 'NavigationCompleted', 'app.Shutdown',
                          'web?.Dispose()', 'candidate_component_smoke']:
             self.assertIn(required, smoke)
