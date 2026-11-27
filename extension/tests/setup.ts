@@ -13,7 +13,7 @@ export function makeStorageArea() {
   const data = new Map<string, unknown>()
   return {
     data,
-    get: vi.fn(async (key: string) => (data.has(key) ? { [key]: data.get(key) } : {})),
+    get: vi.fn(async (key: string | null) => key === null ? Object.fromEntries(data) : (data.has(key) ? { [key]: data.get(key) } : {})),
     set: vi.fn(async (values: Record<string, unknown>) => {
       for (const [key, value] of Object.entries(values)) data.set(key, value)
     }),
@@ -30,6 +30,8 @@ export function installChromeStub(overrides: Record<string, unknown> = {}) {
   const listeners: Listener[] = []
   const stub = {
     runtime: {
+      id: 'test-extension',
+      getURL: (path: string) => `chrome-extension://test-extension/${path}`,
       getManifest: () => ({ version: '0.1.0' }),
       sendMessage: vi.fn(async () => ({ ok: true })),
       openOptionsPage: vi.fn(),

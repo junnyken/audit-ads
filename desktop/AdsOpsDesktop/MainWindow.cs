@@ -41,6 +41,9 @@ internal sealed record LiveTotpBinding(
 
 internal sealed partial class MainWindow : Window
 {
+    // Compile-time local candidate boundary; does not certify legacy WPF paths.
+    private const bool SafeCandidateMode = true;
+
     private readonly bool _startMinimized;
     private bool _allowExit;
     private bool _started;
@@ -753,6 +756,13 @@ internal sealed partial class MainWindow : Window
 
     private async Task OnWindowLoadedAsync()
     {
+        if (SafeCandidateMode)
+        {
+            AppendLog("Local safety candidate: startup automation, listener, timers and update fetch are unsupported.");
+            RenderCurrentView();
+            return;
+        }
+
         AppendLog($"Khởi động AdsOps Desktop Pro v{DesktopAppInfo.Version} (Unified shadcn/ui App Shell + DPAPI Vault + Local TOTP + Retainers/Team).");
         _chromeProfiles = ExtensionProvisioner.ReadLocalChromeProfiles();
         AppendLog($"Phát hiện {_chromeProfiles.Count} Chrome Profile trên máy Windows.");
@@ -869,6 +879,7 @@ internal sealed partial class MainWindow : Window
 
     private void StartBridgeServer()
     {
+        if (SafeCandidateMode) return;
         try
         {
             _config.GetOrCreateBridgeToken();
@@ -2031,6 +2042,7 @@ internal sealed partial class MainWindow : Window
 
     private int ProvisionAllViaExtensions(bool silent)
     {
+        if (SafeCandidateMode) return 0;
         int okCount = 0;
         foreach (var v in _vias)
         {
@@ -5606,6 +5618,7 @@ internal sealed partial class MainWindow : Window
 
     private async Task RunAutoKeepAliveTickAsync()
     {
+        if (SafeCandidateMode) return;
         var now = DateTime.Now;
         // #7 Daily Automatic Vault Backup (.adsopsvault)
         RunDailyAutoVaultBackupIfNeeded(force: false);
@@ -5738,6 +5751,7 @@ internal sealed partial class MainWindow : Window
 
     private void OnUiSecondTick()
     {
+        if (SafeCandidateMode) return;
         try
         {
             var now = DateTimeOffset.UtcNow;

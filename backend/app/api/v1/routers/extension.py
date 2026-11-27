@@ -22,7 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api.deps import AnyCtx, Ctx, ExtCtx, WriteCtx
 from app.core.config import get_settings
 from app.core.enums import ExtensionContextStatus
-from app.core.errors import NotFoundError
+from app.core.errors import DomainError, NotFoundError
 from app.models.entities import AdAccount
 from app.schemas import extension as s
 from app.services.extension_context import ExtensionContextResolver
@@ -36,7 +36,6 @@ from app.services.ip_shield import (
     get_desktop_release_manifest,
     get_desktop_release_zip_path,
     issue_desktop_download_ticket,
-    render_watermarked_extension_bundle,
 )
 
 router = APIRouter(prefix="/extension", tags=["extension"])
@@ -286,41 +285,15 @@ class ExtensionPackageBundleRequest(BaseModel):
     stewardship_meta: _StewardshipMetaIn | None = None
 
 
+class LegacyPackageRetired(DomainError):
+    status_code = 410
+    code = "legacy_extension_package_retired"
+
+
 @router.post("/package-bundle")
 def package_extension_bundle(ctx: Ctx, payload: ExtensionPackageBundleRequest) -> dict[str, Any]:
-    """Assemble Extension files server-side with Canary Watermark (never accepts proxy/2FA secrets)."""
-    settings = get_settings()
-    check_anti_harvesting_velocity(
-        ctx.session,
-        workspace_id=ctx.workspace_id,
-        user_id=ctx.actor_id,
-        bucket_name="extension_package",
-        settings=settings,
-    )
-    enforce_daily_ip_quota(
-        ctx.session,
-        workspace=ctx.workspace,
-        user=ctx.user,
-        action_key="extension_bundle",
-        settings=settings,
-    )
-    res = render_watermarked_extension_bundle(
-        ctx.session,
-        workspace=ctx.workspace,
-        user=ctx.user,
-        audit=ctx.audit,
-        settings=settings,
-        folder_root=payload.folder_root,
-        via_name=payload.via_name,
-        profile_dir=payload.profile_dir,
-        via_tier=payload.via_tier,
-        via_id=payload.via_id,
-        bundled_accounts=[item.model_dump() for item in payload.bundled_accounts],
-        stewardship_meta=payload.stewardship_meta.model_dump() if payload.stewardship_meta else None,
-    )
-    ctx.commit()
-    return res
-
+    """Do not serve opaque legacy templates from old clients."""
+    raise LegacyPackageRetired("Legacy customized extension packages are retired. Use a reviewed read-only package.")
 
 @router.post("/desktop-download-ticket")
 def create_desktop_download_ticket(ctx: Ctx) -> dict[str, Any]:

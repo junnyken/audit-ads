@@ -18,6 +18,7 @@ describe('extension storage', () => {
   it('keeps the session in the in-memory session area, not local storage', async () => {
     const { local, session } = installChromeStub()
     await writeConnection({
+      origin: 'https://adsops.example.com',
       accessToken: 'ext-token',
       expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
       installationId: 'inst-1',
@@ -31,6 +32,7 @@ describe('extension storage', () => {
   it('treats an expired session as no session, and clears it', async () => {
     const { session } = installChromeStub()
     await writeConnection({
+      origin: 'https://adsops.example.com',
       accessToken: 'stale',
       expiresAt: new Date(Date.now() - 1000).toISOString(),
       installationId: 'inst-1',
@@ -43,6 +45,7 @@ describe('extension storage', () => {
 
   it('forgets the session on disconnect', async () => {
     await writeConnection({
+      origin: 'https://adsops.example.com',
       accessToken: 'x',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
       installationId: 'i',

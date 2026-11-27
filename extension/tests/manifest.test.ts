@@ -6,10 +6,10 @@ const root = resolve(__dirname, '..')
 const manifest = JSON.parse(readFileSync(resolve(root, 'src/manifest.json'), 'utf8'))
 
 describe('manifest', () => {
-  it('carries the same version as package.json (0.3.1: U1e, the new design system)', () => {
+  it('carries the same version as package.json (0.3.2: U1e, the new design system)', () => {
     const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'))
     expect(manifest.version).toBe(pkg.version)
-    expect(manifest.version).toBe('0.3.1')
+    expect(manifest.version).toBe('0.3.2')
   })
 
   it('keeps the exact permission surface of 0.3.0 (U1e is a visual slice: nothing may widen)', () => {

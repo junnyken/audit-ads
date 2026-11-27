@@ -37,10 +37,11 @@ export async function connect(params: {
   label: string
 }): Promise<StoredConnection> {
   const settings = await writeSettings({
-    dashboardUrl: params.dashboardUrl.replace(/\/+$/, ''),
+    dashboardUrl: params.dashboardUrl,
     label: params.label,
   })
 
+  await clearConnection()
   const login = await apiRequest<LoginResponse>(settings.dashboardUrl, '/api/v1/auth/login', {
     method: 'POST',
     body: { email: params.email, password: params.password },
@@ -63,7 +64,11 @@ export async function connect(params: {
     },
   )
 
+  if ((await readSettings()).dashboardUrl !== settings.dashboardUrl) {
+    throw new ApiError('Dashboard changed during connection.', 0, 'origin_changed')
+  }
   const connection: StoredConnection = {
+    origin: settings.dashboardUrl,
     accessToken: exchanged.access_token,
     expiresAt: exchanged.expires_at,
     installationId: exchanged.installation_id,
@@ -75,12 +80,12 @@ export async function connect(params: {
 }
 
 export async function disconnect(reason: string): Promise<void> {
-  const [connection, settings] = await Promise.all([readConnection(), readSettings()])
-  if (connection && settings.dashboardUrl) {
+  const connection = await readConnection()
+  if (connection) {
     try {
       // Best effort: revoking server-side is what actually cuts the session off, but a failure
       // here must still clear the local token rather than leave the operator "connected".
-      await apiRequest(settings.dashboardUrl, '/api/v1/extension/installations/revoke', {
+      await apiRequest(connection.origin, '/api/v1/extension/installations/revoke', {
         method: 'POST',
         token: connection.accessToken,
         body: { installation_id: connection.installationId, reason },
@@ -111,7 +116,7 @@ export async function withSession<T>(
     throw new ApiError('The extension is not connected.', 401, 'not_connected')
   }
   try {
-    return await run(settings.dashboardUrl, connection.accessToken)
+    return await run(connection.origin, connection.accessToken)
   } catch (error) {
     if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
       await clearConnection()

@@ -89,13 +89,14 @@ export function displayNameFrom(title: string | null | undefined): string | null
 }
 
 /** A dashboard URL the extension is willing to talk to. */
+export function normalizeDashboardOrigin(value: string): string {
+  if (typeof value !== 'string' || value !== value.trim() || !/^https?:\/\//.test(value) || /[\\\s?#]/.test(value)) throw new Error('Invalid dashboard URL')
+  const url = new URL(value)
+  if (url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new Error('Dashboard URL must be an origin')
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))) throw new Error('Invalid dashboard protocol')
+  return url.origin
+}
+
 export function isUsableDashboardUrl(value: string): boolean {
-  try {
-    const url = new URL(value)
-    if (url.protocol === 'https:') return true
-    // Plain HTTP is allowed only for local development, never for a real host.
-    return url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
-  } catch {
-    return false
-  }
+  try { normalizeDashboardOrigin(value); return true } catch { return false }
 }

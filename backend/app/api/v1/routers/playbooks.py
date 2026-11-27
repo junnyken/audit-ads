@@ -10,7 +10,7 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
 from app.api.deps import Ctx, WriteCtx
-from app.core.errors import NotFoundError, ValidationError
+from app.core.errors import DomainError, NotFoundError, ValidationError
 from app.models.entities import AuditLog, AutomationPlaybook, AutomationPlaybookRating, User
 
 router = APIRouter(prefix="/playbooks", tags=["playbooks"])
@@ -238,9 +238,7 @@ def list_playbooks(
     ctx: Ctx,
     platform: str | None = Query(default=None),
 ) -> list[dict[str, Any]]:
-    ensure_builtin_playbooks(ctx.session, ctx.workspace_id)
-    ctx.commit()
-
+    # Listing must not seed legacy automation templates or mutate workspace data.
     stmt = sa.select(AutomationPlaybook).where(
         AutomationPlaybook.workspace_id == ctx.workspace_id,
         AutomationPlaybook.archived_at.is_(None),
@@ -381,33 +379,15 @@ def rate_playbook(ctx: Ctx, playbook_id: uuid.UUID, payload: PlaybookRateInput) 
     return _serialize_playbook(row, my_rating=payload.stars)
 
 
+class UnverifiedPlaybookExecutionRetired(DomainError):
+    status_code = 410
+    code = "unverified_playbook_execution_retired"
+
+
 @router.post("/{playbook_id}/record-run")
 def record_playbook_run(ctx: WriteCtx, playbook_id: uuid.UUID, payload: PlaybookRecordRunInput) -> dict[str, Any]:
-    row = ctx.session.get(AutomationPlaybook, playbook_id)
-    if row is None or row.workspace_id != ctx.workspace_id or row.archived_at is not None:
-        raise NotFoundError("Không tìm thấy kịch bản.")
-    row.run_count = int(row.run_count or 0) + 1
-    ctx.audit.record(
-        action="playbook.batch_executed",
-        entity_type="automation_playbook",
-        entity_id=row.id,
-        metadata={
-            "playbook_title": row.title,
-            "platform": row.platform,
-            "version_tag": row.version_tag,
-            "via_count": len(payload.via_ids),
-            "via_ids": payload.via_ids[:50],
-            "antidetect_engine": payload.engine,
-            "stagger_sec": payload.stagger_sec,
-            "jitter_pct": payload.jitter_pct,
-            "workstation": payload.workstation,
-            "actor_email": ctx.user.email,
-            "actor_name": ctx.user.full_name,
-        },
-    )
-    ctx.commit()
-    return _serialize_playbook(row)
-
+    """A client declaration is not evidence of provider execution."""
+    raise UnverifiedPlaybookExecutionRetired("Unverified execution recording is retired; no run count was changed.")
 
 @router.get("/launch-audit")
 def list_profile_launch_audit(

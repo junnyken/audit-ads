@@ -8,6 +8,7 @@
  * Nothing here logs a value. A token that is safe to store is not safe to print.
  */
 import type { ContextResolution } from './types'
+import { normalizeDashboardOrigin } from './validation'
 
 const SESSION_KEY = 'adsops.connection'
 const SETTINGS_KEY = 'adsops.settings'
@@ -17,6 +18,7 @@ const LANGUAGE_KEY = 'adsops.language'
 export type Language = 'vi' | 'en'
 
 export interface StoredConnection {
+  origin: string
   accessToken: string
   expiresAt: string
   installationId: string
@@ -40,8 +42,15 @@ function sessionArea(): chrome.storage.StorageArea {
 export async function readConnection(): Promise<StoredConnection | null> {
   const stored = await sessionArea().get(SESSION_KEY)
   const value = stored?.[SESSION_KEY] as StoredConnection | undefined
-  if (!value?.accessToken || !value.expiresAt) return null
-  if (new Date(value.expiresAt).getTime() <= Date.now()) {
+  if (!value) {
+    // Discard any legacy local token even when session storage is now available.
+    await clearConnection()
+    return null
+  }
+  const settings = await readSettings()
+  let validOrigin = false
+  try { validOrigin = value.origin === normalizeDashboardOrigin(value.origin) && value.origin === normalizeDashboardOrigin(settings.dashboardUrl) } catch { /* fail closed */ }
+  if (!validOrigin || typeof value.accessToken !== 'string' || !value.accessToken || !Number.isFinite(Date.parse(value.expiresAt)) || Date.parse(value.expiresAt) <= Date.now()) {
     await clearConnection()
     return null
   }
@@ -53,7 +62,11 @@ export async function writeConnection(connection: StoredConnection): Promise<voi
 }
 
 export async function clearConnection(): Promise<void> {
-  await sessionArea().remove(SESSION_KEY)
+  for (const area of new Set([sessionArea(), chrome.storage.local])) {
+    await area.remove(SESSION_KEY)
+    const all = await area.get(null)
+    for (const key of Object.keys(all)) if (key.startsWith(CONTEXT_KEY_PREFIX)) await area.remove(key)
+  }
 }
 
 function randomInstanceId(): string {
@@ -78,6 +91,10 @@ export async function readSettings(): Promise<StoredSettings> {
 export async function writeSettings(patch: Partial<StoredSettings>): Promise<StoredSettings> {
   const current = await readSettings()
   const next = { ...current, ...patch }
+  if (patch.dashboardUrl !== undefined) {
+    next.dashboardUrl = patch.dashboardUrl === '' ? '' : normalizeDashboardOrigin(patch.dashboardUrl)
+    if (next.dashboardUrl !== current.dashboardUrl) await clearConnection()
+  }
   await chrome.storage.local.set({ [SETTINGS_KEY]: next })
   return next
 }

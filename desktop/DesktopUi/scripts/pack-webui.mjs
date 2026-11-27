@@ -30,7 +30,7 @@ with zipfile.ZipFile(out_zip, 'w', compression=zipfile.ZIP_DEFLATED, compresslev
 print(f"Packed {count} files -> {out_zip} ({out_zip.stat().st_size} bytes)")
 `
 
-const res = spawnSync('python', ['-c', pyScript, distDir, outZip], {
+const res = spawnSync('python', ['-I', '-c', pyScript, distDir, outZip], {
   stdio: 'inherit',
 })
 if (res.status !== 0) {

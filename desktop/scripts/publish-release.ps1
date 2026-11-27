@@ -1,104 +1,76 @@
 param(
-    [string]$Version = "5.1.0",
+    [Parameter(Mandatory = $true)][string]$Version,
     [string]$MinSupportedVersion = "4.2.0",
     [string]$ExtVersion = "2.11.0"
 )
-
 $ErrorActionPreference = "Stop"
-
+Set-StrictMode -Version Latest
+# Candidate creation only. Manual verified promotion is a separate, excluded operation.
+if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { throw "Actual Windows required." }
+Get-Command dotnet, npm, git -ErrorAction Stop | Out-Null
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $desktopDir = Split-Path -Parent $scriptDir
 $repoRoot = Split-Path -Parent $desktopDir
-$uiDir = Join-Path $desktopDir "DesktopUi"
 $projPath = Join-Path $desktopDir "AdsOpsDesktop\AdsOpsDesktop.csproj"
-$publishOut = Join-Path $env:TEMP "adsops_publish_v$Version"
-$downloadsDir = Join-Path $repoRoot "frontend\public\downloads"
-
-Write-Host "[1/5] Building DesktopUi bundle..."
+[xml]$project = Get-Content $projPath -Raw
+if ($Version -notmatch '^\d+\.\d+\.\d+$' -or [string]$project.Project.PropertyGroup.Version -cne $Version) { throw "Project version must match Version exactly." }
+$sdks = & dotnet --list-sdks
+if ($LASTEXITCODE -ne 0 -or -not ($sdks -match '^8\.')) { throw "Installed .NET 8 SDK required." }
+$sourceCommit = & git -C $repoRoot rev-parse HEAD
+if ($LASTEXITCODE -ne 0 -or $sourceCommit -notmatch '^[0-9a-f]{40,64}$') { throw "Source commit unavailable." }
+$sourceDirty = @(& git -C $repoRoot status --porcelain).Count -gt 0
+if ($LASTEXITCODE -ne 0) { throw "Source status unavailable." }
+$uiDir = Join-Path $desktopDir "DesktopUi"
+$uiZip = Join-Path $desktopDir "AdsOpsDesktop\webui_bundle.zip"
+# Remove stale outputs before rebuilding; a failed build cannot reuse the old bundle.
+if (Test-Path $uiZip) { Remove-Item $uiZip -Force }
+$dist = Join-Path $uiDir "dist"
+if (Test-Path $dist) { Remove-Item $dist -Recurse -Force }
+$buildStarted = [DateTime]::UtcNow
 Push-Location $uiDir
 try {
-    npm run build
-    if ($LASTEXITCODE -ne 0) { throw "DesktopUi build failed ($LASTEXITCODE)." }
-} finally {
-    Pop-Location
-}
-
-Write-Host "[2/5] Publishing AdsOpsDesktop v$Version single-file win-x64..."
-if (Test-Path $publishOut) {
-    Remove-Item -Path $publishOut -Recurse -Force -ErrorAction SilentlyContinue
-}
-dotnet publish $projPath `
-    -c Release `
-    -r win-x64 `
-    --self-contained true `
-    -p:PublishSingleFile=true `
-    -p:IncludeNativeLibrariesForSelfExtract=true `
-    -p:DebugType=embedded `
-    -o $publishOut
-if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed ($LASTEXITCODE)." }
-
+    & npm run build
+    if ($LASTEXITCODE -ne 0) { throw "Fresh UI build failed." }
+} finally { Pop-Location }
+if (-not (Test-Path $uiZip) -or (Get-Item $uiZip).Length -le 0 -or (Get-Item $uiZip).LastWriteTimeUtc -lt $buildStarted) { throw "Fresh UI bundle required." }
+$uiHash = (Get-FileHash $uiZip -Algorithm SHA256).Hash.ToLowerInvariant()
+$stagingRoot = Join-Path $repoRoot "backend\private_releases"
+New-Item -ItemType Directory -Force -Path $stagingRoot | Out-Null
+$candidate = Join-Path $stagingRoot ("candidate-$Version-" + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $candidate | Out-Null
+Copy-Item $uiZip (Join-Path $candidate "webui_bundle.zip")
+$publishOut = Join-Path $candidate "payload"
+& dotnet publish $projPath -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=embedded -o $publishOut
+if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed." }
 $exePath = Join-Path $publishOut "AdsOpsDesktop.exe"
-if (-not (Test-Path $exePath)) { throw "Published executable missing at $exePath" }
-
-Write-Host "[3/5] Signing Authenticode certificate if available..."
-$signed = $false
-$cert = Get-ChildItem Cert:\CurrentUser\My |
-    Where-Object { $_.Subject -like "*AdsOps Pro*" -and $_.HasPrivateKey } |
-    Sort-Object NotAfter -Descending |
-    Select-Object -First 1
-if ($cert) {
-    $sig = Set-AuthenticodeSignature -FilePath $exePath -Certificate $cert -HashAlgorithm SHA256
-    Write-Host "Authenticode status: $($sig.Status) ($($cert.Thumbprint))"
-    $signed = ($sig.Status -eq "Valid" -or $sig.Status -eq "UnknownError")
-} else {
-    Write-Host "No AdsOps Pro cert in Cert:\CurrentUser\My; shipping unsigned SHA-256 build."
+$exeInfo = Get-Item $exePath
+if ($exeInfo.Length -le 0 -or $exeInfo.VersionInfo.ProductVersion -cne $Version) { throw "EXE size/version invalid." }
+$cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -like '*AdsOps Pro*' -and $_.HasPrivateKey -and $_.NotAfter -gt (Get-Date) } | Sort-Object NotAfter -Descending | Select-Object -First 1
+if (-not $cert) { throw "Existing signing certificate required; unsigned candidates prohibited." }
+$sig = Set-AuthenticodeSignature -FilePath $exePath -Certificate $cert -HashAlgorithm SHA256
+if ($sig.Status -ne 'Valid') { throw "Signing failed." }
+$sig = Get-AuthenticodeSignature -FilePath $exePath
+if ($sig.Status -ne 'Valid') { throw "Authenticode verification failed." }
+$exeHash = (Get-FileHash $exePath -Algorithm SHA256).Hash.ToLowerInvariant()
+$testOut = Join-Path $candidate "self-test.log"
+$proc = Start-Process -FilePath $exePath -ArgumentList '--self-test' -Wait -PassThru -NoNewWindow -RedirectStandardOutput $testOut
+if ($proc.ExitCode -ne 0 -or (Get-Content $testOut -Raw) -notmatch 'ADSOPS_DESKTOP_V260_SELFTEST_100_PASS') { throw "Self-test failed." }
+if ((Get-FileHash $exePath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $exeHash -or (Get-AuthenticodeSignature $exePath).Status -ne 'Valid') { throw "EXE changed during self-test." }
+$zipPath = Join-Path $candidate "AdsOps-Desktop-Pro-candidate.zip"
+Compress-Archive -Path $exePath -DestinationPath $zipPath -CompressionLevel Optimal
+$zipInfo = Get-Item $zipPath
+if ($zipInfo.Length -le 0 -or $zipInfo.Length -ge 95MB) { throw "Candidate ZIP size invalid." }
+$manifest = [ordered]@{
+    status = 'candidate'; auto_promote = $false; manual_verified_promotion_required = $true
+    version = $Version; min_supported_version = $MinSupportedVersion; ext_version = $ExtVersion
+    source_commit = $sourceCommit; source_dirty = $sourceDirty; ui_zip_sha256 = $uiHash
+    exe_sha256 = $exeHash; exe_size_bytes = (Get-Item $exePath).Length
+    sha256 = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLowerInvariant(); size_bytes = $zipInfo.Length
+    authenticode_signed = $true; authenticode_status = [string]$sig.Status
+    self_test_passed = $true; created_at = [DateTime]::UtcNow.ToString('O')
 }
-
-Write-Host "[4/5] Running AdsOpsDesktop.exe --self-test..."
-$testOutFile = Join-Path $env:TEMP "adsops_selftest_v$Version.log"
-if (Test-Path $testOutFile) { Remove-Item $testOutFile -Force -ErrorAction SilentlyContinue }
-$proc = Start-Process -FilePath $exePath -ArgumentList "--self-test" -Wait -PassThru -NoNewWindow -RedirectStandardOutput $testOutFile
-$testExit = $proc.ExitCode
-$testText = if (Test-Path $testOutFile) { Get-Content $testOutFile -Raw } else { "" }
-if ($testExit -ne 0 -or $testText -notmatch "ADSOPS_DESKTOP_V260_SELFTEST_100_PASS") {
-    Write-Host $testText
-    throw "AdsOpsDesktop --self-test failed (exit=$testExit)."
-}
-Write-Host "SELFTEST_EXIT=0 (ADSOPS_DESKTOP_V260_SELFTEST_100_PASS)"
-
-Write-Host "[5/5] Compressing ZIP artifacts & updating manifests..."
-New-Item -ItemType Directory -Force -Path $downloadsDir | Out-Null
-$latestZip = Join-Path $downloadsDir "AdsOps-Desktop-Pro-latest.zip"
-$legacyZip = Join-Path $downloadsDir "AdsOps-Desktop-Pro-v2.3.zip"
-
-Compress-Archive -Path $exePath -DestinationPath $latestZip -CompressionLevel Optimal -Force
-Copy-Item -Path $latestZip -Destination $legacyZip -Force
-
-$zipInfo = Get-Item $latestZip
-$sizeMb = [Math]::Round($zipInfo.Length / 1MB, 2)
-Write-Host "ZIP size: $sizeMb MB ($($zipInfo.Length) bytes)"
-if ($zipInfo.Length -ge 95MB) {
-    throw "ZIP size $sizeMb MB exceeds 95 MB GitHub safety limit."
-}
-
-$sha = (Get-FileHash -Path $latestZip -Algorithm SHA256).Hash.ToLowerInvariant()
-$manifestObj = [ordered]@{
-    version = $Version
-    min_supported_version = $MinSupportedVersion
-    ext_version = $ExtVersion
-    authenticode_signed = $signed
-    download_url = "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.zip"
-    mirror_urls = @(
-        "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-latest.zip",
-        "https://adsops-app.vibe.tinhgon.xyz/downloads/AdsOps-Desktop-Pro-v2.3.zip"
-    )
-    sha256 = $sha
-    size_bytes = $zipInfo.Length
-    published_at = (Get-Date).ToUniversalTime().ToString("O")
-    release_notes = "AdsOps Desktop Pro v$Version (Hybrid AI Policy & Content Studio + Multi-Layer Via Role Guardrail + Companion Extension v$ExtVersion)."
-}
-$manifestJson = $manifestObj | ConvertTo-Json -Depth 4
-[System.IO.File]::WriteAllText((Join-Path $downloadsDir "AdsOps-Desktop-Pro-latest.json"), $manifestJson, (New-Object System.Text.UTF8Encoding($false)))
-[System.IO.File]::WriteAllText((Join-Path $desktopDir "AdsOps-Desktop-Pro-latest.json"), $manifestJson, (New-Object System.Text.UTF8Encoding($false)))
-
-Write-Host "Release v$Version ready! EXE: $exePath | SHA256: $sha"
+# A manifest appears only after all checks; failures remain incomplete private candidates.
+$tempManifest = Join-Path $candidate "candidate.json.tmp"
+$manifest | ConvertTo-Json -Depth 4 | Set-Content $tempManifest -Encoding UTF8
+Move-Item $tempManifest (Join-Path $candidate "candidate.json")
+Write-Host "Private candidate only: $candidate. No stable publication or promotion performed."

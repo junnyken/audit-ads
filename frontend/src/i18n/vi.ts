@@ -1,3 +1,4 @@
+import { safeGuideVi } from './safeGuide'
 import { extensionProvenanceVi } from './extensionProvenance'
 import { honestOperationsVi } from './honestOperations'
 import { authRecoveryVi } from './authRecovery'
@@ -27,6 +28,7 @@ import { u1fVi } from './u1f'
 import { f1Vi } from './f1'
 
 export const vi = {
+  ...safeGuideVi,
   ...extensionProvenanceVi,
   ...honestOperationsVi,
   ...authRecoveryVi,

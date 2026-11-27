@@ -1,3 +1,4 @@
+import { allowedRequest } from './request-guard'
 /**
  * MV3 service worker: the extension's only network caller and its only holder of the session.
  *
@@ -40,6 +41,7 @@ async function resolveContext(
   observation: PageObservation,
 ): Promise<ContextResolution> {
   if (!observation.safePath) return UNSUPPORTED
+  if (!await currentConnection()) throw new ApiError('Not connected.', 401, 'not_connected')
 
   const key = cacheKey(observation)
   if (tabId !== undefined) {
@@ -135,7 +137,8 @@ async function handle(
     }
 
     case 'setDashboardUrl': {
-      await writeSettings({ dashboardUrl: request.dashboardUrl.replace(/\/+$/, '') })
+      await writeSettings({ dashboardUrl: request.dashboardUrl })
+      observations.clear()
       return { ok: true }
     }
 
@@ -180,11 +183,17 @@ function describe(error: unknown): string {
   return 'The dashboard could not be reached. Check the dashboard URL in Options.'
 }
 
-chrome.runtime.onMessage.addListener((request: WorkerRequest, sender, sendResponse) => {
-  handle(request, sender)
+// Serialize requests so a settings change cannot race an authenticated call/cache write.
+let pending: Promise<unknown> = Promise.resolve()
+chrome.runtime.onMessage.addListener((request: unknown, sender, sendResponse) => {
+  if (!allowedRequest(request, sender)) {
+    sendResponse({ ok: false, error: 'Invalid request.' })
+    return false
+  }
+  pending = pending.then(() => handle(request, sender))
     .then(sendResponse)
     .catch(() => sendResponse({ ok: false, error: 'Something went wrong.' }))
-  return true // keep the message channel open for the async reply
+  return true
 })
 
 chrome.tabs.onRemoved.addListener((tabId) => {

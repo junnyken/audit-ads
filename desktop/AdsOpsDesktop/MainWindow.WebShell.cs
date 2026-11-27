@@ -15,6 +15,23 @@ namespace AdsOpsDesktop;
 
 internal sealed partial class MainWindow
 {
+    // WebView boundary only; remaining legacy WPF paths are not certified.
+    private static bool IsBundledOrigin(string? source)
+        => source != null
+            && System.Text.RegularExpressions.Regex.IsMatch(source, @"^https://adsops\.local(?:/|$|[?#])")
+            && Uri.TryCreate(source, UriKind.Absolute, out var uri)
+            && uri.Scheme == "https" && uri.Host == "adsops.local"
+            && uri.UserInfo.Length == 0 && uri.IsDefaultPort;
+
+    private static bool HasSafeNativeCapability(string action)
+        => action is "ready" or "switch_view" or "toggle_palette"
+            or "dismiss_error_banner" or "refresh_state" or "cloud_login";
+
+    private void ExplainSafeNativeBoundary()
+        => MessageBox.Show(this,
+            "Bản kiểm tra an toàn chỉ cho phép xem giao diện, làm mới trạng thái và đăng nhập. Lệnh này chưa được phê duyệt; automation, cookie, bí mật, proxy và cập nhật đã bị chặn tại WebView dispatcher. Các đường WPF cũ chưa được chứng nhận.",
+            "Giới hạn bản kiểm tra", MessageBoxButton.OK, MessageBoxImage.Information);
+
     private static string ViewToKey(AppView view) => view switch
     {
         AppView.Vias => "vias",
@@ -48,6 +65,21 @@ internal sealed partial class MainWindow
     {
         if (_overviewWebViewHost == null)
         {
+            // Pre-routing filter prevents existing window shortcut handlers bypassing IPC policy.
+            InputManager.Current.PreProcessInput += (_, input) =>
+            {
+                if (!IsActive || input.StagingItem.Input is not KeyEventArgs keyEvent
+                    || keyEvent.RoutedEvent != Keyboard.PreviewKeyDownEvent) return;
+                var key = keyEvent.Key == Key.System ? keyEvent.SystemKey : keyEvent.Key;
+                if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Windows)) != 0
+                    || ((int)key >= (int)Key.F1 && (int)key <= (int)Key.F24))
+                {
+                    input.Cancel();
+                    keyEvent.Handled = true;
+                    if (key == Key.F5 && Keyboard.Modifiers == ModifierKeys.None) PushOverviewStateToWebView();
+                    else ExplainSafeNativeBoundary();
+                }
+            };
             _overviewWebView = new Microsoft.Web.WebView2.Wpf.WebView2
             {
                 DefaultBackgroundColor = GetWebViewBgColor(),
@@ -117,14 +149,22 @@ internal sealed partial class MainWindow
                 webAssetsDir,
                 Microsoft.Web.WebView2.Core.CoreWebView2HostResourceAccessKind.Allow);
 
+            core.NavigationStarting += (_, ev) =>
+            {
+                _overviewWebViewReady = false;
+                if (!IsBundledOrigin(ev.Uri)) ev.Cancel = true;
+            };
+            core.NewWindowRequested += (_, ev) => { ev.Handled = true; };
+
             core.WebMessageReceived += (_, ev) =>
             {
                 try
                 {
+                    if (!IsBundledOrigin(ev.Source)) return;
                     var raw = ev.WebMessageAsJson;
                     if (!string.IsNullOrWhiteSpace(raw))
                     {
-                        OnOverviewWebMessageReceived(raw);
+                        OnOverviewWebMessageReceived(raw, ev.Source);
                     }
                 }
                 catch (Exception ex)
@@ -135,7 +175,8 @@ internal sealed partial class MainWindow
 
             core.NavigationCompleted += (_, navArgs) =>
             {
-                if (!navArgs.IsSuccess) return;
+                _overviewWebViewReady = false;
+                if (!navArgs.IsSuccess || !IsBundledOrigin(core.Source)) return;
                 _overviewWebViewReady = true;
                 AppendLog($"✨ Giao diện Unified shadcn/ui App Shell 8 Tab (v{DesktopAppInfo.Version}) đã sẵn sàng.");
                 PushOverviewStateToWebView();
@@ -1085,7 +1126,8 @@ internal sealed partial class MainWindow
 
     internal void PushOverviewStateToWebView()
     {
-        if (!_overviewWebViewReady || _overviewWebView?.CoreWebView2 == null) return;
+        if (!_overviewWebViewReady || _overviewWebView?.CoreWebView2 == null
+            || !IsBundledOrigin(_overviewWebView.CoreWebView2.Source)) return;
         try
         {
             var json = DesktopWebUiBridge.BuildShellStateJson(BuildAppShellWebState());
@@ -1099,7 +1141,8 @@ internal sealed partial class MainWindow
 
     internal void PushLiveTickToWebView()
     {
-        if (!_overviewWebViewReady || _overviewWebView?.CoreWebView2 == null) return;
+        if (!_overviewWebViewReady || _overviewWebView?.CoreWebView2 == null
+            || !IsBundledOrigin(_overviewWebView.CoreWebView2.Source)) return;
         try
         {
             var json = DesktopWebUiBridge.BuildLiveTickJson(BuildAppShellLiveTick());
@@ -1244,16 +1287,24 @@ internal sealed partial class MainWindow
         return fallback;
     }
 
-    private void OnOverviewWebMessageReceived(string rawJson)
+    private void OnOverviewWebMessageReceived(string rawJson, string source)
     {
         Dispatcher.BeginInvoke(async () =>
         {
             try
             {
+                if (!_overviewWebViewReady || !IsBundledOrigin(source)
+                    || !IsBundledOrigin(_overviewWebView?.CoreWebView2?.Source)) return;
                 using var doc = JsonDocument.Parse(rawJson);
                 var root = doc.RootElement;
                 var action = GetStr(root, "action").Trim();
                 if (string.IsNullOrEmpty(action)) return;
+
+                if (!HasSafeNativeCapability(action))
+                {
+                    ExplainSafeNativeBoundary();
+                    return;
+                }
 
                 switch (action)
                 {
@@ -1262,37 +1313,13 @@ internal sealed partial class MainWindow
                         PushOverviewStateToWebView();
                         break;
 
-                    case "hotkey":
-                        {
-                            var keyStr = GetStr(root, "key").Trim().ToUpperInvariant();
-                            if (keyStr == "F5")
-                            {
-                                HandleShortcutKey(Key.F5, ModifierKeys.None);
-                            }
-                            else
-                            {
-                                Key? mapped = keyStr switch
-                                {
-                                    "K" => Key.K,
-                                    "P" => Key.P,
-                                    "B" => Key.B,
-                                    "N" => Key.N,
-                                    "1" => Key.D1,
-                                    "2" => Key.D2,
-                                    "3" => Key.D3,
-                                    "4" => Key.D4,
-                                    "5" => Key.D5,
-                                    "6" => Key.D6,
-                                    "7" => Key.D7,
-                                    "8" => Key.D8,
-                                    _ => null,
-                                };
-                                if (mapped.HasValue) HandleShortcutKey(mapped.Value, ModifierKeys.Control);
-                            }
-                            break;
-                        }
+                    case "refresh_state":
+                        PushOverviewStateToWebView();
+                        break;
 
                     case "switch_view":
+                        // Even overview/ad_accounts state projection and legacy fallback need review.
+                        if (SafeCandidateMode) { ExplainSafeNativeBoundary(); return; }
                         SwitchView(KeyToView(GetStr(root, "view", "overview")));
                         break;
 
@@ -2934,7 +2961,15 @@ internal sealed partial class MainWindow
                     // ===== TAB 8: SETTINGS & DPAPI VAULT =====
                     case "cloud_login":
                         {
+                            // Credentials may only go to the already configured HTTPS API.
+                            if (!root.TryGetProperty("email", out var emailValue) || emailValue.ValueKind != JsonValueKind.String
+                                || !root.TryGetProperty("password", out var passwordValue) || passwordValue.ValueKind != JsonValueKind.String)
+                            { ExplainSafeNativeBoundary(); break; }
                             var url = GetStr(root, "backendUrl", _config.BackendBaseUrl).Trim().TrimEnd('/');
+                            if (!string.Equals(url, _config.BackendBaseUrl.TrimEnd('/'), StringComparison.Ordinal)
+                                || !Uri.TryCreate(url, UriKind.Absolute, out var apiUri)
+                                || apiUri.Scheme != "https" || apiUri.UserInfo.Length != 0)
+                            { ExplainSafeNativeBoundary(); break; }
                             var email = GetStr(root, "email").Trim();
                             var pass = GetStr(root, "password");
                             var replaceOldest = GetBool(root, "replaceOldestDevice", false);
@@ -2988,7 +3023,7 @@ internal sealed partial class MainWindow
                             }
                             catch (Exception ex)
                             {
-                                _authErrorMessage = $"Đăng nhập thất bại: {ex.Message}";
+                                _authErrorMessage = "Đăng nhập thất bại. Kiểm tra thông tin hoặc liên hệ quản trị viên.";
                                 PushOverviewStateToWebView();
                             }
                             finally { SetBusy(false); }
@@ -3454,7 +3489,7 @@ internal sealed partial class MainWindow
             }
             catch (Exception ex)
             {
-                AppendLog($"[WebView IPC] Lỗi xử lý lệnh: {ex.Message}");
+                AppendLog("[WebView IPC] Không thể xử lý lệnh; payload không được ghi log.");
             }
         });
     }

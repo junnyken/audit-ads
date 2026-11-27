@@ -1216,41 +1216,143 @@ public static class DesktopWebUiBridge
 
     private static readonly object ExtractLock = new();
 
+    private const int MaxAssetFiles = 4096;
+    private const long MaxAssetSize = 32L * 1024 * 1024;
+    private const long MaxAssetTotal = 128L * 1024 * 1024;
+
+    private static void RejectReparsePath(string path)
+    {
+        for (var dir = new DirectoryInfo(path); dir != null; dir = dir.Parent)
+            if (dir.Exists && (dir.Attributes & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidDataException("Web UI cache contains a reparse point.");
+    }
+
+    private static Dictionary<string, byte[]> ReadSafeAssets(byte[] zipBytes)
+    {
+        var files = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { ".html", ".js", ".css", ".json", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".woff", ".woff2", ".ttf" };
+        using var archive = new ZipArchive(new MemoryStream(zipBytes, writable: false), ZipArchiveMode.Read);
+        if (archive.Entries.Count == 0 || archive.Entries.Count > MaxAssetFiles)
+            throw new InvalidDataException("Invalid asset count.");
+        long total = 0;
+        foreach (var entry in archive.Entries)
+        {
+            var name = entry.FullName;
+            var parts = name.Split('/');
+            // Reject directory records too: bundles must contain only nonempty regular files.
+            if (name.Contains('\\') || name.Contains(':') || Path.IsPathRooted(name)
+                || parts.Any(p => p.Length == 0 || p == "." || p == ".."
+                    || p.EndsWith('.') || p.EndsWith(' ')
+                    || System.Text.RegularExpressions.Regex.IsMatch(p, @"^(CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³])(?:\.|$)", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+                    || p.Any(c => c < 32 || "<>\"|?*".Contains(c)))
+                || ((entry.ExternalAttributes >> 16) & 0xF000) == 0xA000
+                || (entry.ExternalAttributes & (int)FileAttributes.ReparsePoint) != 0
+                || !allowed.Contains(Path.GetExtension(name))
+                || entry.Length <= 0 || entry.Length > MaxAssetSize
+                || (total += entry.Length) > MaxAssetTotal || files.ContainsKey(name))
+                throw new InvalidDataException("Unsafe Web UI asset.");
+            using var input = entry.Open();
+            using var output = new MemoryStream();
+            var buffer = new byte[81920];
+            int read;
+            while ((read = input.Read(buffer, 0, buffer.Length)) != 0)
+            {
+                if (output.Length + read > entry.Length || output.Length + read > MaxAssetSize)
+                    throw new InvalidDataException("Asset exceeds declared size.");
+                output.Write(buffer, 0, read);
+            }
+            if (output.Length != entry.Length) throw new InvalidDataException("Incomplete asset.");
+            files.Add(name, output.ToArray());
+        }
+        if (!files.ContainsKey("index.html") || files.Keys.Count(n => Path.GetFileName(n).Equals("index.html", StringComparison.OrdinalIgnoreCase)) != 1)
+            throw new InvalidDataException("Expected single root index.html.");
+        return files;
+    }
+
+    private static bool ValidateAssetCache(string root, Dictionary<string, byte[]> files)
+    {
+        RejectReparsePath(root);
+        if (!Directory.Exists(root)) return false;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pending = new Stack<string>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            foreach (var path in Directory.EnumerateFileSystemEntries(pending.Pop()))
+            {
+                var attrs = File.GetAttributes(path);
+                if ((attrs & FileAttributes.ReparsePoint) != 0) throw new InvalidDataException("Linked cache asset.");
+                var relative = Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/');
+                if ((attrs & FileAttributes.Directory) != 0)
+                {
+                    if (!files.Keys.Any(n => n.StartsWith(relative + "/", StringComparison.OrdinalIgnoreCase))) return false;
+                    pending.Push(path);
+                    continue;
+                }
+                if (relative == ".ready") continue;
+                if (!files.TryGetValue(relative, out var expected) || !seen.Add(relative)) return false;
+                if (new FileInfo(path).Length != expected.Length) return false;
+                using var stream = File.OpenRead(path);
+                if (!SHA256.HashData(stream).SequenceEqual(SHA256.HashData(expected))) return false;
+            }
+        }
+        return seen.Count == files.Count;
+    }
+
     public static string EnsureExtractedAssets()
     {
         lock (ExtractLock)
         {
             var asm = Assembly.GetExecutingAssembly();
             var resName = asm.GetManifestResourceNames()
-                .FirstOrDefault(n => n.EndsWith("webui_bundle.zip", StringComparison.OrdinalIgnoreCase))
-                ?? throw new FileNotFoundException("Không tìm thấy tài nguyên nhúng webui_bundle.zip.");
+                .Single(n => n.EndsWith("webui_bundle.zip", StringComparison.OrdinalIgnoreCase));
+            using var resource = asm.GetManifestResourceStream(resName)
+                ?? throw new FileNotFoundException("Missing embedded Web UI.");
+            if (resource.Length > MaxAssetTotal) throw new InvalidDataException("Bundle too large.");
+            using var ms = new MemoryStream();
+            resource.CopyTo(ms);
+            var zipBytes = ms.ToArray();
+            var files = ReadSafeAssets(zipBytes);
+            var hash = Convert.ToHexString(SHA256.HashData(zipBytes)).ToLowerInvariant();
+            var cacheRoot = Path.GetFullPath(Path.Combine(DesktopConfig.AppDataRoot, "WebUi"));
+            var targetDir = Path.Combine(cacheRoot, hash);
+            RejectReparsePath(cacheRoot);
+            Directory.CreateDirectory(cacheRoot);
+            if (ValidateAssetCache(targetDir, files)) return targetDir;
 
-            byte[] zipBytes;
-            using (var stream = asm.GetManifestResourceStream(resName)!)
-            using (var ms = new MemoryStream())
+            // Preserve invalid cache and user data; publish a fresh verified sibling, no recursive deletion.
+            var tempDir = Path.Combine(cacheRoot, hash + ".tmp-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            foreach (var asset in files)
             {
-                stream.CopyTo(ms);
-                zipBytes = ms.ToArray();
+                var path = Path.GetFullPath(Path.Combine(tempDir, asset.Key));
+                if (!path.StartsWith(tempDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("Asset outside cache.");
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                using var output = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+                output.Write(asset.Value);
             }
-
-            var hashBytes = SHA256.HashData(zipBytes);
-            var hash12 = Convert.ToHexString(hashBytes)[..12].ToLowerInvariant();
-            var targetDir = Path.Combine(DesktopConfig.AppDataRoot, "WebUi", hash12);
-            var indexPath = Path.Combine(targetDir, "index.html");
-            var markerPath = Path.Combine(targetDir, ".ready");
-
-            if (File.Exists(indexPath) && File.Exists(markerPath))
+            if (!ValidateAssetCache(tempDir, files)) throw new InvalidDataException("Cache verification failed.");
+            File.WriteAllText(Path.Combine(tempDir, ".ready"), hash);
+            var backup = targetDir + ".backup-" + Guid.NewGuid().ToString("N");
+            RejectReparsePath(targetDir);
+            var moved = false;
+            var published = false;
+            try
             {
-                return targetDir;
+                if (Directory.Exists(targetDir)) { Directory.Move(targetDir, backup); moved = true; }
+                Directory.Move(tempDir, targetDir);
+                published = true;
+                if (!ValidateAssetCache(targetDir, files)) throw new InvalidDataException("Published cache invalid.");
             }
-
-            Directory.CreateDirectory(targetDir);
-            using (var zipStream = new MemoryStream(zipBytes, writable: false))
-            using (var archive = new ZipArchive(zipStream, ZipArchiveMode.Read))
+            catch
             {
-                archive.ExtractToDirectory(targetDir, overwriteFiles: true);
+                // Keep failed publication for diagnosis, restore previous directory if present.
+                if (published && Directory.Exists(targetDir)) Directory.Move(targetDir, tempDir + ".failed");
+                if (moved) Directory.Move(backup, targetDir);
+                throw;
             }
-            File.WriteAllText(markerPath, hash12);
             return targetDir;
         }
     }

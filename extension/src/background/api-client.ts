@@ -1,3 +1,4 @@
+import { normalizeDashboardOrigin } from '../shared/validation'
 /**
  * The only place in the extension that talks to the AdsOps API.
  *
@@ -26,11 +27,12 @@ export async function apiRequest<T>(
   path: string,
   { method = 'GET', body, token, signal }: RequestOptions = {},
 ): Promise<T> {
-  if (!path.startsWith('/api/v1/')) {
+  if (!/^\/api\/v1\/[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/.test(path)) {
     // A guard, not a formality: it makes "call an arbitrary URL" impossible from here.
     throw new ApiError('Refusing to call a path outside the AdsOps API.', 0, 'invalid_path')
   }
-  const response = await fetch(`${baseUrl.replace(/\/+$/, '')}${path}`, {
+  const response = await fetch(`${normalizeDashboardOrigin(baseUrl)}${path}`, {
+    redirect: 'error',
     method,
     // No cookies, ever. The bearer token is the only credential this client carries.
     credentials: 'omit',

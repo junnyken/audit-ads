@@ -1,0 +1,195 @@
+{
+  "checker_sha256": "7e9defc1b950fbce930910fe2af259f5a8e85e22f057833ff3e7e77f23a1ce92",
+  "files": {
+    "assets/OFL-BeVietnamPro.txt": {
+      "sha256": "0bd4db1cda123af9d91794b0f98324b7d7d81aef0fcaf78c433160153f2c6f25",
+      "size": 6476
+    },
+    "assets/be-vietnam-pro-latin-400-normal.woff2": {
+      "sha256": "03d1b589cff172e1a670b3573e731d3380bc326f80cf83b0d3504e3188e2e074",
+      "size": 21168
+    },
+    "assets/be-vietnam-pro-latin-500-normal.woff2": {
+      "sha256": "b621f77d35f777023aa11ca524462d511b4b28a813adbc0e9d15a10fc61dfe4e",
+      "size": 21892
+    },
+    "assets/be-vietnam-pro-latin-600-normal.woff2": {
+      "sha256": "9503dec2a7c532c8331e9600bcafea287a4fd208573b8668d85ab8d8de1863c7",
+      "size": 22032
+    },
+    "assets/be-vietnam-pro-latin-700-normal.woff2": {
+      "sha256": "a193dd87699bd2e18ddf72dc271493ea82a23dad9f5c334d9f2a257b1e05fc30",
+      "size": 22152
+    },
+    "assets/be-vietnam-pro-vietnamese-400-normal.woff2": {
+      "sha256": "dc085e2fba3414e5c5bf1e6172f921a9f81c5859946a4ed3d63c1e470d96a9e2",
+      "size": 11532
+    },
+    "assets/be-vietnam-pro-vietnamese-500-normal.woff2": {
+      "sha256": "86341610cbe907eecf461c9159c168d5efb52bb1a33963813a08f520555d8e66",
+      "size": 12172
+    },
+    "assets/be-vietnam-pro-vietnamese-600-normal.woff2": {
+      "sha256": "97658c6f9a384f29a3005c3d96e2a0d1c810192cf68979071c290f5a377a9f99",
+      "size": 12176
+    },
+    "assets/be-vietnam-pro-vietnamese-700-normal.woff2": {
+      "sha256": "4f58af2d1c3e28a9ba14c51c82db2751d78344b75bdcb34de24a1031ebe59da6",
+      "size": 12468
+    },
+    "assets/extension.css": {
+      "sha256": "069b9cf27a954fd20261117e7914f58d4175536f74987b684ca178525fa2ad2f",
+      "size": 11439
+    },
+    "background/service-worker.js": {
+      "sha256": "1b39374efe02129fb2bade23cea946f3a4161eaa4e1c18036e3d10b968f118c2",
+      "size": 12501
+    },
+    "chunks/ContextView.js": {
+      "sha256": "0c15d64f3356a96e1938b33b684c21952683068e4ae4bc064e93c3ec1a64cacd",
+      "size": 11216
+    },
+    "chunks/extension.js": {
+      "sha256": "3f73cb5df69ee6e0203fcb3a99e305d042849a8d0f51e1f85fb6d879dc371533",
+      "size": 260386
+    },
+    "chunks/storage.js": {
+      "sha256": "e6233cada6f45762332287a7b1cfd381c77c605c9a9266deda55f5465a13dbe8",
+      "size": 6764
+    },
+    "content/content.js": {
+      "sha256": "491b134429ef89dc88143f77a84bf1cb7c3bd6f1133b9c545165f407d83370b1",
+      "size": 4083
+    },
+    "icons/icon-128.png": {
+      "sha256": "b148f34027fe7c4a63c814be7a2b7fd034ab4c0fb926b545653a55a49c18e476",
+      "size": 3518
+    },
+    "icons/icon-16.png": {
+      "sha256": "9d14f11d00c3fe437301e14334b257e7aa4736146078019c89f969c17dea35fb",
+      "size": 550
+    },
+    "icons/icon-32.png": {
+      "sha256": "501650c6f1bda83655d161bb82caef5d776a3268aff80295858c08a8425ad0c3",
+      "size": 988
+    },
+    "icons/icon-48.png": {
+      "sha256": "3d8623a0972c60895dd5cca1f95c50405fef57ab4147267bf0a0fb7495e9f1a5",
+      "size": 1321
+    },
+    "manifest.json": {
+      "sha256": "18583d8d0c89ab954181f0ecca6af47089acfe6846b4f11c8b6bd087ca3df567",
+      "size": 1510
+    },
+    "options.js": {
+      "sha256": "09cd3c0a9def03b03aea9c218063bc14a4e23a225969e38e8ffa91a48ffbba26",
+      "size": 8181
+    },
+    "options/options.html": {
+      "sha256": "0adb84acc698a41f5e78ccea64716e183ac2bdbfad94200a30cd49d3f882a4f2",
+      "size": 471
+    },
+    "popup.js": {
+      "sha256": "ee0254b56ee117b6957ffb5069b20408a100e07cb159bd42b2049e1a8bf0a2fc",
+      "size": 5319
+    },
+    "popup/popup.html": {
+      "sha256": "9337feb0de70fe735e40dc6d8b44a546de5dfe690a518f8fc58352c0c1e767b2",
+      "size": 545
+    },
+    "sidepanel.js": {
+      "sha256": "83805812c9996570e5def42e09866a92c58d19b40cf6385249ba321a97b1a51f",
+      "size": 9803
+    },
+    "sidepanel/sidepanel.html": {
+      "sha256": "7bf463b583956161f3066c04940d72c81b43a846984b6b94df2a5ecb118daacd",
+      "size": 554
+    }
+  },
+  "limits": {
+    "file_bytes": 4194304,
+    "files": 200,
+    "total_bytes": 16777216
+  },
+  "lock_sha256": "e48a2d464b024f48558b7349ef57a4bbe89d6f74742615f12ca1f1adc8f453a8",
+  "runtime_tested": false,
+  "schema": 1,
+  "sha256": "e97d7350fffc84946beee78afba69c787a52925393ef1a0fe4d6bdc8314cb14b",
+  "source_files": {
+    "eslint.config.js": "ed3b0dfeb201d5f1a67130082c2ecb4733c0299488b903b4a5da5bf9585a6c1e",
+    "icons/icon-128.png": "b148f34027fe7c4a63c814be7a2b7fd034ab4c0fb926b545653a55a49c18e476",
+    "icons/icon-16.png": "9d14f11d00c3fe437301e14334b257e7aa4736146078019c89f969c17dea35fb",
+    "icons/icon-32.png": "501650c6f1bda83655d161bb82caef5d776a3268aff80295858c08a8425ad0c3",
+    "icons/icon-48.png": "3d8623a0972c60895dd5cca1f95c50405fef57ab4147267bf0a0fb7495e9f1a5",
+    "package-lock.json": "e48a2d464b024f48558b7349ef57a4bbe89d6f74742615f12ca1f1adc8f453a8",
+    "package.json": "e06cdfbd3d9f193d4bf25110cc3d86f58c17d173c0f516bdb943fe132ab973f3",
+    "scripts/check-urls.ts": "056c083c5f5d2fce8103acc112a7b15176b70067949aec3a2d01b5e1a1ffc766",
+    "scripts/make-icons.py": "dd662a01bb16694a80932e47cbcdd40224362f2b0430237dee233f6f209055f9",
+    "src/background/api-client.ts": "22467a7ca4a0f23171fc218a5399148543f9d2d27becf903f33845cda2c8b09a",
+    "src/background/auth-session.ts": "47fe8b8df8ef4cac5d150c33c133301f119652f1f7443427b360f7a676c0e3b3",
+    "src/background/request-guard.ts": "a198d8fe2261c69547bdc6748c0ea282142a04434e221b70e755d82e50685f89",
+    "src/background/service-worker.ts": "3d720a58b76abfdb5e4278a14a768aac4f27496047bcdb4fef560a141ab7d42d",
+    "src/content/context-detector.ts": "800756adaa26a3c9736bb9a47df9eeb41f3a276e62c1248d560d90204c2884fe",
+    "src/content/dom-observer.ts": "7c46dbd0056a56cb553dcbd7bec4559d0ffacf36717e573afedb1473c7f66b11",
+    "src/content/page-bridge.ts": "de5260b08d9f4388e16f716a297ae64f951b546c5a4457c96827ce1c7d972f0a",
+    "src/fonts/OFL.txt": "0bd4db1cda123af9d91794b0f98324b7d7d81aef0fcaf78c433160153f2c6f25",
+    "src/fonts/be-vietnam-pro-latin-400-normal.woff2": "03d1b589cff172e1a670b3573e731d3380bc326f80cf83b0d3504e3188e2e074",
+    "src/fonts/be-vietnam-pro-latin-500-normal.woff2": "b621f77d35f777023aa11ca524462d511b4b28a813adbc0e9d15a10fc61dfe4e",
+    "src/fonts/be-vietnam-pro-latin-600-normal.woff2": "9503dec2a7c532c8331e9600bcafea287a4fd208573b8668d85ab8d8de1863c7",
+    "src/fonts/be-vietnam-pro-latin-700-normal.woff2": "a193dd87699bd2e18ddf72dc271493ea82a23dad9f5c334d9f2a257b1e05fc30",
+    "src/fonts/be-vietnam-pro-vietnamese-400-normal.woff2": "dc085e2fba3414e5c5bf1e6172f921a9f81c5859946a4ed3d63c1e470d96a9e2",
+    "src/fonts/be-vietnam-pro-vietnamese-500-normal.woff2": "86341610cbe907eecf461c9159c168d5efb52bb1a33963813a08f520555d8e66",
+    "src/fonts/be-vietnam-pro-vietnamese-600-normal.woff2": "97658c6f9a384f29a3005c3d96e2a0d1c810192cf68979071c290f5a377a9f99",
+    "src/fonts/be-vietnam-pro-vietnamese-700-normal.woff2": "4f58af2d1c3e28a9ba14c51c82db2751d78344b75bdcb34de24a1031ebe59da6",
+    "src/manifest.json": "18583d8d0c89ab954181f0ecca6af47089acfe6846b4f11c8b6bd087ca3df567",
+    "src/options/OptionsApp.tsx": "18e01279456c42a10c738e2ac20c0f8d15a76060085fa75afcabe2bb32a5ac9b",
+    "src/options/main.tsx": "661610e9b411c8e9c9291ba9d54c5cb32f7db129999ac71f00e26b59440ccb99",
+    "src/options/options.html": "320dfc4715c4486bb37a0b17001c4a67a4ac1f661c58139ac117ae797ae17448",
+    "src/popup/ContextView.tsx": "1c1f5e286de79953ad944c13a750d1976e4fe194ddffedcefe0631463f646c7e",
+    "src/popup/PopupApp.tsx": "da0119d6d52558f9d11cf7f61a7e73a63b5f9bfb559d089b7515329bf6c999a2",
+    "src/popup/main.tsx": "d6386800886b7eceb2c5d40ff2340d024483c7d245a54d6ac07f6dc6fcc41168",
+    "src/popup/popup.html": "60ef339c10e9399ce80a3ddc8c8aef9582d20bee2767748d53da020815a65ea3",
+    "src/shared/Icon.tsx": "37e614da309ecbda87c0d8b456f6d4216e573698a2e7d2ee27a72a35e879f5d8",
+    "src/shared/LanguageToggle.tsx": "e7f17906b31d84d77c49365fe8aea5666c2f8eaa76f6254d7e7f88c8993f443b",
+    "src/shared/Notice.tsx": "fa61947bababd24102eac46bf8c764ecfe7f8adb2bc1fb12c79544c48492138c",
+    "src/shared/i18n/LanguageProvider.tsx": "c15f8ec3077db7e167ad441ff64fa0839cd4f7fc16e9feb08538df8ab850af42",
+    "src/shared/i18n/en.ts": "83ce885f5c9a3e0d0a260edae70007fae6a9afb15dc59007a0ca8203153aeb38",
+    "src/shared/i18n/index.ts": "d5e3442d1d9a3dfd55375ebe989ac9f1475078b45ff0d3008c98d3ae1feca656",
+    "src/shared/i18n/translate.ts": "c568154bf495e4fcb573ced3b2e0307761f5612dab0b2c5b00bf57eec62f0596",
+    "src/shared/i18n/types.ts": "2eeb2461de4e179774b6fb5cc68c565fbd944439c2e130265eba86ab8859f482",
+    "src/shared/i18n/vi.ts": "029ed79255ea47627f98fd173db6e2e9b6f04c19028fbe7559326db9197fd6aa",
+    "src/shared/messaging.ts": "cdc3e2f6775a4fe16e76cb13e1fee0a32eaf5afe73c56302f05b8a807d9ff8d9",
+    "src/shared/presentation.ts": "e86232eb1ee7c5863de19a04747be8b9069629e3fc2cf980bdda6272111269e1",
+    "src/shared/storage.ts": "5a24878fd2e6d9473a80680586cd214568598d8232f3ecce53fb5808e8c71d35",
+    "src/shared/types.ts": "9b7d70af7427cfd9d0d4fcf151aa4a43364f588a14783bad10d99587de007826",
+    "src/shared/useExtension.ts": "dddf64904bd14a00f25e1cc1dcd3f2168068410521db6a1cd2471adcc62907cd",
+    "src/shared/validation.ts": "fe078ffb092fa1a1641d13c389961742848b46afcc22696b065e7661ab9fb571",
+    "src/sidepanel/SidePanelApp.tsx": "c6d4629e80334a34b686d1dd707a178f61a98e543ab119312e79e495fd09135f",
+    "src/sidepanel/main.tsx": "21d670883fb00c848e4cbf933badc3b161af1d3618205197c0808503e48e884c",
+    "src/sidepanel/sidepanel.html": "32891a6fbed4c761b6e6bd94b47205da3d65418b917ee8c3a9e976a95b6a604e",
+    "src/styles/extension.css": "7c751405a3444e01758b7c3f570f1cce7c766c33bbd5cd3b903cc1434144aca9",
+    "src/styles/fonts.css": "290d133daa57b6776762759a50d4305b069205efa252fac2e9d4509fb4fd9313",
+    "src/styles/tokens.css": "c8f3e0fc21af27864ddd5b3ae610ae9821ece7bbe0639495bd14c0867eead70f",
+    "tests/detector.test.ts": "8c5db8acd39861bb38d077659bff0e38fab053605f3d4301931d5c8f96d67455",
+    "tests/hardening.test.ts": "f3c6afefc6499aa5b5f6c951dd709db9b8ee68b4e8db7351ea4916ad7b01a567",
+    "tests/manifest.test.ts": "15fc482570ea25c59b90717608d10f7e7984dfaae8a1a13a80f92941e7febbc5",
+    "tests/setup.ts": "f90f3fb490cd9a82fa5f7522b5fb644a70ee8994cba1c1af2398136966559448",
+    "tests/storage.test.ts": "3ecd54724c15520e59249052261b6af03b5488c2f7fed117771f576e49992051",
+    "tests/test_package_checker.py": "92d91296e4c96e41dcee93eba160af4ee2fd356362d949690d94eb3262e9e682",
+    "tests/u1e.test.tsx": "2d01212398ee7c8c727eb493165d91747ff642be3ee8465c3f0d4ee5047480dd",
+    "tests/ui.test.tsx": "cda42b9a90c2225fd37c05d6c9e9b168ca46d2719c5a627bee168e6ce98525ec",
+    "tests/validation.test.ts": "edccea89044cb497dff389cf263aa6556df59979f04f245f91037e7289557556",
+    "tsconfig.json": "d7cc1690f9e65204bd2e64ff83c2d4e5aef16d81325a72f4e97b8204f99baf00",
+    "vite.config.ts": "75db0099548b74aaa736322029ffd6e2a4801e5c8e435cd493330427dbbd3c2e",
+    "vite.content.config.ts": "09c9e57f645a4a0807f43c8acd663d55c0687c035d0a229bc145d51d756c5a40",
+    "vitest.config.ts": "ef2789fc03bbee2e89d88e6f28e43581b44c3a985afdb1f929d71b32e65d7cca"
+  },
+  "source_sha256": "8540753cea2a5b2572e0b89f721e677c6eb03d63a4cb2755e63d44f3624e3013",
+  "validation": {
+    "file_count": 26,
+    "js_chunks_scanned": 8,
+    "uncompressed_bytes": 481217
+  },
+  "version": "0.3.2",
+  "zip_bytes": 228209
+}

@@ -1,0 +1,84 @@
+name: Windows candidate verification
+
+# Review branch / explicit manual build only; never publishes or changes latest.
+on:
+  workflow_dispatch:
+  push:
+    branches: ['verify/windows-client-20261127']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-candidate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  candidate:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/DesktopUi/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Verify source release boundaries (static, not runtime acceptance)
+        shell: pwsh
+        run: |
+          python -I desktop/scripts/check_release_gate.py --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Static release gate failed' }
+          python -I desktop/scripts/test_client_safety.py
+          if ($LASTEXITCODE -ne 0) { throw 'Static startup/cache checks failed' }
+      - name: Rebuild embedded UI from lockfile
+        working-directory: desktop/DesktopUi
+        shell: pwsh
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency restore failed' }
+          if (Test-Path ../AdsOpsDesktop/webui_bundle.zip) { Remove-Item ../AdsOpsDesktop/webui_bundle.zip -Force }
+          if (Test-Path dist) { Remove-Item dist -Recurse -Force }
+          npm run build
+          if ($LASTEXITCODE -ne 0) { throw 'Embedded UI build failed' }
+          if (-not (Test-Path ../AdsOpsDesktop/webui_bundle.zip)) { throw 'Embedded UI bundle missing' }
+      - name: Compile Windows candidate (not signed, not for installation)
+        shell: pwsh
+        run: |
+          dotnet publish desktop/AdsOpsDesktop/AdsOpsDesktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=embedded -o artifacts/windows-candidate/payload
+          if ($LASTEXITCODE -ne 0) { throw 'Windows compilation failed' }
+      - name: Record immutable build provenance
+        shell: pwsh
+        run: |
+          $exe = Get-Item artifacts/windows-candidate/payload/AdsOpsDesktop.exe
+          if ($exe.Length -le 0) { throw 'Candidate executable empty' }
+          $ui = Get-Item desktop/AdsOpsDesktop/webui_bundle.zip
+          $record = [ordered]@{
+            status = 'unsigned-build-only'; installable_release = $false; auto_promote = $false
+            source_commit = '${{ github.sha }}'; run_id = '${{ github.run_id }}'
+            source_version = [string]([xml](Get-Content desktop/AdsOpsDesktop/AdsOpsDesktop.csproj -Raw)).Project.PropertyGroup.Version
+            exe_sha256 = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            exe_size_bytes = $exe.Length
+            ui_sha256 = (Get-FileHash $ui.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            lock_sha256 = (Get-FileHash desktop/DesktopUi/package-lock.json -Algorithm SHA256).Hash.ToLowerInvariant()
+            runtime_tested = $false; signed = $false
+            blocked_on = @('Windows manual click-through','trusted signing','legacy native review','Email Registry desktop parity')
+          }
+          $record | ConvertTo-Json -Depth 4 | Set-Content artifacts/windows-candidate/build-provenance.json -Encoding utf8
+          Copy-Item $ui.FullName artifacts/windows-candidate/webui_bundle.zip
+      - name: Upload review-only build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-review-only-${{ github.sha }}
+          path: artifacts/windows-candidate/
+          if-no-files-found: error
+          retention-days: 7
