@@ -1,5 +1,17 @@
 # MOCKUP — A6 Preflight Compliance Gate
 
+> Phần A6 bên dưới là ghi chép lịch sử ngày 2026-09-08; URL/QA cũ chưa được kiểm lại trong lượt P1. Không dùng chúng làm bằng chứng P1 đã publish.
+
+## P1-D1 — Email registry độc lập (2026-11-26)
+
+- Artifact đã dựng: [mở mockup offline](mockups/p1-email/index.html), không cần server, không route production.
+- Phạm vi: Gmail cá nhân và Microsoft; email độc lập, danh sách che; owner/admin + người phụ trách được reveal theo cơ chế tương lai, CSV không full address.
+- Mỗi màn registry/detail/edit/review là một tệp riêng; luồng chỉ sửa fixture trong bộ nhớ, tải lại/reset phục hồi dữ liệu minh họa.
+- Không API/DB/provider, không secret, không persistence; toàn bộ wording mới là đề xuất chờ duyệt.
+- Main verification: typecheck/lint test đạt; 4 mockup + 6 F1 = 10 tests passed. Kiểm DOM/script thực, không phải real-browser/viewport/contrast/manual QA. Wording chưa duyệt, P1 schema/API chưa triển khai; xem TEST_LOG.md và P1_D1_REVIEW_CHECKLIST.md.
+- Không chạy publish.sh/always-on: giữ phạm vi offline và quy định một beta/TTL mới của tổ chức.
+
+
 ## Live mockup
 - URL: https://audit-ads-mockup.b.matbao.ai
 - Responsive: https://audit-ads-mockup.b.matbao.ai/__device/

@@ -1,0 +1,129 @@
+/*
+ * Design tokens (v5.0 — Impeccable Studio: Obsidian Dark & Alabaster Light + Precision Cobalt).
+ * Stored as space-separated RGB channels so Tailwind can add alpha (`rgb(var(--x) / <alpha-value>)`).
+ * Semantic palette tokens map identically across Alabaster Light and Obsidian Dark, with WCAG AA >= 4.5:1.
+ */
+:root {
+  --bg: 247 249 252;
+  --surface: 255 255 255;
+  --surface-2: 241 245 249;
+  --border: 226 232 240;
+  --border-strong: 203 213 225;
+  --fg: 15 23 42;
+  --fg-muted: 71 85 105;
+  --fg-faint: 82 94 112;
+  --brand: 37 99 235;
+  --brand-hover: 29 78 216;
+  --brand-fg: 255 255 255;
+  --brand-text: 29 78 216;
+  --brand-soft: 239 246 255;
+  --tone-positive-bg: 230 246 238;
+  --tone-positive-fg: 15 107 67;
+  --tone-positive-border: 169 223 194;
+  --tone-caution-bg: 255 245 220;
+  --tone-caution-fg: 122 75 0;
+  --tone-caution-border: 241 212 138;
+  --tone-attention-bg: 253 234 234;
+  --tone-attention-fg: 155 28 28;
+  --tone-attention-border: 243 180 180;
+  --tone-info-bg: 239 246 255;
+  --tone-info-fg: 29 78 216;
+  --tone-info-border: 191 219 254;
+  --tone-neutral-bg: 241 245 249;
+  --tone-neutral-fg: 51 65 85;
+  --tone-neutral-border: 203 213 225;
+  --tone-muted-bg: 248 250 252;
+  --tone-muted-fg: 100 116 139;
+  --tone-muted-border: 226 232 240;
+  color-scheme: light;
+}
+
+.dark {
+  --bg: 10 12 16;
+  --surface: 17 20 26;
+  --surface-2: 23 27 35;
+  --border: 36 41 51;
+  --border-strong: 56 63 78;
+  --fg: 244 246 250;
+  --fg-muted: 164 172 186;
+  --fg-faint: 134 142 158;
+  --brand: 37 99 235;
+  --brand-hover: 59 130 246;
+  --brand-fg: 255 255 255;
+  --brand-text: 125 180 252;
+  --brand-soft: 21 34 68;
+  --tone-positive-bg: 14 42 32;
+  --tone-positive-fg: 52 211 153;
+  --tone-positive-border: 22 101 52;
+  --tone-caution-bg: 42 32 12;
+  --tone-caution-fg: 251 191 36;
+  --tone-caution-border: 146 64 14;
+  --tone-attention-bg: 46 18 22;
+  --tone-attention-fg: 248 113 113;
+  --tone-attention-border: 153 27 27;
+  --tone-info-bg: 21 34 68;
+  --tone-info-fg: 125 180 252;
+  --tone-info-border: 30 64 175;
+  --tone-neutral-bg: 23 27 35;
+  --tone-neutral-fg: 212 216 226;
+  --tone-neutral-border: 56 63 78;
+  --tone-muted-bg: 17 20 26;
+  --tone-muted-fg: 164 172 186;
+  --tone-muted-border: 36 41 51;
+  color-scheme: dark;
+}
+
+.emerald {
+  --bg: 7 11 10;
+  --surface: 16 26 23;
+  --surface-2: 22 36 32;
+  --border: 31 53 46;
+  --border-strong: 45 79 68;
+  --fg: 236 253 245;
+  --fg-muted: 167 243 208;
+  --fg-faint: 110 231 183;
+  --brand: 16 185 129;
+  --brand-hover: 5 150 105;
+  --brand-fg: 255 255 255;
+  --brand-text: 52 211 153;
+  --brand-soft: 13 48 38;
+  color-scheme: dark;
+}
+
+/* No explicit choice yet: follow the operating system. */
+@media (prefers-color-scheme: dark) {
+  :root:not(.light):not(.dark) {
+    --bg: 10 12 16;
+    --surface: 17 20 26;
+    --surface-2: 23 27 35;
+    --border: 36 41 51;
+    --border-strong: 56 63 78;
+    --fg: 244 246 250;
+    --fg-muted: 164 172 186;
+    --fg-faint: 134 142 158;
+    --brand: 37 99 235;
+    --brand-hover: 59 130 246;
+    --brand-fg: 255 255 255;
+    --brand-text: 125 180 252;
+    --brand-soft: 21 34 68;
+    --tone-positive-bg: 14 42 32;
+    --tone-positive-fg: 52 211 153;
+    --tone-positive-border: 22 101 52;
+    --tone-caution-bg: 42 32 12;
+    --tone-caution-fg: 251 191 36;
+    --tone-caution-border: 146 64 14;
+    --tone-attention-bg: 46 18 22;
+    --tone-attention-fg: 248 113 113;
+    --tone-attention-border: 153 27 27;
+    --tone-info-bg: 21 34 68;
+    --tone-info-fg: 125 180 252;
+    --tone-info-border: 30 64 175;
+    --tone-neutral-bg: 23 27 35;
+    --tone-neutral-fg: 212 216 226;
+    --tone-neutral-border: 56 63 78;
+    --tone-muted-bg: 17 20 26;
+    --tone-muted-fg: 164 172 186;
+    --tone-muted-border: 36 41 51;
+    color-scheme: dark;
+  }
+}

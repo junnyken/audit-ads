@@ -1,0 +1,13 @@
+{
+  "id": "P1-D1",
+  "status": "proposal-awaiting-approval",
+  "entry": "index.html",
+  "transport": "file:// classic scripts, no network",
+  "fixtureDateAnchor": "2026-11-26 (simulated)",
+  "screens": ["registry", "detail", "edit", "review"],
+  "flows": ["filter/search/paginate → detail → edit → review → save → detail/history", "review → back → edit", "edit/review → cancel → detail (discard)", "reset → registry (fixtures restored)", "read error → retry", "saving → readback failure → retry readback"],
+  "states": ["normal", "loading", "empty", "no-results", "error", "no-permission", "partial", "validation-error", "saving", "readback-failure"],
+  "manualEvidence": ["unknown", "pending", "recorded", "blocked"],
+  "persistence": "memory only",
+  "notTested": ["real browser", "375/768/1280 viewport", "real keyboard/screen reader", "contrast", "production integration"]
+}

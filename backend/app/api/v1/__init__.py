@@ -8,6 +8,7 @@ from app.api.v1.routers import (
     auth,
     automation_ops,
     community,
+    email_registry,
     events,
     extension,
     facebook_identities,
@@ -52,3 +53,6 @@ api_router.include_router(automation_ops.router)
 api_router.include_router(community.router)
 api_router.include_router(playbooks.router)
 api_router.include_router(google_ads_sync.router)
+
+
+api_router.include_router(email_registry.router)

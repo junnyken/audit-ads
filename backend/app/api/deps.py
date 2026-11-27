@@ -97,7 +97,7 @@ def token_use(payload: dict) -> str:
     return str(payload.get("token_use") or TOKEN_USE_DASHBOARD)
 
 
-def _build_context(session: Session, payload: dict) -> ApiContext:
+def _build_context(session: Session, payload: dict, *, touch_session: bool = True) -> ApiContext:
     try:
         user_id = uuid.UUID(payload["sub"])
         workspace_id = uuid.UUID(payload["workspace_id"])
@@ -136,7 +136,8 @@ def _build_context(session: Session, payload: dict) -> ApiContext:
         device_session = registry.get_active(claimed_id)
         if device_session is None:
             raise AuthenticationError("Your session has ended. Sign in again.")
-        registry.touch(device_session)
+        if touch_session:
+            registry.touch(device_session)
         device_session_id = device_session.id
 
     return ApiContext(
@@ -210,6 +211,20 @@ class ExtensionContext:
 
     def visible_business_manager_ids(self) -> set[uuid.UUID] | None:
         return self.api.visible_business_manager_ids()
+
+
+def get_email_registry_context(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+    session: Annotated[Session, Depends(get_db)],
+) -> ApiContext:
+    """P1 postpones session touch until its ordered transaction locks are held.
+
+    Existing F1/Meta callers retain their default context behavior.
+    """
+    payload = _decode(credentials)
+    if token_use(payload) != TOKEN_USE_DASHBOARD:
+        raise AuthenticationError("Sign in to the dashboard for this endpoint.")
+    return _build_context(session, payload, touch_session=False)
 
 
 def get_extension_context(

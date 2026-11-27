@@ -1,9 +1,10 @@
-import { Fragment, useId, useState } from 'react'
+import { Fragment, useEffect, useId, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { Building2, Calendar, ChevronRight, Columns3, CreditCard, Download, ExternalLink, Eye, Gauge, ListFilter, Pencil, RotateCcw, Search, ShieldCheck, Trash2, X } from 'lucide-react'
 import { prettyMoney } from '../lib/spend'
-import { api, query } from '../lib/api'
+import { accountsCsv, collectAccounts } from '../lib/accountsCsv'
+import { api, getToken, query } from '../lib/api'
 import type { AdAccount, Paged, ReferenceRecord } from '../lib/types'
 import AccountFormDrawer from '../components/AccountFormDrawer'
 import { QuickMetaSyncBanner } from '../components/meta/QuickMetaSyncBanner'
@@ -281,7 +282,8 @@ export default function Accounts() {
     }
   })()
 
-  const rows = baseRows.filter((a) => {
+  const matchesClientFilters = (a: AdAccount) => {
+    if (platformScope !== 'all' && (platformScope === 'google_ads') !== isGoogleAdAccount(a)) return false
     const bm = a.billing_meta ?? {}
     const bal = Number(bm.balance_raw ?? a.spend_periods?.balance_raw ?? 0) || 0
     const validLabels = (a.payment_profile_labels ?? []).filter((lbl) => !lbl.startsWith('VISA-QCT-'))
@@ -295,7 +297,8 @@ export default function Accounts() {
     if (quickSlice === 'disabled') return a.status === 'disabled'
     if (quickSlice === 'has_card') return hasCard
     return true
-  })
+  }
+  const rows = rawBaseRows.filter(matchesClientFilters)
   const bmOptions = (businessManagers.data?.items ?? []).map((bm) => [bm.id, String(bm.name)] as [string, string])
   const facebookOptions = (facebookIdentities.data?.items ?? []).map((identity) => [identity.id, String(identity.label)] as [string, string])
 
@@ -656,73 +659,33 @@ export default function Accounts() {
       !r.personal_account_reference_id,
   ).length
 
-  function exportCsv() {
-    if (!rows.length) return
-    const esc = (val: string | null | undefined) => {
-      const s = val ?? '—'
-      if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-        return `"${s.replace(/"/g, '""')}"`
-      }
-      return s
-    }
-    const headers = [
-      'Tên TKQC',
-      'ID TKQC (External ID)',
-      'Business Manager',
-      'XMDN BM',
-      'Pháp nhân Doanh nghiệp',
-      'Mã số thuế (MST)',
-      'Via & Hồ sơ Chrome',
-      'Tiền tệ',
-      'Dư nợ hiện tại',
-      'Số dư đạt (Ngưỡng TT)',
-      'Ngày thanh toán tiếp theo',
-      'Giới hạn chi tiêu ngày (Meta đặt)',
-      'Phương thức thanh toán (Thẻ)',
-      'Chi tiêu Hôm nay',
-      'Chi tiêu Hôm qua',
-      'Chi tiêu 7 ngày',
-      'Chi tiêu Tháng này (MTD)',
-      'Chi tiêu Lũy kế',
-      'Trạng thái Meta',
-    ]
-    const csvRows = [
-      headers.map(esc).join(','),
-      ...rows.map((a) => {
-        const bm = a.billing_meta ?? {}
-        const curr = a.spend?.observed_currency || a.currency || '—'
-        const vias =
-          a.facebook_identities
-            ?.map((i) => `${i.label}${i.browser_profile_label ? ` (${i.browser_profile_label})` : ''}`)
-            .join('; ') || '—'
-        const validLabels = (a.payment_profile_labels ?? []).filter((lbl) => !lbl.startsWith('VISA-QCT-'))
-        const cardTxt = bm.payment_card_display || validLabels.join('; ') || 'Chưa gắn thẻ'
-        return [
-          a.display_name,
-          a.external_account_id || '—',
-          a.business_manager_name || a.personal_account_reference_label || '—',
-          bm.bm_verified ? 'Đã XMDN' : 'Chưa XMDN',
-          bm.business_legal_name || '—',
-          bm.tax_id ? `${bm.tax_id}${bm.tax_id_verified ? ' (Đã xác minh)' : ''}` : '—',
-          vias,
-          curr,
-          bm.balance_raw ?? a.spend_periods?.balance_raw ?? '—',
-          bm.billing_threshold_raw ?? '—',
-          bm.next_bill_date ?? '—',
-          bm.meta_daily_limit_raw ?? '—',
-          cardTxt,
-          a.spend_periods?.today_partial_raw ?? '—',
-          a.spend?.latest_complete_day?.spend_raw ?? '—',
-          a.spend_periods?.last_7d_raw ?? '—',
-          a.spend_periods?.mtd_raw ?? '—',
-          a.spend_periods?.amount_spent_raw ?? '—',
-          a.platform_status?.status ?? enumLabel('accountStatus', a.status),
-        ]
-          .map(esc)
-          .join(',')
-      }),
-    ]
-    const blob = new Blob(['\uFEFF' + csvRows.join('\r\n')], { type: 'text/csv;charset=utf-8;' })
+  const [exportBusy, setExportBusy] = useState(false)
+  const [exportError, setExportError] = useState(false)
+  const exportRun = useRef({ id: 0 })
+  const location = useLocation()
+  const scope = JSON.stringify([user, getToken(), location.key, location.pathname, location.search, platformScope, quickSlice, cardFilter])
+  const currentScope = useRef(scope)
+  currentScope.current = scope
+  useEffect(() => {
+    const lifecycle = exportRun.current
+    lifecycle.id++
+    setExportBusy(false)
+    return () => { lifecycle.id++ }
+  }, [scope])
+
+  async function exportCsv() {
+    if (exportBusy) return
+    const run = ++exportRun.current.id
+    const token = getToken()
+    const valid = () => exportRun.current.id === run && currentScope.current === scope && getToken() === token
+    setExportBusy(true)
+    setExportError(false)
+    try {
+      const all = await collectAccounts(
+        (page) => api.get<Paged<AdAccount>>(`/api/v1/ad-accounts${query({ ...filters, page, page_size: 25 })}`), valid,
+      )
+      if (!valid()) return
+      const blob = new Blob([accountsCsv(all.filter(matchesClientFilters), (status) => enumLabel('accountStatus', status))], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
@@ -731,6 +694,11 @@ export default function Accounts() {
     link.click()
     document.body.removeChild(link)
     URL.revokeObjectURL(url)
+    } catch {
+      if (valid()) setExportError(true)
+    } finally {
+      if (valid()) setExportBusy(false)
+    }
   }
 
   const groupedRows = (() => {
@@ -784,11 +752,12 @@ export default function Accounts() {
           >
             Cài đặt Tự động mở Chrome Profile (1 lần)
           </Button>
-          {rows.length > 0 && (
+          {(accounts.data?.total ?? 0) > 0 && (
             <Button
               type="button"
               variant="secondary"
               onClick={exportCsv}
+              disabled={exportBusy}
               data-testid="accounts-export-csv"
             >
               <Download className="h-4 w-4" aria-hidden="true" />
@@ -801,6 +770,9 @@ export default function Accounts() {
         </div>
       </header>
 
+      <p className="text-xs text-ink-muted">{t('accounts.csv.limit')}</p>
+      {exportError && <p role="alert">{t('accounts.csv.error')}</p>}
+      {exportBusy && <div role="status">{t('accounts.csv.busy')} <Button type="button" onClick={() => { exportRun.current.id++; setExportBusy(false) }}>{t('accounts.csv.cancel')}</Button></div>}
       {showPolicyStudio && (
         <PolicyPreCheckStudio
           mode="ad_copy"
@@ -870,6 +842,7 @@ export default function Accounts() {
                 <button
                   type="button"
                   onClick={exportCsv}
+              disabled={exportBusy}
                   className="inline-flex items-center gap-1 font-semibold text-brand-text hover:underline"
                   title="Tải file Excel/CSV đối soát toàn bộ Dư nợ, Chi tiêu & Thẻ"
                 >

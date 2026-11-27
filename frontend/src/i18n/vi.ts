@@ -1,3 +1,5 @@
+import { accountsExportVi } from './accountsExport'
+import { emailRegistryVi } from './emailRegistry'
 /**
  * Vietnamese strings — the source of truth for every translation key (U1a).
  *
@@ -22,6 +24,7 @@ import { u1fVi } from './u1f'
 import { f1Vi } from './f1'
 
 export const vi = {
+  ...accountsExportVi,
   'common.appName': 'AdsOps Control Center',
   'common.appTagline': 'Sổ đăng ký tài khoản và mức sẵn sàng vận hành',
   'common.loading': 'Đang tải…',
@@ -112,6 +115,7 @@ export const vi = {
   ...u1fVi,
   // F1 — Facebook account profiles [ĐỀ XUẤT — chờ duyệt].
   ...f1Vi,
+  ...emailRegistryVi,
   // ---- U1b (Tổng quan + Tài khoản) — [ĐỀ XUẤT — chờ duyệt] -------------------------------------
   'format.noData': 'Chưa có dữ liệu',
   'format.updatedAt': 'Cập nhật lúc {time}',

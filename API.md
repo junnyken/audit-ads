@@ -1348,3 +1348,13 @@ P0 continuation (local, 2026-11-26): restored Overview T1 attention/error/readin
 ## P2 CSV serialization — 2026-11-26
 
 No endpoint/payload/schema change. Accounts frontend export now serializes absent money values/currency using the existing em-dash marker rather than fabricated 0/VND. Observed zero and raw decimal strings remain intact. This is not a claim that every historical CSV column has been audited.
+
+## P1-I1 email registry — local implementation, not deployed (2026-11-26)
+
+Routes under /api/v1/email-registry are being added according to docs/P1_EMAIL_REGISTRY_CONTRACT.md: create/list/detail/metadata PATCH/reassign/archive/reveal-address/history. Normal responses are masked DTOs, versioned writes require quoted If-Match, reveal takes current user PIN only and is never cached. Owner/admin and assigned active buyer scope only; viewer/auditor denied. No provider integration, export, restore or asset-link routes. Do not call these live until schema/key/release gates pass; actual test outcomes and integration gaps are in docs/P1_I1_EXECUTION_2026-11-26.md.
+
+P1-I1 integration update: registry-only eligible-members projection completes owner/admin assignee selection without changing generic team permissions. CORS permits If-Match and exposes ETag. These are local source changes, not deployed; see execution tracker for final verification and remaining staging/release gates.
+
+## Approved follow-up source work — 2026-11-26
+
+CSV now collects all filtered authorized pages with a 10000-row cap and fails closed on detected partial/inconsistent data; textual spreadsheet formulas protected, valid raw numeric precision preserved. Canceled email form/admin responses cannot close newer dialogs; original-scope cache refresh retained. P1-I2 adds default-off registry-only in-app due attention stored in existing AlertPolicy, migration0028; no outbound or provider automation. These source changes are not deployed. See P2_CSV_EXPORT_CONTRACT.md and P1_I2_CONTRACT_ADDENDUM.md; final test evidence in TEST_LOG.md, PG/staging release gates remain.

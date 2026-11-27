@@ -1193,3 +1193,13 @@ P0 continuation (local, 2026-11-26): restored Overview T1 attention/error/readin
 ## P2 CSV evidence boundary — 2026-11-26
 
 The existing Accounts export uses the current authorized account payload; no new query or backend export service. Unknown money/currency must remain unknown in serialization, without Number/parseFloat conversion. Existing balance and currency source precedence stays unchanged. No model, API or migration change. See docs/AUDIT_BEFORE_BUILD_P2_CSV.md for the approved slice and verification status.
+
+## P1-I1 implementation boundary — in progress, 2026-11-26
+
+New email registry is independent of Facebook PersonalAccountReference. Contact encryption remains inside secret_vault; workspace blind-index uniqueness requires a dedicated key, no JWT/plaintext fallback. Owner/admin and assigned active buyer only; PIN reveal, scope locks, version preconditions and redacted same-session audit are required. Additive migration/API/UI work is local and not certified until verification; see P1 contract and execution tracker.
+
+P1-I1 integration update: registry-only eligible-members projection completes owner/admin assignee selection without changing generic team permissions. CORS permits If-Match and exposes ETag. These are local source changes, not deployed; see execution tracker for final verification and remaining staging/release gates.
+
+## Approved follow-up source work — 2026-11-26
+
+CSV now collects all filtered authorized pages with a 10000-row cap and fails closed on detected partial/inconsistent data; textual spreadsheet formulas protected, valid raw numeric precision preserved. Canceled email form/admin responses cannot close newer dialogs; original-scope cache refresh retained. P1-I2 adds default-off registry-only in-app due attention stored in existing AlertPolicy, migration0028; no outbound or provider automation. These source changes are not deployed. See P2_CSV_EXPORT_CONTRACT.md and P1_I2_CONTRACT_ADDENDUM.md; final test evidence in TEST_LOG.md, PG/staging release gates remain.

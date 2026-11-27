@@ -56,13 +56,15 @@ export function setToken(token: string | null): void {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<T> {
   const token = getToken()
   const response = await fetch(`${BASE}${path}`, {
     method,
+    ...(path.startsWith('/api/v1/email-registry') ? { cache: 'no-store' as const } : {}),
     headers: {
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...headers,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
@@ -85,8 +87,8 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const api = {
   get: <T>(path: string) => request<T>('GET', path),
-  post: <T>(path: string, body?: unknown) => request<T>('POST', path, body ?? {}),
-  patch: <T>(path: string, body: unknown) => request<T>('PATCH', path, body),
+  post: <T>(path: string, body?: unknown, headers?: Record<string, string>) => request<T>('POST', path, body ?? {}, headers),
+  patch: <T>(path: string, body: unknown, headers?: Record<string, string>) => request<T>('PATCH', path, body, headers),
   put: <T>(path: string, body: unknown) => request<T>('PUT', path, body),
   delete: <T>(path: string) => request<T>('DELETE', path),
 }

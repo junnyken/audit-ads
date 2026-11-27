@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -129,6 +129,24 @@ class Settings(BaseSettings):
     #: vault refuses to work — never plaintext. Changing it makes every stored credential
     #: unreadable (`vault_unavailable` → reconnect), by design: there is no key rotation in O4.
     credential_vault_key: str = ""
+    # Separately provisioned URL-safe base64 32-byte blind-index key. Never generated.
+    email_registry_index_key: str = Field(default="", repr=False)
+    email_registry_index_key_version: int = 1
+
+    @field_validator("email_registry_index_key", mode="before")
+    @classmethod
+    def _registry_key_text(cls, value):
+        # Invalid configuration stays disabled; never put key input in validation errors.
+        return value.strip() if isinstance(value, str) else ""
+
+    @field_validator("email_registry_index_key_version", mode="before")
+    @classmethod
+    def _registry_key_version(cls, value):
+        # Zero is the fail-closed sentinel checked by secret_vault.contact_index.
+        if isinstance(value, str) and value.isascii() and value.isdecimal() and len(value) <= 5:
+            value = int(value)
+        return value if type(value) is int and 1 <= value <= 32767 else 0
+
     #: How often the dispatcher also checks that each vault credential is still alive, counted in
     #: dispatch passes. **Zero disables it, and zero is the default** — like every pass that calls
     #: Meta, switching it on in production is a release decision with a named approver (rule 22).
@@ -206,9 +224,7 @@ class Settings(BaseSettings):
     #: Meta's insights report them. A currency with no entry here never fires the rule — an
     #: unconfigured minimum is not a minimum of zero. Decided 2026-10-26: VND 500 000 / USD 20.
     #: `SPEND_CHANGE_MIN_AMOUNT_JSON={"VND": 500000, "USD": 20}`
-    spend_change_min_amount_json: dict[str, float] = Field(
-        default_factory=lambda: {"VND": 500000, "USD": 20}
-    )
+    spend_change_min_amount_json: dict[str, float] = Field(default_factory=lambda: {"VND": 500000, "USD": 20})
     #: `spend_cap_approaching` fires when amount_spent / spend_cap reaches this ratio.
     spend_cap_ratio_threshold: float = 0.9
 

@@ -1264,3 +1264,13 @@ P0 continuation (local, 2026-11-26): restored Overview T1 attention/error/readin
 ## P2 CSV missing-value hardening — 2026-11-26
 
 Local patch implemented: Accounts CSV distinguishes unknown amounts/currency from observed zero. No new UI, endpoint or schema; see docs/AUDIT_BEFORE_BUILD_P2_CSV.md. Test/release status is recorded separately in TEST_LOG.md; not deployed by this patch session.
+
+## P1-I1 independent email registry — local implementation in progress, 2026-11-26
+
+Independent Gmail personal/Microsoft metadata registry is being implemented from docs/P1_EMAIL_REGISTRY_CONTRACT.md. No provider mailbox/login integration, reminder, asset-link or full-address export. Not deployed or accepted; test and implementation results tracked in docs/P1_I1_EXECUTION_2026-11-26.md. P0/D1 release gates remain in force.
+
+P1-I1 integration update: registry-only eligible-members projection completes owner/admin assignee selection without changing generic team permissions. CORS permits If-Match and exposes ETag. These are local source changes, not deployed; see execution tracker for final verification and remaining staging/release gates.
+
+## Approved follow-up source work — 2026-11-26
+
+CSV now collects all filtered authorized pages with a 10000-row cap and fails closed on detected partial/inconsistent data; textual spreadsheet formulas protected, valid raw numeric precision preserved. Canceled email form/admin responses cannot close newer dialogs; original-scope cache refresh retained. P1-I2 adds default-off registry-only in-app due attention stored in existing AlertPolicy, migration0028; no outbound or provider automation. These source changes are not deployed. See P2_CSV_EXPORT_CONTRACT.md and P1_I2_CONTRACT_ADDENDUM.md; final test evidence in TEST_LOG.md, PG/staging release gates remain.

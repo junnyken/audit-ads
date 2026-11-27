@@ -19,11 +19,14 @@ Shape borrowed from `tracking-audit-os` (`app/core/secret_encryption.py`), read-
 Who may call `decrypt_secret`: `meta_real_provider.resolve_reader` and nothing else — a test pins
 it by name. No value handled here is logged, raised in a message, or returned to a route.
 """
+
 from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
+import uuid
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -79,15 +82,19 @@ def decrypt_secret(settings, ciphertext: str) -> str:
     try:
         return fernet.decrypt(ciphertext.encode("ascii")).decode("utf-8")
     except (InvalidToken, ValueError, UnicodeError):
-        raise SecretDecryptionError("The stored credential cannot be opened with the configured key.") from None
+        raise SecretDecryptionError(
+            "The stored credential cannot be opened with the configured key."
+        ) from None
 
 
 def sign_state(settings, payload: dict) -> str:
     """A short-lived, tamper-evident `state`. The payload must not carry a secret — it is
     encrypted only as a side effect of Fernet's format, and a test pins what it holds."""
-    return _fernet(settings).encrypt(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).decode("ascii")
+    return (
+        _fernet(settings)
+        .encrypt(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+        .decode("ascii")
+    )
 
 
 def verify_state(settings, state: str, *, ttl_seconds: int | None = None) -> dict:
@@ -114,7 +121,8 @@ def verify_state(settings, state: str, *, ttl_seconds: int | None = None) -> dic
 # A Facebook account's login email. Not a credential — it opens nothing by itself — but a list of
 # them is what an attacker needs first, so a copy of the database must not yield it. Same key, same
 # no-plaintext-fallback discipline; separate functions so `decrypt_secret`'s single caller stays
-# pinned, and `decrypt_contact` gets its own (`facebook_identities.reveal_email`).
+# pinned. P1 deliberately extends decrypt_contact to email_registry.reveal after
+# locked authorization + the same viewer PIN. Both callers are pinned in standalone tests.
 
 
 def encrypt_contact(settings, plaintext: str) -> str:
@@ -125,7 +133,7 @@ def encrypt_contact(settings, plaintext: str) -> str:
 
 
 def decrypt_contact(settings, ciphertext: str) -> str:
-    """Only `FacebookIdentityService.reveal_email` calls this, after the viewer's PIN matched."""
+    """Only F1 reveal_email and P1 EmailRegistryService.reveal call this after viewer PIN verification."""
     if not ciphertext:
         raise SecretDecryptionError("There is no stored ciphertext to open.")
     fernet = _fernet(settings)
@@ -209,9 +217,11 @@ def open_ai_provider_key(settings, envelope: str) -> str:
 
 
 def sign_guardrail_override(settings, payload: dict) -> str:
-    return _ai_studio_fernet(settings).encrypt(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).decode("ascii")
+    return (
+        _ai_studio_fernet(settings)
+        .encrypt(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+        .decode("ascii")
+    )
 
 
 def verify_guardrail_override(settings, grant: str, *, ttl_seconds: int = 900) -> dict:
@@ -226,3 +236,29 @@ def verify_guardrail_override(settings, grant: str, *, ttl_seconds: int = 900) -
     if not isinstance(payload, dict):
         raise StateInvalidError("The guardrail override grant is not valid.")
     return payload
+
+
+def contact_index(settings, workspace_id: uuid.UUID, normalized_address: str) -> tuple[bytes, int]:
+    """P1 contact boundary: dedicated, stable key; no JWT/vault-key fallback.
+
+    Rotation requires externally coordinated write suspension and atomic reindexing.
+    Version framing is part of the identity domain, never a client input.
+    """
+    try:
+        raw = getattr(settings, "email_registry_index_key", "")
+        key = base64.b64decode(raw.encode("ascii"), altchars=b"-_", validate=True)
+        version = getattr(settings, "email_registry_index_key_version", None)
+        if (
+            len(key) != 32
+            or type(version) is not int
+            or not 1 <= version <= 32767
+            or raw == getattr(settings, "credential_vault_key", None)
+        ):
+            raise ValueError
+    except (ValueError, TypeError, UnicodeError, AttributeError):
+        raise VaultNotConfiguredError("Contact index protection is not configured.") from None
+    address = normalized_address.encode("ascii")
+    framed = b"adsops-contact-index\x00" + version.to_bytes(2, "big")
+    for part in (workspace_id.bytes, address):
+        framed += len(part).to_bytes(4, "big") + part
+    return hmac.new(key, framed, hashlib.sha256).digest(), version

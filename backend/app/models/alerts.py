@@ -15,6 +15,7 @@ transaction as the alert it belongs to, so an alert can never exist without its 
 and a delivery can never reference an alert that was rolled back. Nothing about sending lives in
 memory, which is what makes restart recovery a query rather than a hope.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -58,14 +59,13 @@ class AlertPolicy(UUIDPrimaryKey, Timestamped, Archivable, Base):
     quiet_hours_enabled: Mapped[bool] = mapped_column(sa.Boolean(), nullable=False, default=True)
     quiet_hours_start: Mapped[time | None] = mapped_column(sa.Time(), nullable=True)
     quiet_hours_end: Mapped[time | None] = mapped_column(sa.Time(), nullable=True)
-    critical_bypasses_quiet_hours: Mapped[bool] = mapped_column(
-        sa.Boolean(), nullable=False, default=True
-    )
+    critical_bypasses_quiet_hours: Mapped[bool] = mapped_column(sa.Boolean(), nullable=False, default=True)
     warning_telegram_enabled: Mapped[bool] = mapped_column(sa.Boolean(), nullable=False, default=True)
-    attention_telegram_enabled: Mapped[bool] = mapped_column(
-        sa.Boolean(), nullable=False, default=False
-    )
+    attention_telegram_enabled: Mapped[bool] = mapped_column(sa.Boolean(), nullable=False, default=False)
     reminder_enabled: Mapped[bool] = mapped_column(sa.Boolean(), nullable=False, default=False)
+    email_registry_in_app_reminders_enabled: Mapped[bool] = mapped_column(
+        sa.Boolean(), nullable=False, default=False, server_default=sa.false()
+    )
     reminder_interval_hours: Mapped[int | None] = mapped_column(sa.Integer(), nullable=True)
     max_reminders_per_alert: Mapped[int | None] = mapped_column(sa.Integer(), nullable=True)
     #: A chat reference only. Never a token.
@@ -80,7 +80,9 @@ class Alert(UUIDPrimaryKey, Timestamped, Archivable, Base):
     __tablename__ = "alerts"
     __table_args__ = (
         sa.UniqueConstraint("workspace_id", "active_key"),
-        sa.Index("ix_alerts_ws_status_severity_observed", "workspace_id", "status", "severity", "last_observed_at"),
+        sa.Index(
+            "ix_alerts_ws_status_severity_observed", "workspace_id", "status", "severity", "last_observed_at"
+        ),
         sa.Index("ix_alerts_ws_account_status", "workspace_id", "ad_account_id", "status"),
         sa.Index("ix_alerts_ws_source", "workspace_id", "source_type", "source_entity_id"),
         sa.Index("ix_alerts_ws_alert_key", "workspace_id", "alert_key"),
@@ -102,9 +104,7 @@ class Alert(UUIDPrimaryKey, Timestamped, Archivable, Base):
     #: Mirrors alert_key while active, NULL otherwise. See the module docstring.
     active_key: Mapped[str | None] = mapped_column(sa.String(400), nullable=True)
     category: Mapped[str] = mapped_column(sa.String(64), nullable=False)
-    severity: Mapped[AlertSeverity] = mapped_column(
-        _enum(AlertSeverity, "alert_severity"), nullable=False
-    )
+    severity: Mapped[AlertSeverity] = mapped_column(_enum(AlertSeverity, "alert_severity"), nullable=False)
     status: Mapped[AlertStatus] = mapped_column(
         _enum(AlertStatus, "alert_status"), nullable=False, default=AlertStatus.OPEN
     )
@@ -126,9 +126,7 @@ class Alert(UUIDPrimaryKey, Timestamped, Archivable, Base):
     suppressed_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
     suppressed_by: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid(), nullable=True)
     suppression_reason: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
-    suppression_expires_at: Mapped[datetime | None] = mapped_column(
-        sa.DateTime(timezone=True), nullable=True
-    )
+    suppression_expires_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
     #: Status the alert returns to when suppression expires.
     status_before_suppression: Mapped[AlertStatus | None] = mapped_column(
         _enum(AlertStatus, "alert_status"), nullable=True
@@ -221,9 +219,7 @@ class NotificationDeliveryAttempt(UUIDPrimaryKey, Base):
         index=True,
     )
     attempt_number: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
-    status: Mapped[DeliveryStatus] = mapped_column(
-        _enum(DeliveryStatus, "delivery_status"), nullable=False
-    )
+    status: Mapped[DeliveryStatus] = mapped_column(_enum(DeliveryStatus, "delivery_status"), nullable=False)
     started_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
     provider_response_code: Mapped[int | None] = mapped_column(sa.Integer(), nullable=True)

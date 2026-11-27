@@ -1,3 +1,5 @@
+import { useAuth } from '../hooks/useAuth'
+import { registryRole } from '../lib/emailRegistry'
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -142,6 +144,7 @@ interface AssetsOverviewResponse {
 }
 
 export default function Assets() {
+  const { user: registryUser } = useAuth()
   const { t, language } = useI18n()
   const isEn = language === 'en'
   const [maxViasPerProxy] = useMaxViasPerProxy()
@@ -381,6 +384,7 @@ export default function Assets() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <PageHeader title={t('assets.title')} description={t('assets.desc')} />
+        {registryRole(registryUser?.role) && <Button asChild variant="secondary"><Link to="/assets/emails">{t('er.title')}</Link></Button>}
         <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"

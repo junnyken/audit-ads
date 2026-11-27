@@ -3903,3 +3903,59 @@ Typecheck/build/lint chain exit0. Lint 0 errors/10 existing Hooks warnings; buil
 Limits: jsdom component/download serialization tests, not real browser or live production export; backend suite not rerun because backend unchanged. Formula injection/other metadata columns are outside this approved slice. See docs/AUDIT_BEFORE_BUILD_P2_CSV.md. Existing P0 operational gaps not waived.
 
 P2 final main verification: full frontend suite 643 passed / 20 skipped, 46 passed / 1 skipped files, exit0 in 71.00s. Existing skips unchanged. Final eslint on Accounts.tsx and new CSV test exit0; final typecheck exit0. No production deploy or push performed.
+
+## P1-D1 offline email mockup — 2026-11-26
+
+Built docs/mockups/p1-email/index.html with four small registry/detail/edit/review fragments, generated screens.js for offline classic-script loading, app.js memory-only fixtures, exact token snapshot, CSS, README and manifest. No production routes/API/schema/provider/network/persistence. Wording proposal/fixture banner stays visible; Gmail personal/Microsoft independent registry, masked address only. Policy owner/admin+assignee and no full-address CSV is documented, not simulated authentication.
+
+Native Sol run 1f50cc3a52bc4fa29067c4b153a28563 completed successfully, worker mockup test 4/4; main read scripts/templates/tests, syntax checks passed and token cmp exact. Main initial typecheck FAILED (missing jsdom declarations and cascading unknown types). Fixed only test harness using typed minimal createRequire import for existing jsdom runtime, no dependency or global type-check weakening. Main found skip-link hash/router collision, fixed focus-only skip behavior and added DOM assertion.
+
+Final main command: npm run typecheck && npx eslint src/test/p1-email-mockup.test.ts && npm test -- --maxWorkers=2 --minWorkers=1 src/test/p1-email-mockup.test.ts src/test/f1.facebook-identities.test.tsx. Result exit0, 2 files / 10 tests passed (4 mockup+6 F1), 4.68s. Checks actual generated fragments/scripts, filters/pagination/states/deep-link deny, validation, literal XSS text, review/back/cancel/save/readback/history/reset/theme, no IO guards and skip focus. Existing React Router future warnings remain. No full frontend rerun/build claimed for this docs-only mockup plus test harness.
+
+Limits: no real-browser/file:// compatibility, 375/768/1280 viewport, contrast, keyboard/screen-reader manual QA, wording signoff or P1 backend authorization/migration tested. No Chromium/Playwright/Selenium used. D1 is a review artifact, not production feature/UAT. No server, route, stack, DB or production change; no commit/push this step. See docs/P1_D1_REVIEW_CHECKLIST.md and docs/MOCKUP.md.
+
+## P1-D2 contract — 2026-11-26 (documentation only)
+
+Created docs/AUDIT_BEFORE_BUILD_P1_D2.md and docs/P1_EMAIL_REGISTRY_CONTRACT.md after native Sol bounded source audit; main reviewed vault/contact/PIN/router commit/roles/StrictPayload/errors/audit patterns. User explicitly chose limited registry access: owner/admin all, assigned active buyer scoped metadata/reveal, viewer/auditor no registry access. List masked, no full-address CSV. Main clarified unknown-state observation consistency and attestation ownership preconditions.
+
+Contract specifies field table, independent encrypted contact + workspace-keyed blind index (new gap, not existing functionality), immutable address/provider, strict PATCH/null semantics, manual evidence/UTC due, If-Match versioning, proposed routes, role matrix, redacted atomic audit and 34 acceptance cases. Scope expansion of contact decrypt/PIN reuse must be implemented/reviewed explicitly; no global validator relaxation or provider automation. docs/P1_D2_CONTRACT_REVIEW_CHECKLIST.md tracks future review, not test results.
+
+Validation: new contract/audit diff whitespace checks passed; searched for stale pending-role-confirmation statements. No tests executed or implementation results claimed. No schema/API/UI/backend/production change, no migration/deploy/server/stack/DB created, no commit/push in this contract step. D1 wording/manual viewport and P0 schema/backup/restore/login gates remain unresolved; retention/key lifecycle prerequisites are recorded, not fabricated policy.
+
+## P1-I1 final local checkpoint — 2026-11-26
+
+Main full frontend: 676 passed / 20 skipped (49 passed / 1 skipped files), 69.70s, exit0; subsequent typecheck passed. Focused new UI/client/mockup 33 passed. Backend isolated SQLite/API 74 passed in 26.87s; ruff app + standalone test passed. Production frontend build/lint passed before final cache-key scoping edit (0 lint errors, 10 existing Hooks warnings); final full tests/typecheck cover that edit. No real browser/PostgreSQL acceptance claimed.
+
+Schema/service/API/UI source slice exists, but P1-I1 is PARTIAL: admin assignee picker still hits owner-only team endpoint. Preserve team RBAC; next patch needs a scoped registry eligibility projection or separately agreed solution. No release until this and PG migration/locks, secure keys and P0/D1 gates are resolved. Migration head 0027_p1_email_registry and offline SQL generation verified only. No production deploy/migration, no new stack/DB, no commit/push in this step.
+
+## P1-I1 final source verification after picker integration
+
+Backend 79 passed in 30.42s (isolated SQLite/API), ruff app + standalone test passed. Final full frontend 676 passed / 20 skipped (49 passed / 1 skipped files); typecheck, production build and lint chain exit0 (10 existing Hooks warnings). Final picker uses minimal server DTO id/full_name; no team RBAC expansion. Actual browser, PostgreSQL locks/races/migration rehearsal, secure production key provisioning and P0 backup/schema/login remain unverified. Local schema/service/API/UI implementation complete for this slice; operational/staging acceptance remains open. No commit/push/deploy or production migration; no new stack/DB/server.
+
+## P1 completion follow-up — 2026-11-26
+
+Native Sol read review aa02cd03c23940dfbc84cd96768089b4 completed: verified invisible-entry existence leak (buyer got403 vs missing404). Main changed entry lookup to include buyer assignment predicate, updated regressions to compare detail/history error codes/messages and reveal no-decrypt; reassignment revocation now404. Final standalone backend79 passed30.17s; ruff passed. No frontend source changes in this follow-up; previous676/20skip not rerun/claimed new. Added comment-only optional index key guidance to .env.example (no active empty secret setting).
+
+Read-only environment checks: Vibe list_stacks contains existing AdsOps stack only, matching Docker containers absent, relevant workspace test/DB vars absent. These bounded checks do not prove no staging exists elsewhere. No new stack/DB created or production test/migration attempted.
+
+Prepared manual provider runbook and completion ledger. Google recovery support page183723 read successfully; two Microsoft support URLs returned404 and search returned no usable source, so no Microsoft waiting period/process certified. No reminder/provider automation implemented. No commit/push/deploy or production changes; staging/PG/auth/backup/restore/key/manual QA gates remain open.
+
+## Additional investigation — 2026-11-26
+
+Read review854e52482ec54e96a4a3259ed78bbc90 found3 concrete CSV/async UI issues; main reproduced all via actual export Blob/component paths (formula-like text unchanged;26 total two-page export only25 rows; canceled pending create response closes new form). Investigation run33passed8.58s includes copied baseline30+3 defect-characterization assertions, NOT fixed/safe outcomes. Archived investigation sources as docs/investigation/*.txt, not auto-collected green regression pinning defects. Production logic unchanged. Findings/causes/fix proposals/risks documented in ADDITIONAL_FINDINGS_2026-11-26.md.
+
+Read-only public probes: live/ready200,protected401,openapi404,trusted CORS200/untrusted400; no uptime/schema/backup/live RBAC inference. No production write/deploy/stack or DB creation. Full ordinary suites not rerun in this investigation.
+
+## Final delegated source batch — 2026-11-26
+
+User requested3fixes+continue plan and explicitly deploy later. Main final backend registry+reminder isolated suite100passed35.58s; ruff app+tests pass. Frontend full706passed/20unchanged skipped,50passed/1skipped files,74.32s; typecheck/build/lint chainexit0,0errors10existing Hooks warnings. Single Alembic head0028, offline0026:headSQL through0027/0028 generated; no PG migration. Focused60 not added to706. Lifecycle negative control2failed after guards removed then restored; actual Blob CSV tests cover formula/numerics/full pagination/errors/cancel/scope.
+
+Three issues fixed source: spreadsheet text protection, all-filtered-page bounded export/no partial file, canceled request instance isolation+original-scope cache refresh. P1-I2 implemented defaultoff admin-configurable derived in-app attention using AlertPolicy; no dispatcher/outbound/Meta/Microsoft/Google automation, no new stack/DB. Reminder worker failed codex_turn_failed, main independently reviewed/tested; CSV worker completed, main final suite verified. Initial combined44pass2fail mock-policy shape corrected, assertions kept.
+
+No commit/push/deploy/production migration. StagingPG/races/auth/backup/restore/key/retention/manual UI/wording/real spreadsheet/provider Microsoft source and measuredP2workflow remain unverified; P3deploy deferred by user. See FINAL_SOURCE_BATCH_HANDOFF_2026-11-26.md; do not mark full operational plan complete from local tests.
+
+## Additional migration verification — 2026-11-27
+
+Main added tests/test_p1_migration_parity_standalone.py: invokes actual Alembic upgrade functions in PostgreSQL offline context and compares DDL with SQLAlchemy model compilation (0027 full table and0028 column). No engine/DB connection. Initial3pass1fail exposed0028 no-op downgrade silently allowing revision marker to move while column retained. Changed downgrade to deliberate RuntimeError consistent with0027/application-only rollback; no destructive schema change. Runbook current head corrected to0028.
+
+Combined isolated registry/reminder/parity104passed34.85s. Expanded lint initially found42trailing-whitespace issues in0027SQL, then formatting-only cleanup; final ruff app+3tests+0027/0028 passed, migration parity4passed0.67s after cleanup. Full frontend706/20skip belongs previous source batch, not rerun because no frontend logic changed here. No PostgreSQL migration/staging/UAT/production/write/deploy/new stack or DB. Key/auth/staging config still unset. This closes source DDL parity/rollback-guard checks, not operational rehearsal.

@@ -1,3 +1,5 @@
+import { accountsExportEn } from './accountsExport'
+import { emailRegistryEn } from './emailRegistry'
 /**
  * English strings — the secondary language. Checked against `vi.ts`'s keys via `satisfies`:
  * a missing or extra key here fails `tsc -b`. Where a string already shipped in English
@@ -9,6 +11,7 @@ import { f1En } from './f1'
 import type { TranslationKey } from './types'
 
 export const en = {
+  ...accountsExportEn,
   'common.appName': 'AdsOps Control Center',
   'common.appTagline': 'Account registry and operational readiness',
   'common.loading': 'Loading…',
@@ -99,6 +102,7 @@ export const en = {
   ...u1fEn,
   // F1 — Facebook account profiles; proposed wording pending BA review.
   ...f1En,
+  ...emailRegistryEn,
   // ---- U1b (Overview + Accounts) — proposed English ---------------------------------------------
   'format.noData': 'No data yet',
   'format.updatedAt': 'Updated {time}',

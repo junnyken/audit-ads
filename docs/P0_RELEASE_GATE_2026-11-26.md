@@ -8,7 +8,7 @@ This checklist separates source verification from production operational accepta
 | Frontend full suite | Main final full suite: 641 passed / 0 failed / 20 skipped (45 passed / 1 skipped files) |
 | Backend regression | Main combined selected SQLite/API suite: 91 passed in 53.24s; additional pure A4 34 passed, inventory 7 passed and fake-Docker restore 5 passed (separate checks, not full PostgreSQL suite) |
 | Lint/build | Main final frontend typecheck/build pass, eslint 0 errors/10 warnings; backend ruff passed |
-| Production identity/revision | Unknown; local baseline 3f886e69e5401f4edc846d9ee2c397a5c26e6a4b not proven production |
+| Production identity/revision | Reverified after owner redeploy on 2026-11-26: frontend v108 and backend v104 both Source Validation `f081c19a`; remote `main` is `f081c19a9931e0eea0497ae4340f3e4ad4818d58`. Includes P0 and CSV fix; authenticated live export not yet checked |
 | Production schema / DB / volume / owner | Not independently verified |
 | Shared staging isolation | No verified existing staging configuration available; no second stack created |
 | Real login / RBAC / existing data workflow | Not run; no ADSOPS_LIVE_EMAIL/PASSWORD configured |
@@ -19,6 +19,10 @@ This checklist separates source verification from production operational accepta
 ## Access needed to unblock operational gates
 
 Connect the existing Vibe Host management integration for the confirmed AdsOps frontend/backend resources (or provide an approved management route/host without exposing secrets in chat). Configure live-test credentials securely in workspace environment. Identify existing shared staging with actual DB/schema/volume isolation. Provide the current production backup method/location and revision visibility. Do not provision a new beta to avoid missing access.
+
+## Manual deployment handoff — 2026-11-26
+
+The owner will operate Vibe Host. Follow [P0_MANUAL_DEPLOY_2026-11-26.md](P0_MANUAL_DEPLOY_2026-11-26.md) for confirmed existing app IDs/URLs, source selection, read-only schema checks, backup/restore and application rollback gates. Current MCP exposes redeploy of the tracked branch but no source-ref change, SQL or backup/restore operation. No app settings, database or production artifact changed during preparation. This handoff does not waive the remaining NO-GO gates.
 
 ## Known adjacent security drift not silently accepted
 

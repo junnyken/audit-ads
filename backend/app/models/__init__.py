@@ -4,6 +4,7 @@ from app.models.alerts import (
     NotificationDelivery,
     NotificationDeliveryAttempt,
 )
+from app.models.email_registry import EmailRegistryEntry
 from app.models.entities import (
     AccountAssetLink,
     AccountEvent,
@@ -65,6 +66,7 @@ from app.models.team import (
 )
 
 __all__ = [
+    "EmailRegistryEntry",
     "AccessShareBatch",
     "AccessShareBatchItem",
     "AccountCreationBatch",
