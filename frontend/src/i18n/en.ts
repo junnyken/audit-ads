@@ -1,3 +1,5 @@
+import { extensionProvenanceEn } from './extensionProvenance'
+import { honestOperationsEn } from './honestOperations'
 import { authRecoveryEn } from './authRecovery'
 import { accountsExportEn } from './accountsExport'
 import { emailRegistryEn } from './emailRegistry'
@@ -12,6 +14,8 @@ import { f1En } from './f1'
 import type { TranslationKey } from './types'
 
 export const en = {
+  ...extensionProvenanceEn,
+  ...honestOperationsEn,
   ...authRecoveryEn,
   ...accountsExportEn,
   'common.appName': 'AdsOps Control Center',

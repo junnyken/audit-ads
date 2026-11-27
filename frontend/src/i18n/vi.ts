@@ -1,3 +1,5 @@
+import { extensionProvenanceVi } from './extensionProvenance'
+import { honestOperationsVi } from './honestOperations'
 import { authRecoveryVi } from './authRecovery'
 import { accountsExportVi } from './accountsExport'
 import { emailRegistryVi } from './emailRegistry'
@@ -25,6 +27,8 @@ import { u1fVi } from './u1f'
 import { f1Vi } from './f1'
 
 export const vi = {
+  ...extensionProvenanceVi,
+  ...honestOperationsVi,
   ...authRecoveryVi,
   ...accountsExportVi,
   'common.appName': 'AdsOps Control Center',

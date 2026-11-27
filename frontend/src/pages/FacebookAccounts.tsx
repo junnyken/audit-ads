@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Pencil, RefreshCw, ShieldAlert, ShieldCheck, Sparkles, Trash2 } from 'lucide-react'
+import { Pencil, RefreshCw, ShieldAlert, Sparkles, Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, query } from '../lib/api'
@@ -30,54 +30,26 @@ import { useMaxViasPerProxy } from '../lib/proxyClusterPrefs'
 import {
   ANTIDETECT_ENGINE_OPTIONS,
   WORKSTATION_REAL_CHROME_PROFILES,
-  canMemberLaunchVia,
-  downloadDesktopProSecure,
-  downloadSwitchyOmegaConfig,
-  downloadWindowsChromeLauncherBat,
-  evaluateViaActionGuardrail,
   fetchAntidetectBenchmark,
   fetchRealLocalChromeProfiles,
   fetchWorkstationTelemetry,
   getAntidetectEngineLabel,
-  launchInAssignedChromeProfile,
   normalizeProxyKey,
   parseAntidetectFromNotes,
   probeLocalDesktopBridge,
   type GuardrailBlockedDecision,
 } from '../lib/chromeProfileLauncher'
 
-const LEGACY_MOCK_NETWORKS = [
-  'vnpt static ip — line #',
-  'fpt static ip — line #',
-  'viettel residential — line #',
-  'mobile 4g/5g vn — line #',
-  'mạng gốc văn phòng',
-  'proxy dân cư tĩnh vn #',
-  'vn static residential proxy #',
-  'office direct line',
-]
-
-function isRealNetworkLabel(val: string): boolean {
-  const clean = val.trim()
-  if (!clean) return false
-  const lower = clean.toLowerCase()
-  return !LEGACY_MOCK_NETWORKS.some((p) => lower.startsWith(p))
+// Stored references are metadata only; credentials must never be rendered or launched.
+export function safeStoredNetworkLabel(value: unknown): string {
+  const label = String(value ?? '').trim()
+  if (!label) return ''
+  if (/@|(?:[^:\s]+:){3}|[/?=]/.test(label)) return '[redacted]'
+  return label
 }
 
-interface ProxyHealthItem {
-  ok: boolean
-  status: 'LIVE' | 'DEAD' | 'INVALID'
-  ssrf_blocked?: boolean
-  exit_ip: string | null
-  country_code: string | null
-  country_name: string | null
-  timezone?: string | null
-  timezone_match?: boolean | null
-  timezone_warning?: string | null
-  latency_ms: number | null
-  normalized_key: string
-  error_summary?: string | null
-  checked_at?: string | null
+function isRealNetworkLabel(value: string): boolean {
+  return Boolean(value.trim())
 }
 
 export type ViaRoleTier = 'vault' | 'camp' | 'standby'
@@ -124,238 +96,26 @@ function buildUpdatedNotes(cleanNotes: string, tier: ViaRoleTier, warmupStartIso
   return cleanNotes ? `${prefix} ${cleanNotes}` : prefix
 }
 
-function computeWarmupStatus(warmupStartIso: string): {
-  hoursElapsed: number
-  daysElapsed: number
-  phase: '72h_lock' | '7d_warmup' | 'trusted'
+export function computeWarmupStatus(warmupStartIso: string): {
   label: string
   hint: string
-  tone: 'caution' | 'info' | 'positive'
+  tone: 'neutral'
 } {
-  const startMs = Date.parse(warmupStartIso)
-  const validStart = Number.isNaN(startMs) ? Date.now() - 10 * 86400_000 : startMs
-  const diffMs = Math.max(0, Date.now() - validStart)
-  const hoursElapsed = Math.floor(diffMs / 3600_000)
-  const daysElapsed = Math.floor(diffMs / 86400_000)
-
-  if (hoursElapsed < 72) {
-    return {
-      hoursElapsed,
-      daysElapsed,
-      phase: '72h_lock',
-      label: `Ngâm 72h vàng (${hoursElapsed}/72h)`,
-      hint: 'Đang trong 72h đầu: CẤM vào Ads Manager, CẤM đổi mật khẩu, CẤM đá thiết bị cũ. Chỉ lướt Newsfeed/Watch 5–10p.',
-      tone: 'caution',
-    }
-  }
-  if (daysElapsed < 7) {
-    return {
-      hoursElapsed,
-      daysElapsed,
-      phase: '7d_warmup',
-      label: `Ngâm ngày ${daysElapsed}/7`,
-      hint: 'Từ ngày 4–7: Có thể nhận link mời BM qua email nhưng chưa nên đá thiết bị cũ hoặc lên camp nặng.',
-      tone: 'info',
-    }
-  }
+  const valid = Number.isFinite(Date.parse(warmupStartIso))
   return {
-    hoursElapsed,
-    daysElapsed,
-    phase: 'trusted',
-    label: `Đã ngâm > 7 ngày (Đã Trust)`,
-    hint: 'Thiết bị Chrome & IP của Via này đã đủ độ tin cậy (Trusted Device). Có thể vận hành ổn định.',
-    tone: 'positive',
+    label: valid ? 'Có mốc thời gian tự ghi nhận' : 'Chưa có mốc thời gian hợp lệ',
+    hint: 'Mốc thời gian do người dùng ghi nhận không xác minh độ tin cậy thiết bị, trạng thái bảo vệ hoặc quyền truy cập nhà cung cấp.',
+    tone: 'neutral',
   }
 }
 
-function extractBase32Secret(vaultRef?: unknown): string | null {
-  const raw = String(vaultRef ?? '').trim()
-  if (!raw || raw.startsWith('meta-user://') || raw.startsWith('http')) return null
-  const stripped = raw.replace(/^2fa:\/\//i, '').replace(/[\s-]/g, '').toUpperCase()
-  if (/^[A-Z2-7]{12,128}$/.test(stripped)) {
-    return stripped
-  }
-  return null
+export function TwoFactorMethodCell({ row, badgeLabel }: { row: ReferenceRecord; badgeLabel: string }) {
+  const { t } = useI18n()
+  return <div className="space-y-1">
+    <Badge tone={twoFactorTone(String(row.two_factor_method))}>{badgeLabel}</Badge>
+    <p className="text-xs text-ink-muted">{t('honest.facebook.twoFactorManual')}</p>
+  </div>
 }
-
-function base32ToBytes(b32: string): Uint8Array {
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
-  let bits = 0
-  let value = 0
-  const out: number[] = []
-  for (let i = 0; i < b32.length; i++) {
-    const idx = alphabet.indexOf(b32[i])
-    if (idx === -1) continue
-    value = (value << 5) | idx
-    bits += 5
-    if (bits >= 8) {
-      out.push((value >>> (bits - 8)) & 0xff)
-      bits -= 8
-    }
-  }
-  return new Uint8Array(out)
-}
-
-async function generateTotpCode(secretBase32: string): Promise<string> {
-  const keyBytes = base32ToBytes(secretBase32)
-  const epochSec = Math.floor(Date.now() / 1000)
-  const counter = Math.floor(epochSec / 30)
-  const counterBytes = new Uint8Array(8)
-  let tmp = counter
-  for (let i = 7; i >= 0; i--) {
-    counterBytes[i] = tmp & 0xff
-    tmp = Math.floor(tmp / 256)
-  }
-  const cryptoKey = await window.crypto.subtle.importKey(
-    'raw',
-    keyBytes as unknown as BufferSource,
-    { name: 'HMAC', hash: 'SHA-1' },
-    false,
-    ['sign'],
-  )
-  const sig = new Uint8Array(await window.crypto.subtle.sign('HMAC', cryptoKey, counterBytes as unknown as BufferSource))
-  const offset = sig[sig.length - 1] & 0x0f
-  const binary =
-    ((sig[offset] & 0x7f) << 24) |
-    ((sig[offset + 1] & 0xff) << 16) |
-    ((sig[offset + 2] & 0xff) << 8) |
-    (sig[offset + 3] & 0xff)
-  return String(binary % 1_000_000).padStart(6, '0')
-}
-
-function TwoFactorOtpCell({
-  row,
-  canWrite,
-  badgeLabel,
-  onSaveSecret,
-}: {
-  row: ReferenceRecord
-  canWrite: boolean
-  badgeLabel: string
-  onSaveSecret: (id: string, secret: string) => void
-}) {
-  const secret = extractBase32Secret(row.vault_reference)
-  const [otp, setOtp] = useState<string>('------')
-  const [secLeft, setSecLeft] = useState<number>(30 - (Math.floor(Date.now() / 1000) % 30))
-  const [copied, setCopied] = useState(false)
-  const [editingKey, setEditingKey] = useState(false)
-  const [draftKey, setDraftKey] = useState(secret ?? '')
-
-  useEffect(() => {
-    if (!secret) return
-    let cancelled = false
-    const tick = () => {
-      const rem = 30 - (Math.floor(Date.now() / 1000) % 30)
-      setSecLeft(rem)
-      void generateTotpCode(secret)
-        .then((code) => {
-          if (!cancelled) setOtp(code)
-        })
-        .catch(() => {})
-    }
-    tick()
-    const timer = window.setInterval(tick, 1000)
-    return () => {
-      cancelled = true
-      window.clearInterval(timer)
-    }
-  }, [secret])
-
-  if (editingKey) {
-    return (
-      <div className="space-y-1.5 min-w-[175px]">
-        <input
-          type="text"
-          className="input font-mono text-xs py-1 px-2"
-          placeholder="Dán khóa 2FA (VD: JBSWY3DP...)"
-          value={draftKey}
-          onChange={(e) => setDraftKey(e.target.value)}
-        />
-        <div className="flex items-center gap-1.5 text-[11px]">
-          <button
-            type="button"
-            onClick={() => {
-              const cleaned = draftKey.replace(/[\s-]/g, '').toUpperCase()
-              onSaveSecret(row.id, cleaned ? `2fa://${cleaned}` : '')
-              setEditingKey(false)
-            }}
-            className="rounded bg-brand px-2 py-0.5 font-semibold text-brand-fg hover:bg-brand-hover"
-          >
-            Lưu 2FA
-          </button>
-          <button
-            type="button"
-            onClick={() => setEditingKey(false)}
-            className="rounded border border-line px-2 py-0.5 text-ink-muted hover:bg-surface-muted"
-          >
-            Hủy
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  if (secret) {
-    return (
-      <div className="space-y-1">
-        <div className="inline-flex items-center gap-1.5 rounded-md border border-tone-positive-border bg-tone-positive-bg px-2 py-1">
-          <span className="font-mono text-xs font-extrabold tracking-wider text-tone-positive-fg tabular-nums">
-            {otp.slice(0, 3)} {otp.slice(3)}
-          </span>
-          <span className="font-mono text-[10px] text-ink-muted tabular-nums">({secLeft}s)</span>
-          <button
-            type="button"
-            onClick={() => {
-              void navigator.clipboard.writeText(otp)
-              setCopied(true)
-              setTimeout(() => setCopied(false), 1500)
-            }}
-            className="rounded bg-brand px-1.5 py-0.5 text-[10px] font-semibold text-brand-fg hover:opacity-90"
-            title="Sao chép mã OTP 2FA 6 số"
-          >
-            {copied ? 'Đã chép' : 'Copy'}
-          </button>
-        </div>
-        {canWrite && (
-          <div>
-            <button
-              type="button"
-              onClick={() => {
-                setDraftKey(secret)
-                setEditingKey(true)
-              }}
-              className="text-[10px] text-ink-muted hover:text-brand-text hover:underline"
-            >
-              Đổi khóa 2FA
-            </button>
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-1">
-      <Badge tone={twoFactorTone(String(row.two_factor_method))}>{badgeLabel}</Badge>
-      {canWrite && (
-        <div>
-          <button
-            type="button"
-            onClick={() => {
-              setDraftKey('')
-              setEditingKey(true)
-            }}
-            className="text-[11px] font-medium text-brand-text hover:underline"
-            title="Dán chuỗi khóa 2FA (Secret Key) để tự động lấy mã OTP 6 số trực tiếp trên bảng"
-          >
-            + Gắn khóa 2FA (Lấy mã 6 số)
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
-
 
 export default function FacebookAccounts() {
   const { t, language } = useI18n()
@@ -427,11 +187,6 @@ export default function FacebookAccounts() {
     retry: false,
   })
   const bridgeProbe = desktopBridgeQ.data
-  const proxyHealthQ = useQuery({
-    queryKey: ['proxy-health-map'],
-    queryFn: () => api.get<{ health_map: Record<string, ProxyHealthItem> }>('/api/v1/proxies/health-map'),
-    retry: false,
-  })
   const workstationQ = useQuery({
     queryKey: ['local-workstation-telemetry'],
     queryFn: () => fetchWorkstationTelemetry(),
@@ -481,45 +236,6 @@ export default function FacebookAccounts() {
       api.post<AutomationPlaybook>(`/api/v1/playbooks/${id}/rate`, { stars, comment: '' }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['automation-playbooks'] }),
   })
-  const recordPlaybookRunMut = useMutation({
-    mutationFn: ({ id, via_ids, engine, stagger_sec, jitter_pct }: { id: string; via_ids: string[]; engine: string; stagger_sec: number; jitter_pct: number }) =>
-      api.post<AutomationPlaybook>(`/api/v1/playbooks/${id}/record-run`, {
-        via_ids,
-        engine,
-        stagger_sec,
-        jitter_pct,
-        workstation: 'Web Control Center',
-      }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['automation-playbooks'] })
-      void queryClient.invalidateQueries({ queryKey: ['profile-launch-audit'] })
-    },
-  })
-  const checkSingleProxy = useMutation({
-    mutationFn: (payload: string | { proxy_string: string; expected_timezone?: string | null; via_label?: string }) => {
-      const body = typeof payload === 'string' ? { proxy_string: payload } : payload
-      return api.post<ProxyHealthItem>('/api/v1/proxies/check-live', body)
-    },
-    onSuccess: (res) => {
-      void queryClient.invalidateQueries({ queryKey: ['proxy-health-map'] })
-      setSyncNotice(
-        res.status === 'LIVE'
-          ? `Proxy ${res.normalized_key} SỐNG — IP ra: ${res.exit_ip ?? '—'} (${res.country_code ?? '—'}${res.timezone ? ` · ${res.timezone}` : ''} · ${res.latency_ms ?? 0}ms)${res.timezone_warning ? ` — ${res.timezone_warning}` : ''}`
-          : `Proxy ${res.normalized_key || ''} LỖI/CHẾT: ${res.error_summary ?? 'Không phản hồi'}`,
-      )
-    },
-  })
-  const checkBatchProxies = useMutation({
-    mutationFn: () =>
-      api.post<{ checked_count: number; live_count: number; dead_count: number }>('/api/v1/proxies/check-batch', {}),
-    onSuccess: (res) => {
-      void queryClient.invalidateQueries({ queryKey: ['proxy-health-map'] })
-      setSyncNotice(
-        `Đã kiểm tra ${res.checked_count} Proxy: ${res.live_count} Sống · ${res.dead_count} Chết/Lỗi.`,
-      )
-    },
-  })
-
   const syncFromMeta = useMutation({
     mutationFn: () =>
       api.post<{ status: string; total_business_users?: number; total_ad_accounts?: number }>(
@@ -553,18 +269,6 @@ export default function FacebookAccounts() {
     },
   })
 
-  const quickUpdate2fa = useMutation({
-    mutationFn: ({ id, vault_reference }: { id: string; vault_reference: string }) =>
-      api.patch(`/api/v1/personal-account-references/${id}`, {
-        vault_reference,
-        two_factor_method: vault_reference ? 'app' : 'none',
-      }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['personal-account-references'] })
-      void queryClient.invalidateQueries({ queryKey: ['facebook-identities'] })
-    },
-  })
-
   const archive = useMutation({
     mutationFn: (id: string) => api.post(`/api/v1/personal-account-references/${id}/archive`),
     onSuccess: () => {
@@ -584,7 +288,7 @@ export default function FacebookAccounts() {
       const adCount = s?.ad_account_count ?? 0
       const browserLabel = String(row.browser_profile_label ?? '').trim()
       const rawNetwork = String(row.network_label ?? '').trim()
-      const networkLabel = isRealNetworkLabel(rawNetwork) ? rawNetwork : ''
+      const networkLabel = safeStoredNetworkLabel(rawNetwork)
       const meta = parseViaMetaFromNotes(String(row.notes ?? ''), String(row.label ?? ''), bmCount, adCount)
       const warmup = meta.warmupStartIso ? computeWarmupStatus(meta.warmupStartIso) : null
 
@@ -607,7 +311,7 @@ export default function FacebookAccounts() {
                 (o) =>
                   o.id !== row.id &&
                   isRealNetworkLabel(String(o.network_label ?? '')) &&
-                  String(o.network_label ?? '').trim().toLowerCase() === networkLabel.toLowerCase(),
+                  safeStoredNetworkLabel(o.network_label).toLowerCase() === networkLabel.toLowerCase(),
               )
               .map((o) => String(o.label))
           : []
@@ -618,9 +322,6 @@ export default function FacebookAccounts() {
       }
       if (!browserLabel) {
         risks.push('Chưa gắn cố định Hồ sơ Chrome riêng')
-      }
-      if (meta.tier === 'camp' && bmCount > 2) {
-        risks.push(`Via Lên Camp đang nắm ${bmCount} BM (Nên chuyển quyền Admin BM về Via Tổng)`)
       }
       if (sharedNetwork.length >= maxViasPerProxy) {
         risks.push(`1 Proxy đang gắn cho ${sharedNetwork.length + 1} Via (Vượt mức ≤ ${maxViasPerProxy} Via/Proxy)`)
@@ -653,14 +354,6 @@ export default function FacebookAccounts() {
     }
     return Array.from(keys).sort()
   }, [enrichedRows])
-
-  const currentMemberId = useMemo(() => {
-    const listMembers = members.data ?? []
-    const matched = listMembers.find(
-      (m) => (user?.id && m.user_id === user.id) || (user?.email && m.email.toLowerCase() === user.email.toLowerCase()),
-    )
-    return matched?.id ?? null
-  }, [members.data, user])
 
   const tierStats = useMemo(() => {
     let vault = 0
@@ -705,8 +398,8 @@ export default function FacebookAccounts() {
   const chromeOptions = localChrome.data ?? WORKSTATION_REAL_CHROME_PROFILES
 
   const columns = [
-    'Tài khoản Via & Phân tầng Chống Die',
-    'Môi trường đăng nhập (Chrome & Proxy) & Độ Trust',
+    'Tài khoản Via & Nhóm vai trò',
+    'Tham chiếu môi trường đăng nhập (chưa xác minh)',
     t('fb.owner'),
     t('fb.twoFactor'),
     t('fb.businessManagers'),
@@ -748,11 +441,10 @@ export default function FacebookAccounts() {
               <Button
                 type="button"
                 variant="secondary"
-                disabled={checkBatchProxies.isPending}
-                onClick={() => checkBatchProxies.mutate()}
-                title="Kiểm tra hàng loạt xem Proxy gắn cho từng Via còn sống hay đã chết, IP ra & Quốc gia nào"
+                disabled
+                title={t('honest.facebook.automationUnavailable')}
               >
-                {checkBatchProxies.isPending ? 'Đang kiểm tra Proxy...' : 'Kiểm tra tất cả Proxy'}
+                {t('honest.facebook.automationUnavailable')}
               </Button>
             )}
             {bridgeProbe?.isDesktopApp && (
@@ -766,9 +458,8 @@ export default function FacebookAccounts() {
             )}
             <button
               type="button"
-              onClick={() => void downloadDesktopProSecure()}
+              disabled title={t('honest.facebook.automationUnavailable')}
               className="inline-flex h-9 items-center gap-1.5 rounded-md border border-line bg-surface px-3 text-xs font-semibold text-ink transition hover:border-line-strong hover:bg-surface-muted"
-              title="Tải App Windows AdsOps Desktop Pro v5.1.0 (Tự gia hạn phiên 24/7 DPAPI, Khiên Bảo Vệ Via Lớp 1 / Ngâm 72h, Broker PID Tracking, Chia Proxy 1:4, 5 Engine Antidetect & Extension v2.11.0)"
             >
               Tải App Windows v5.1 (.zip)
             </button>
@@ -792,15 +483,14 @@ export default function FacebookAccounts() {
               type="button"
               variant="secondary"
               onClick={() => setShowHubPanel((p) => (p === 'onboarding' ? 'none' : 'onboarding'))}
-              title="Hướng dẫn Thiết lập An toàn 5 bước cho người mới"
+              title="Hướng dẫn Thiết lập 5 bước cho người mới"
             >
               Hướng dẫn 5 Bước
             </Button>
             <Button
               type="button"
               variant="secondary"
-              onClick={downloadWindowsChromeLauncherBat}
-              title="Tải file .bat dự phòng cho máy Windows khác"
+              disabled title={t('honest.facebook.automationUnavailable')}
               data-testid="fb-chrome-launcher-setup"
             >
               Tải .bat dự phòng
@@ -848,8 +538,7 @@ export default function FacebookAccounts() {
             type="button"
             size="sm"
             variant="secondary"
-            disabled={benchmarkQ.isPending}
-            onClick={() => benchmarkQ.mutate()}
+            disabled title={t('honest.facebook.automationUnavailable')}
           >
             {benchmarkQ.isPending ? 'Đang đo tốc độ...' : 'Benchmark 5 Engine'}
           </Button>
@@ -860,7 +549,7 @@ export default function FacebookAccounts() {
       {showHubPanel === 'onboarding' && (
         <Card className="p-4 space-y-2">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-ink">Lộ trình Thiết lập An toàn 5 Bước cho Người mới</h3>
+            <h3 className="text-sm font-bold text-ink">Lộ trình Thiết lập 5 Bước cho Người mới</h3>
             <button type="button" onClick={() => setShowHubPanel('none')} className="text-xs text-ink-muted hover:underline">
               Đóng
             </button>
@@ -1027,38 +716,10 @@ export default function FacebookAccounts() {
                       size="sm"
                       variant="secondary"
                       onClick={() => {
-                        const eligible = filteredItems.filter((it) =>
-                          canMemberLaunchVia(
-                            role,
-                            currentMemberId,
-                            typeof it.row.owner_member_id === 'string' ? it.row.owner_member_id : null,
-                          ).allowed,
-                        )
-                        if (eligible.length === 0) return
-                        const firstUrl = pb.steps[0]?.target || 'https://www.facebook.com/'
-                        const targetList = eligible.slice(0, 6)
-                        recordPlaybookRunMut.mutate({
-                          id: pb.id,
-                          via_ids: targetList.map((t) => t.row.id),
-                          engine: engineFilter || 'chrome_native',
-                          stagger_sec: pb.default_stagger_sec,
-                          jitter_pct: pb.jitter_pct,
-                        })
-                        targetList.forEach((t, idx) => {
-                          const jitterMult = 1 + ((Math.random() * 2 - 1) * pb.jitter_pct) / 100
-                          const delayMs = idx === 0 ? 0 : Math.max(1500, Math.round(idx * 1800 * jitterMult))
-                          window.setTimeout(() => {
-                            void launchInAssignedChromeProfile(firstUrl, t.browserLabel, String(t.row.label), t.networkLabel, {
-                              viaId: t.row.id,
-                              antidetectEngine: t.adMeta.engine,
-                              antidetectProfileId: t.adMeta.profileId,
-                            })
-                          }, delayMs)
-                        })
-                        setSyncNotice(`Đang chạy kịch bản "${pb.title}" với Jitter ±${pb.jitter_pct}% cho ${targetList.length} Via đã lọc.`)
+                        setSyncNotice(t('honest.facebook.automationUnavailable'))
                       }}
                     >
-                      Chạy Jitter ({Math.min(6, filteredItems.length)} Via)
+                      {t('honest.facebook.automationUnavailable')}
                     </Button>
                   )}
                 </div>
@@ -1181,7 +842,7 @@ export default function FacebookAccounts() {
           onChange={setProxyFilter}
           options={[
             ['', 'Tất cả cụm Proxy'],
-            ['direct', 'Mạng gốc (Direct IP)'],
+            ['direct', t('honest.facebook.networkMissing')],
             ...distinctProxyFilterOptions.map((px) => [px, px] as [string, string]),
           ]}
         />
@@ -1215,77 +876,10 @@ export default function FacebookAccounts() {
             </TableHeader>
             <TableBody>
               {filteredItems.map((item) => {
-                const { row, s, browserLabel, networkLabel, meta, adMeta, warmup, sharedNetwork, risks } = item
-                const proxyNormKey = normalizeProxyKey(networkLabel)
-                const proxyHealth = proxyNormKey ? proxyHealthQ.data?.health_map?.[proxyNormKey] : undefined
-                const launchPerm = canMemberLaunchVia(
-                  role,
-                  currentMemberId,
-                  typeof row.owner_member_id === 'string' ? row.owner_member_id : null,
-                )
+                const { row, s, browserLabel, networkLabel, meta, adMeta, warmup, risks } = item
                 const activeSess = workstationQ.data?.sessions?.find(
-                  (ws) => ws.alive && (ws.via_id === row.id || ws.via_label === String(row.label)),
+                  ws => ws.alive && ws.via_id === row.id,
                 )
-                const isSoaking72h = warmup?.phase === '72h_lock'
-                const executeChromeLaunch = (targetUrl: string, overrideGrant?: string | null) => {
-                  void launchInAssignedChromeProfile(targetUrl, browserLabel, String(row.label), networkLabel, {
-                    viaId: row.id,
-                    antidetectEngine: adMeta.engine,
-                    antidetectProfileId: adMeta.profileId,
-                    viaTier: meta.tier,
-                    isSoaking72h,
-                    overrideGrant: overrideGrant || undefined,
-                  })
-                  void api
-                    .post('/api/v1/facebook-pages/browser-event', {
-                      event_type: 'PROFILE_LAUNCHED',
-                      via_id: row.id,
-                      via_label: String(row.label),
-                      browser_profile: browserLabel,
-                      antidetect_engine: adMeta.engine,
-                      antidetect_profile_id: adMeta.profileId,
-                      workstation: 'Web Control Center',
-                      target_url: targetUrl,
-                    })
-                    .catch(() => {})
-                }
-                const safeLaunchChrome = (targetUrl: string) => {
-                  if (!launchPerm.allowed) {
-                    setSyncNotice(launchPerm.reason)
-                    return
-                  }
-                  const guardrailCheck = evaluateViaActionGuardrail({
-                    viaId: row.id,
-                    viaLabel: String(row.label),
-                    viaTier: meta.tier,
-                    isSoaking72h,
-                    targetUrl,
-                  })
-                  if (!guardrailCheck.allowed) {
-                    setGuardrailBlocked({
-                      decision: guardrailCheck,
-                      pendingLaunch: {
-                        targetUrl,
-                        browserLabel,
-                        viaLabel: String(row.label),
-                        networkLabel,
-                        viaId: row.id,
-                        antidetectEngine: adMeta.engine,
-                        antidetectProfileId: adMeta.profileId,
-                        viaTier: meta.tier,
-                        isSoaking72h,
-                      },
-                    })
-                    return
-                  }
-                  if (proxyHealth?.status === 'DEAD') {
-                    const proceed = window.confirm(
-                      'CẢNH BÁO PROXY ĐÃ CHẾT / LỖI: Lần kiểm tra gần nhất cho thấy Proxy của Via này không phản hồi. Mở Chrome lúc này có thể lộ IP thật hoặc gây Checkpoint! Bạn vẫn muốn mở?',
-                    )
-                    if (!proceed) return
-                  }
-                  executeChromeLaunch(targetUrl)
-                }
                 const ownership = String(row.ownership_type ?? 'agency_owned')
                 const clientName = String(row.client_name ?? '').trim()
                 const emailHint = String(row.email_hint ?? '').trim()
@@ -1405,153 +999,15 @@ export default function FacebookAccounts() {
                             <span className="font-semibold text-ink">{browserLabel || '—'}</span>
                           )}
 
-                          {(browserLabel || adMeta.profileId) && (
-                            <>
-                              <button
-                                type="button"
-                                disabled={!launchPerm.allowed}
-                                onClick={() => safeLaunchChrome('https://business.facebook.com/overview')}
-                                className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-semibold transition ${
-                                  launchPerm.allowed
-                                    ? 'border-line bg-surface text-ink hover:border-line-strong hover:bg-surface-muted'
-                                    : 'cursor-not-allowed border-line bg-surface-muted text-ink-muted'
-                                }`}
-                                title={
-                                  launchPerm.allowed
-                                    ? `Mở ${getAntidetectEngineLabel(adMeta.engine)} (${adMeta.profileId || browserLabel}) cho Via ${String(row.label)}`
-                                    : launchPerm.reason
-                                }
-                              >
-                                {launchPerm.allowed ? `Mở ${getAntidetectEngineLabel(adMeta.engine)}` : 'Phân quyền khác'}
-                              </button>
-                              <button
-                                type="button"
-                                disabled={!launchPerm.allowed}
-                                onClick={() => safeLaunchChrome('https://adsmanager.facebook.com/adsmanager/manage/campaigns')}
-                                className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-semibold transition ${
-                                  !launchPerm.allowed
-                                    ? 'cursor-not-allowed border-line bg-surface-muted text-ink-muted'
-                                    : meta.tier === 'vault' || isSoaking72h
-                                      ? 'border-tone-caution-border bg-tone-caution-bg text-tone-caution-fg hover:opacity-90'
-                                      : 'border-line bg-surface text-ink hover:border-line-strong hover:bg-surface-muted'
-                                }`}
-                                title={
-                                  meta.tier === 'vault' || isSoaking72h
-                                    ? 'Được bảo vệ bởi Khiên Vai Trò Via (sẽ chặn mở Ads Manager nếu chưa có Ngoại lệ Owner)'
-                                    : 'Mở Trình quản lý Quảng cáo (Ads Manager) trên đúng Hồ sơ Via này'
-                                }
-                              >
-                                Ads Manager
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const kaTier = meta.tier === 'vault' ? 'vault' : 'standard'
-                                  const kaUrl = `https://www.facebook.com/?adsops_keepalive_session=1&adsops_auto_close=0&adsops_via_tier=${kaTier}&adsops_via_id=${encodeURIComponent(row.id)}&adsops_via_label=${encodeURIComponent(String(row.label || ''))}`
-                                  safeLaunchChrome(kaUrl)
-                                }}
-                                className="inline-flex items-center gap-1 rounded border border-tone-caution-border bg-tone-caution-bg px-2 py-0.5 text-[11px] font-semibold text-tone-caution-fg hover:opacity-90"
-                                title="Chạy phiên Đảo Ấm Cookie sinh học an toàn ngay trên Chrome của Via này"
-                              >
-                                Đảo Ấm
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => safeLaunchChrome('https://accountscenter.facebook.com/password_and_security/passkeys?adsops_auto_delete_passkey=1')}
-                                className="inline-flex items-center gap-1 rounded border border-tone-attention-border bg-tone-attention-bg px-2 py-0.5 text-[11px] font-semibold text-tone-attention-fg hover:opacity-90"
-                                data-detail-only="true"
-                                title="Mở thẳng trang Khóa truy cập (Passkey) trên Chrome của Via này để Tiện ích tự động phát hiện & xóa sạch Passkey chỉ với 1 chạm"
-                              >
-                                Quét &amp; Xoá Passkey
-                              </button>
-                            </>
-                          )}
+                          <button type="button" disabled title={t('honest.facebook.automationUnavailable')}>
+                            {t('honest.facebook.automationUnavailable')}
+                          </button>
                         </div>
 
-                        {/* Dòng 2: Proxy / Mạng thực tế */}
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-[11px] font-medium text-ink-muted">IP/Mạng:</span>
-                          {networkLabel ? (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => setEditingRecord(row)}
-                                className="font-mono text-xs font-semibold text-brand-text hover:underline"
-                                title="Bấm để đổi Proxy IP:Port:User:Pass"
-                              >
-                                {networkLabel}
-                              </button>
-                              <Badge
-                                tone={
-                                  sharedNetwork.length === 0
-                                    ? 'positive'
-                                    : sharedNetwork.length === 1
-                                      ? 'info'
-                                      : 'caution'
-                                }
-                              >
-                                {sharedNetwork.length === 0
-                                  ? '1/2 Via · 1 Proxy riêng'
-                                  : sharedNetwork.length === 1
-                                    ? `2/2 Via · Chung với ${sharedNetwork[0]}`
-                                    : `${sharedNetwork.length + 1}/2 Via · Quá tải Proxy`}
-                              </Badge>
-                              {proxyNormKey && (
-                                <>
-                                  <Badge tone={proxyHealth?.status === 'LIVE' ? 'positive' : proxyHealth?.status === 'DEAD' ? 'attention' : 'neutral'}>
-                                    {proxyHealth?.status === 'LIVE'
-                                      ? `Sống · ${proxyHealth.country_code ?? '—'}${proxyHealth.timezone ? ` (${proxyHealth.timezone})` : ''} · ${proxyHealth.latency_ms ?? 0}ms (${proxyHealth.exit_ip ?? '—'})`
-                                      : proxyHealth?.status === 'DEAD'
-                                        ? 'Proxy Chết / Lỗi'
-                                        : 'Chưa kiểm tra'}
-                                  </Badge>
-                                  {proxyHealth?.timezone_match === false && (
-                                    <Badge tone="caution" title={proxyHealth.timezone_warning || 'Lệch múi giờ IP Proxy'}>
-                                      Lệch múi giờ IP
-                                    </Badge>
-                                  )}
-                                  {canWrite && (
-                                    <button
-                                      type="button"
-                                      disabled={checkSingleProxy.isPending}
-                                      onClick={() =>
-                                        checkSingleProxy.mutate({
-                                          proxy_string: networkLabel,
-                                          expected_timezone: (row.timezone as string | null) ?? null,
-                                          via_label: String(row.label),
-                                        })
-                                      }
-                                      className="inline-flex items-center gap-1 rounded border border-tone-positive-border bg-tone-positive-bg px-1.5 py-0.5 text-[10px] font-semibold text-tone-positive-fg hover:opacity-90"
-                                    >
-                                      Test Proxy
-                                    </button>
-                                  )}
-                                  <button
-                                    type="button"
-                                    onClick={() => downloadSwitchyOmegaConfig(networkLabel, String(row.label))}
-                                    className="inline-flex items-center gap-1 rounded border border-tone-info-border bg-tone-info-bg px-1.5 py-0.5 text-[10px] font-semibold text-tone-info-fg hover:opacity-90"
-                                  >
-                                    Tải cấu hình Proxy (.bak)
-                                  </button>
-                                </>
-                              )}
-                            </>
-                          ) : (
-                            <>
-                              <span className="inline-flex items-center gap-1 rounded border border-line bg-surface-muted px-2 py-0.5 text-[11px] text-ink-muted">
-                                Mạng gốc (Chưa gắn Proxy riêng)
-                              </span>
-                              {canWrite && (
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingRecord(row)}
-                                  className="text-[11px] font-medium text-brand-text hover:underline"
-                                >
-                                  + Gắn Proxy tĩnh
-                                </button>
-                              )}
-                            </>
-                          )}
+                          <span className="text-[11px] text-ink-muted">{t('honest.facebook.networkReference')}</span>
+                          <span className="font-mono text-xs">{networkLabel || t('honest.facebook.networkMissing')}</span>
+                          {networkLabel && <Badge tone="neutral">{t('honest.facebook.unverified')}</Badge>}
                         </div>
 
                         {/* Dòng 3: Đồng hồ Ngâm 72h Vàng (Chỉ hiện khi bật cho Via mới đăng nhập) */}
@@ -1586,7 +1042,7 @@ export default function FacebookAccounts() {
                                 }}
                                 className="text-[10.5px] text-ink-muted hover:text-brand-text hover:underline"
                                 data-detail-only="true"
-                                title="Bấm khi bạn vừa đăng nhập Via mới vào Chrome để bật đồng hồ đếm ngược 72h ngâm an toàn"
+                                title="Bấm khi bạn vừa đăng nhập Via mới vào Chrome để bật đồng hồ đếm ngược 72h theo dõi"
                               >
                                 Bật hẹn giờ ngâm 72h (cho Via mới)
                               </button>
@@ -1608,9 +1064,8 @@ export default function FacebookAccounts() {
                             ))}
                           </div>
                         ) : (
-                          <div data-detail-only="true" className="inline-flex items-center gap-1 text-[10.5px] font-medium text-tone-positive-fg">
-                            <ShieldCheck className="h-3 w-3" aria-hidden="true" />
-                            <span>Cách ly chuẩn (1 Chrome riêng · Không xung đột)</span>
+                          <div data-detail-only="true" className="inline-flex items-center gap-1 text-[10.5px] font-medium text-ink-muted">
+                            <span>{t('honest.facebook.unverified')}</span>
                           </div>
                         )}
                       </div>
@@ -1618,25 +1073,16 @@ export default function FacebookAccounts() {
 
                     <TableCell label={columns[2]}>{s?.owner_member_name ?? '—'}</TableCell>
                     <TableCell label={columns[3]}>
-                      <TwoFactorOtpCell
-                        row={row}
-                        canWrite={canWrite}
-                        badgeLabel={t(`twoFactor.${String(row.two_factor_method)}` as never)}
-                        onSaveSecret={(id, secret) => quickUpdate2fa.mutate({ id, vault_reference: secret })}
-                      />
+                      <TwoFactorMethodCell row={row} badgeLabel={t(`twoFactor.${String(row.two_factor_method)}` as never)} />
                     </TableCell>
                     <TableCell label={columns[4]}>
                       {s ? (
                         <div className="space-y-0.5">
-                          <Badge tone={s.business_manager_count <= 2 ? 'positive' : s.business_manager_count <= 4 ? 'info' : 'caution'}>
+                          <Badge tone="neutral">
                             {`${s.business_manager_count} BM`}
                           </Badge>
                           <div data-detail-only="true" className="text-[10px] text-ink-muted">
-                            {s.business_manager_count <= 2
-                              ? 'An toàn (≤ 2 BM gốc/Via)'
-                              : s.business_manager_count <= 4
-                                ? 'Chạm trần tạo BM (4 BM)'
-                                : 'Via Tổng / Partner'}
+                            {t('honest.facebook.linkedBm')}
                           </div>
                         </div>
                       ) : (
@@ -1712,24 +1158,9 @@ export default function FacebookAccounts() {
         }}
         decision={guardrailBlocked?.decision ?? null}
         isOwner={role === 'owner'}
-        onOverrideGranted={(grant) => {
-          if (!guardrailBlocked) return
-          const pending = guardrailBlocked.pendingLaunch
+        onOverrideGranted={() => {
           setGuardrailBlocked(null)
-          void launchInAssignedChromeProfile(
-            pending.targetUrl,
-            pending.browserLabel,
-            pending.viaLabel,
-            pending.networkLabel,
-            {
-              viaId: pending.viaId,
-              antidetectEngine: pending.antidetectEngine,
-              antidetectProfileId: pending.antidetectProfileId,
-              viaTier: pending.viaTier,
-              isSoaking72h: pending.isSoaking72h,
-              overrideGrant: grant,
-            },
-          )
+          setSyncNotice(t('honest.facebook.automationUnavailable'))
         }}
       />
     </div>

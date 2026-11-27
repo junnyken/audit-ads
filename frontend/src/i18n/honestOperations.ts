@@ -1,0 +1,31 @@
+export const honestOperationsVi = {
+  'honest.operations.description': 'Điều hướng tới các quy trình API chính thức và hướng dẫn thao tác.',
+  'honest.operations.retiredTitle': 'Thực thi qua trình duyệt không khả dụng',
+  'honest.operations.retiredBody': 'Tác vụ Chrome tự động đã ngừng cung cấp tại đây. Hãy tự mở trang chính thức của nhà cung cấp, kiểm tra đúng tài khoản và quyền trước khi thao tác thủ công. Không có cam kết về kết quả hoặc trạng thái tài khoản.',
+  'honest.operations.workflow': 'Các liên kết bên dưới mở quy trình hiện có. Với API chính thức, kiểm tra bản xem trước và quyền, xác nhận riêng trong quy trình trước khi gửi thay đổi; chỉ coi hoàn tất khi có phản hồi thực tế.',
+  'honest.setup.connections': 'Kết nối Meta',
+  'honest.setup.extension': 'Thông tin tiện ích Chrome',
+  'honest.setup.guide': 'Hướng dẫn vận hành',
+  'honest.facebook.twoFactorManual': 'Sử dụng ứng dụng xác thực hoặc trang nhà cung cấp để xác thực thủ công. Chỉ hiển thị phương thức đã lưu; không xác minh cấu hình.',
+  'honest.facebook.networkReference': 'Tham chiếu mạng đã lưu:',
+  'honest.facebook.networkMissing': 'Chưa có tham chiếu mạng',
+  'honest.facebook.unverified': 'Chưa xác minh',
+  'honest.facebook.automationUnavailable': 'Tự động hóa trình duyệt không khả dụng',
+  'honest.facebook.linkedBm': 'BM đã liên kết',
+}
+
+export const honestOperationsEn: Record<keyof typeof honestOperationsVi, string> = {
+  'honest.operations.description': 'Navigate to official API workflows and operating guidance.',
+  'honest.operations.retiredTitle': 'Browser execution unavailable',
+  'honest.operations.retiredBody': 'Automated Chrome actions are retired here. Open the provider’s official website yourself, verify the account and permissions, and perform steps manually. Results and account status are not guaranteed.',
+  'honest.operations.workflow': 'These links open existing workflows. For official APIs, review the preview and permissions and confirm separately before submitting changes; completion requires an actual response.',
+  'honest.setup.connections': 'Meta connections',
+  'honest.setup.extension': 'Chrome extension information',
+  'honest.setup.guide': 'Operations guide',
+  'honest.facebook.twoFactorManual': 'Use your authenticator or the provider website to authenticate manually. Only the stored method is shown; configuration is unverified.',
+  'honest.facebook.networkReference': 'Stored network reference:',
+  'honest.facebook.networkMissing': 'No network reference recorded',
+  'honest.facebook.unverified': 'Unverified',
+  'honest.facebook.automationUnavailable': 'Browser automation unavailable',
+  'honest.facebook.linkedBm': 'Linked BMs',
+}
