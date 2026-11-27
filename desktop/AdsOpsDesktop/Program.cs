@@ -33,6 +33,7 @@ internal static class Program
         if (!MainWindow.SafeCandidateMode) return 2;
         var cache = Path.Combine(Path.GetTempPath(), "AdsOpsComponentSmoke-" + Guid.NewGuid().ToString("N"));
         var result = 1;
+        var diagnostic = "navigation_not_completed";
         Application? app = null;
         Microsoft.Web.WebView2.Wpf.WebView2? web = null;
         try
@@ -42,6 +43,7 @@ internal static class Program
             app.DispatcherUnhandledException += (_, e) =>
             {
                 e.Handled = true;
+                diagnostic = e.Exception.GetType().Name + ":" + e.Exception.HResult.ToString("X8");
                 result = 1;
                 app.Shutdown(1);
             };
@@ -55,21 +57,22 @@ internal static class Program
                 {
                     var env = await Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateAsync(null, cache);
                     await web.EnsureCoreWebView2Async(env);
-                    web.CoreWebView2.NavigationCompleted += (_, e) => { result = e.IsSuccess ? 0 : 1; };
+                    web.CoreWebView2.NavigationCompleted += (_, e) => { result = e.IsSuccess ? 0 : 1; diagnostic = e.IsSuccess ? "navigation_completed" : e.WebErrorStatus.ToString(); };
                     web.CoreWebView2.Navigate("about:blank");
                 }
-                catch { result = 1; app.Shutdown(1); }
+                catch (Exception ex) { diagnostic = ex.GetType().Name + ":" + ex.HResult.ToString("X8"); result = 1; app.Shutdown(1); }
             };
             timer.Start();
             app.Run(win);
             timer.Stop();
         }
-        catch { result = 1; }
+        catch (Exception ex) { diagnostic = ex.GetType().Name + ":" + ex.HResult.ToString("X8"); result = 1; }
         finally
         {
             try { web?.Dispose(); } catch { }
             try { Directory.Delete(cache, recursive: true); } catch { }
         }
+        Console.WriteLine(JsonSerializer.Serialize(new { component_diagnostic = diagnostic }));
         Console.WriteLine(result == 0
             ? "{\"candidate_component_smoke\":\"pass\"}"
             : "{\"candidate_component_smoke\":\"fail\"}");

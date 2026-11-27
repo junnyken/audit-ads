@@ -65,6 +65,8 @@ jobs:
           $p = Start-Process -FilePath $exe -ArgumentList '--candidate-component-smoke-test' -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
           if (-not $p.WaitForExit(30000)) { Stop-Process -Id $p.Id -Force; throw 'Component smoke exceeded 30 seconds' }
           $p.Refresh()
+          if (Test-Path $out) { Get-Content $out }
+          if (Test-Path $err) { Get-Content $err }
           if ($p.ExitCode -ne 0) { throw 'WPF/WebView2 component smoke failed; no app acceptance claimed' }
           if ((Get-Content $out -Raw) -notmatch '"candidate_component_smoke":"pass"') { throw 'Component smoke confirmation missing' }
           Copy-Item $out artifacts/windows-candidate/component-smoke.log
