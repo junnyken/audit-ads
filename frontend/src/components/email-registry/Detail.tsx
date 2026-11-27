@@ -1,3 +1,4 @@
+import { registryAction, registryActor, registryAssignee, registryDate, registryTimezone } from '../../lib/emailRegistryPresentation'
 import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -19,6 +20,7 @@ function AdminAction({ entry, mode, onClose, onSaved }: { entry: EmailEntry; mod
  </Modal>
 }
 export function Detail({ id, scope, admin, onChanged }: { id: string; scope: string; admin: boolean; onChanged: () => void }) {
+ const {user} = useAuth(); const members = useEligibleMembers(admin)
  const {t} = useI18n(); const client = useQueryClient(); const [mode,setMode] = useState<'edit'|'reassign'|'archive'|'reveal'|null>(null); const [page,setPage] = useState(1); const [saved,setSaved] = useState(false)
  const detail = useQuery({ queryKey:['email-registry',scope,'detail',id],queryFn:()=>api.get<EmailEntry>(`${REGISTRY}/${id}`),retry:false })
  const history = useQuery({ queryKey:['email-registry',scope,'history',id,page], queryFn:()=>api.get<RegistryPage<EmailHistory>>(`${REGISTRY}/${id}/history?page=${page}&page_size=25`),retry:false, enabled:detail.isSuccess })
@@ -29,11 +31,11 @@ export function Detail({ id, scope, admin, onChanged }: { id: string; scope: str
  return <section className="space-y-4 rounded-lg border border-line bg-surface p-4">
  <h2 className="break-all text-lg font-semibold">{entry.address_hint}</h2>{saved && <p role="status">{t('er.saved')}</p>}
  <dl className="grid gap-3 sm:grid-cols-2">{([
- ['er.provider',entry.provider],['er.kind',t(`er.${entry.account_kind}`)],['er.state',t(`er.${entry.state}`)],['er.assignee',entry.responsible_member_id ?? t('er.unassigned')],['er.due',entry.review_due_at],['er.zone',entry.review_timezone],['er.observed',entry.evidence_observed_at],['er.reason',entry.reason],['er.next',entry.next_action],
+ ['er.provider',t(`er.${entry.provider}`)],['er.kind',t(`er.${entry.account_kind}`)],['er.state',t(`er.${entry.state}`)],['er.assignee',registryAssignee(entry.responsible_member_id,members.isSuccess ? members.data : undefined,t)],['er.due',registryDate(entry.review_due_at,entry.review_timezone)],['er.zone',entry.review_timezone ? registryTimezone(entry.review_timezone) : '—'],['er.observed',registryDate(entry.evidence_observed_at,entry.review_timezone)],['er.reason',entry.reason],['er.next',entry.next_action],
  ] as const).map(([label,value])=><div key={label} className="min-w-0"><dt className="text-sm text-ink-muted">{t(label)}</dt><dd className="break-words">{value ?? '—'}</dd></div>)}</dl>
  {entry.archived_at ? <p>{t('er.archived')}</p> : <div className="flex flex-wrap gap-2"><Button onClick={()=>{setSaved(false);setMode('edit')}}>{t('er.edit')}</Button>{admin && <><Button variant="secondary" onClick={()=>setMode('reassign')}>{t('er.reassign')}</Button><Button variant="destructive" onClick={()=>setMode('archive')}>{t('er.archive')}</Button></>}{entry.can_reveal_address && <Button variant="secondary" onClick={()=>setMode('reveal')}>{t('er.reveal')}</Button>}</div>}
  <Button variant="secondary" onClick={()=>void reload()}>{t('er.retry')}</Button>
- <h3 className="font-semibold">{t('er.history')}</h3>{history.isPending ? <p role="status">{t('er.loading')}</p> : history.isError ? <Failure error={history.error} retry={()=>void history.refetch()} /> : <>{!history.data.items.length && <p>{t('er.historyEmpty')}</p>}<ol className="space-y-2">{history.data.items.map(event=><li key={event.id} className="break-words border-b border-line py-2"><span>{/^email_registry\.(created|updated|reassigned|archived|address_revealed|list_read|detail_read|history_read)$/.test(event.action) ? event.action : '—'}</span><time className="ml-2">{event.created_at}</time><span className="ml-2">{event.actor_id}</span></li>)}</ol><Pager page={page} total={history.data.total_pages} change={setPage} /></>}
+ <h3 className="font-semibold">{t('er.history')}</h3>{history.isPending ? <p role="status">{t('er.loading')}</p> : history.isError ? <Failure error={history.error} retry={()=>void history.refetch()} /> : <>{!history.data.items.length && <p>{t('er.historyEmpty')}</p>}<ol className="space-y-2">{history.data.items.map(event=><li key={event.id} className="break-words border-b border-line py-2"><span>{t(registryAction(event.action))}</span><time className="ml-2">{registryDate(event.created_at,entry.review_timezone)}</time><span className="ml-2">{registryActor(event.actor_id,user,t)}</span></li>)}</ol><Pager page={page} total={history.data.total_pages} change={setPage} /></>}
  {mode==='edit' && !entry.archived_at && <EntryForm entry={entry} admin={admin} onClose={()=>setMode(null)} onSaved={()=>{setSaved(true);void reload()}} />}
  {(mode==='reassign'||mode==='archive') && admin && !entry.archived_at && <AdminAction entry={entry} mode={mode} onClose={()=>setMode(null)} onSaved={()=>{setSaved(true);void reload()}} />}
  {mode==='reveal' && entry.can_reveal_address && !entry.archived_at && <Reveal id={id} onClose={()=>setMode(null)} />}
