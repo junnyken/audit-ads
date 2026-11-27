@@ -88,10 +88,10 @@ PUBLISH = ROOT / 'desktop/scripts/publish-release.ps1'
 
 class StaticGateTests(unittest.TestCase):
     def test_current_sources(self):
-        self.assertEqual(check_sources(SHELL.read_text(), PUBLISH.read_text()), [])
+        self.assertEqual(check_sources(SHELL.read_text(encoding='utf-8'), PUBLISH.read_text(encoding='utf-8')), [])
 
     def test_removed_guards_fail(self):
-        shell, publish = SHELL.read_text(), PUBLISH.read_text()
+        shell, publish = SHELL.read_text(encoding='utf-8'), PUBLISH.read_text(encoding='utf-8')
         for guard in ['if (!IsBundledOrigin(ev.Source)) return;', 'if (!HasSafeNativeCapability(action))',
                       'input.Cancel();', 'if (!IsBundledOrigin(ev.Uri)) ev.Cancel = true;',
                       'core.NewWindowRequested += (_, ev) => { ev.Handled = true; };',
@@ -104,7 +104,7 @@ class StaticGateTests(unittest.TestCase):
                 self.assertTrue(check_sources(shell, publish.replace(guard, '')))
 
     def test_unsafe_allowlist_fails(self):
-        self.assertTrue(check_sources(SHELL.read_text().replace('or "cloud_login";', 'or "cloud_login" or "hotkey";'), PUBLISH.read_text()))
+        self.assertTrue(check_sources(SHELL.read_text(encoding='utf-8').replace('or "cloud_login";', 'or "cloud_login" or "hotkey";'), PUBLISH.read_text(encoding='utf-8')))
 
 
 if __name__ == '__main__':
@@ -115,7 +115,7 @@ if __name__ == '__main__':
     if args.self_test:
         unittest.main(argv=[__file__])
     else:
-        errors = check_sources(SHELL.read_text(), PUBLISH.read_text())
+        errors = check_sources(SHELL.read_text(encoding='utf-8'), PUBLISH.read_text(encoding='utf-8'))
         if errors:
             raise SystemExit('\n'.join(errors))
         if args.candidate:

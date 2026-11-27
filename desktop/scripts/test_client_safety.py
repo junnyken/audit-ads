@@ -50,7 +50,7 @@ def model_cache(actual, expected):
 
 class ClientSafety(unittest.TestCase):
     def test_static_startup_and_entry_guards(self):
-        main = (ROOT / 'MainWindow.cs').read_text()
+        main = (ROOT / 'MainWindow.cs').read_text(encoding='utf-8')
         self.assertIn('private const bool SafeCandidateMode = true;', main)
         startup = main.split('private async Task OnWindowLoadedAsync()', 1)[1].split('private void HydrateFromOfflineSnapshot', 1)[0]
         self.assertLess(startup.index('if (SafeCandidateMode)'), startup.index('StartBridgeServer();'))
@@ -60,12 +60,12 @@ class ClientSafety(unittest.TestCase):
                                ('private async Task RunAutoKeepAliveTickAsync()', 'return;'),
                                ('private void OnUiSecondTick()', 'return;')]:
             self.assertIn(signature + '\n    {\n        if (SafeCandidateMode) ' + ret, main)
-        shell = (ROOT / 'MainWindow.WebShell.cs').read_text()
+        shell = (ROOT / 'MainWindow.WebShell.cs').read_text(encoding='utf-8')
         switch = shell.split('case "switch_view":', 1)[1].split('break;', 1)[0]
         self.assertLess(switch.index('if (SafeCandidateMode)'), switch.index('SwitchView('))
 
     def test_static_cache_guards(self):
-        source = (ROOT / 'DesktopWebUiBridge.cs').read_text()
+        source = (ROOT / 'DesktopWebUiBridge.cs').read_text(encoding='utf-8')
         self.assertNotIn('ExtractToDirectory', source)
         for guard in ['MaxAssetFiles = 4096', 'MaxAssetSize = 32L', 'MaxAssetTotal = 128L',
                       'FileAttributes.ReparsePoint', 'Path.IsPathRooted(name)', 'files.ContainsKey(name)',
