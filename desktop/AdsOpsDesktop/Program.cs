@@ -49,7 +49,7 @@ internal static class Program
             };
             web = new Microsoft.Web.WebView2.Wpf.WebView2();
             var win = new Window { Title = "Candidate component smoke", Width = 480, Height = 240, Content = web };
-            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(6) };
+            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(20) };
             timer.Tick += (_, _) => { timer.Stop(); app.Shutdown(result); };
             win.Loaded += async (_, _) =>
             {
@@ -58,7 +58,7 @@ internal static class Program
                     var env = await Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateAsync(null, cache);
                     await web.EnsureCoreWebView2Async(env);
                     web.CoreWebView2.NavigationCompleted += (_, e) => { result = e.IsSuccess ? 0 : 1; diagnostic = e.IsSuccess ? "navigation_completed" : e.WebErrorStatus.ToString(); };
-                    web.CoreWebView2.Navigate("about:blank");
+                    web.CoreWebView2.NavigateToString("<!doctype html><html><body>AdsOps isolated component smoke</body></html>");
                 }
                 catch (Exception ex) { diagnostic = ex.GetType().Name + ":" + ex.HResult.ToString("X8"); result = 1; app.Shutdown(1); }
             };
