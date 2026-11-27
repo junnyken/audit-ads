@@ -42,7 +42,7 @@ internal sealed record LiveTotpBinding(
 internal sealed partial class MainWindow : Window
 {
     // Compile-time local candidate boundary; does not certify legacy WPF paths.
-    private const bool SafeCandidateMode = true;
+    internal const bool SafeCandidateMode = true;
 
     private readonly bool _startMinimized;
     private bool _allowExit;
@@ -308,8 +308,18 @@ internal sealed partial class MainWindow : Window
         root.Children.Add(mainArea);
 
         _legacyWpfShellRoot = root;
-        Content = !_overviewWebViewFailed ? EnsureOverviewWebViewHost() : root;
+        Content = SafeCandidateMode ? CandidateView()
+            : !_overviewWebViewFailed ? EnsureOverviewWebViewHost() : root;
     }
+
+    private object CandidateView() => _overviewWebViewFailed
+        ? new TextBlock
+        {
+            Text = "Safety candidate: WebView2 unavailable. Legacy controls are disabled; data and automation are unsupported.",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(28),
+        }
+        : EnsureOverviewWebViewHost();
 
     private Border BuildSidebar()
     {
@@ -759,7 +769,7 @@ internal sealed partial class MainWindow : Window
         if (SafeCandidateMode)
         {
             AppendLog("Local safety candidate: startup automation, listener, timers and update fetch are unsupported.");
-            RenderCurrentView();
+            Content = CandidateView();
             return;
         }
 

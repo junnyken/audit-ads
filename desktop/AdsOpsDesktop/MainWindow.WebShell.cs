@@ -187,9 +187,15 @@ internal sealed partial class MainWindow
         catch (Exception ex)
         {
             _overviewWebViewFailed = true;
-            AppendLog($"⚠️ Không thể khởi tạo WebView2 shadcn/ui ({ex.Message}) -> Tự động chuyển về giao diện WPF.");
+            AppendLog(SafeCandidateMode ? "Safety candidate: WebView2 unavailable; legacy controls disabled."
+                : $"WebView2 unavailable ({ex.Message}); using WPF.");
             _ = Dispatcher.BeginInvoke(() =>
             {
+                if (SafeCandidateMode)
+                {
+                    Content = CandidateView();
+                    return;
+                }
                 if (_legacyWpfShellRoot != null)
                 {
                     Content = _legacyWpfShellRoot;
@@ -1124,10 +1130,37 @@ internal sealed partial class MainWindow
         };
     }
 
+    // Explicit allowlist only. Never invoke runtime/vault/TOTP state builders here.
+    private void PostCandidateEmptyState()
+    {
+        var state = new
+        {
+            type = "full_state", activeView = "vias", palette = "obsidian",
+            appVersion = DesktopAppInfo.Version, extVersion = "unsupported",
+            isLoggedIn = false, hasLoadedOnce = false, isBusy = false,
+            isAuthExpired = false, isOfflineSnapshot = false,
+            userDisplay = "", userEmail = "", userRole = "", workspaceDisplay = "Safety candidate",
+            errorBannerText = "Safety candidate: state reads, authentication status, vault, telemetry and automation are unsupported. Empty values are not measured data.",
+            kpi = new { bridgeOnline = false, bridgePort = 0 },
+            queue = new { isActive = false, phase = "Unsupported" },
+            navBadges = new { overview = "", vias = "", automation = "", healthTokens = "", workspaceOps = "" },
+            settings = new { isNewerUpdate = false, updateRequired = false, hasUpdateManifest = false, licenseStatus = "unsupported" },
+            vias = Array.Empty<object>(), fanpages = Array.Empty<object>(),
+            automationConfig = new { useIsolatedProfiles = false },
+            runtimeLogs = new[] { "Safety candidate: runtime and data reads unsupported." },
+        };
+        _overviewWebView!.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(state));
+    }
+
     internal void PushOverviewStateToWebView()
     {
         if (!_overviewWebViewReady || _overviewWebView?.CoreWebView2 == null
             || !IsBundledOrigin(_overviewWebView.CoreWebView2.Source)) return;
+        if (SafeCandidateMode)
+        {
+            PostCandidateEmptyState();
+            return;
+        }
         try
         {
             var json = DesktopWebUiBridge.BuildShellStateJson(BuildAppShellWebState());
@@ -1143,6 +1176,11 @@ internal sealed partial class MainWindow
     {
         if (!_overviewWebViewReady || _overviewWebView?.CoreWebView2 == null
             || !IsBundledOrigin(_overviewWebView.CoreWebView2.Source)) return;
+        if (SafeCandidateMode)
+        {
+            PostCandidateEmptyState();
+            return;
+        }
         try
         {
             var json = DesktopWebUiBridge.BuildLiveTickJson(BuildAppShellLiveTick());

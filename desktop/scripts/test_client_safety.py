@@ -57,7 +57,7 @@ def model_cache(actual, expected):
 class ClientSafety(unittest.TestCase):
     def test_static_startup_and_entry_guards(self):
         main = (ROOT / 'MainWindow.cs').read_text(encoding='utf-8')
-        self.assertIn('private const bool SafeCandidateMode = true;', main)
+        self.assertIn('internal const bool SafeCandidateMode = true;', main)
         startup = main.split('private async Task OnWindowLoadedAsync()', 1)[1].split('private void HydrateFromOfflineSnapshot', 1)[0]
         self.assertLess(startup.index('if (SafeCandidateMode)'), startup.index('StartBridgeServer();'))
         self.assertLess(startup.index('return;'), startup.index('_uiTimer.Start();'))
@@ -69,6 +69,58 @@ class ClientSafety(unittest.TestCase):
         shell = (ROOT / 'MainWindow.WebShell.cs').read_text(encoding='utf-8')
         switch = shell.split('case "switch_view":', 1)[1].split('break;', 1)[0]
         self.assertLess(switch.index('if (SafeCandidateMode)'), switch.index('SwitchView('))
+
+    def test_candidate_projection_never_builds_sensitive_state(self):
+        shell = (ROOT / 'MainWindow.WebShell.cs').read_text(encoding='utf-8')
+        for name, builder in [('PushOverviewStateToWebView', 'BuildAppShellWebState()'),
+                              ('PushLiveTickToWebView', 'BuildAppShellLiveTick()')]:
+            method = shell.split('internal void ' + name + '()', 1)[1].split('\n    private ', 1)[0]
+            branch = method.split('if (SafeCandidateMode)', 1)[1].split('        try', 1)[0]
+            self.assertIn('PostCandidateEmptyState();', branch)
+            self.assertIn('return;', branch)
+            self.assertNotIn(builder, branch)
+            self.assertLess(method.index('return;', method.index('if (SafeCandidateMode)')), method.index(builder))
+        projection = shell.split('private void PostCandidateEmptyState()', 1)[1].split('internal void PushOverviewState', 1)[0]
+        for forbidden in ['BuildAppShell', '_config', '_vias', 'LocalSecret', 'Totp', 'GetJwt', 'BuildLive']:
+            self.assertNotIn(forbidden, projection)
+        for required in ['type = "full_state"', 'activeView = "vias"', 'isLoggedIn = false',
+                         'bridgeOnline = false', 'queue = new', 'unsupported', 'automationConfig = new']:
+            self.assertIn(required, projection)
+        # The actual handler accepts full state via kpi, not type alone.
+        bridge = (ROOT.parent / 'DesktopUi/src/lib/bridge.ts').read_text()
+        self.assertIn("'kpi' in parsed", bridge)
+        self.assertIn('kpi = new', projection)
+
+    def test_candidate_fallback_and_protocol(self):
+        main = (ROOT / 'MainWindow.cs').read_text(encoding='utf-8')
+        self.assertIn('Content = SafeCandidateMode ? CandidateView()', main)
+        view = main.split('private object CandidateView()', 1)[1].split('private Border BuildSidebar()', 1)[0]
+        self.assertIn('new TextBlock', view)
+        self.assertNotIn('_legacyWpfShellRoot', view)
+        shell = (ROOT / 'MainWindow.WebShell.cs').read_text()
+        failure = shell.split('_overviewWebViewFailed = true;', 1)[1].split('finally', 1)[0]
+        safe = failure.split('if (SafeCandidateMode)', 1)[1].split('if (_legacyWpfShellRoot', 1)[0]
+        self.assertIn('Content = CandidateView();', safe)
+        self.assertIn('return;', safe)
+        program = (ROOT / 'Program.cs').read_text(encoding='utf-8-sig')
+        entry = program.split('private static int Main(string[] args)', 1)[1]
+        reject = entry.split('if (MainWindow.SafeCandidateMode', 1)[1].split('return 2;', 1)[0]
+        self.assertIn('"--uri"', reject)
+        self.assertIn('"--register-protocol"', reject)
+        self.assertLess(entry.index('return 2;'), entry.index('ProtocolRegistrar.RegisterUriProtocol();'))
+        self.assertLess(entry.index('return 2;'), entry.index('HandleProtocolInvocationAsync('))
+
+    def test_component_smoke_is_not_app_or_selftest(self):
+        program = (ROOT / 'Program.cs').read_text(encoding='utf-8-sig')
+        smoke = program.split('private static int RunCandidateComponentSmoke()', 1)[1].split('[STAThread]', 1)[0]
+        for forbidden in ['new MainWindow', 'DesktopConfig.', 'RunSelfTest', 'GetFolderPath', 'HandleProtocolInvocation']:
+            self.assertNotIn(forbidden, smoke)
+        for required in ['new Application', 'new Window', 'EnsureCoreWebView2Async',
+                         'Path.GetTempPath()', 'Guid.NewGuid()', 'TimeSpan.FromSeconds(6)',
+                         'DispatcherUnhandledException', 'NavigationCompleted', 'app.Shutdown',
+                         'web?.Dispose()', 'candidate_component_smoke']:
+            self.assertIn(required, smoke)
+        self.assertIn('unsupported_constructor_side_effects', program)
 
     def test_static_cache_guards(self):
         source = (ROOT / 'DesktopWebUiBridge.cs').read_text(encoding='utf-8')

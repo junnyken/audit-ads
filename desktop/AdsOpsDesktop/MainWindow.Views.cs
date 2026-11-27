@@ -18,6 +18,12 @@ internal sealed partial class MainWindow
 {
     private void RenderCurrentView()
     {
+        if (SafeCandidateMode)
+        {
+            Content = CandidateView();
+            PushOverviewStateToWebView();
+            return;
+        }
         try
         {
             _liveTotpBindings.Clear();

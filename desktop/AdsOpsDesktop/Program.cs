@@ -27,9 +27,73 @@ internal static class Program
 
     private const int SwRestore = 9;
 
+    // Component gate only: deliberately does not construct MainWindow or load config.
+    private static int RunCandidateComponentSmoke()
+    {
+        if (!MainWindow.SafeCandidateMode) return 2;
+        var cache = Path.Combine(Path.GetTempPath(), "AdsOpsComponentSmoke-" + Guid.NewGuid().ToString("N"));
+        var result = 1;
+        Application? app = null;
+        Microsoft.Web.WebView2.Wpf.WebView2? web = null;
+        try
+        {
+            Directory.CreateDirectory(cache);
+            app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            app.DispatcherUnhandledException += (_, e) =>
+            {
+                e.Handled = true;
+                result = 1;
+                app.Shutdown(1);
+            };
+            web = new Microsoft.Web.WebView2.Wpf.WebView2();
+            var win = new Window { Title = "Candidate component smoke", Width = 480, Height = 240, Content = web };
+            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(6) };
+            timer.Tick += (_, _) => { timer.Stop(); app.Shutdown(result); };
+            win.Loaded += async (_, _) =>
+            {
+                try
+                {
+                    var env = await Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateAsync(null, cache);
+                    await web.EnsureCoreWebView2Async(env);
+                    web.CoreWebView2.NavigationCompleted += (_, e) => { result = e.IsSuccess ? 0 : 1; };
+                    web.CoreWebView2.Navigate("about:blank");
+                }
+                catch { result = 1; app.Shutdown(1); }
+            };
+            timer.Start();
+            app.Run(win);
+            timer.Stop();
+        }
+        catch { result = 1; }
+        finally
+        {
+            try { web?.Dispose(); } catch { }
+            try { Directory.Delete(cache, recursive: true); } catch { }
+        }
+        Console.WriteLine(result == 0
+            ? "{\"candidate_component_smoke\":\"pass\"}"
+            : "{\"candidate_component_smoke\":\"fail\"}");
+        return result;
+    }
+
     [STAThread]
     private static int Main(string[] args)
     {
+        if (MainWindow.SafeCandidateMode && args.Any(a =>
+            string.Equals(a, "--uri", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(a, "--register-protocol", StringComparison.OrdinalIgnoreCase)))
+        {
+            Console.WriteLine("{\"candidate_protocol\":\"rejected\"}");
+            return 2;
+        }
+        if (args.Any(a => string.Equals(a, "--candidate-smoke-test", StringComparison.OrdinalIgnoreCase)))
+        {
+            Console.WriteLine("{\"candidate_app_smoke\":\"unsupported_constructor_side_effects\"}");
+            return 2;
+        }
+        if (args.Any(a => string.Equals(a, "--candidate-component-smoke-test", StringComparison.OrdinalIgnoreCase)))
+            return RunCandidateComponentSmoke();
+
         if (args.Any(a => string.Equals(a, "--self-test", StringComparison.OrdinalIgnoreCase)))
         {
             return RunSelfTestAsync().GetAwaiter().GetResult();

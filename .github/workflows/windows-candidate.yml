@@ -56,6 +56,18 @@ jobs:
         run: |
           dotnet publish desktop/AdsOpsDesktop/AdsOpsDesktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=embedded -o artifacts/windows-candidate/payload
           if ($LASTEXITCODE -ne 0) { throw 'Windows compilation failed' }
+      - name: Smoke WPF and WebView2 components (not full app acceptance)
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path artifacts/windows-candidate/payload/AdsOpsDesktop.exe).Path
+          $out = Join-Path $env:RUNNER_TEMP 'candidate-component-smoke.stdout'
+          $err = Join-Path $env:RUNNER_TEMP 'candidate-component-smoke.stderr'
+          $p = Start-Process -FilePath $exe -ArgumentList '--candidate-component-smoke-test' -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+          if (-not $p.WaitForExit(30000)) { Stop-Process -Id $p.Id -Force; throw 'Component smoke exceeded 30 seconds' }
+          $p.Refresh()
+          if ($p.ExitCode -ne 0) { throw 'WPF/WebView2 component smoke failed; no app acceptance claimed' }
+          if ((Get-Content $out -Raw) -notmatch '"candidate_component_smoke":"pass"') { throw 'Component smoke confirmation missing' }
+          Copy-Item $out artifacts/windows-candidate/component-smoke.log
       - name: Record immutable build provenance
         shell: pwsh
         run: |
@@ -70,7 +82,7 @@ jobs:
             exe_size_bytes = $exe.Length
             ui_sha256 = (Get-FileHash $ui.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             lock_sha256 = (Get-FileHash desktop/DesktopUi/package-lock.json -Algorithm SHA256).Hash.ToLowerInvariant()
-            runtime_tested = $false; signed = $false
+            runtime_tested = $false; component_smoke_tested = $true; app_startup_tested = $false; signed = $false
             blocked_on = @('Windows manual click-through','trusted signing','legacy native review','Email Registry desktop parity')
           }
           $record | ConvertTo-Json -Depth 4 | Set-Content artifacts/windows-candidate/build-provenance.json -Encoding utf8
