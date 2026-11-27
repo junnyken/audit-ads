@@ -16,7 +16,7 @@ def model_bundle(data):
         if not 0 < len(archive.infolist()) <= 4096:
             raise ValueError('count')
         for entry in archive.infolist():
-            name = entry.filename
+            name = entry.orig_filename
             parts = name.split('/')
             total += entry.file_size
             if (any(p in ('', '.', '..') or p.endswith(('.', ' ')) for p in parts)
