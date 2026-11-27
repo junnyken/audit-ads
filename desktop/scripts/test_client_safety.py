@@ -40,7 +40,13 @@ def bundle(entries):
     with zipfile.ZipFile(output, 'w') as archive:
         for name, data in entries:
             archive.writestr(name, data)
-    return output.getvalue()
+    # Windows ZipInfo normalizes backslashes when constructed. Patch equal-length
+    # names in both headers so the checker actually receives the hostile fixture.
+    data = output.getvalue()
+    for name, _ in entries:
+        if isinstance(name, str) and "\\" in name:
+            data = data.replace(name.replace("\\", "/").encode("utf-8"), name.encode("utf-8"))
+    return data
 
 
 def model_cache(actual, expected):
