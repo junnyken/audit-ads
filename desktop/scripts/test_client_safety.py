@@ -87,7 +87,7 @@ class ClientSafety(unittest.TestCase):
                          'bridgeOnline = false', 'queue = new', 'unsupported', 'automationConfig = new']:
             self.assertIn(required, projection)
         # The actual handler accepts full state via kpi, not type alone.
-        bridge = (ROOT.parent / 'DesktopUi/src/lib/bridge.ts').read_text()
+        bridge = (ROOT.parent / 'DesktopUi/src/lib/bridge.ts').read_text(encoding='utf-8')
         self.assertIn("'kpi' in parsed", bridge)
         self.assertIn('kpi = new', projection)
 
@@ -97,7 +97,7 @@ class ClientSafety(unittest.TestCase):
         view = main.split('private object CandidateView()', 1)[1].split('private Border BuildSidebar()', 1)[0]
         self.assertIn('new TextBlock', view)
         self.assertNotIn('_legacyWpfShellRoot', view)
-        shell = (ROOT / 'MainWindow.WebShell.cs').read_text()
+        shell = (ROOT / 'MainWindow.WebShell.cs').read_text(encoding='utf-8')
         failure = shell.split('_overviewWebViewFailed = true;', 1)[1].split('finally', 1)[0]
         safe = failure.split('if (SafeCandidateMode)', 1)[1].split('if (_legacyWpfShellRoot', 1)[0]
         self.assertIn('Content = CandidateView();', safe)
