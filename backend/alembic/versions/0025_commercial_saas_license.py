@@ -134,6 +134,7 @@ def _preflight(connection, inspector, schema: str, require_complete: bool = Fals
     tables = set(inspector.get_table_names(schema=schema))
     views = set(inspector.get_view_names(schema=schema))
     planned = []
+    unique_name = None
     for table, columns in specs.items():
         if table in views or (pg and table in catalog and catalog[table]["relkind"] != "r"):
             _fail(table, "relation")
@@ -156,20 +157,20 @@ def _preflight(connection, inspector, schema: str, require_complete: bool = Fals
             if inspector.get_pk_constraint(table, schema=schema).get("constrained_columns") != ["id"]:
                 _fail(table, "primary_key")
             unique = inspector.get_unique_constraints(table, schema=schema)
-            if (
-                len(unique) != 1
-                or unique[0].get("name") != "uq_password_reset_tokens_hash"
-                or unique[0].get("column_names") != ["token_hash"]
-            ):
-                # Only bounded structural facts: no object names, token values,
-                # row data or reflected SQL enter application logs.
-                hash_only = len(unique) == 1 and unique[0].get("column_names") == ["token_hash"]
-                expected_name = len(unique) == 1 and unique[0].get("name") == "uq_password_reset_tokens_hash"
-                count_band = "none" if not unique else "one" if len(unique) == 1 else "multiple"
-                raise RuntimeError(
-                    "0025 reconciliation: password_reset_tokens.unique incompatible; "
-                    f"count={count_band}; token_hash_only={hash_only}; expected_name={expected_name}"
-                )
+            if len(unique) != 1 or unique[0].get("column_names") != ["token_hash"]:
+                _fail(table, "unique_columns")
+            unique_name = unique[0].get("name")
+            if pg:
+                if not unique_name:
+                    _fail(table, "unique_identity")
+                # Names are catalog values bound as parameters, never SQL identifiers.
+                catalog.update(_catalog(connection, schema, [unique_name]))
+                flags = connection.execute(sa.text(
+                    "SELECT condeferrable, condeferred FROM pg_catalog.pg_constraint "
+                    "WHERE conrelid = to_regclass(:relation) AND conname = :name AND contype = 'u'"
+                ), {"relation": f'"{schema}"."{_TOKEN}"', "name": unique_name}).mappings().all()
+                if len(flags) != 1 or flags[0]["condeferrable"] or flags[0]["condeferred"]:
+                    _fail(table, "unique_timing")
             fks = inspector.get_foreign_keys(table, schema=schema)
             if len(fks) != 1:
                 _fail(table, "foreign_key")
@@ -229,7 +230,9 @@ def _preflight(connection, inspector, schema: str, require_complete: bool = Fals
                 if name in tables or name in views:
                     _fail(name, "relation")
             planned.append(("index", name, table, column))
-    unique_row = catalog.get("uq_password_reset_tokens_hash")
+    unique_row = catalog.get(unique_name) if unique_name else None
+    if pg and unique_name and unique_row is None:
+        _fail(_TOKEN, "unique_backing_index")
     if unique_row is not None and (
         unique_row["relkind"] != "i"
         or unique_row["table_name"] != _TOKEN

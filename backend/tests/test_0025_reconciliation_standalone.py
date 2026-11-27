@@ -156,7 +156,7 @@ def test_fake_metadata_rejects_before_write(db, monkeypatch, fault):
         monkeypatch.setattr(
             inspector,
             "get_unique_constraints",
-            lambda *a, **k: [{"name": "wrong", "column_names": ["token_hash"]}],
+            lambda *a, **k: [{"name": "wrong", "column_names": ["user_id"]}],
         )
     elif fault == "foreign_key":
         monkeypatch.setattr(inspector, "get_foreign_keys", lambda *a, **k: [])
@@ -199,7 +199,8 @@ def test_fake_metadata_rejects_before_write(db, monkeypatch, fault):
 def test_pg_catalog_index_state(db, monkeypatch, fault):
     m.upgrade()
     inspector = sa.inspect(db)
-    connection = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+    connection = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"), execute=Mock())
+    connection.execute.return_value.mappings.return_value.all.return_value = [{"condeferrable": False, "condeferred": False}]
     row = {
         "relkind": "i",
         "table_name": "device_sessions",
@@ -217,3 +218,15 @@ def test_pg_catalog_index_state(db, monkeypatch, fault):
     monkeypatch.setattr(m, "_check_column", lambda *a: None)
     with pytest.raises(RuntimeError, match="ix_device_sessions_installation_hash.catalog incompatible"):
         m._preflight(connection, inspector, "main")
+
+
+def test_equivalent_unique_name_is_accepted_without_ddl(db, monkeypatch):
+    m.upgrade()
+    inspector = sa.inspect(db)
+    original = inspector.get_unique_constraints
+    def renamed(table, **kwargs):
+        result = original(table, **kwargs)
+        result[0]["name"] = "legacy_generated_name"
+        return result
+    monkeypatch.setattr(inspector, "get_unique_constraints", renamed)
+    assert m._preflight(db, inspector, "main") == []
