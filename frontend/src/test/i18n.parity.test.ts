@@ -45,7 +45,8 @@ describe('i18n parity (the compile-time check is `satisfies Record<TranslationKe
       expect(viDict).toHaveProperty(group.labelKey)
       for (const item of group.items) expect(viDict).toHaveProperty(item.labelKey)
     }
-    expect(NAV_ITEMS).toHaveLength(21)
+    expect(NAV_ITEMS).toHaveLength(22)
+    expect(NAV_ITEMS.find(item => item.to === '/assets/emails')?.labelKey).toBe('er.title')
   })
 
   it('marks the file as awaiting BA review', () => {

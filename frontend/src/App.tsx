@@ -2,6 +2,7 @@ import { Suspense, lazy } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import AppShell from './components/AppShell'
 import { SeoHead } from './components/shell/SeoHead'
+import { useI18n } from './i18n'
 import { useAuth } from './hooks/useAuth'
 const Login = lazy(() => import('./pages/Login'))
 const Overview = lazy(() => import('./pages/Overview'))
@@ -37,7 +38,8 @@ import { Skeleton } from './components/primitives/skeleton'
 import { LoadingRegion } from './components/states'
 
 export default function App() {
-  const { user, loading } = useAuth()
+  const { user, loading, recovery, retry, signOut } = useAuth()
+  const { t } = useI18n()
 
   if (loading) {
     return (
@@ -46,6 +48,18 @@ export default function App() {
           <Skeleton key={index} className="h-8 w-full" />
         ))}
       </LoadingRegion>
+    )
+  }
+  if (recovery) {
+    return (
+      <main className="mx-auto max-w-md space-y-4 p-8">
+        <h1 className="text-xl font-semibold">{t('authRecovery.title')}</h1>
+        <p role="alert">{t('authRecovery.message')}</p>
+        <div className="flex gap-4">
+          <button className="rounded border px-4 py-2" onClick={() => void retry?.()}>{t('authRecovery.retry')}</button>
+          <button className="rounded border px-4 py-2" onClick={signOut}>{t('authRecovery.signOut')}</button>
+        </div>
+      </main>
     )
   }
   if (!user) {

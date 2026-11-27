@@ -1,3 +1,4 @@
+import { authRecoveryEn } from './authRecovery'
 import { accountsExportEn } from './accountsExport'
 import { emailRegistryEn } from './emailRegistry'
 /**
@@ -11,6 +12,7 @@ import { f1En } from './f1'
 import type { TranslationKey } from './types'
 
 export const en = {
+  ...authRecoveryEn,
   ...accountsExportEn,
   'common.appName': 'AdsOps Control Center',
   'common.appTagline': 'Account registry and operational readiness',

@@ -1,3 +1,4 @@
+import { authRecoveryVi } from './authRecovery'
 import { accountsExportVi } from './accountsExport'
 import { emailRegistryVi } from './emailRegistry'
 /**
@@ -24,6 +25,7 @@ import { u1fVi } from './u1f'
 import { f1Vi } from './f1'
 
 export const vi = {
+  ...authRecoveryVi,
   ...accountsExportVi,
   'common.appName': 'AdsOps Control Center',
   'common.appTagline': 'Sổ đăng ký tài khoản và mức sẵn sàng vận hành',

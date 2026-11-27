@@ -56,37 +56,70 @@ export function setToken(token: string | null): void {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<T> {
-  const token = getToken()
-  const response = await fetch(`${BASE}${path}`, {
-    method,
-    ...(path.startsWith('/api/v1/email-registry') ? { cache: 'no-store' as const } : {}),
-    headers: {
-      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...headers,
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
+interface RequestOptions {
+  timeoutMs?: number
+  signal?: AbortSignal
+}
 
-  if (response.status === 204) return undefined as T
+async function request<T>(method: string, path: string, body?: unknown, headers?: Record<string, string>, options?: RequestOptions): Promise<T> {
+  const controller = options ? new AbortController() : undefined
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let onAbort: (() => void) | undefined
+  const operation = async (): Promise<T> => {
+    const token = getToken()
+    const response = await fetch(`${BASE}${path}`, {
+      method,
+      ...(controller ? { signal: controller.signal } : {}),
+      ...(path.startsWith('/api/v1/email-registry') ? { cache: 'no-store' as const } : {}),
+      headers: {
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...headers,
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
 
-  const payload = await response.json().catch(() => null)
-  if (!response.ok) {
-    const error = (payload as { error?: Record<string, unknown> })?.error
-    throw new ApiError(
-      (error?.message as string) ?? 'The request could not be completed.',
-      response.status,
-      (error?.code as string) ?? 'unknown_error',
-      (error?.request_id as string) ?? response.headers.get('X-Request-ID'),
-      (error?.details as Record<string, unknown>) ?? {},
-    )
+    if (response.status === 204) return undefined as T
+
+    const payload = await response.json().catch(() => null)
+    if (!response.ok) {
+      const error = (payload as { error?: Record<string, unknown> })?.error
+      throw new ApiError(
+        (error?.message as string) ?? 'The request could not be completed.',
+        response.status,
+        (error?.code as string) ?? 'unknown_error',
+        (error?.request_id as string) ?? response.headers.get('X-Request-ID'),
+        (error?.details as Record<string, unknown>) ?? {},
+      )
+    }
+    return payload as T
   }
-  return payload as T
+  if (!controller) return operation()
+  const cancelled = new Promise<never>((_, reject) => {
+    onAbort = () => {
+      controller.abort()
+      reject(new DOMException('Request aborted', 'AbortError'))
+    }
+    options?.signal?.addEventListener('abort', onAbort, { once: true })
+    if (options?.signal?.aborted) onAbort()
+    if (options?.timeoutMs !== undefined) {
+      timer = setTimeout(() => {
+        controller.abort()
+        reject(new DOMException('Request timed out', 'TimeoutError'))
+      }, options.timeoutMs)
+    }
+  })
+  try {
+    // Race the complete operation: fetch and response body may each stall.
+    return await Promise.race([operation(), cancelled])
+  } finally {
+    clearTimeout(timer)
+    if (onAbort) options?.signal?.removeEventListener('abort', onAbort)
+  }
 }
 
 export const api = {
-  get: <T>(path: string) => request<T>('GET', path),
+  get: <T>(path: string, options?: RequestOptions) => request<T>('GET', path, undefined, undefined, options),
   post: <T>(path: string, body?: unknown, headers?: Record<string, string>) => request<T>('POST', path, body ?? {}, headers),
   patch: <T>(path: string, body: unknown, headers?: Record<string, string>) => request<T>('PATCH', path, body, headers),
   put: <T>(path: string, body: unknown) => request<T>('PUT', path, body),
