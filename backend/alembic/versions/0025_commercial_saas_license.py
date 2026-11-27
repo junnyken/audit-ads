@@ -161,7 +161,15 @@ def _preflight(connection, inspector, schema: str, require_complete: bool = Fals
                 or unique[0].get("name") != "uq_password_reset_tokens_hash"
                 or unique[0].get("column_names") != ["token_hash"]
             ):
-                _fail(table, "unique")
+                # Only bounded structural facts: no object names, token values,
+                # row data or reflected SQL enter application logs.
+                hash_only = len(unique) == 1 and unique[0].get("column_names") == ["token_hash"]
+                expected_name = len(unique) == 1 and unique[0].get("name") == "uq_password_reset_tokens_hash"
+                count_band = "none" if not unique else "one" if len(unique) == 1 else "multiple"
+                raise RuntimeError(
+                    "0025 reconciliation: password_reset_tokens.unique incompatible; "
+                    f"count={count_band}; token_hash_only={hash_only}; expected_name={expected_name}"
+                )
             fks = inspector.get_foreign_keys(table, schema=schema)
             if len(fks) != 1:
                 _fail(table, "foreign_key")
