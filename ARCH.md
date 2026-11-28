@@ -1218,3 +1218,12 @@ methods and complete fieldsets are guarded; ordinary bodies still use StrictPayl
 No auth endpoint, password policy or plaintext persistence contract is widened.
 Lifecycle/allowed-field evidence: docs/AUDIT_BEFORE_BUILD_CI_P1_GUARDS.md.
 Offline checks do not establish PostgreSQL or deployed behavior.
+
+### Final identity/CSV boundary — 2026-11-28
+`_sync_workspace_pages_from_meta` retains archived rows in its workspace-filtered
+external-ID index to prevent duplicate import. Its upsert rejects tombstones
+before BM creation, metadata changes, audit or counting; archived node refresh
+is skipped and link creation guards archived/workspace identity. No Page name
+attachment or automatic restoration. The existing CSV serializer uses strict
+boolean evidence and existing i18n unknown wording; nullable `bm_verified` is
+represented in its frontend type. No schema/service/endpoint additions.

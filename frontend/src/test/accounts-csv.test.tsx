@@ -111,7 +111,7 @@ describe('Accounts CSV download', () => {
     // The helper verifies BOM bytes before decoding the generated Blob.
     expect(csv.replace(/^\uFEFF/, '')).toBe(
       'Tên TKQC,ID TKQC (External ID),Business Manager,XMDN BM,Pháp nhân Doanh nghiệp,Mã số thuế (MST),Via & Hồ sơ Chrome,Tiền tệ,Dư nợ hiện tại,Số dư đạt (Ngưỡng TT),Ngày thanh toán tiếp theo,Giới hạn chi tiêu ngày (Meta đặt),Phương thức thanh toán (Thẻ),Chi tiêu Hôm nay,Chi tiêu Hôm qua,Chi tiêu 7 ngày,Chi tiêu Tháng này (MTD),Chi tiêu Lũy kế,Trạng thái Meta\r\n' +
-      '"Name, ""quoted""\nnext",act_escaped,BM1,Chưa XMDN,—,—,—,—,—,123.4500,2026-12-01,456.7800,"Card, ""1234""",—,—,—,—,—,Đang hoạt động',
+      '"Name, ""quoted""\nnext",act_escaped,BM1,Chưa xác định,—,—,—,—,—,123.4500,2026-12-01,456.7800,"Card, ""1234""",—,—,—,—,—,Đang hoạt động',
     )
   })
 })
@@ -198,4 +198,17 @@ it('applies selected card filter across all pages', async () => {
   expect(csv.split('\r\n')).toHaveLength(26)
   expect(csv).not.toContain('Other card')
   expect(csv).toContain('act_25,')
+})
+
+
+it('downloads strict true/false/unknown BM verification evidence in the CSV Blob', async () => {
+  const csv = await exportAccounts([
+    account('true', { billing_meta: { bm_verified: true } }),
+    account('false', { billing_meta: { bm_verified: false } }),
+    account('null', { billing_meta: { bm_verified: null } }),
+    account('undefined', { billing_meta: { bm_verified: undefined } }),
+    account('missing'),
+  ])
+  expect(csv.replace(/^\uFEFF/, '').split('\r\n').slice(1).map(line => line.split(',')[3]))
+    .toEqual(['Đã XMDN', 'Chưa XMDN', 'Chưa xác định', 'Chưa xác định', 'Chưa xác định'])
 })

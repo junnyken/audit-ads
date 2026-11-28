@@ -2659,11 +2659,6 @@ def _sync_workspace_pages_from_meta(
     by_ext_page: dict[str, Page] = {
         str(p.external_page_id).strip(): p for p in existing_pages_list if p.external_page_id
     }
-    by_pending_name: dict[str, Page] = {
-        p.name.strip().lower(): p
-        for p in existing_pages_list
-        if not p.external_page_id and p.name and p.archived_at is None
-    }
 
     bms_all = (
         session.execute(
@@ -2799,6 +2794,10 @@ def _sync_workspace_pages_from_meta(
         pid = str(p_row.get("id") or "").strip()
         if not pid:
             return None
+        # Archived exact IDs are tombstones: never restore, duplicate, audit or link.
+        pg_entity = by_ext_page.get(pid)
+        if pg_entity is not None and pg_entity.archived_at is not None:
+            return None
         pname = str(p_row.get("name") or pid).strip()
         pcat = str(p_row.get("category") or "").strip()[:120] or None
         plink = str(p_row.get("link") or f"https://www.facebook.com/{pid}").strip()[:2048]
@@ -2834,13 +2833,6 @@ def _sync_workspace_pages_from_meta(
             else "Đồng bộ từ Meta Graph API (/me/accounts)"
         )
 
-        pg_entity = by_ext_page.get(pid)
-        if pg_entity is None and pname:
-            pending_pg = by_pending_name.pop(pname.strip().lower(), None)
-            if pending_pg is not None:
-                pending_pg.external_page_id = pid[:120]
-                by_ext_page[pid] = pending_pg
-                pg_entity = pending_pg
         if pg_entity is None:
             try:
                 with session.begin_nested():
@@ -2860,7 +2852,6 @@ def _sync_workspace_pages_from_meta(
             except Exception:
                 pg_entity = by_ext_page.get(pid)
         else:
-            pg_entity.archived_at = None
             pg_entity.status = st_enum
             if pname and (not pg_entity.name or pg_entity.name == pid):
                 pg_entity.name = pname[:200]
@@ -2920,6 +2911,8 @@ def _sync_workspace_pages_from_meta(
 
     def _link_page_to_account(pg_entity: Page, acc: AdAccount, note: str) -> None:
         nonlocal linked_account_count
+        if pg_entity.archived_at is not None or pg_entity.workspace_id != workspace_id:
+            return
         pair = (acc.id, pg_entity.id)
         if pair in active_link_pairs:
             return
@@ -3017,7 +3010,7 @@ def _sync_workspace_pages_from_meta(
 
         # 4) Refresh any existing DB page that was not yet refreshed in steps 1-3
         for ext_pid, pg_existing in list(by_ext_page.items()):
-            if ext_pid in refreshed_ext_ids:
+            if pg_existing.archived_at is not None or ext_pid in refreshed_ext_ids:
                 continue
             with contextlib.suppress(Exception):
                 r_node = tr.get(ext_pid, {"fields": "id,name,category,link,fan_count,followers_count,verification_status,is_published,business{id,name},picture{url}"})

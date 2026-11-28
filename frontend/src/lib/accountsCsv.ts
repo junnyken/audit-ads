@@ -1,3 +1,4 @@
+import { getActiveLanguage, translate } from '../i18n'
 import type { AdAccount, Paged } from './types'
 
 export function csvCell(value: string | null | undefined, numeric = false): string {
@@ -67,7 +68,7 @@ export function accountsCsv(rows: AdAccount[], statusLabel: (status: string) => 
           a.display_name,
           a.external_account_id || '—',
           a.business_manager_name || a.personal_account_reference_label || '—',
-          bm.bm_verified ? 'Đã XMDN' : 'Chưa XMDN',
+          bm.bm_verified === true ? 'Đã XMDN' : bm.bm_verified === false ? 'Chưa XMDN' : translate(getActiveLanguage(), 'pf.evidence.unknown'),
           bm.business_legal_name || '—',
           bm.tax_id ? `${bm.tax_id}${bm.tax_id_verified ? ' (Đã xác minh)' : ''}` : '—',
           vias,

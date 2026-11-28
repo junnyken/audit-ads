@@ -60,7 +60,7 @@ export interface AccountBillingMeta {
   business_country_label?: string | null
   tax_id?: string | null
   tax_id_verified?: boolean
-  bm_verified?: boolean
+  bm_verified?: boolean | null
 }
 
 export interface AdAccount {

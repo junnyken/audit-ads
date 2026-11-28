@@ -4024,3 +4024,38 @@ network/provider/dependency install/new DB stack/commit/push/deploy. Existing in
 SQLite fixture only. Original .vibe dirt untouched. Team API login and migration
 physical-schema verification await full PostgreSQL CI; no full backend-green claim.
 Page/CSV follow-ups excluded. Main must integrate, commit/push and rerun CI.
+
+### 2026-11-28 — Final Page exact identity and CSV evidence (main release handoff)
+Audit written before edits: docs/AUDIT_BEFORE_BUILD_FINAL_IDENTITY_CSV.md.
+Separate production Page sync no longer attaches name-only drafts or clears archive
+state. Archived exact IDs block import/update/BM side effects/audit/count/link/claim;
+node refresh skips them. Existing active observation count semantics stay intact.
+CSV strict true/false/unknown uses existing pf.evidence.unknown translation; frontend
+billing type permits null. Card fallback and upstream backend bm_verified=False
+remain documented follow-ups, not silently changed.
+
+Existing /tmp/adsops-verify-20261128 dependencies, cwd /tmp, dummy unreachable
+PostgreSQL URL at 127.0.0.1:1, --noconftest -o addopts=, timeout70:
+- test_final_identity_csv_standalone.py: 8 passed (actual sync path, session/transport
+  doubles only). Covers same-name distinct IDs/draft untouched, archive on all four
+  edges/no restoration/duplicate/link/claim/BM write, workspace SELECT predicates,
+  active exact-ID update, and positive active promote-page link control.
+- Together with test_read_sync_separation_standalone.py: **47 passed in 6.76s**.
+- Initial test-double setup omitted meta_business_id: 3 failed/43 passed; fixed the
+  double and added an assertion proving transport execution. Reran full selection.
+- Two in-memory negative controls reintroduced archive restoration and name
+  attachment separately; both regression tests rejected the mutants. Product
+  files were not mutated for these controls. Script: /tmp/adsops-final-negative-controls.py.
+
+Existing /tmp/p1-frontend/node_modules via temporary symlink, timeout90:
+actual Accounts download Blob suite **16 passed**, 19.07s total (9.68s tests),
+including true/false/null/undefined/absent BM evidence; earlier escaping expectation
+updated to unknown. React Router emitted existing v7 future-flag warnings.
+TypeScript tsc -b and targeted ESLint passed; Vite build passed in 11.33s with
+output /tmp/adsops-final-build. Ruff for changed backend files and git diff --check
+passed. Temporary dependency symlink removed after checks; no dependency install.
+
+No provider/network/DB connection, PG fixture/conftest/drop/truncate, new stack,
+CI query, migration, live verification, commit/push/deploy. No full PostgreSQL or
+live claim. HEAD remains 6306d7f. Main-owned .vibe dirt left untouched. Main must
+review and perform authorized release actions separately.

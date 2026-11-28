@@ -1288,3 +1288,11 @@ methods and complete fieldsets are guarded; ordinary bodies still use StrictPayl
 No auth endpoint, password policy or plaintext persistence contract is widened.
 Lifecycle/allowed-field evidence: docs/AUDIT_BEFORE_BUILD_CI_P1_GUARDS.md.
 Offline checks do not establish PostgreSQL or deployed behavior.
+
+### Final Page identity / CSV follow-up — 2026-11-28
+Separate Page asset sync now matches exact external IDs within the workspace;
+name-only drafts stay unlinked. Archived IDs remain tombstones and do not count
+as synced/new or receive links/automatic claims. Accounts CSV distinguishes true,
+false and missing BM verification, using existing unknown wording. Card fallback
+and upstream backend verification defaults remain explicit follow-ups in
+`docs/AUDIT_BEFORE_BUILD_FINAL_IDENTITY_CSV.md`. Offline evidence in TEST_LOG.md.

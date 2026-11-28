@@ -1379,3 +1379,13 @@ methods and complete fieldsets are guarded; ordinary bodies still use StrictPayl
 No auth endpoint, password policy or plaintext persistence contract is widened.
 Lifecycle/allowed-field evidence: docs/AUDIT_BEFORE_BUILD_CI_P1_GUARDS.md.
 Offline checks do not establish PostgreSQL or deployed behavior.
+
+### Separate Page asset sync identity contract — 2026-11-28
+Existing sync response keys remain `synced_count`, `new_count`,
+`linked_account_count`, `bm_claimed_count`. Counts retain existing active-observation
+semantics (not distinct-Page counts); skipped archived IDs contribute zero.
+Page matching uses exact external ID in the authorized workspace, never a draft
+name. Archived matches are neither updated, restored, duplicated nor linked.
+No endpoint, request, response field or database schema changes. Accounts CSV
+serializes BM verification true/false distinctly and null/absent as existing
+unknown wording. This serializer fix does not change upstream billing defaults.
