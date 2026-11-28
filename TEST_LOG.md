@@ -4001,3 +4001,26 @@ or node_modules link in repository; no install, live provider, PG fixture or rel
 Earlier frontend errors do not reproduce with available product dependency versions;
 lockfile CI and all PostgreSQL integration remain required, not claimed passed.
 Standalone final test_ci_p1_guards.py rerun: **125 passed**, 10.90s, same isolation.
+
+
+### 2026-11-28 — CI 164 exact failure stabilization (main owns release)
+Read full backend log /tmp/adsops-ci164-backend.log including ERROR summary:
+2 FAILED + 23 ERROR setup, all mapped in docs/CI_BACKEND_REPAIR_2026-11-28.md.
+Team corporate-email overrides now commit before inherited real auth uses a separate
+session; login/auth/security assertions unchanged. Existing license guard confirmed
+in _run_read_cycle before provider collection; SQLite commercial test exercises
+that actual policy, without a fake PostgreSQL lock. Added four expired-license
+force/config combinations proving no credential/provider collection. O4 inventory
+adds only documented email_verification_tokens.token_hash (SHA-256, expiring,
+single-use); standalone actual-inventory negatives reject raw access_token and an
+unknown token_hash column. No product/auth policy or schema change.
+Clean env, cwd /tmp, unreachable dummy PG 127.0.0.1:1, existing verification venv,
+--noconftest -o addopts= -q, timeout70: commercial auth/license + read-sync standalone
++ P1 guards **170 passed in 20.58s**. Inventory standalone timeout35 **3 passed in
+1.45s**, 173 disjoint passing cases total. Initial run169pass/1NameError was corrected
+by restoring the warmup-test import, then the entire170-case selection reran green.
+Ruff backend and git diff --check passed. No root conftest/drop/truncate, local PG,
+network/provider/dependency install/new DB stack/commit/push/deploy. Existing in-memory
+SQLite fixture only. Original .vibe dirt untouched. Team API login and migration
+physical-schema verification await full PostgreSQL CI; no full backend-green claim.
+Page/CSV follow-ups excluded. Main must integrate, commit/push and rerun CI.

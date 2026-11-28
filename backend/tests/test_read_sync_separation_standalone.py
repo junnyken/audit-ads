@@ -317,3 +317,30 @@ def test_malformed_provider_item_is_validated_before_any_name_update():
         cron._read_registry_part(session, uuid.uuid4(), [transport], "pages")
     assert row.name == "old"
     session.execute.assert_not_called()
+
+
+@pytest.mark.parametrize('force_sync', [False, True])
+@pytest.mark.parametrize('enabled', [False, True])
+def test_expired_license_blocks_actual_policy_before_provider(monkeypatch, force_sync, enabled):
+    """Use the real license evaluator; no fake advisory-lock success on SQLite."""
+    from app.api.v1.routers import meta_operations
+    from app.models.entities import Workspace
+
+    workspace = Workspace(plan_tier='pro', plan_expires_at=datetime.now(UTC) - timedelta(days=4))
+    session = Mock()
+    session.get.return_value = workspace
+    monkeypatch.setattr(cron, '_rows', lambda *args: [])
+    monkeypatch.setattr(cron, 'get_workspace_cron_config', lambda *args: {
+        'auto_meta_sync_enabled': enabled, 'sync_interval_minutes': 60,
+    })
+    collector = Mock(side_effect=AssertionError('expired license must not resolve credentials'))
+    monkeypatch.setattr(meta_operations, '_collect_workspace_meta_transports', collector)
+    audit = Mock()
+    monkeypatch.setattr(cron, 'AuditLogService', audit)
+    result = cron._run_read_cycle(session, uuid.uuid4(), uuid.uuid4(), force_sync=force_sync)
+    assert result['sync_status'] == 'license_read_only'
+    assert result['sync_executed'] is False
+    assert result['parts'] == {}
+    collector.assert_not_called()
+    audit.assert_not_called()
+    session.begin_nested.assert_not_called()

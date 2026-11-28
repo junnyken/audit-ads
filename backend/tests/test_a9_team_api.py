@@ -326,14 +326,14 @@ def test_team_endpoints_are_non_disclosing_across_workspaces(api, client, other_
 @pytest.fixture()
 def owner(owner, db_session):
     owner["user"].email = "owner@adsops-fixture.vn"
-    db_session.flush()
+    db_session.commit()  # Login reads through its own DB session.
     return owner
 
 
 @pytest.fixture()
 def other_owner(other_owner, db_session):
     other_owner["user"].email = "other@adsops-fixture.vn"
-    db_session.flush()
+    db_session.commit()  # Keep the inherited other_auth login identity visible.
     return other_owner
 
 

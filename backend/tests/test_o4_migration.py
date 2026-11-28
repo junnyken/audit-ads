@@ -54,6 +54,9 @@ def test_head_includes_0019_and_only_one_column_carries_a_credential(migrated_da
         "workspace_invitations.token_hash",
         "workspace_invitations.token_last_four",
         "password_reset_tokens.token_hash",
+        # Commercial email verification: SHA-256 digest, 24h expiry, single-use;
+        # auth._issue_email_verification never persists the raw proof.
+        "email_verification_tokens.token_hash",
     }
     assert set(carrying) - allowed == set(), carrying
 

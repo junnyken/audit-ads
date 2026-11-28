@@ -39,7 +39,7 @@ from app.models.entities import (  # noqa: E402
 )
 from app.models.team import DeviceSession  # noqa: E402
 from app.services.audit import AuditLogService  # noqa: E402
-from app.services.automation_cron import run_workspace_automation_cycle  # noqa: E402
+from app.services.automation_cron import _run_read_cycle, run_workspace_automation_cycle  # noqa: E402
 from app.services.license_service import evaluate_workspace_license  # noqa: E402
 from app.services.telegram_bot_helper import save_workspace_telegram_config  # noqa: E402
 
@@ -328,7 +328,9 @@ def test_license_grace_readonly_and_code_recovery(app_and_db):
             enabled=True,
         )
         s.commit()
-        cron_res = run_workspace_automation_cycle(s, ws_b_id, owner_a_id, force_sync=True)
+        # Test actual license/due/provider policy, independent of the PG lock wrapper.
+        # PostgreSQL advisory locking requires its separate CI integration run.
+        cron_res = _run_read_cycle(s, ws_b_id, owner_a_id, force_sync=True)
         assert cron_res["sync_status"] == "license_read_only"
         assert cron_res["auto_warmed_count"] == 0
 

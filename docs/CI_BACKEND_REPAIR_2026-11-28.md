@@ -164,3 +164,81 @@ none of those release actions and did not modify main-owned .vibe files.
 Final combined offline run (guard + prior seven unit cases): **132 passed,
 46 deselected**, 11.95s. Backend ruff and git diff --check passed after final edits.
 Standalone final guard run: **125 passed**, 10.90s (--noconftest, same clean env).
+
+
+## CI 164 follow-up at 8a43aab — 2026-11-28
+
+Read `/tmp/adsops-ci164-backend.log`, including ERRORS and the complete short summary.
+This run reports **2 FAILED and 23 ERROR setup**; the supplied log does not print a
+passed-count footer, so no total passing count is inferred. Frontend is green per
+main's handoff; frontend was not rerun here.
+
+Audit/decision:
+- All 23 team ERRORs are the same inherited auth fixture failure: conftest creates
+  and commits owner@example.com, module override changes it to the corporate fixture
+  address but only flushes. Inherited auth sends the changed address to real login
+  using a separate session, which cannot see the uncommitted update. Commit both
+  module-local owner overrides before real login; retain all existing 401/403,
+  session revocation, cross-workspace and disposable-domain assertions.
+- License enforcement is **present**, not a missing product check:
+  automation_cron._run_read_cycle evaluates the real license before due calculation
+  and credential/provider collection. The public wrapper acquires a PostgreSQL
+  advisory lock first, unsupported by SQLite. The SQLite commercial test now calls
+  this actual shared policy directly. No fake PG lock, SQLite SQL-function shim,
+  auth change, product-policy change or provider call. Four regression combinations
+  (force on/off × configured sync on/off) use the real expired-workspace evaluator
+  and assert no credential collector, part transaction or execution audit.
+  PostgreSQL lock contention/integration remains a CI responsibility.
+- O4's only unexpected inventory entry is email_verification_tokens.token_hash.
+  auth._issue_email_verification stores _hash_reset_token(raw_token), a SHA-256
+  digest; auth.verify_email compares that digest, expiry and used_at. Add exactly
+  this documented column, retaining encrypted_secret as the only usable credential
+  column. No generic token/hash allowance. New standalone cases run the actual O4
+  assertion over model metadata and reject added users.access_token and
+  users.unknown_token_hash. Physical migration inventory still requires CI PG.
+
+Validation: clean env, cwd /tmp, PYTHONPATH backend, unreachable dummy PostgreSQL
+127.0.0.1:1, existing /tmp/adsops-verify-20261128 venv; --noconftest -o addopts= -q.
+Commercial auth/license + read-sync standalone + existing P1 guards: **170 passed
+in 20.58s** (70s timeout). Initial run had 169 passed/1 NameError due to a removed
+warmup-test import; corrected the import and reran all three files successfully.
+No root conftest fixture or PostgreSQL operation executed. Commercial fixture uses
+its existing in-memory SQLite schema; no stack or external database created.
+O4 metadata inventory standalone: **3 passed in 1.45s** (35s timeout), including
+negative raw-token and unknown-hash controls; **173 total passing isolated cases**
+across these disjoint runs. Ruff backend and git diff --check passed. Full PG team API and physical migration
+checks remain unrun locally; main must run CI before claiming full backend green.
+
+All CI 164 failures/errors mapped (nothing omitted from ERROR summary):
+
+| CI outcome/node | Repair / verification boundary |
+|---|---|
+| FAILED `tests/test_commercial_auth_and_license.py::test_license_grace_readonly_and_code_recovery` | Actual license policy test; isolated SQLite passed |
+| FAILED `tests/test_o4_migration.py::test_head_includes_0019_and_only_one_column_carries_a_credential` | Exact documented email-verification digest; metadata assertion + physical PG CI pending |
+| ERROR `tests/test_a9_team_api.py::test_summary_reports_unknown_capacity_until_a_plan_is_configured` | Owner fixture commit visibility; real PG auth/API rerun in CI |
+| ERROR `tests/test_a9_team_api.py::test_seat_plan_can_be_set_and_is_reflected_in_the_summary` | Owner fixture commit visibility; real PG auth/API rerun in CI |
+| ERROR `tests/test_a9_team_api.py::test_seat_limit_below_active_member_count_is_refused` | Owner fixture commit visibility; real PG auth/API rerun in CI |
+| ERROR `tests/test_a9_team_api.py::test_invite_returns_a_one_time_token_and_lists_as_pending` | Owner fixture commit visibility; real PG auth/API rerun in CI |
+| ERROR `tests/test_a9_team_api.py::test_accept_with_a_new_email_signs_the_member_straight_in` | Owner fixture commit visibility; real PG auth/API rerun in CI |
+| ERROR `tests/test_a9_team_api.py::test_accepting_an_existing_accounts_invitation_anonymously_is_refused` | Owner fixture commit visibility; real PG auth/API rerun in CI |
+| ERROR `tests/test_a9_team_api.py::test_an_existing_account_can_accept_while_authenticated` | Owner fixture commit visibility; real PG auth/API rerun in CI |
+| ERROR `tests/test_a9_team_api.py::test_a_used_token_cannot_be_used_twice` | Owner fixture commit visibility; real PG auth/API rerun in CI |
+| ERROR `tests/test_a9_team_api.py::test_revoked_invitation_token_is_refused` | Owner fixture commit visibility; real PG auth/API rerun in CI |
+| ERROR `tests/test_a9_team_api.py::test_resend_invalidates_the_previous_token` | Owner fixture commit visibility; real PG auth/API rerun in CI |
+| ERROR `tests/test_a9_team_api.py::test_a_member_cannot_reach_any_team_endpoint` | Owner fixture commit visibility; real PG auth/API rerun in CI |
+| ERROR `tests/test_a9_team_api.py::test_member_list_shows_scoped_counts` | Owner fixture commit visibility; real PG auth/API rerun in CI |
+| ERROR `tests/test_a9_team_api.py::test_role_change_rejects_owner_and_accepts_a_valid_role` | Owner fixture commit visibility; real PG auth/API rerun in CI |
+| ERROR `tests/test_a9_team_api.py::test_the_last_owner_cannot_be_deactivated` | Owner fixture commit visibility; real PG auth/API rerun in CI |
+| ERROR `tests/test_a9_team_api.py::test_suspending_a_member_denies_their_live_session_immediately` | Owner fixture commit visibility; real PG auth/API rerun in CI |
+| ERROR `tests/test_a9_team_api.py::test_deactivate_then_reactivate_moves_the_seat_back_and_forth` | Owner fixture commit visibility; real PG auth/API rerun in CI |
+| ERROR `tests/test_a9_team_api.py::test_assign_and_revoke_scope_through_the_api` | Owner fixture commit visibility; real PG auth/API rerun in CI |
+| ERROR `tests/test_a9_team_api.py::test_access_preview_for_the_owner_says_owner` | Owner fixture commit visibility; real PG auth/API rerun in CI |
+| ERROR `tests/test_a9_team_api.py::test_owner_can_list_and_revoke_a_members_sessions` | Owner fixture commit visibility; real PG auth/API rerun in CI |
+| ERROR `tests/test_a9_team_api.py::test_a_member_cannot_revoke_the_owners_session` | Owner fixture commit visibility; real PG auth/API rerun in CI |
+| ERROR `tests/test_a9_team_api.py::test_revoke_all_member_sessions` | Owner fixture commit visibility; real PG auth/API rerun in CI |
+| ERROR `tests/test_a9_team_api.py::test_team_endpoints_are_non_disclosing_across_workspaces` | Owner fixture commit visibility; real PG auth/API rerun in CI |
+| ERROR `tests/test_a9_team_api.py::test_invitation_api_keeps_disposable_email_denied` | Owner fixture commit visibility; real PG auth/API rerun in CI |
+
+No commit/push/deploy/network/dependency install/provider call. Original dirty
+.vibe files untouched. Page/CSV feature bugs excluded from this batch. No new
+API, product behavior, schema, migration or state; commit/push remains main-owned.
