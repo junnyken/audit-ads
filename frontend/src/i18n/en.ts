@@ -1,3 +1,4 @@
+import { readSyncEn } from './readSync'
 import { extensionProvenanceEn } from './extensionProvenance'
 import { honestOperationsEn } from './honestOperations'
 import { authRecoveryEn } from './authRecovery'
@@ -14,6 +15,7 @@ import { f1En } from './f1'
 import type { TranslationKey } from './types'
 
 export const en = {
+  ...readSyncEn,
   ...extensionProvenanceEn,
   ...honestOperationsEn,
   ...authRecoveryEn,

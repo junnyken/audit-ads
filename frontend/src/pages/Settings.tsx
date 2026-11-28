@@ -797,181 +797,124 @@ function TelegramInstantBotSection({ isOwner }: { isOwner: boolean }) {
 interface AutomationCronStatusResp {
   auto_meta_sync_enabled: boolean
   sync_interval_minutes: number
-  auto_page_warmup_enabled: boolean
-  warmup_min_gap_hours: number
   last_run_at: string | null
   last_sync_at: string | null
   next_sync_at: string | null
   last_run_summary: {
-    outbox_processed?: number
+    // An attempt is not evidence of a successful read.
     sync_executed?: boolean
-    alerts_dispatched?: number
-    warmup_posts_published?: number
-    warmup_skipped_count?: number
+    sync_status?: 'succeeded' | 'ok' | 'partial' | 'error' | 'skipped_no_token' | 'not_due' | 'license_read_only'
+    parts?: unknown
   } | null
 }
 
-function AutomationCronSection({ isOwner }: { isOwner: boolean }) {
+export function AutomationCronSection({ isOwner }: { isOwner: boolean }) {
   const qc = useQueryClient()
-  const { language } = useI18n()
+  const { language, t } = useI18n()
   const cronQ = useQuery({
     queryKey: ['automation-cron-status'],
     queryFn: () => api.get<AutomationCronStatusResp>('/api/v1/automation-cron/status'),
   })
-
-  const [autoSync, setAutoSync] = useState(true)
-  const [syncMinutes, setSyncMinutes] = useState(60)
-  const [autoWarmup, setAutoWarmup] = useState(true)
-  const [gapHours, setGapHours] = useState(8)
+  const [autoSync, setAutoSync] = useState(false)
+  const [syncMinutes, setSyncMinutes] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
+  const [needsReload, setNeedsReload] = useState(false)
+  const validConfig = (data: AutomationCronStatusResp | undefined) => !!data &&
+    typeof data.auto_meta_sync_enabled === 'boolean' &&
+    Number.isInteger(data.sync_interval_minutes) && data.sync_interval_minutes >= 15 && data.sync_interval_minutes <= 720
 
   useEffect(() => {
-    if (!cronQ.data) return
-    setAutoSync(cronQ.data.auto_meta_sync_enabled)
-    setSyncMinutes(cronQ.data.sync_interval_minutes)
-    setAutoWarmup(cronQ.data.auto_page_warmup_enabled)
-    setGapHours(cronQ.data.warmup_min_gap_hours)
+    if (!validConfig(cronQ.data)) return
+    setAutoSync(cronQ.data!.auto_meta_sync_enabled)
+    setSyncMinutes(String(cronQ.data!.sync_interval_minutes))
   }, [cronQ.data])
 
+  const minutes = Number(syncMinutes)
+  const validMinutes = syncMinutes.trim() !== '' && Number.isInteger(minutes) && minutes >= 15 && minutes <= 720
+  const statusLabel = (summary: AutomationCronStatusResp['last_run_summary']) => {
+    const status = summary?.sync_status
+    switch (status) {
+      case 'succeeded':
+      case 'ok': return t('readSync.ok')
+      case 'partial': return t('readSync.partial')
+      case 'error': return t('readSync.error')
+      case 'skipped_no_token': return t('readSync.skipped_no_token')
+      case 'not_due': return t('readSync.not_due')
+      case 'license_read_only': return t('readSync.license_read_only')
+      default: return t('readSync.resultUnknown')
+    }
+  }
   const saveMut = useMutation({
-    mutationFn: () =>
-      api.post<AutomationCronStatusResp>('/api/v1/automation-cron/config', {
-        auto_meta_sync_enabled: autoSync,
-        sync_interval_minutes: syncMinutes,
-        auto_page_warmup_enabled: autoWarmup,
-        warmup_min_gap_hours: gapHours,
-      }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['automation-cron-status'] })
-      setNotice('Đã lưu lịch chạy ngầm Auto-Cron.')
+    mutationFn: async () => {
+      if (!isOwner || !ready || !validMinutes) throw new Error('unavailable')
+      const config = { auto_meta_sync_enabled: autoSync, sync_interval_minutes: minutes }
+      await api.post<AutomationCronStatusResp>('/api/v1/automation-cron/config', config)
+      const readback = await cronQ.refetch()
+      if (readback.isError || !validConfig(readback.data) ||
+          readback.data!.auto_meta_sync_enabled !== config.auto_meta_sync_enabled ||
+          readback.data!.sync_interval_minutes !== config.sync_interval_minutes) throw new Error('unverified')
     },
+    onSuccess: () => setNotice(t('readSync.saved')),
+    onError: () => { setNotice(t('readSync.saveError')); setNeedsReload(true) },
   })
-
   const runNowMut = useMutation({
-    mutationFn: () =>
-      api.post<{ run_summary: NonNullable<AutomationCronStatusResp['last_run_summary']> }>(
-        '/api/v1/automation-cron/run-now',
-        { sync: true, warmup: true },
-      ),
-    onSuccess: (res) => {
-      void qc.invalidateQueries({ queryKey: ['automation-cron-status'] })
-      void qc.invalidateQueries({ queryKey: ['facebook-pages-summary'] })
-      const s = res.run_summary
-      setNotice(
-        `Đã chạy xong chu kỳ: ${s.sync_executed ? 'Đồng bộ Meta OK' : 'Bỏ qua Sync'} · Đăng ${
-          s.warmup_posts_published ?? 0
-        } bài mồi Fanpage · Gửi ${s.alerts_dispatched ?? 0} cảnh báo Telegram.`,
+    mutationFn: async () => {
+      if (!isOwner || !ready) throw new Error('unavailable')
+      return api.post<{ run_summary?: AutomationCronStatusResp['last_run_summary'] }>(
+        '/api/v1/automation-cron/run-now', { sync: true, warmup: false },
       )
     },
+    onSuccess: (res) => {
+      setNotice(statusLabel(res?.run_summary ?? null))
+      void qc.invalidateQueries({ queryKey: ['automation-cron-status'] })
+      void qc.invalidateQueries({ queryKey: ['facebook-pages-summary'] })
+    },
+    onError: () => { setNotice(t('readSync.runError')); setNeedsReload(true) },
   })
-
+  const busy = saveMut.isPending || runNowMut.isPending
+  const ready = cronQ.isSuccess && validConfig(cronQ.data) && !cronQ.isFetching && !needsReload
+  const canAct = isOwner && ready && !busy
+  const dateLabel = (value: unknown) => typeof value === 'string' && Number.isFinite(Date.parse(value))
+    ? formatRelative(value, language) : t('readSync.unknown')
+  const reload = async () => {
+    setNotice(null)
+    const result = await cronQ.refetch()
+    setNeedsReload(result.isError || !validConfig(result.data))
+  }
   const st = cronQ.data
 
   return (
-    <Panel
-      title={
-        <span className="inline-flex items-center gap-2">
-          <Zap className="h-4 w-4 shrink-0 text-ink-muted" />
-          <span>Tự Động Hóa Chạy Ngầm (Auto-Cron Meta &amp; Nuôi Page 48h)</span>
-        </span>
-      }
-    >
-      {cronQ.isLoading ? (
-        <Skeleton className="h-24 w-full" />
-      ) : cronQ.isError ? (
-        <ErrorState title="Không tải được trạng thái Auto-Cron" error={cronQ.error} onRetry={() => cronQ.refetch()} compact />
-      ) : (
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <Badge tone={st?.auto_meta_sync_enabled ? 'positive' : 'neutral'}>
-              {st?.auto_meta_sync_enabled ? `Auto Sync: mỗi ${st.sync_interval_minutes} phút` : 'Auto Sync: Tắt'}
-            </Badge>
-            <Badge tone={st?.auto_page_warmup_enabled ? 'positive' : 'neutral'}>
-              {st?.auto_page_warmup_enabled ? `Tự rải bài nuôi Page: cách ${st.warmup_min_gap_hours}h` : 'Auto Nuôi Page: Tắt'}
-            </Badge>
-            <span className="text-ink-muted">
-              Chạy gần nhất: <strong>{st?.last_run_at ? formatRelative(st.last_run_at, language) : 'Chưa chạy'}</strong>
-              {st?.next_sync_at ? ` · Lần Sync tới: ${formatRelative(st.next_sync_at, language)}` : ''}
-            </span>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-2 rounded-md border border-line bg-surface-sunken p-3">
-              <label className="flex items-center gap-2 text-xs font-semibold">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4"
-                  disabled={!isOwner}
-                  checked={autoSync}
-                  onChange={(e) => setAutoSync(e.target.checked)}
-                />
-                Tự động đồng bộ TKQC, Page &amp; Chi tiêu từ Meta + Quét báo động Telegram
-              </label>
-              <Field label="Chu kỳ quét Meta Graph API">
-                <select
-                  className="input text-xs"
-                  disabled={!isOwner || !autoSync}
-                  value={syncMinutes}
-                  onChange={(e) => setSyncMinutes(Number(e.target.value))}
-                >
-                  <option value={30}>Mỗi 30 phút</option>
-                  <option value={60}>Mỗi 60 phút (Khuyên dùng)</option>
-                  <option value={180}>Mỗi 3 giờ</option>
-                  <option value={360}>Mỗi 6 giờ</option>
-                </select>
-              </Field>
-            </div>
-
-            <div className="space-y-2 rounded-md border border-line bg-surface-sunken p-3">
-              <label className="flex items-center gap-2 text-xs font-semibold">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4"
-                  disabled={!isOwner}
-                  checked={autoWarmup}
-                  onChange={(e) => setAutoWarmup(e.target.checked)}
-                />
-                Tự động đăng bài mồi Fanpage đang LIVE (cho tới đủ 3 bài chuẩn Ads)
-              </label>
-              <Field label="Giãn cách tối thiểu giữa bài #2 và bài #3">
-                <select
-                  className="input text-xs"
-                  disabled={!isOwner || !autoWarmup}
-                  value={gapHours}
-                  onChange={(e) => setGapHours(Number(e.target.value))}
-                >
-                  <option value={6}>Cách nhau 6 giờ</option>
-                  <option value={8}>Cách nhau 8 giờ (Chuẩn chống Spam)</option>
-                  <option value={12}>Cách nhau 12 giờ</option>
-                </select>
-              </Field>
-            </div>
-          </div>
-
-          {notice && (
-            <div className="rounded-md border border-tone-positive-border bg-tone-positive-bg px-3 py-2 text-xs font-medium text-tone-positive-fg">
-              {notice}
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center gap-2">
-            {isOwner && (
-              <Button type="button" disabled={saveMut.isPending} onClick={() => saveMut.mutate()}>
-                <span className="inline-flex items-center gap-1.5">
-                  <Save className="h-3.5 w-3.5" />
-                  <span>{saveMut.isPending ? 'Đang lưu...' : 'Lưu Lịch Tự Động'}</span>
-                </span>
-              </Button>
-            )}
-            <Button type="button" variant="secondary" disabled={runNowMut.isPending} onClick={() => runNowMut.mutate()}>
-              <span className="inline-flex items-center gap-1.5">
-                <Zap className="h-3.5 w-3.5" />
-                <span>{runNowMut.isPending ? 'Đang chạy chu kỳ...' : 'Chạy Chu Kỳ Ngay'}</span>
-              </span>
-            </Button>
-          </div>
+    <Panel title={<span className="inline-flex items-center gap-2"><Zap className="h-4 w-4" />{t('readSync.title')}</span>}>
+      <div className="space-y-3">
+        <p className="text-xs text-ink-muted">{t('readSync.description')}</p>
+        {cronQ.isLoading ? <Skeleton className="h-24 w-full" /> : null}
+        {(cronQ.isError || (cronQ.isSuccess && !validConfig(st))) && <p role="alert">{t('readSync.loadError')}</p>}
+        {(cronQ.isError || needsReload || (cronQ.isSuccess && !validConfig(st))) &&
+          <Button type="button" variant="secondary" disabled={cronQ.isFetching || busy} onClick={() => void reload()}>{t('readSync.retry')}</Button>}
+        {cronQ.isSuccess && validConfig(st) && <>
+          <Badge tone="neutral">{st!.auto_meta_sync_enabled ? t('readSync.on') : t('readSync.off')}</Badge>
+          <dl className="text-xs text-ink-muted space-y-1">
+            <div><dt>{t('readSync.attempt')}</dt><dd>{dateLabel(st!.last_run_at)}</dd></div>
+            <div><dt>{t('readSync.success')}</dt><dd>{dateLabel(st!.last_sync_at)}</dd></div>
+            <div><dt>{t('readSync.next')}</dt><dd>{dateLabel(st!.next_sync_at)}</dd></div>
+          </dl>
+          <p className="text-xs">{statusLabel(st!.last_run_summary)}</p>
+        </>}
+        <label className="flex items-center gap-2 text-xs font-semibold">
+          <input type="checkbox" checked={autoSync} disabled={!canAct} onChange={e => { setAutoSync(e.target.checked); setNotice(null) }} />
+          {t('readSync.enabled')}
+        </label>
+        <Field label={t('readSync.interval')} required hint={t('readSync.limits')}>
+          <input className="input text-xs" type="number" min={15} max={720} step={1} value={syncMinutes}
+            disabled={!canAct} aria-invalid={!validMinutes} onChange={e => { setSyncMinutes(e.target.value); setNotice(null) }} />
+        </Field>
+        {!isOwner && <p className="text-xs text-ink-muted">{t('readSync.owner')}</p>}
+        {notice && <p role="status" className="text-xs">{notice}</p>}
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" disabled={!canAct || !validMinutes} onClick={() => { setNotice(null); saveMut.mutate() }}>{t(saveMut.isPending ? 'readSync.saving' : 'readSync.save')}</Button>
+          <Button type="button" variant="secondary" disabled={!canAct} onClick={() => { setNotice(null); runNowMut.mutate() }}>{t(runNowMut.isPending ? 'readSync.running' : 'readSync.run')}</Button>
         </div>
-      )}
+      </div>
     </Panel>
   )
 }

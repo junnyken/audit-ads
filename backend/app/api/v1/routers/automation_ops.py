@@ -1,6 +1,6 @@
 """Operational Automation APIs:
 1. Instant Telegram Bot configuration, chat auto-discovery, and controlled test message
-2. Background Auto-Cron (Meta sync + Telegram instant alert dispatch + 48h spaced Page warmup)
+2. Background official read sync (local registry/audit updates only)
 3. SSRF-safe Live Proxy Health Checker (single & batch)
 4. Custom Domain & SEO Readiness configuration (with dynamic CORS unlock)
 """
@@ -16,12 +16,14 @@ from urllib.parse import urlparse
 
 import sqlalchemy as sa
 from fastapi import APIRouter
+from pydantic import Field, StrictBool, StrictInt, model_validator
 
 from app.api.deps import Ctx, OwnerCtx, WriteCtx
 from app.core.config import get_settings
 from app.core.errors import ValidationError
 from app.core.secret_vault import SecretDecryptionError, open_ai_provider_key
 from app.models.entities import AdAccount, AuditLog, Page, PersonalAccountReference, ProxyReference
+from app.schemas.common import StrictPayload
 from app.services.ai_policy_studio import (
     generate_studio_content,
     get_workspace_ai_record,
@@ -197,7 +199,31 @@ def send_telegram_test_message(ctx: OwnerCtx, payload: dict[str, Any] | None = N
     return {"ok": True, "message": "Đã gửi tin nhắn kiểm tra tới Telegram thành công!"}
 
 
-# ---- 2. Auto-Cron Sync & Spaced 48h Page Warmup ----------------------------------------
+# ---- 2. Official read sync -------------------------------------------------------------
+
+
+class CronConfigPayload(StrictPayload):
+    auto_meta_sync_enabled: StrictBool | None = None
+    sync_interval_minutes: StrictInt | None = Field(default=None, ge=15, le=720)
+    auto_page_warmup_enabled: StrictBool = False
+    warmup_min_gap_hours: StrictInt | None = Field(default=None, ge=4, le=24)
+
+    @model_validator(mode="after")
+    def reject_warmup(self):
+        if self.auto_page_warmup_enabled:
+            raise ValidationError("Page warmup is unsupported in read sync.")
+        return self
+
+
+class CronRunPayload(StrictPayload):
+    sync: StrictBool = True
+    warmup: StrictBool = False
+
+    @model_validator(mode="after")
+    def reject_warmup(self):
+        if self.warmup:
+            raise ValidationError("Page warmup is unsupported in read sync.")
+        return self
 
 
 @router.get("/automation-cron/status")
@@ -206,32 +232,18 @@ def get_automation_cron_status(ctx: Ctx) -> dict[str, Any]:
 
 
 @router.post("/automation-cron/config")
-def save_automation_cron_settings(ctx: OwnerCtx, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-    body = payload or {}
-    out = save_workspace_cron_config(
-        ctx.session,
-        ctx.workspace_id,
-        ctx.audit,
-        auto_meta_sync_enabled=body.get("auto_meta_sync_enabled"),
-        sync_interval_minutes=body.get("sync_interval_minutes"),
-        auto_page_warmup_enabled=body.get("auto_page_warmup_enabled"),
-        warmup_min_gap_hours=body.get("warmup_min_gap_hours"),
-    )
+def save_automation_cron_settings(ctx: OwnerCtx, payload: CronConfigPayload = CronConfigPayload()) -> dict[str, Any]:
+    out = save_workspace_cron_config(ctx.session, ctx.workspace_id, ctx.audit, **payload.model_dump())
     ctx.commit()
     return out
 
 
 @router.post("/automation-cron/run-now")
-def trigger_automation_cron_now(ctx: WriteCtx, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-    body = payload or {}
+def trigger_automation_cron_now(ctx: OwnerCtx, payload: CronRunPayload = CronRunPayload()) -> dict[str, Any]:
     summary = run_workspace_automation_cycle(
-        ctx.session,
-        ctx.workspace_id,
-        ctx.user.id,
-        force_sync=bool(body.get("sync", True)),
-        force_warmup=bool(body.get("warmup", True)),
+        ctx.session, ctx.workspace_id, ctx.user.id,
+        force_sync=payload.sync, force_warmup=payload.warmup, commit=True,
     )
-    ctx.commit()
     return {"run_summary": summary, "status": get_workspace_cron_status(ctx.session, ctx.workspace_id)}
 
 
