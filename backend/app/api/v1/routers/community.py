@@ -10,7 +10,7 @@ from typing import Any
 
 import sqlalchemy as sa
 from fastapi import APIRouter
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 
 from app.api.deps import Ctx, OwnerCtx
 from app.core.config import get_settings
@@ -23,6 +23,7 @@ from app.models.entities import (
     Workspace,
     WorkspaceMember,
 )
+from app.schemas.common import StrictPayload
 from app.services.community_quota import (
     PLAN_QUOTA_DEFAULTS,
     is_require_invite_code_enabled,
@@ -46,12 +47,12 @@ def _require_platform_admin(ctx: Ctx) -> None:
         raise AuthorizationError("Chỉ Quản trị viên Nền tảng (Super-Admin) mới có quyền truy cập khu vực này.")
 
 
-class RedeemCodeRequest(BaseModel):
+class RedeemCodeRequest(StrictPayload):
     model_config = ConfigDict(extra="forbid")
     code: str = Field(min_length=3, max_length=64)
 
 
-class InviteCodeCreateRequest(BaseModel):
+class InviteCodeCreateRequest(StrictPayload):
     model_config = ConfigDict(extra="forbid")
     code: str | None = Field(default=None, max_length=64)
     label: str = Field(default="", max_length=160)
@@ -64,13 +65,13 @@ class InviteCodeCreateRequest(BaseModel):
     duration_days: int | None = Field(default=None, ge=1, le=3650)
 
 
-class InviteCodePatchRequest(BaseModel):
+class InviteCodePatchRequest(StrictPayload):
     model_config = ConfigDict(extra="forbid")
     is_active: bool | None = None
     max_uses: int | None = Field(default=None, ge=1, le=10000)
 
 
-class WorkspaceGovernancePatchRequest(BaseModel):
+class WorkspaceGovernancePatchRequest(StrictPayload):
     model_config = ConfigDict(extra="forbid")
     plan_tier: str | None = Field(default=None, max_length=32)
     max_vias: int | None = Field(default=None, ge=1, le=50000)
@@ -83,7 +84,7 @@ class WorkspaceGovernancePatchRequest(BaseModel):
     community_status: str | None = Field(default=None, pattern="^(active|suspended)$")
 
 
-class CommunityPolicyPutRequest(BaseModel):
+class CommunityPolicyPutRequest(StrictPayload):
     model_config = ConfigDict(extra="forbid")
     require_invite_code: bool
 
@@ -459,7 +460,7 @@ def admin_put_policy(ctx: Ctx, payload: CommunityPolicyPutRequest) -> dict[str, 
     return {"require_invite_code": bool(payload.require_invite_code)}
 
 
-class AllowlistEmailRequest(BaseModel):
+class AllowlistEmailRequest(StrictPayload):
     model_config = ConfigDict(extra="forbid")
     email: str = Field(min_length=3, max_length=320)
     note: str = Field(default="", max_length=240)
@@ -518,7 +519,7 @@ def admin_add_email_allowlist(ctx: Ctx, payload: AllowlistEmailRequest) -> dict[
     return {"email": row.email, "note": row.note}
 
 
-class AllowlistRemoveRequest(BaseModel):
+class AllowlistRemoveRequest(StrictPayload):
     model_config = ConfigDict(extra="forbid")
     email: str = Field(min_length=3, max_length=320)
 
@@ -542,7 +543,7 @@ def admin_remove_email_allowlist(ctx: Ctx, payload: AllowlistRemoveRequest) -> d
     return {"removed": clean}
 
 
-class VerifyCanaryRequest(BaseModel):
+class VerifyCanaryRequest(StrictPayload):
     model_config = ConfigDict(extra="forbid")
     text: str = Field(min_length=4, max_length=20000)
 

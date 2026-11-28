@@ -5,10 +5,12 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
+import pytest
 import sqlalchemy as sa
 
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from app import startup_migration
 from app.core.config import get_settings
 from app.core.enums import AlertSeverity, AlertStatus, WorkspaceRole
@@ -47,22 +49,25 @@ class _StubTransport:
         return self.responses.pop(0)
 
 
-def test_0020_migration_round_trips_and_startup_migration_accepts_off(migrated_database, monkeypatch):
-    assert _revision() in ("0020_f3_business_users", "0021_c1_client_budget_and_pacing")
+def test_0020_shape_at_actual_head_and_refused_downgrade_and_startup_off(migrated_database, monkeypatch):
+    assert _revision() == ScriptDirectory.from_config(_config()).get_current_head()
     tables_before = set(sa.inspect(engine).get_table_names())
     assert "discovered_business_user_observations" in tables_before
-    engine.dispose()
-    try:
-        command.downgrade(_config(), "0019_f1_facebook_identities")
-        assert _revision() == "0019_f1_facebook_identities"
-        inspector = sa.inspect(engine)
-        assert "discovered_business_user_observations" not in set(inspector.get_table_names())
-        assert "external_business_user_id" not in {
-            c["name"] for c in inspector.get_columns("personal_account_business_links")
-        }
-    finally:
-        command.upgrade(_config(), "head")
-    assert _revision() in ("0020_f3_business_users", "0021_c1_client_budget_and_pacing")
+    assert "external_business_user_id" in {
+        c["name"] for c in sa.inspect(engine).get_columns("personal_account_business_links")
+    }
+    # 0027/0028 deliberately retain domain data during application rollback.
+    tables_before = set(sa.inspect(engine).get_table_names())
+    columns_before = {table: {c["name"] for c in sa.inspect(engine).get_columns(table)}
+                      for table in tables_before}
+    head = ScriptDirectory.from_config(_config()).get_current_head()
+    assert _revision() == head
+    with pytest.raises(RuntimeError, match="Reminder schema is retained"):
+        command.downgrade(_config(), "0027_p1_email_registry")
+    assert _revision() == head
+    assert set(sa.inspect(engine).get_table_names()) == tables_before
+    assert {table: {c["name"] for c in sa.inspect(engine).get_columns(table)}
+            for table in tables_before} == columns_before
 
     calls: list[str] = []
     monkeypatch.setattr(startup_migration.command, "upgrade", lambda cfg, target: calls.append(target))

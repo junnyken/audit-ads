@@ -1,10 +1,11 @@
-"""S1 — migration `0016_s1_spend_observations`: down to 0015 and back up to head, on the test
-database the session fixture just built from an empty schema (which is itself the clean-database
-upgrade check)."""
+"""Legacy feature schema at actual Alembic head; additive registry rollback must retain it.
+DB-backed checks run only on the CI test database, never the developer database.
+"""
 from __future__ import annotations
 
 import os
 
+import pytest
 import sqlalchemy as sa
 
 from alembic import command
@@ -52,19 +53,26 @@ def test_0016_is_applied_and_the_table_has_the_planned_shape(migrated_database):
     assert {"ix_spend_obs_ws_account_observed", "ix_spend_obs_ws_status_observed"} <= indexes
 
 
-def test_downgrade_removes_only_the_new_table_and_upgrade_restores_it(migrated_database):
-    head_tables = _tables()
-    try:
-        # Later revisions (O4's 0018 adds a table) are stepped below first, so this still measures
-        # exactly what 0016 adds.
-        command.downgrade(_config(), "0016_s1_spend_observations")
-        before = _tables()
-        command.downgrade(_config(), "0015_a10_3_conn_bm")
-        after_down = _tables()
-        assert TABLE not in after_down
-        assert before - after_down == {TABLE}
-        assert _revision() == "0015_a10_3_conn_bm"
-    finally:
-        command.upgrade(_config(), "head")
-    assert _tables() == head_tables
-    assert _revision() == _head()
+def test_refused_downgrade_preserves_spend_schema_and_head(migrated_database):
+    # 0027/0028 deliberately retain domain data during application rollback.
+    tables_before = set(sa.inspect(engine).get_table_names())
+    columns_before = {table: {c["name"] for c in sa.inspect(engine).get_columns(table)}
+                      for table in tables_before}
+    head = ScriptDirectory.from_config(_config()).get_current_head()
+    assert _revision() == head
+    with pytest.raises(RuntimeError, match="Reminder schema is retained"):
+        command.downgrade(_config(), "0027_p1_email_registry")
+    assert _revision() == head
+    assert set(sa.inspect(engine).get_table_names()) == tables_before
+    assert {table: {c["name"] for c in sa.inspect(engine).get_columns(table)}
+            for table in tables_before} == columns_before
+
+
+@pytest.mark.parametrize("revision,message", [
+    ("0027_p1_email_registry", "P1 schema is retained"),
+    ("0028_email_registry_reminders", "Reminder schema is retained"),
+])
+def test_additive_registry_migrations_refuse_automatic_downgrade(revision, message):
+    script = ScriptDirectory.from_config(_config()).get_revision(revision)
+    with pytest.raises(RuntimeError, match=message):
+        script.module.downgrade()

@@ -17,7 +17,7 @@ from typing import Any
 
 from fastapi import APIRouter
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 
 from app.api.deps import AnyCtx, Ctx, ExtCtx, WriteCtx
 from app.core.config import get_settings
@@ -25,6 +25,7 @@ from app.core.enums import ExtensionContextStatus
 from app.core.errors import NotFoundError
 from app.models.entities import AdAccount
 from app.schemas import extension as s
+from app.schemas.common import StrictPayload
 from app.services.extension_context import ExtensionContextResolver
 from app.services.extension_events import ExtensionEventIngestService, build_source_context
 from app.services.extension_session import ExtensionInstallationService, ExtensionSessionService
@@ -245,7 +246,7 @@ def _installation_payload(installation) -> dict[str, Any]:
     }
 
 
-class _BundledAccountItem(BaseModel):
+class _BundledAccountItem(StrictPayload):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(default="", max_length=200)
     external_account_id: str = Field(default="", max_length=120)
@@ -260,7 +261,7 @@ class _BundledAccountItem(BaseModel):
     bm_name: str | None = Field(default=None, max_length=200)
 
 
-class _StewardshipMetaIn(BaseModel):
+class _StewardshipMetaIn(StrictPayload):
     model_config = ConfigDict(extra="forbid")
     client_group: str | None = Field(default=None, max_length=120)
     warmup_phase: str | None = Field(default=None, max_length=40)
@@ -275,7 +276,7 @@ class _StewardshipMetaIn(BaseModel):
     trust_score: float | None = Field(default=None, ge=0, le=100)
 
 
-class ExtensionPackageBundleRequest(BaseModel):
+class ExtensionPackageBundleRequest(StrictPayload):
     model_config = ConfigDict(extra="forbid")
     folder_root: str = Field(default="AdsOps-Chrome-Extension", max_length=80)
     via_name: str = Field(default="Via Facebook", max_length=120)

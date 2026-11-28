@@ -978,12 +978,12 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
 
   const discardDraftMut = useMutation({
     mutationFn: (pageId: string) =>
-      api.delete<FanpageSummaryResponse & { discarded_page_id: string }>(`/api/v1/facebook-pages/${pageId}/draft`),
+      api.post<FanpageSummaryResponse & { discarded_page_id: string }>(`/api/v1/facebook-pages/${pageId}/archive`),
     onSuccess: (_res, pageId) => {
       void qc.invalidateQueries({ queryKey: ['facebook-pages-summary'] })
       void qc.invalidateQueries({ queryKey: ['pages'] })
       setBatchQueue((prev) => prev.filter((item) => item.page_id !== pageId))
-      setBannerMsg('🗑️ Đã hủy bản nháp Fanpage và hoàn lại định mức tạo Page cho Via!')
+      setBannerMsg('Đã lưu trữ')
     },
   })
 
@@ -3232,7 +3232,7 @@ export default function FanpageControlCenter({ embedded = false }: { embedded?: 
                                   title="Hủy bản nháp này & hoàn lại định mức tạo Page cho Via"
                                 >
                                   <Trash2 className="h-3 w-3" />
-                                  <span>Hủy nháp</span>
+                                  <span>Lưu trữ</span>
                                 </button>
                               </>
                             )}

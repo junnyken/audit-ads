@@ -31,22 +31,30 @@ not copy these forward — re-measure them at the moment you write about them.
 
 1. Never store or accept passwords, cookies, session data, access/refresh tokens, credentials or
    raw proxy authentication secrets. `StrictPayload` refuses such fields by name — keep it that
-   way. Exactly four request bodies are allowed to opt out of it, each a plain `BaseModel` with
+   way. Exactly nine request bodies are allowed to opt out of it, each a plain `BaseModel` with
    `extra="forbid"` and a docstring saying why: `LoginRequest` (a password, verified against a
    PBKDF2 hash and never stored), `InvitationAcceptRequest` (A9 — the one-time invitation
    token, compared by hash and never persisted, plus the password a brand-new employee is
    choosing for the account being created in that same call), `RevealEmailRequest` (F1 — the
    viewer's 6-digit PIN, compared with a PBKDF2 hash and never stored), and
    `RevealPinSetRequest` (F1 — current login password verifies the caller while the new PIN is
-   hashed). Adding a fifth needs the same deliberate, documented justification, not a quiet swap
-   of the base class.
+   hashed). The five existing auth flows are deliberately formalized on 2026-11-28:
+   `ForgotPasswordRequest` (email and transient Turnstile proof), `ResetPasswordRequest`
+   (single-use expiring token compared by SHA-256 hash; new password hashed),
+   `VerifyEmailRequest` (single-use expiring token compared by SHA-256 hash),
+   `ChangePasswordRequest` (current password verified; new password hashed), and
+   `RegisterRequest` (password hashed; signed/expiring bot challenge and optional Turnstile
+   verified before account creation). Exact routes and fieldsets are pinned by the rule-1
+   structural test; see docs/AUDIT_BEFORE_BUILD_CI_P1_GUARDS.md for lifecycle evidence.
+   No raw password or proof is persisted or logged. Adding a tenth needs the same deliberate,
+   documented justification, not a quiet swap of the base class.
    **One exception, by design and not by drift (O4): a Meta reader credential that the product itself obtained
    from Meta's login flow — never typed, pasted or posted by a person, never read from a browser — may be stored
    in `meta_reader_credentials.encrypted_secret`, encrypted with `CREDENTIAL_VAULT_KEY` from server
    configuration by `core/secret_vault.py`, the only module that may encrypt or decrypt. It is decrypted only
    inside `resolve_reader`, lives in memory for one provider call chain, is never cached across passes, and
-   never reaches a request body, a response, an audit row, a log line or the frontend bundle. Cookies, sessions
-   and passwords remain forbidden without exception.**
+   never reaches a request body, a response, an audit row, a log line or the frontend bundle. Plaintext persistence of cookies, sessions
+   and passwords remains forbidden without exception.**
 2. Never hard-delete a domain entity. Use `archived_at`; audit history is permanent.
 3. Every mutation writes a redacted audit row **in the same transaction** as the change.
 4. Missing evidence is never positive evidence. It degrades to `unknown` or `not_ready`.

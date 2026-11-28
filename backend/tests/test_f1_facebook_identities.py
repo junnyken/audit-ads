@@ -12,6 +12,7 @@ from cryptography.fernet import Fernet
 
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from app.core.config import get_settings
 from app.core.enums import IdentityBusinessRole, WorkspaceRole
 from app.core.security import hash_password
@@ -71,20 +72,26 @@ def _revision() -> str:
         return connection.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one()
 
 
-def test_head_is_0019_and_downgrade_round_trips(migrated_database):
-    assert _revision() in ("0019_f1_facebook_identities", "0020_f3_business_users", "0021_c1_client_budget_and_pacing", "0022_f1_5_login_environment", "0023_community_quotas", "0024_team_playbooks", "0025_commercial_saas_license")
+def test_f1_shape_at_actual_head_survives_refused_downgrade(migrated_database):
+    assert _revision() == ScriptDirectory.from_config(_config()).get_current_head()
+    inspector = sa.inspect(engine)
+    assert "personal_account_business_links" in inspector.get_table_names()
+    assert {"email_ciphertext", "email_hint", "vault_reference", "two_factor_method"} <= {
+        c["name"] for c in inspector.get_columns("personal_account_references")
+    }
+    assert "reveal_pin_hash" in {c["name"] for c in inspector.get_columns("users")}
+    # 0027/0028 deliberately retain domain data during application rollback.
     tables_before = set(sa.inspect(engine).get_table_names())
-    try:
-        command.downgrade(_config(), "0018_o4_reader_credentials")
-        inspector = sa.inspect(engine)
-        assert "personal_account_business_links" in (tables_before - set(inspector.get_table_names()))
-        columns = {c["name"] for c in inspector.get_columns("personal_account_references")}
-        assert not columns & {"email_ciphertext", "email_hint", "vault_reference", "two_factor_method"}
-        assert "reveal_pin_hash" not in {c["name"] for c in inspector.get_columns("users")}
-    finally:
-        command.upgrade(_config(), "head")
-    assert _revision() in ("0019_f1_facebook_identities", "0020_f3_business_users", "0021_c1_client_budget_and_pacing", "0022_f1_5_login_environment", "0023_community_quotas", "0024_team_playbooks", "0025_commercial_saas_license")
+    columns_before = {table: {c["name"] for c in sa.inspect(engine).get_columns(table)}
+                      for table in tables_before}
+    head = ScriptDirectory.from_config(_config()).get_current_head()
+    assert _revision() == head
+    with pytest.raises(RuntimeError, match="Reminder schema is retained"):
+        command.downgrade(_config(), "0027_p1_email_registry")
+    assert _revision() == head
     assert set(sa.inspect(engine).get_table_names()) == tables_before
+    assert {table: {c["name"] for c in sa.inspect(engine).get_columns(table)}
+            for table in tables_before} == columns_before
 
 
 def test_no_column_can_hold_a_password_or_a_second_factor(migrated_database):
@@ -315,26 +322,43 @@ def test_only_the_documented_request_bodies_opt_out_of_strict_payload(app):
     from fastapi.routing import APIRoute
     from pydantic import BaseModel
 
+    # Exact model identity, route, method AND complete fieldset: a new body, route,
+    # or secret field needs a deliberate review, even if it reuses a trusted name.
+    from app.schemas import auth, facebook_identities, team
     from app.schemas.common import StrictPayload
 
-    opted_out = set()
+    reviewed = {
+        auth.LoginRequest: ({("POST", "/api/v1/auth/login")}, {"email", "password", "replace_oldest_device", "turnstile_token"}),
+        auth.ForgotPasswordRequest: ({("POST", "/api/v1/auth/forgot-password")}, {"email", "turnstile_token"}),
+        auth.ResetPasswordRequest: ({("POST", "/api/v1/auth/reset-password")}, {"token", "new_password"}),
+        auth.VerifyEmailRequest: ({("POST", "/api/v1/auth/verify-email")}, {"token"}),
+        auth.ChangePasswordRequest: ({("POST", "/api/v1/auth/change-password")}, {"current_password", "new_password"}),
+        auth.RegisterRequest: ({("POST", "/api/v1/auth/register")}, {"full_name", "workspace_name", "email", "password", "challenge_token", "captcha_code", "math_answer", "human_confirmed", "website_honeypot", "invite_code", "turnstile_token"}),
+        team.InvitationAcceptRequest: ({("POST", "/api/v1/team/invitations/accept")}, {"token", "full_name", "password"}),
+        facebook_identities.RevealEmailRequest: ({("POST", "/api/v1/personal-account-references/{identity_id}/reveal-email"), ("POST", "/api/v1/email-registry/{entry_id}/reveal-address")}, {"pin"}),
+        facebook_identities.RevealPinSetRequest: ({("PUT", "/api/v1/me/reveal-pin")}, {"current_password", "new_pin"}),
+    }
+    from typing import get_args
+
+    def body_models(annotation):
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            yield annotation
+        for argument in get_args(annotation):
+            yield from body_models(argument)
+
+    observed = {}
     for route in app.routes:
         if not isinstance(route, APIRoute) or route.body_field is None:
             continue
-        model = route.body_field.type_
-        if isinstance(model, type) and issubclass(model, BaseModel) and not issubclass(model, StrictPayload):
-            opted_out.add(model.__name__)
-    assert {"RevealEmailRequest", "RevealPinSetRequest"} <= opted_out
-    assert opted_out <= {
-        "LoginRequest",
-        "InvitationAcceptRequest",
-        "RevealEmailRequest",
-        "RevealPinSetRequest",
-    } | _PRE_F1_OPT_OUTS, opted_out
-
-
-#: Measured before F1 by this same walk; anything new has to be added on purpose.
-_PRE_F1_OPT_OUTS: set[str] = set()
+        for model in body_models(route.body_field.type_):
+            if issubclass(model, StrictPayload):
+                continue
+            assert model in reviewed, (route.path, model)
+            assert model.model_config.get("extra") == "forbid", model.__name__
+            assert model.__doc__, model.__name__
+            assert set(model.model_fields) == reviewed[model][1], model.__name__
+            observed.setdefault(model, set()).update((method, route.path) for method in route.methods)
+    assert observed == {model: contract[0] for model, contract in reviewed.items()}
 
 
 # ------------------------------------------------------------------------- review regressions (F1)

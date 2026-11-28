@@ -7,9 +7,12 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.core.enums import WorkspaceRole
+from app.schemas.common import StrictPayload
 
 
 class LoginRequest(BaseModel):
+    """Rule 1 exception: verify password hash and optional Turnstile; never persist raw inputs."""
+
     model_config = ConfigDict(extra="forbid")
 
     email: EmailStr
@@ -19,6 +22,8 @@ class LoginRequest(BaseModel):
 
 
 class ForgotPasswordRequest(BaseModel):
+    """Rule 1 exception: email selects recipient; Turnstile is verified transiently, never persisted."""
+
     model_config = ConfigDict(extra="forbid")
 
     email: EmailStr
@@ -26,13 +31,15 @@ class ForgotPasswordRequest(BaseModel):
 
 
 class ResetPasswordRequest(BaseModel):
+    """Rule 1 exception: consume hashed, expiring reset token; persist only the new password hash."""
+
     model_config = ConfigDict(extra="forbid")
 
     token: str = Field(min_length=16, max_length=512)
     new_password: str = Field(min_length=8, max_length=200)
 
 
-class PrecheckSignupRequest(BaseModel):
+class PrecheckSignupRequest(StrictPayload):
     model_config = ConfigDict(extra="forbid")
 
     email: str = Field(min_length=3, max_length=320)
@@ -46,18 +53,22 @@ class PrecheckSignupResponse(BaseModel):
 
 
 class VerifyEmailRequest(BaseModel):
+    """Rule 1 exception: consume hashed, expiring verification token; never persist the raw token."""
+
     model_config = ConfigDict(extra="forbid")
 
     token: str = Field(min_length=16, max_length=512)
 
 
-class ResendVerificationRequest(BaseModel):
+class ResendVerificationRequest(StrictPayload):
     model_config = ConfigDict(extra="forbid")
 
     email: EmailStr | None = None
 
 
 class ChangePasswordRequest(BaseModel):
+    """Rule 1 exception: verify current password hash; persist only the new password hash."""
+
     model_config = ConfigDict(extra="forbid")
 
     current_password: str = Field(min_length=8, max_length=200)
@@ -65,6 +76,8 @@ class ChangePasswordRequest(BaseModel):
 
 
 class RegisterRequest(BaseModel):
+    """Rule 1 exception: verify bot/Turnstile challenges; persist only password hash, never raw proofs."""
+
     model_config = ConfigDict(extra="forbid")
 
     full_name: str = Field(min_length=2, max_length=120)

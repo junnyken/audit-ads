@@ -3,6 +3,7 @@ the real auth stack (no mocked authorization: every "the owner can / a member ca
 below goes through the actual dependency chain)."""
 from __future__ import annotations
 
+import pytest
 import sqlalchemy as sa
 
 from app.models.entities import WorkspaceMember
@@ -17,7 +18,7 @@ def set_seats(api, limit: int = 5):
     return response.json()
 
 
-def invite(api, email: str = "new@example.com", role: str = "operator"):
+def invite(api, email: str = "new@adsops-fixture.vn", role: str = "operator"):
     response = api.post("/api/v1/team/invitations", json={"email": email, "role": role})
     assert response.status_code == 200, response.text
     return response.json()
@@ -31,7 +32,7 @@ def accept(client, token: str, *, password: str = "a-real-password", headers: di
     )
 
 
-def onboard_member(api, client, *, email="member@example.com", role="operator") -> dict[str, str]:
+def onboard_member(api, client, *, email="member@adsops-fixture.vn", role="operator") -> dict[str, str]:
     """Invite + accept through the real endpoints, returning the new member's auth headers."""
     set_seats(api, 5)
     created = invite(api, email=email, role=role)
@@ -82,14 +83,14 @@ def test_invite_returns_a_one_time_token_and_lists_as_pending(api):
 
 def test_accept_with_a_new_email_signs_the_member_straight_in(api, client):
     set_seats(api, 5)
-    created = invite(api, email="fresh@example.com", role="viewer")
+    created = invite(api, email="fresh@adsops-fixture.vn", role="viewer")
     response = accept(client, created["invite_link_token"])
     assert response.status_code == 200, response.text
 
     headers = {"Authorization": f"Bearer {response.json()['access_token']}"}
     me = client.get("/api/v1/auth/me", headers=headers)
     assert me.status_code == 200
-    assert me.json()["email"] == "fresh@example.com"
+    assert me.json()["email"] == "fresh@adsops-fixture.vn"
     assert me.json()["role"] == "viewer"
 
     # And the seat is now consumed.
@@ -115,14 +116,14 @@ def test_an_existing_account_can_accept_while_authenticated(api, client, other_o
 
 def test_a_used_token_cannot_be_used_twice(api, client):
     set_seats(api, 5)
-    created = invite(api, email="fresh@example.com")
+    created = invite(api, email="fresh@adsops-fixture.vn")
     assert accept(client, created["invite_link_token"]).status_code == 200
     assert accept(client, created["invite_link_token"]).status_code == 409
 
 
 def test_revoked_invitation_token_is_refused(api, client):
     set_seats(api, 5)
-    created = invite(api, email="fresh@example.com")
+    created = invite(api, email="fresh@adsops-fixture.vn")
     revoked = api.post(
         f"/api/v1/team/invitations/{created['invitation']['id']}/revoke",
         json={"reason": "Changed my mind."},
@@ -133,7 +134,7 @@ def test_revoked_invitation_token_is_refused(api, client):
 
 def test_resend_invalidates_the_previous_token(api, client):
     set_seats(api, 5)
-    created = invite(api, email="fresh@example.com")
+    created = invite(api, email="fresh@adsops-fixture.vn")
     resent = api.post(f"/api/v1/team/invitations/{created['invitation']['id']}/resend").json()
 
     assert resent["invite_link_token"] != created["invite_link_token"]
@@ -152,7 +153,7 @@ def test_a_member_cannot_reach_any_team_endpoint(api, client):
         ("get", "/api/v1/team/members", None),
         ("get", "/api/v1/team/invitations", None),
         ("patch", "/api/v1/team/seat-plan", {"seat_limit": 99}),
-        ("post", "/api/v1/team/invitations", {"email": "x@example.com", "role": "viewer"}),
+        ("post", "/api/v1/team/invitations", {"email": "x@adsops-fixture.vn", "role": "viewer"}),
     ]:
         call = getattr(client, method)
         response = call(path, headers=member_headers, **({"json": body} if body else {}))
@@ -319,3 +320,26 @@ def test_team_endpoints_are_non_disclosing_across_workspaces(api, client, other_
     # `other_auth` is an owner — of a *different* workspace. It must not see this member at all.
     response = client.get(f"/api/v1/team/members/{member['id']}", headers=other_auth)
     assert response.status_code == 404
+
+
+# These fixtures exercise the current registration policy without outbound delivery.
+@pytest.fixture()
+def owner(owner, db_session):
+    owner["user"].email = "owner@adsops-fixture.vn"
+    db_session.flush()
+    return owner
+
+
+@pytest.fixture()
+def other_owner(other_owner, db_session):
+    other_owner["user"].email = "other@adsops-fixture.vn"
+    db_session.flush()
+    return other_owner
+
+
+def test_invitation_api_keeps_disposable_email_denied(api):
+    response = api.post("/api/v1/team/invitations", json={
+        "email": "blocked@example.com", "role": "viewer",
+    })
+    assert response.status_code == 422
+    assert response.json()["error"]["details"]["reason"] == "disposable_email_blocked"

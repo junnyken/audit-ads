@@ -1358,3 +1358,24 @@ P1-I1 integration update: registry-only eligible-members projection completes ow
 ## Approved follow-up source work — 2026-11-26
 
 CSV now collects all filtered authorized pages with a 10000-row cap and fails closed on detected partial/inconsistent data; textual spreadsheet formulas protected, valid raw numeric precision preserved. Canceled email form/admin responses cannot close newer dialogs; original-scope cache refresh retained. P1-I2 adds default-off registry-only in-app due attention stored in existing AlertPolicy, migration0028; no outbound or provider automation. These source changes are not deployed. See P2_CSV_EXPORT_CONTRACT.md and P1_I2_CONTRACT_ADDENDUM.md; final test evidence in TEST_LOG.md, PG/staging release gates remain.
+
+### CI P1 archive route compatibility — 2026-11-28
+`POST /api/v1/facebook-pages/{id}/archive` replaces DELETE `/{id}/draft`;
+WriteCtx, workspace lookup and synced Page denial remain. Sets archived_at and
+records page.archived in the same transaction; retains links and all audit rows.
+Response retains discarded/discarded_page_id plus the active summary for caller
+compatibility. No DELETE compatibility alias.
+`POST /api/v1/client-retainers/{id}/archive` replaces DELETE `/{id}`; requires an
+active ID in the workspace overview, appends client_retainer.updated with existing
+status ARCHIVED and archived_at metadata. Historical deleted events still replay.
+QuickSync no longer accepts human-posted access_token; configured reader selection
+remains. Ordinary and nested request inputs reject secret keys and unknown fields.
+
+
+### CI P1 auth contract hardening — 2026-11-28
+Five existing auth protocol bodies are deliberately documented under CLAUDE rule 1
+(nine total exceptions), each with extra=forbid. Exact model identities, routes,
+methods and complete fieldsets are guarded; ordinary bodies still use StrictPayload.
+No auth endpoint, password policy or plaintext persistence contract is widened.
+Lifecycle/allowed-field evidence: docs/AUDIT_BEFORE_BUILD_CI_P1_GUARDS.md.
+Offline checks do not establish PostgreSQL or deployed behavior.

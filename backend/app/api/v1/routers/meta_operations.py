@@ -1917,7 +1917,6 @@ def quick_sync_connection(ctx: OwnerCtx, payload: s.QuickSyncRequest) -> dict[st
             ctx.user.id,
             bm_ref=resolved_bm_ref,
             label_clean=resolved_label,
-            access_token=payload.access_token,
             target_bm_external_id=payload.target_bm_external_id,
         )
         ctx.commit()
@@ -5208,32 +5207,25 @@ def ingest_browser_event(
     }
 
 
-@pages_router.delete("/{page_id}/draft")
-def discard_unsynced_page_draft(
+@pages_router.post("/{page_id}/archive")
+def archive_unsynced_page_draft(
     ctx: WriteCtx,
     page_id: uuid.UUID,
 ) -> dict[str, Any]:
     from app.core.errors import ValidationError
-    from app.models.entities import AccountAssetLink, Page
+    from app.models.entities import Page
 
     pg = get_or_404(ctx.session, Page, page_id, ctx.workspace_id, label="Page")
     if pg.external_page_id:
         raise ValidationError("Chỉ có thể xóa bỏ bản nháp Page chưa gắn Page ID thật từ Meta.")
 
-    ctx.session.execute(
-        sa.delete(AccountAssetLink).where(
-            AccountAssetLink.workspace_id == ctx.workspace_id,
-            AccountAssetLink.asset_id == pg.id,
-        )
+    pg.archived_at = datetime.now(UTC)
+    ctx.audit.record(
+        action="page.archived",
+        entity_type="page",
+        entity_id=str(pg.id),
+        after={"archived_at": pg.archived_at.isoformat()},
     )
-    ctx.session.execute(
-        sa.delete(AuditLog).where(
-            AuditLog.workspace_id == ctx.workspace_id,
-            AuditLog.entity_type == "page",
-            AuditLog.entity_id == str(pg.id),
-        )
-    )
-    ctx.session.delete(pg)
     ctx.commit()
     summary_data = _build_pages_summary(ctx.session, ctx.workspace_id, include_archived=False)
     return {
@@ -6408,14 +6400,17 @@ def upsert_client_retainer(ctx: WriteCtx, payload: dict[str, Any]) -> dict[str, 
     return _build_retainers_overview(ctx.session, ctx.workspace_id, ctx.audit)
 
 
-@retainers_router.delete("/{retainer_id}")
-def delete_client_retainer(ctx: WriteCtx, retainer_id: str) -> dict[str, Any]:
+@retainers_router.post("/{retainer_id}/archive")
+def archive_client_retainer(ctx: WriteCtx, retainer_id: str) -> dict[str, Any]:
     safe_rid = str(retainer_id or "").strip()[:64]
+    overview = _build_retainers_overview(ctx.session, ctx.workspace_id, ctx.audit)
+    if not any(item["id"] == safe_rid for item in overview["items"]):
+        raise NotFoundError("Client retainer not found.")
     ctx.audit.record(
-        action="client_retainer.deleted",
+        action="client_retainer.updated",
         entity_type="client_retainer",
         entity_id=safe_rid,
-        metadata={"deleted_at": datetime.now(UTC).isoformat()},
+        metadata={"status": "ARCHIVED", "archived_at": datetime.now(UTC).isoformat()},
     )
     ctx.commit()
     return _build_retainers_overview(ctx.session, ctx.workspace_id, ctx.audit)

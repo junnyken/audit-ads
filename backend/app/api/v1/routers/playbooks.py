@@ -7,11 +7,12 @@ from typing import Any
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Query
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from app.api.deps import Ctx, WriteCtx
 from app.core.errors import NotFoundError, ValidationError
 from app.models.entities import AuditLog, AutomationPlaybook, AutomationPlaybookRating, User
+from app.schemas.common import StrictPayload
 
 router = APIRouter(prefix="/playbooks", tags=["playbooks"])
 
@@ -113,14 +114,14 @@ _BUILTIN_TEMPLATES: list[dict[str, Any]] = [
 ]
 
 
-class PlaybookStepInput(BaseModel):
+class PlaybookStepInput(StrictPayload):
     action: str = Field(default="open_url", min_length=1, max_length=60)
     target: str = Field(default="", max_length=500)
     wait_sec: int = Field(default=10, ge=1, le=300)
     note: str = Field(default="", max_length=240)
 
 
-class PlaybookCreateInput(BaseModel):
+class PlaybookCreateInput(StrictPayload):
     title: str = Field(min_length=3, max_length=200)
     platform: str = Field(default="meta", max_length=32)
     category: str = Field(default="warmup", max_length=64)
@@ -132,7 +133,7 @@ class PlaybookCreateInput(BaseModel):
     steps: list[PlaybookStepInput] = Field(default_factory=list, max_length=20)
 
 
-class PlaybookPatchInput(BaseModel):
+class PlaybookPatchInput(StrictPayload):
     title: str | None = Field(default=None, min_length=3, max_length=200)
     description: str | None = Field(default=None, max_length=1500)
     version_tag: str | None = Field(default=None, max_length=32)
@@ -142,12 +143,12 @@ class PlaybookPatchInput(BaseModel):
     steps: list[PlaybookStepInput] | None = Field(default=None, max_length=20)
 
 
-class PlaybookRateInput(BaseModel):
+class PlaybookRateInput(StrictPayload):
     stars: int = Field(ge=1, le=5)
     comment: str = Field(default="", max_length=400)
 
 
-class PlaybookRecordRunInput(BaseModel):
+class PlaybookRecordRunInput(StrictPayload):
     via_ids: list[str] = Field(default_factory=list, max_length=200)
     engine: str = Field(default="chrome_native", max_length=40)
     stagger_sec: int = Field(default=55, ge=1, le=600)

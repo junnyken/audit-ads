@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
 from app.core.enums import IdentityBusinessRole, MetaBatchItemStatus, MetaEnvironment, ReferenceStatus
 from app.schemas.common import ORMModel, StrictPayload
@@ -246,12 +246,10 @@ class ConnectionReaderAssign(StrictPayload):
     reader_id: uuid.UUID
 
 
-class QuickSyncRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+class QuickSyncRequest(StrictPayload):
 
     business_manager_reference: str | None = Field(default="", max_length=120)
     business_manager_id: str | None = Field(default=None, max_length=120)
     label: str | None = Field(default="", max_length=200)
     account_label: str | None = Field(default=None, max_length=200)
-    access_token: str | None = Field(default=None, max_length=2048)
     target_bm_external_id: str | None = Field(default=None, max_length=120)

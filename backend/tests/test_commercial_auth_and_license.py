@@ -328,7 +328,7 @@ def test_license_grace_readonly_and_code_recovery(app_and_db):
             enabled=True,
         )
         s.commit()
-        cron_res = run_workspace_automation_cycle(s, ws_b_id, owner_a_id, force_sync=True, force_warmup=True)
+        cron_res = run_workspace_automation_cycle(s, ws_b_id, owner_a_id, force_sync=True)
         assert cron_res["sync_status"] == "license_read_only"
         assert cron_res["auto_warmed_count"] == 0
 
@@ -394,3 +394,10 @@ def test_desktop_device_limit_and_replace_oldest(app_and_db):
         desktop_active = [d for d in ds_rows if d.client_channel == "desktop" and d.is_active]
         assert len(desktop_active) == 1
         assert desktop_active[0].installation_hash != "inst-pc-2"
+
+
+def test_read_sync_explicitly_rejects_warmup_before_accessing_db():
+    from app.core.errors import ValidationError
+
+    with pytest.raises(ValidationError, match="Page warmup is unsupported"):
+        run_workspace_automation_cycle(None, None, None, force_warmup=True)

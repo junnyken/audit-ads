@@ -3959,3 +3959,45 @@ No commit/push/deploy/production migration. StagingPG/races/auth/backup/restore/
 Main added tests/test_p1_migration_parity_standalone.py: invokes actual Alembic upgrade functions in PostgreSQL offline context and compares DDL with SQLAlchemy model compilation (0027 full table and0028 column). No engine/DB connection. Initial3pass1fail exposed0028 no-op downgrade silently allowing revision marker to move while column retained. Changed downgrade to deliberate RuntimeError consistent with0027/application-only rollback; no destructive schema change. Runbook current head corrected to0028.
 
 Combined isolated registry/reminder/parity104passed34.85s. Expanded lint initially found42trailing-whitespace issues in0027SQL, then formatting-only cleanup; final ruff app+3tests+0027/0028 passed, migration parity4passed0.67s after cleanup. Full frontend706/20skip belongs previous source batch, not rerun because no frontend logic changed here. No PostgreSQL migration/staging/UAT/production/write/deploy/new stack or DB. Key/auth/staging config still unset. This closes source DDL parity/rollback-guard checks, not operational rehearsal.
+
+
+## 2026-11-28 — Priority 1 backend CI 163 repair (bounded, not full CI green)
+
+Patched obsolete A9 corporate-email fixtures, actual-head/retained-schema migration assertions, and license read sync without warmup. Added denied-email and explicit warmup/downgrade rejection regressions. Ruff backend passed; 7 focused isolated units passed with --noconftest, clean env, unreachable DB and 60s timeout. No local PostgreSQL or migration execution. Mapping of all 46 failures, exact paths and seven unresolved security blockers: docs/CI_BACKEND_REPAIR_2026-11-28.md. CI DB integration remains pending; no commit/push/deploy/network calls. Main-owned .vibe files untouched.
+
+### 2026-11-28 — CI P1 remaining guard repair
+Audit before code: docs/AUDIT_BEFORE_BUILD_CI_P1_GUARDS.md. Existing changes preserved.
+Clean env, cwd /tmp, PYTHONPATH backend, dummy DB 127.0.0.1:1, existing
+/tmp/adsops-verify-20261128/bin/python -m pytest --noconftest -o addopts= -q
+backend/tests/test_ci_p1_guards.py: **74 passed, 1 failed** in 8.39s.
+Passes include original six DELETE assertions executed verbatim without DB fixtures,
+ordinary/nested secret rejection, unknown-field rejection, existing login exception
+hash/redacted-audit check, Page archive/audit order and synced denial, retainer
+archive/scoped missing-ID denial and actual archive/legacy-delete event replay.
+The original exact-four request assertion still fails on ForgotPasswordRequest,
+ResetPasswordRequest, VerifyEmailRequest, ChangePasswordRequest, RegisterRequest.
+The guard additionally pins extra=forbid for all opt-outs; no skip/xfail/allowlist.
+Backend ruff check: passed. Frontend npm run typecheck with temporary existing-deps
+link failed: missing jest-dom/plugin-react and incompatible Vite ESBuildOptions.
+No dependency install. Frontend lint result recorded in repair report. Full PG
+integration, real auth plaintext persistence/logging checks and release remain unrun.
+Frontend scoped ESLint (two touched files, existing ads-manager dependencies):
+failed with 8 errors / 5 warnings, including render-time ref access at untouched
+FanpageControlCenter.tsx:313. No lint suppression added. Temporary symlink removed;
+tracked generated tsbuildinfo restored to pre-task HEAD. git diff --check passed.
+
+### 2026-11-28 — CI P1 deliberate auth exception closure
+Main decision recorded in docs/AUDIT_BEFORE_BUILD_CI_P1_GUARDS.md: five existing auth
+protocol exceptions formalized (nine total), exact routes/methods/model identities/
+fieldsets guarded, unknown secrets forbidden. Added positive/negative auth fieldset,
+token lifecycle/consumption, current-password denial, challenge-before-DB and actual
+redaction/validation-response tests. No global payload policy change.
+Clean env, cwd /tmp, unreachable dummy PostgreSQL endpoint, --noconftest -o addopts=:
+final guard + previous seven isolated unit cases: **132 passed, 46 deselected**, 11.95s.
+Ruff backend and git diff --check: passed. Frontend isolated copy with existing
+product dependencies: tsc -b exit 0; full eslint exit 0 (0 errors, 7 existing hook
+warnings); Vite build exit 0 in 14.39s, output /tmp/p1-build. No generated artifact
+or node_modules link in repository; no install, live provider, PG fixture or release.
+Earlier frontend errors do not reproduce with available product dependency versions;
+lockfile CI and all PostgreSQL integration remain required, not claimed passed.
+Standalone final test_ci_p1_guards.py rerun: **125 passed**, 10.90s, same isolation.

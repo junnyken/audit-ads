@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Header, Request
-from pydantic import BaseModel, Field
+from pydantic import Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import Ctx, OwnerCtx
@@ -50,6 +50,7 @@ from app.models.entities import (
 )
 from app.models.meta_operations import MetaConnection
 from app.models.spend import AdAccountSpendObservation
+from app.schemas.common import StrictPayload
 from app.services.audit import AuditLogService
 from app.services.notification_transport import OutboundMessage
 from app.services.spend_engine import amount_text
@@ -68,12 +69,12 @@ _AUDIT_BRIDGE_ACTION = "workspace_gads_bridge.updated"
 _STANDALONE_POOL_BM_EXT = "gads_standalone_pool"
 
 
-class GoogleAdsDailyRowIn(BaseModel):
+class GoogleAdsDailyRowIn(StrictPayload):
     date: date
     spend_raw: str = "0"
 
 
-class GoogleAdsAccountReportIn(BaseModel):
+class GoogleAdsAccountReportIn(StrictPayload):
     customer_id: str = Field(..., min_length=6, max_length=32)
     name: str = ""
     currency: str = "VND"
@@ -86,7 +87,7 @@ class GoogleAdsAccountReportIn(BaseModel):
     daily: list[GoogleAdsDailyRowIn] = Field(default_factory=list, max_length=60)
 
 
-class GoogleAdsScriptReportIn(BaseModel):
+class GoogleAdsScriptReportIn(StrictPayload):
     workspace_id: uuid.UUID
     mode: Literal["mcc", "standalone"] = "standalone"
     mcc_id: str | None = None

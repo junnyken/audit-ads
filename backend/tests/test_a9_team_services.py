@@ -46,11 +46,11 @@ def test_seat_used_counts_only_active_non_archived_members(session, workspace, o
     seats = SeatPlanService(session, workspace.id, audit)
     assert seats.seat_used() == 1  # the bootstrap owner
 
-    _make_member(session, workspace, email="a@example.com", role=WorkspaceRole.BUYER)
+    _make_member(session, workspace, email="alice@adsops-fixture.vn", role=WorkspaceRole.BUYER)
     assert seats.seat_used() == 2
 
     suspended = _make_member(
-        session, workspace, email="b@example.com", role=WorkspaceRole.VIEWER,
+        session, workspace, email="bravo@adsops-fixture.vn", role=WorkspaceRole.VIEWER,
         status=WorkspaceMemberStatus.SUSPENDED,
     )
     assert seats.seat_used() == 2  # suspended still consumes a seat per spec, but this counts ACTIVE only
@@ -84,7 +84,7 @@ def test_seat_limit_cannot_go_negative(session, workspace, owner, audit):
 
 def test_seat_limit_cannot_drop_below_active_member_count(session, workspace, owner, audit):
     seats = SeatPlanService(session, workspace.id, audit)
-    _make_member(session, workspace, email="a@example.com", role=WorkspaceRole.BUYER)
+    _make_member(session, workspace, email="alice@adsops-fixture.vn", role=WorkspaceRole.BUYER)
     seats.create_or_update(seat_limit=5, plan_reference=None, actor_id=owner["user"].id)
     with pytest.raises(ConflictError):
         seats.create_or_update(seat_limit=1, plan_reference=None, actor_id=owner["user"].id)
@@ -94,14 +94,14 @@ def test_seat_limit_cannot_drop_below_active_member_count(session, workspace, ow
 
 
 def test_change_role_maps_a9_vocabulary_to_the_existing_enum(session, workspace, owner, audit):
-    member = _make_member(session, workspace, email="a@example.com", role=WorkspaceRole.VIEWER)
+    member = _make_member(session, workspace, email="alice@adsops-fixture.vn", role=WorkspaceRole.VIEWER)
     lifecycle = MembershipLifecycleService(session, workspace.id, audit)
     updated = lifecycle.change_role(member, new_role="operator", actor_id=owner["user"].id)
     assert updated.role == WorkspaceRole.BUYER
 
 
 def test_change_role_rejects_an_unknown_role_name(session, workspace, owner, audit):
-    member = _make_member(session, workspace, email="a@example.com", role=WorkspaceRole.VIEWER)
+    member = _make_member(session, workspace, email="alice@adsops-fixture.vn", role=WorkspaceRole.VIEWER)
     lifecycle = MembershipLifecycleService(session, workspace.id, audit)
     with pytest.raises(ValidationError):
         lifecycle.change_role(member, new_role="owner", actor_id=owner["user"].id)
@@ -117,7 +117,7 @@ def test_cannot_downgrade_the_last_active_owner(session, workspace, owner, audit
 
 
 def test_downgrading_an_owner_is_fine_when_another_owner_remains(session, workspace, owner, audit):
-    second_owner = _make_member(session, workspace, email="owner2@example.com", role=WorkspaceRole.OWNER)
+    second_owner = _make_member(session, workspace, email="owner2@adsops-fixture.vn", role=WorkspaceRole.OWNER)
     lifecycle = MembershipLifecycleService(session, workspace.id, audit)
     updated = lifecycle.change_role(second_owner, new_role="admin", actor_id=owner["user"].id)
     assert updated.role == WorkspaceRole.ADMIN
@@ -131,7 +131,7 @@ def test_suspend_revokes_every_active_session_and_blocks_the_last_owner(session,
         ).scalar_one()
         lifecycle.suspend(row, reason="test", actor_id=owner["user"].id)
 
-    member = _make_member(session, workspace, email="a@example.com", role=WorkspaceRole.VIEWER)
+    member = _make_member(session, workspace, email="alice@adsops-fixture.vn", role=WorkspaceRole.VIEWER)
     registry = SessionRegistryService(session, workspace.id, audit)
     live_session = registry.create(
         user_id=member.user_id, expires_at=datetime.now(UTC) + timedelta(hours=1), user_agent=None, ip=None
@@ -142,7 +142,7 @@ def test_suspend_revokes_every_active_session_and_blocks_the_last_owner(session,
 
 
 def test_unsuspend_only_works_from_suspended(session, workspace, owner, audit):
-    member = _make_member(session, workspace, email="a@example.com", role=WorkspaceRole.VIEWER)
+    member = _make_member(session, workspace, email="alice@adsops-fixture.vn", role=WorkspaceRole.VIEWER)
     lifecycle = MembershipLifecycleService(session, workspace.id, audit)
     with pytest.raises(ConflictError):
         lifecycle.unsuspend(member, actor_id=owner["user"].id)
@@ -153,7 +153,7 @@ def test_unsuspend_only_works_from_suspended(session, workspace, owner, audit):
 
 
 def test_deactivate_releases_the_seat_and_revokes_sessions(session, workspace, owner, audit):
-    member = _make_member(session, workspace, email="a@example.com", role=WorkspaceRole.VIEWER)
+    member = _make_member(session, workspace, email="alice@adsops-fixture.vn", role=WorkspaceRole.VIEWER)
     seats = SeatPlanService(session, workspace.id, audit)
     assert seats.seat_used() == 2
 
@@ -170,7 +170,7 @@ def test_deactivate_releases_the_seat_and_revokes_sessions(session, workspace, o
 
 
 def test_reactivate_requires_an_available_seat(session, workspace, owner, audit):
-    member = _make_member(session, workspace, email="a@example.com", role=WorkspaceRole.VIEWER)
+    member = _make_member(session, workspace, email="alice@adsops-fixture.vn", role=WorkspaceRole.VIEWER)
     seats = SeatPlanService(session, workspace.id, audit)
     seats.create_or_update(seat_limit=2, plan_reference=None, actor_id=owner["user"].id)
 
@@ -178,7 +178,7 @@ def test_reactivate_requires_an_available_seat(session, workspace, owner, audit)
     lifecycle.deactivate(member, reason="x", actor_id=owner["user"].id)
 
     # Fill the freed seat with someone else before trying to bring the first member back.
-    _make_member(session, workspace, email="b@example.com", role=WorkspaceRole.VIEWER)
+    _make_member(session, workspace, email="bravo@adsops-fixture.vn", role=WorkspaceRole.VIEWER)
     with pytest.raises(ConflictError):
         lifecycle.reactivate(member, actor_id=owner["user"].id)
 
@@ -191,7 +191,7 @@ def test_archive_sets_archived_at_and_blocks_the_last_owner(session, workspace, 
     with pytest.raises(ConflictError):
         lifecycle.archive(owner_row, reason="test", actor_id=owner["user"].id)
 
-    member = _make_member(session, workspace, email="a@example.com", role=WorkspaceRole.VIEWER)
+    member = _make_member(session, workspace, email="alice@adsops-fixture.vn", role=WorkspaceRole.VIEWER)
     lifecycle.archive(member, reason="Left the company.", actor_id=owner["user"].id)
     assert member.archived_at is not None
 
@@ -200,7 +200,7 @@ def test_archive_sets_archived_at_and_blocks_the_last_owner(session, workspace, 
 
 
 def test_assign_and_revoke_business_manager(session, workspace, owner, audit):
-    member = _make_member(session, workspace, email="a@example.com", role=WorkspaceRole.BUYER)
+    member = _make_member(session, workspace, email="alice@adsops-fixture.vn", role=WorkspaceRole.BUYER)
     bm = BusinessManager(workspace_id=workspace.id, name="Agency BM")
     session.add(bm)
     session.flush()
@@ -233,7 +233,7 @@ def test_cannot_assign_the_owner_or_an_inactive_member(session, workspace, owner
         assignments.assign_business_manager(owner_row, bm, actor_id=owner["user"].id)
 
     suspended = _make_member(
-        session, workspace, email="a@example.com", role=WorkspaceRole.VIEWER,
+        session, workspace, email="alice@adsops-fixture.vn", role=WorkspaceRole.VIEWER,
         status=WorkspaceMemberStatus.SUSPENDED,
     )
     with pytest.raises(ConflictError):
@@ -241,7 +241,7 @@ def test_cannot_assign_the_owner_or_an_inactive_member(session, workspace, owner
 
 
 def test_cannot_assign_a_resource_from_another_workspace(session, workspace, other_owner, owner, audit):
-    member = _make_member(session, workspace, email="a@example.com", role=WorkspaceRole.BUYER)
+    member = _make_member(session, workspace, email="alice@adsops-fixture.vn", role=WorkspaceRole.BUYER)
     foreign_bm = BusinessManager(workspace_id=other_owner["workspace"].id, name="Someone else's BM")
     session.add(foreign_bm)
     session.flush()
@@ -252,7 +252,7 @@ def test_cannot_assign_a_resource_from_another_workspace(session, workspace, oth
 
 
 def test_assign_ad_account_directly(session, workspace, owner, audit):
-    member = _make_member(session, workspace, email="a@example.com", role=WorkspaceRole.BUYER)
+    member = _make_member(session, workspace, email="alice@adsops-fixture.vn", role=WorkspaceRole.BUYER)
     account = AdAccount(workspace_id=workspace.id, display_name="Acct")
     session.add(account)
     session.flush()
@@ -283,7 +283,7 @@ def test_owner_can_view_everything_with_no_assignments_at_all(session, workspace
 
 
 def test_non_owner_with_no_assignment_sees_nothing(session, workspace, owner, audit):
-    member = _make_member(session, workspace, email="a@example.com", role=WorkspaceRole.VIEWER)
+    member = _make_member(session, workspace, email="alice@adsops-fixture.vn", role=WorkspaceRole.VIEWER)
     bm = BusinessManager(workspace_id=workspace.id, name="Agency BM")
     account = AdAccount(workspace_id=workspace.id, display_name="Acct")
     session.add_all([bm, account])
@@ -297,7 +297,7 @@ def test_non_owner_with_no_assignment_sees_nothing(session, workspace, owner, au
 
 
 def test_bm_assignment_grants_the_bm_and_its_linked_ad_accounts(session, workspace, owner, audit):
-    member = _make_member(session, workspace, email="a@example.com", role=WorkspaceRole.BUYER)
+    member = _make_member(session, workspace, email="alice@adsops-fixture.vn", role=WorkspaceRole.BUYER)
     bm = BusinessManager(workspace_id=workspace.id, name="Agency BM")
     session.add(bm)
     session.flush()
@@ -316,7 +316,7 @@ def test_bm_assignment_grants_the_bm_and_its_linked_ad_accounts(session, workspa
 
 
 def test_direct_ad_account_assignment_grants_only_that_account(session, workspace, owner, audit):
-    member = _make_member(session, workspace, email="a@example.com", role=WorkspaceRole.BUYER)
+    member = _make_member(session, workspace, email="alice@adsops-fixture.vn", role=WorkspaceRole.BUYER)
     bm = BusinessManager(workspace_id=workspace.id, name="Agency BM")
     session.add(bm)
     session.flush()
@@ -332,7 +332,7 @@ def test_direct_ad_account_assignment_grants_only_that_account(session, workspac
 
 
 def test_revoked_assignment_no_longer_grants_access(session, workspace, owner, audit):
-    member = _make_member(session, workspace, email="a@example.com", role=WorkspaceRole.BUYER)
+    member = _make_member(session, workspace, email="alice@adsops-fixture.vn", role=WorkspaceRole.BUYER)
     bm = BusinessManager(workspace_id=workspace.id, name="Agency BM")
     session.add(bm)
     session.flush()
@@ -353,9 +353,9 @@ def test_create_invitation_returns_a_raw_token_never_persisted(session, workspac
     from app.models.entities import AuditLog
 
     invitations = InvitationService(session, workspace.id, audit)
-    invitation, raw_token = invitations.create(email="New@Example.com ", role="operator", actor_id=owner["user"].id)
+    invitation, raw_token = invitations.create(email="New@Adsops-fixture.vn ", role="operator", actor_id=owner["user"].id)
 
-    assert invitation.email_normalized == "new@example.com"
+    assert invitation.email_normalized == "new@adsops-fixture.vn"
     assert invitation.invited_role == "operator"
     assert invitation.status == InvitationStatus.PENDING
     assert invitation.token_hash == hash_token(raw_token)
@@ -379,7 +379,7 @@ def test_create_invitation_returns_a_raw_token_never_persisted(session, workspac
 def test_create_invitation_rejects_an_unknown_role(session, workspace, owner, audit):
     invitations = InvitationService(session, workspace.id, audit)
     with pytest.raises(ValidationError):
-        invitations.create(email="a@example.com", role="owner", actor_id=owner["user"].id)
+        invitations.create(email="alice@adsops-fixture.vn", role="owner", actor_id=owner["user"].id)
 
 
 def test_create_invitation_rejects_an_existing_active_member(session, workspace, owner, audit):
@@ -390,8 +390,8 @@ def test_create_invitation_rejects_an_existing_active_member(session, workspace,
 
 def test_a_second_invitation_to_the_same_email_supersedes_the_first(session, workspace, owner, audit):
     invitations = InvitationService(session, workspace.id, audit)
-    first, _ = invitations.create(email="a@example.com", role="viewer", actor_id=owner["user"].id)
-    second, _ = invitations.create(email="a@example.com", role="operator", actor_id=owner["user"].id)
+    first, _ = invitations.create(email="alice@adsops-fixture.vn", role="viewer", actor_id=owner["user"].id)
+    second, _ = invitations.create(email="alice@adsops-fixture.vn", role="operator", actor_id=owner["user"].id)
 
     session.refresh(first)
     assert first.status == InvitationStatus.REVOKED
@@ -401,7 +401,7 @@ def test_a_second_invitation_to_the_same_email_supersedes_the_first(session, wor
 
 def test_revoke_requires_pending_status(session, workspace, owner, audit):
     invitations = InvitationService(session, workspace.id, audit)
-    invitation, _ = invitations.create(email="a@example.com", role="viewer", actor_id=owner["user"].id)
+    invitation, _ = invitations.create(email="alice@adsops-fixture.vn", role="viewer", actor_id=owner["user"].id)
     invitations.revoke(invitation, reason="Changed my mind.", actor_id=owner["user"].id)
     with pytest.raises(ConflictError):
         invitations.revoke(invitation, reason="Again?", actor_id=owner["user"].id)
@@ -409,7 +409,7 @@ def test_revoke_requires_pending_status(session, workspace, owner, audit):
 
 def test_resend_invalidates_the_old_token_and_issues_a_fresh_one(session, workspace, owner, audit):
     invitations = InvitationService(session, workspace.id, audit)
-    original, original_token = invitations.create(email="a@example.com", role="viewer", actor_id=owner["user"].id)
+    original, original_token = invitations.create(email="alice@adsops-fixture.vn", role="viewer", actor_id=owner["user"].id)
 
     resent, new_token = invitations.resend(original, actor_id=owner["user"].id)
 
@@ -425,7 +425,7 @@ def test_resend_invalidates_the_old_token_and_issues_a_fresh_one(session, worksp
 
 def test_expired_invitation_is_lazily_marked_on_read(session, workspace, owner, audit):
     invitations = InvitationService(session, workspace.id, audit)
-    invitation, _ = invitations.create(email="a@example.com", role="viewer", actor_id=owner["user"].id)
+    invitation, _ = invitations.create(email="alice@adsops-fixture.vn", role="viewer", actor_id=owner["user"].id)
     invitation.expires_at = datetime.now(UTC) - timedelta(minutes=1)
     session.flush()
 
@@ -434,7 +434,7 @@ def test_expired_invitation_is_lazily_marked_on_read(session, workspace, owner, 
 
 
 def test_normalize_email_strips_and_lowercases():
-    assert normalize_email("  Foo@Bar.COM ") == "foo@bar.com"
+    assert normalize_email("  Foo@Adsops-fixture.VN ") == "foo@adsops-fixture.vn"
 
 
 # ------------------------------------------------------------------------------------ accept_invitation
@@ -444,13 +444,13 @@ def test_accept_with_a_brand_new_email_registers_and_joins(session, workspace, o
     seats = SeatPlanService(session, workspace.id, audit)
     seats.create_or_update(seat_limit=5, plan_reference=None, actor_id=owner["user"].id)
     invitations = InvitationService(session, workspace.id, audit)
-    invitation, raw_token = invitations.create(email="new@example.com", role="operator", actor_id=owner["user"].id)
+    invitation, raw_token = invitations.create(email="new@adsops-fixture.vn", role="operator", actor_id=owner["user"].id)
 
     member, user = accept_invitation(
         session, raw_token=raw_token, authenticated_user=None, new_account_password="a-real-password",
     )
 
-    assert user.email == "new@example.com"
+    assert user.email == "new@adsops-fixture.vn"
     assert member.role == WorkspaceRole.BUYER
     assert member.status == WorkspaceMemberStatus.ACTIVE
     session.refresh(invitation)
@@ -463,7 +463,7 @@ def test_accept_with_a_new_email_requires_a_real_password(session, workspace, ow
     seats = SeatPlanService(session, workspace.id, audit)
     seats.create_or_update(seat_limit=5, plan_reference=None, actor_id=owner["user"].id)
     invitations = InvitationService(session, workspace.id, audit)
-    _, raw_token = invitations.create(email="new@example.com", role="viewer", actor_id=owner["user"].id)
+    _, raw_token = invitations.create(email="new@adsops-fixture.vn", role="viewer", actor_id=owner["user"].id)
 
     with pytest.raises(ValidationError):
         accept_invitation(session, raw_token=raw_token, authenticated_user=None, new_account_password="short")
@@ -474,12 +474,12 @@ def test_accept_for_an_existing_account_email_without_authentication_is_refused(
     link — this is the core protection the product-owner-confirmed design exists for."""
     seats = SeatPlanService(session, workspace.id, audit)
     seats.create_or_update(seat_limit=5, plan_reference=None, actor_id=owner["user"].id)
-    other = User(email="existing@example.com", full_name="Existing", password_hash=hash_password("whatever-1"))
+    other = User(email="existing@adsops-fixture.vn", full_name="Existing", password_hash=hash_password("whatever-1"))
     session.add(other)
     session.flush()
 
     invitations = InvitationService(session, workspace.id, audit)
-    _, raw_token = invitations.create(email="existing@example.com", role="viewer", actor_id=owner["user"].id)
+    _, raw_token = invitations.create(email="existing@adsops-fixture.vn", role="viewer", actor_id=owner["user"].id)
 
     with pytest.raises(AuthenticationError):
         accept_invitation(session, raw_token=raw_token, authenticated_user=None, new_account_password="whatever-2")
@@ -505,7 +505,7 @@ def test_accept_as_the_wrong_authenticated_user_is_refused(session, workspace, o
     seats = SeatPlanService(session, workspace.id, audit)
     seats.create_or_update(seat_limit=5, plan_reference=None, actor_id=owner["user"].id)
     invitations = InvitationService(session, workspace.id, audit)
-    _, raw_token = invitations.create(email="new@example.com", role="viewer", actor_id=owner["user"].id)
+    _, raw_token = invitations.create(email="new@adsops-fixture.vn", role="viewer", actor_id=owner["user"].id)
 
     with pytest.raises(ConflictError):
         accept_invitation(session, raw_token=raw_token, authenticated_user=other_owner["user"])
@@ -513,7 +513,7 @@ def test_accept_as_the_wrong_authenticated_user_is_refused(session, workspace, o
 
 def test_accept_requires_an_available_seat(session, workspace, owner, audit):
     invitations = InvitationService(session, workspace.id, audit)
-    _, raw_token = invitations.create(email="new@example.com", role="viewer", actor_id=owner["user"].id)
+    _, raw_token = invitations.create(email="new@adsops-fixture.vn", role="viewer", actor_id=owner["user"].id)
     # No seat plan configured at all — accept must not silently assume capacity.
     with pytest.raises(ConflictError):
         accept_invitation(session, raw_token=raw_token, authenticated_user=None, new_account_password="a-real-password")
@@ -528,7 +528,7 @@ def test_accept_rejects_an_already_accepted_token(session, workspace, owner, aud
     seats = SeatPlanService(session, workspace.id, audit)
     seats.create_or_update(seat_limit=5, plan_reference=None, actor_id=owner["user"].id)
     invitations = InvitationService(session, workspace.id, audit)
-    _, raw_token = invitations.create(email="new@example.com", role="viewer", actor_id=owner["user"].id)
+    _, raw_token = invitations.create(email="new@adsops-fixture.vn", role="viewer", actor_id=owner["user"].id)
     accept_invitation(session, raw_token=raw_token, authenticated_user=None, new_account_password="a-real-password")
 
     with pytest.raises(ConflictError):
@@ -542,7 +542,7 @@ def test_accepting_reactivates_a_previously_deactivated_member_instead_of_duplic
     seats.create_or_update(seat_limit=5, plan_reference=None, actor_id=owner["user"].id)
 
     invitations = InvitationService(session, workspace.id, audit)
-    first_invitation, first_token = invitations.create(email="rehire@example.com", role="viewer", actor_id=owner["user"].id)
+    first_invitation, first_token = invitations.create(email="rehire@adsops-fixture.vn", role="viewer", actor_id=owner["user"].id)
     member, user = accept_invitation(
         session, raw_token=first_token, authenticated_user=None, new_account_password="a-real-password"
     )
@@ -551,7 +551,7 @@ def test_accepting_reactivates_a_previously_deactivated_member_instead_of_duplic
     MembershipLifecycleService(session, workspace.id, audit).deactivate(member, reason="Left.", actor_id=owner["user"].id)
     assert seats.seat_used() == 1
 
-    second_invitation, second_token = invitations.create(email="rehire@example.com", role="operator", actor_id=owner["user"].id)
+    second_invitation, second_token = invitations.create(email="rehire@adsops-fixture.vn", role="operator", actor_id=owner["user"].id)
     reactivated, same_user = accept_invitation(session, raw_token=second_token, authenticated_user=user)
 
     assert reactivated.id == member_id  # same row, not a duplicate
@@ -559,3 +559,29 @@ def test_accepting_reactivates_a_previously_deactivated_member_instead_of_duplic
     assert reactivated.status == WorkspaceMemberStatus.ACTIVE
     assert reactivated.role == WorkspaceRole.BUYER
     assert seats.seat_used() == 2
+
+
+# These fixtures exercise the current registration policy without outbound delivery.
+@pytest.fixture()
+def owner(owner, db_session):
+    owner["user"].email = "owner@adsops-fixture.vn"
+    db_session.flush()
+    return owner
+
+
+@pytest.fixture()
+def other_owner(other_owner, db_session):
+    other_owner["user"].email = "other@adsops-fixture.vn"
+    db_session.flush()
+    return other_owner
+
+
+@pytest.mark.parametrize("email,reason", [
+    ("blocked@example.com", "disposable_email_blocked"),
+    ("blocked@mailinator.com", "disposable_email_blocked"),
+    ("alice@unapproved-corporation.com", "provider_not_allowed"),
+])
+def test_invitation_normalization_keeps_denied_email_policy(email, reason):
+    with pytest.raises(ValidationError) as exc:
+        normalize_email(email)
+    assert exc.value.details["reason"] == reason

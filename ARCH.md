@@ -1203,3 +1203,18 @@ P1-I1 integration update: registry-only eligible-members projection completes ow
 ## Approved follow-up source work — 2026-11-26
 
 CSV now collects all filtered authorized pages with a 10000-row cap and fails closed on detected partial/inconsistent data; textual spreadsheet formulas protected, valid raw numeric precision preserved. Canceled email form/admin responses cannot close newer dialogs; original-scope cache refresh retained. P1-I2 adds default-off registry-only in-app due attention stored in existing AlertPolicy, migration0028; no outbound or provider automation. These source changes are not deployed. See P2_CSV_EXPORT_CONTRACT.md and P1_I2_CONTRACT_ADDENDUM.md; final test evidence in TEST_LOG.md, PG/staging release gates remain.
+
+CI P1 hardening (2026-11-28): Page draft archival uses existing archived_at and
+same-transaction audit, preserving links/history. Retainer remains event-derived:
+archive appends an updated event carrying existing ARCHIVED status; the existing
+reader excludes it. No new persistence model/migration. See
+`docs/AUDIT_BEFORE_BUILD_CI_P1_GUARDS.md` for unresolved auth exception policy.
+
+
+### CI P1 auth contract hardening — 2026-11-28
+Five existing auth protocol bodies are deliberately documented under CLAUDE rule 1
+(nine total exceptions), each with extra=forbid. Exact model identities, routes,
+methods and complete fieldsets are guarded; ordinary bodies still use StrictPayload.
+No auth endpoint, password policy or plaintext persistence contract is widened.
+Lifecycle/allowed-field evidence: docs/AUDIT_BEFORE_BUILD_CI_P1_GUARDS.md.
+Offline checks do not establish PostgreSQL or deployed behavior.

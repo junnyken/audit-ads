@@ -1,14 +1,16 @@
-"""O3 — migration `0017_o3_conn_automation`: down to 0016 and back up, on the **test** database
-the session fixture just built from an empty schema (itself the clean-database upgrade check).
-Never run against the dev database."""
+"""Legacy feature schema at actual Alembic head; additive registry rollback must retain it.
+DB-backed checks run only on the CI test database, never the developer database.
+"""
 from __future__ import annotations
 
 import os
 
+import pytest
 import sqlalchemy as sa
 
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from app.db.session import engine
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -36,7 +38,7 @@ def test_the_test_database_is_not_the_dev_database():
 
 def test_head_includes_0017_with_four_columns_defaulting_off(migrated_database):
     # O4 put 0018 on top; 0017's columns are what this test is about.
-    assert _revision() in ("0017_o3_conn_automation", "0018_o4_reader_credentials", "0019_f1_facebook_identities", "0020_f3_business_users", "0021_c1_client_budget_and_pacing", "0022_f1_5_login_environment", "0023_community_quotas", "0024_team_playbooks", "0025_commercial_saas_license")
+    assert _revision() == ScriptDirectory.from_config(_config()).get_current_head()
     columns = _columns()
     assert set(columns) >= COLUMNS
     assert columns["auto_discovery_enabled"]["nullable"] is False
@@ -47,21 +49,19 @@ def test_head_includes_0017_with_four_columns_defaulting_off(migrated_database):
     assert not any(word in name for name in columns for word in ("token", "secret", "password"))
 
 
-def test_downgrade_removes_only_the_four_columns_and_upgrade_restores_them(migrated_database):
-    try:
-        # Step below O4 first, so this test still measures exactly what 0017 adds.
-        command.downgrade(_config(), "0017_o3_conn_automation")
-        tables_before = set(sa.inspect(engine).get_table_names())
-        columns_before = set(_columns())
-        command.downgrade(_config(), "0016_s1_spend_observations")
-        assert _revision() == "0016_s1_spend_observations"
-        assert columns_before - set(_columns()) == COLUMNS
-        assert set(sa.inspect(engine).get_table_names()) == tables_before
-        command.upgrade(_config(), "0017_o3_conn_automation")
-        assert set(_columns()) == columns_before
-        assert _revision() == "0017_o3_conn_automation"
-    finally:
-        command.upgrade(_config(), "head")
+def test_refused_downgrade_preserves_o3_schema_and_head(migrated_database):
+    # 0027/0028 deliberately retain domain data during application rollback.
+    tables_before = set(sa.inspect(engine).get_table_names())
+    columns_before = {table: {c["name"] for c in sa.inspect(engine).get_columns(table)}
+                      for table in tables_before}
+    head = ScriptDirectory.from_config(_config()).get_current_head()
+    assert _revision() == head
+    with pytest.raises(RuntimeError, match="Reminder schema is retained"):
+        command.downgrade(_config(), "0027_p1_email_registry")
+    assert _revision() == head
+    assert set(sa.inspect(engine).get_table_names()) == tables_before
+    assert {table: {c["name"] for c in sa.inspect(engine).get_columns(table)}
+            for table in tables_before} == columns_before
 
 
 def test_an_existing_connection_keeps_meaning_manual_after_the_upgrade(migrated_database, db_session):

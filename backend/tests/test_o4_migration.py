@@ -1,13 +1,16 @@
-"""O4 — migration `0018_o4_reader_credentials`: down to 0017 and back up on the **test** database
-the session fixture just built from an empty schema (itself the clean-database upgrade check)."""
+"""Legacy feature schema at actual Alembic head; additive registry rollback must retain it.
+DB-backed checks run only on the CI test database, never the developer database.
+"""
 from __future__ import annotations
 
 import os
 
+import pytest
 import sqlalchemy as sa
 
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from app.db.session import engine
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -29,7 +32,7 @@ def test_the_test_database_is_not_the_dev_database():
 
 
 def test_head_includes_0019_and_only_one_column_carries_a_credential(migrated_database):
-    assert _revision() in ("0019_f1_facebook_identities", "0020_f3_business_users", "0021_c1_client_budget_and_pacing", "0022_f1_5_login_environment", "0023_community_quotas", "0024_team_playbooks", "0025_commercial_saas_license")
+    assert _revision() == ScriptDirectory.from_config(_config()).get_current_head()
     inspector = sa.inspect(engine)
     columns = {c["name"]: c for c in inspector.get_columns("meta_reader_credentials")}
     assert columns["encrypted_secret"]["nullable"] is True
@@ -55,15 +58,16 @@ def test_head_includes_0019_and_only_one_column_carries_a_credential(migrated_da
     assert set(carrying) - allowed == set(), carrying
 
 
-def test_downgrade_removes_the_table_and_column_and_upgrade_restores_them(migrated_database):
+def test_refused_downgrade_preserves_o4_schema_and_head(migrated_database):
+    # 0027/0028 deliberately retain domain data during application rollback.
     tables_before = set(sa.inspect(engine).get_table_names())
-    try:
-        command.downgrade(_config(), "0017_o3_conn_automation")
-        assert _revision() == "0017_o3_conn_automation"
-        inspector = sa.inspect(engine)
-        assert {"meta_reader_credentials", "personal_account_business_links"} <= (tables_before - set(inspector.get_table_names()))
-        assert "reader_credential_id" not in {c["name"] for c in inspector.get_columns("meta_connections")}
-    finally:
-        command.upgrade(_config(), "head")
+    columns_before = {table: {c["name"] for c in sa.inspect(engine).get_columns(table)}
+                      for table in tables_before}
+    head = ScriptDirectory.from_config(_config()).get_current_head()
+    assert _revision() == head
+    with pytest.raises(RuntimeError, match="Reminder schema is retained"):
+        command.downgrade(_config(), "0027_p1_email_registry")
+    assert _revision() == head
     assert set(sa.inspect(engine).get_table_names()) == tables_before
-    assert _revision() in ("0019_f1_facebook_identities", "0020_f3_business_users", "0021_c1_client_budget_and_pacing", "0022_f1_5_login_environment", "0023_community_quotas", "0024_team_playbooks", "0025_commercial_saas_license")
+    assert {table: {c["name"] for c in sa.inspect(engine).get_columns(table)}
+            for table in tables_before} == columns_before

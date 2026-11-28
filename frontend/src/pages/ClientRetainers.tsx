@@ -147,11 +147,11 @@ export default function ClientRetainers() {
   })
 
   const deleteMut = useMutation({
-    mutationFn: (id: string) => api.delete<ClientRetainersResponse>(`/api/v1/client-retainers/${id}`),
+    mutationFn: (id: string) => api.post<ClientRetainersResponse>(`/api/v1/client-retainers/${id}/archive`),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['client-retainers-overview'] })
       setBannerMsg(
-        isEn ? '🗑️ Removed Client Retainer Contract.' : '🗑️ Đã xóa Hợp đồng Ngân sách khỏi sổ theo dõi.',
+        isEn ? 'Archived' : 'Đã lưu trữ',
       )
     },
   })
@@ -695,7 +695,7 @@ export default function ClientRetainers() {
                         type="button"
                         onClick={() => deleteMut.mutate(item.id)}
                         className="inline-flex items-center rounded-md border border-line bg-surface p-1.5 text-ink-muted hover:border-tone-attention-border hover:text-tone-attention-fg"
-                        title={isEn ? 'Delete Contract' : 'Xóa hợp đồng'}
+                        title={isEn ? 'Archive' : 'Lưu trữ'}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
