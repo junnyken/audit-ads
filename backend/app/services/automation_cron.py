@@ -182,22 +182,40 @@ def _read_registry_part(session, workspace_id, transports, part):
             raise ValidationError("Invalid official read response.")
         paging = response.payload.get("paging")
         partial |= bool(isinstance(paging, dict) and paging.get("next")) or len(data) > READ_LIMIT
-        identities = [str(item.get("account_id") or item.get("id") or "").removeprefix("act_")
-                      for item in data[:READ_LIMIT] if isinstance(item, dict)]
-        local = {str(getattr(row, external)): row for row in session.execute(sa.select(model).where(
-            model.workspace_id == workspace_id, model.archived_at.is_(None),
-            getattr(model, external).in_(identities),
-        )).scalars().all()}
+        normalized = []
         for item in data[:READ_LIMIT]:
             if not isinstance(item, dict) or not isinstance(item.get("name"), str):
                 raise ValidationError("Invalid official read item.")
-            ext = str(item.get("account_id") or item.get("id") or "")
-            if not ext:
+            value = item.get("account_id") or item.get("id")
+            if not isinstance(value, str) or not value:
                 raise ValidationError("Invalid official read identity.")
+            identity = value.removeprefix("act_") if part == "accounts" else value
+            if not identity:
+                raise ValidationError("Invalid official read identity.")
+            normalized.append((identity, item["name"]))
+        identities = {identity for identity, _ in normalized}
+        candidates = identities | {"act_" + identity for identity in identities} if part == "accounts" else identities
+        local = {}
+        for row in session.execute(sa.select(model).where(
+            model.workspace_id == workspace_id, model.archived_at.is_(None),
+            getattr(model, external).in_(candidates),
+        )).scalars().all():
+            stored = str(getattr(row, external))
+            identity = stored.removeprefix("act_") if part == "accounts" else stored
+            if identity in local:
+                raise ValidationError("Ambiguous registry identity.")
+            local[identity] = row
+        seen = {}
+        for identity, name in normalized:
+            if identity in seen:
+                if seen[identity] != name:
+                    raise ValidationError("Conflicting official read identity.")
+                continue
+            seen[identity] = name
             read += 1
-            row = local.get(ext.removeprefix("act_"))
+            row = local.get(identity)
             if row is not None:
-                setattr(row, label, item["name"][:200])
+                setattr(row, label, name[:200])
                 updated += 1
     session.flush()
     return {"status": "partial" if partial else "succeeded", "read": read, "updated": updated}

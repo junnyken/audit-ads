@@ -281,3 +281,39 @@ def test_part_savepoint_rolls_back_only_failed_part(cycle, monkeypatch):
     assert result['parts']['accounts']['updated'] == 0
     session.rollback.assert_not_called()
     assert audit.record.call_args.kwargs['metadata'] == result
+
+
+@pytest.mark.parametrize("stored,provider", [("act_123", "123"), ("123", "act_123")])
+def test_account_id_prefix_matches_exact_existing_row(stored, provider):
+    row = NS(external_account_id=stored, display_name="old")
+    session = Mock()
+    session.execute.return_value.scalars.return_value.all.return_value = [row]
+    transport = Mock()
+    transport.get.return_value = NS(ok=True, payload={"data": [{"id": provider, "name": "real name"}]})
+    result = cron._read_registry_part(session, uuid.uuid4(), [transport], "accounts")
+    assert result == {"status": "succeeded", "read": 1, "updated": 1}
+    assert row.display_name == "real name"
+    transport.post.assert_not_called()
+
+
+def test_ambiguous_canonical_account_ids_do_not_choose_a_row():
+    session = Mock()
+    rows = [NS(external_account_id=i, display_name="old") for i in ["123", "act_123"]]
+    session.execute.return_value.scalars.return_value.all.return_value = rows
+    transport = Mock()
+    transport.get.return_value = NS(ok=True, payload={"data": [{"id": "123", "name": "new"}]})
+    with pytest.raises(ValidationError, match="Ambiguous"):
+        cron._read_registry_part(session, uuid.uuid4(), [transport], "accounts")
+    assert all(r.display_name == "old" for r in rows)
+
+
+def test_malformed_provider_item_is_validated_before_any_name_update():
+    row = NS(external_page_id="1", name="old")
+    session = Mock()
+    session.execute.return_value.scalars.return_value.all.return_value = [row]
+    transport = Mock()
+    transport.get.return_value = NS(ok=True, payload={"data": [{"id": "1", "name": "new"}, {"id": 2, "name": "invalid"}]})
+    with pytest.raises(ValidationError):
+        cron._read_registry_part(session, uuid.uuid4(), [transport], "pages")
+    assert row.name == "old"
+    session.execute.assert_not_called()
